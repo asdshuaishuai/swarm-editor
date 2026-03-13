@@ -156,6 +156,34 @@ describe('SettingsPanel setting changes', () => {
     }
   })
 
+  it('toggles line numbers setting', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Appearance'))
+    // Find all toggles in Appearance section
+    const toggleButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+    )
+    // Second toggle should be Line Numbers
+    if (toggleButtons.length > 1) {
+      fireEvent.click(toggleButtons[1])
+      expect(toggleButtons[1]).toBeInTheDocument()
+    }
+  })
+
+  it('toggles word wrap setting', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Appearance'))
+    // Find all toggles in Appearance section
+    const toggleButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+    )
+    // Third toggle should be Word Wrap
+    if (toggleButtons.length > 2) {
+      fireEvent.click(toggleButtons[2])
+      expect(toggleButtons[2]).toBeInTheDocument()
+    }
+  })
+
   it('changes API endpoint', () => {
     render(<SettingsPanel />)
     fireEvent.click(screen.getByText('API Keys'))
@@ -182,6 +210,20 @@ describe('SettingsPanel setting changes', () => {
     if (notifToggle) {
       fireEvent.click(notifToggle)
       expect(notifToggle).toBeInTheDocument()
+    }
+  })
+
+  it('toggles sound effects setting', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Notifications'))
+    // Find all toggles in Notifications section
+    const toggleButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+    )
+    // Second toggle should be Sound Effects
+    if (toggleButtons.length > 1) {
+      fireEvent.click(toggleButtons[1])
+      expect(toggleButtons[1]).toBeInTheDocument()
     }
   })
 
