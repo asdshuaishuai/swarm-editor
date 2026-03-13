@@ -30,7 +30,6 @@ const topologyDescriptions: Record<TopologyType, string> = {
 export default function SwarmPanel() {
   const { swarms, activeSwarm, setActiveSwarm } = useAppStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showCoordinator, setShowCoordinator] = useState(false)
   const [newSwarm, setNewSwarm] = useState({
     name: '',
     topology: 'star' as TopologyType,
@@ -51,16 +50,14 @@ export default function SwarmPanel() {
 
   const handleSelectSwarm = (swarm: Swarm) => {
     setActiveSwarm(swarm)
-    setShowCoordinator(true)
   }
 
   const handleBackToList = () => {
-    setShowCoordinator(false)
     setActiveSwarm(null)
   }
 
   // Show coordinator panel when a swarm is selected
-  if (showCoordinator && activeSwarm) {
+  if (activeSwarm) {
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center p-2 border-b border-panel-border">

@@ -327,6 +327,39 @@ describe('SwarmPanel coordinator view', () => {
     fireEvent.click(screen.getByText('Coordinator Test Swarm'))
     expect(mockSetActiveSwarm).toHaveBeenCalledWith(mockSwarm)
   })
+
+  it('shows coordinator panel when activeSwarm is set', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        activeSwarm: mockSwarm,
+        setActiveSwarm: mockSetActiveSwarm,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    // Should show Back to Swarms button
+    expect(screen.getByText('Back to Swarms')).toBeInTheDocument()
+    // Should show coordinator panel (mocked)
+    expect(screen.getByTestId('swarm-coordinator')).toBeInTheDocument()
+  })
+
+  it('clicks Back to Swarms to deselect swarm', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        activeSwarm: mockSwarm,
+        setActiveSwarm: mockSetActiveSwarm,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    // Click Back to Swarms button
+    fireEvent.click(screen.getByText('Back to Swarms'))
+    expect(mockSetActiveSwarm).toHaveBeenCalledWith(null)
+  })
 })
 
 describe('SwarmPanel swarm states', () => {
