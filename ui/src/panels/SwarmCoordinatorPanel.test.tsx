@@ -265,4 +265,40 @@ describe('SwarmCoordinatorPanel form fields', () => {
     fireEvent.click(taskTitles[0])
     expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
   })
+
+  it('closes task details with X button', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Close Test Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+    // Select task to show details
+    const taskTitles = screen.getAllByText('Close Test Task')
+    fireEvent.click(taskTitles[0])
+    expect(screen.getByText('Task Details')).toBeInTheDocument()
+    // Click X button to close
+    const closeButton = screen.getByRole('button', { name: '' })
+    fireEvent.click(closeButton)
+    expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
+  })
+
+  it('sorts tasks by priority', () => {
+    render(<SwarmCoordinatorPanel />)
+    // Create first task with priority 5
+    fireEvent.click(screen.getByText('New Task'))
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Medium Priority Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test' } })
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+    // Create second task with priority 10
+    fireEvent.click(screen.getByText('New Task'))
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'High Priority Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test' } })
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+    // High priority task should appear first (sorted by priority desc)
+    const tasks = screen.getAllByText(/Priority Task/)
+    expect(tasks[0]).toHaveTextContent('High Priority Task')
+    expect(tasks[1]).toHaveTextContent('Medium Priority Task')
+  })
 })
