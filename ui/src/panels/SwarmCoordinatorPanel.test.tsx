@@ -301,4 +301,15 @@ describe('SwarmCoordinatorPanel form fields', () => {
     expect(tasks[0]).toHaveTextContent('High Priority Task')
     expect(tasks[1]).toHaveTextContent('Medium Priority Task')
   })
+
+  it('shows task with description', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Task With Description' } })
+    fireEvent.change(screen.getByPlaceholderText('Detailed task description...'), { target: { value: 'This is a detailed description for the task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test prompt' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+    // Should show description in task card
+    expect(screen.getByText('This is a detailed description for the task')).toBeInTheDocument()
+  })
 })

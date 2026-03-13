@@ -311,7 +311,7 @@ function StatCard({
 }
 
 // TaskCard displays a task in the list
-function TaskCard({
+export function TaskCard({
   task,
   isSelected,
   statusColor,
@@ -390,7 +390,7 @@ function TaskCard({
 }
 
 // TaskDetails shows detailed task information
-function TaskDetails({
+export function TaskDetails({
   task,
   onClose,
 }: {
