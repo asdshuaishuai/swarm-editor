@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAppStore } from './appStore'
 import type { Agent, Swarm, Team, Session } from '../types'
 
@@ -320,6 +320,22 @@ describe('appStore', () => {
       await initialize()
       expect(useAppStore.getState().connected).toBe(true)
       expect(useAppStore.getState().connecting).toBe(false)
+      expect(useAppStore.getState().connectionError).toBeNull()
+    })
+
+    it('should handle error state correctly', () => {
+      // Simulate what happens when error occurs
+      const { setConnected, setConnectionError } = useAppStore.getState()
+      setConnected(false)
+      setConnectionError('Failed to connect')
+      expect(useAppStore.getState().connected).toBe(false)
+      expect(useAppStore.getState().connectionError).toBe('Failed to connect')
+    })
+
+    it('should clear error when connected', () => {
+      const { setConnectionError, setConnected } = useAppStore.getState()
+      setConnectionError('Some error')
+      setConnected(true)
       expect(useAppStore.getState().connectionError).toBeNull()
     })
   })

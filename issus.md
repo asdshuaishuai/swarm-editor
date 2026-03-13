@@ -4,6 +4,14 @@
 
 ---
 
+## 当前状态
+
+- **UI 总覆盖率**: 96.66% (从 95.83% 提升)
+- **UI 测试数量**: 303 个 (从 294 个增加)
+- **Go 测试**: 11 个包全部通过 (竞态检测)
+
+---
+
 ## 🔴 高优先级
 
 ### 1. AgentConfigPanel.tsx 测试覆盖率不足 (85.71%)
@@ -34,32 +42,32 @@ const { agents, loadAgents } = useAgentStore()
 
 ## 🟡 中优先级
 
-### 2. SwarmCoordinatorPanel.tsx 部分功能未测试 (93.02%)
+### 2. SwarmCoordinatorPanel.tsx 进度更新未完全测试 (97.67%)
 
 **问题描述:**
-- 运行中任务的进度条更新逻辑未测试
-- 已分配代理的显示逻辑未测试
-- 任务结果渲染未测试
+- 运行中任务的进度条更新逻辑未完全测试
+- 需要任务状态为 "running" 且 progress < 1 才能触发
 
-**未覆盖行:** 39, 374, 443
+**未覆盖行:** 39
 
 **具体代码位置:**
 - 第39行: 任务进度更新 `progress: Math.min(t.progress + 0.1, 1)`
-- 第374行: 分配代理显示 `{task.assignedTo.slice(0, 3).map(...)}`
-- 第443行: 任务结果显示 `{Object.entries(task.results).map(...)}`
 
-**建议方案:**
-- 添加测试用例模拟运行中任务状态
-- Mock 具有分配代理的任务数据
-- Mock 具有结果数据的任务
+**说明:**
+已添加 TaskCard 和 TaskDetails 组件的直接测试，覆盖了：
+- 运行中任务的进度条显示
+- 已分配代理的显示
+- 任务结果的渲染
+
+但 useEffect 中的进度更新逻辑需要任务实际处于运行状态。
 
 ---
 
-### 3. appStore.ts 错误处理未测试 (93.75%)
+### 3. appStore.ts 错误处理不可达 (95.12%)
 
 **问题描述:**
 - `initialize` 函数的错误处理分支未被测试
-- 连接失败时的状态更新未验证
+- 当前实现没有实际的后端连接可能失败
 
 **未覆盖行:** 83-84
 
@@ -75,24 +83,21 @@ const { agents, loadAgents } = useAgentStore()
 }
 ```
 
-**建议方案:**
-- 添加测试用例模拟初始化失败场景
-- 验证错误状态是否正确设置
+**说明:**
+catch 分支在当前实现中不可达，因为 try 块中没有可能抛出异常的代码。建议在实现后端连接后再补充测试。
 
 ---
 
 ## 🟢 低优先级
 
-### 4. 分支覆盖率偏低
+### 4. 分支覆盖率优化
 
 **问题组件:**
 | 组件 | 分支覆盖率 |
 |------|-----------|
-| SwarmCoordinatorPanel.tsx | 68.42% |
-| appStore.ts | 71.42% |
-| AgentConfigPanel.tsx | 81.57% |
 | SwarmPanel.tsx | 90% |
 | TeamPanel.tsx | 85.71% |
+| appStore.ts | 78.57% |
 
 **说明:**
 分支覆盖率偏低通常表示条件判断的某些分支未被测试覆盖，可能存在边缘情况未处理。
@@ -169,7 +174,8 @@ This option is deprecated, please use `oxc` instead.
 |------|------|
 | 高优先级问题 | 1 |
 | 中优先级问题 | 2 |
-| 低优先级问题 | 4 |
+| 低优先级问题 | 1 |
+| 功能完善建议 | 3 |
 | 技术债务 | 2 |
 | **总计** | **9** |
 
@@ -178,8 +184,8 @@ This option is deprecated, please use `oxc` instead.
 ## 下一步行动
 
 1. [ ] 解决 AgentConfigPanel 测试问题
-2. [ ] 完善 SwarmCoordinatorPanel 测试
-3. [ ] 添加 appStore 错误处理测试
+2. [ ] 完善 SwarmCoordinatorPanel 测试 ✅ 已部分完成 (93.02% → 97.67%)
+3. [ ] 添加 appStore 错误处理测试 (等待后端实现)
 4. [ ] 实现代理连接测试功能
 5. [ ] 实现群组持久化
 6. [ ] 实现任务执行功能

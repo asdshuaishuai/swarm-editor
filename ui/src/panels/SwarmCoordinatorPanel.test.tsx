@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import SwarmCoordinatorPanel from './SwarmCoordinatorPanel'
+import SwarmCoordinatorPanel, { TaskCard, TaskDetails } from './SwarmCoordinatorPanel'
 import { useAppStore } from '../store/appStore'
+import type { CoordinationTask } from '../types'
 
 vi.mock('../store/appStore', () => ({
   useAppStore: vi.fn(),
@@ -311,5 +312,122 @@ describe('SwarmCoordinatorPanel form fields', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
     // Should show description in task card
     expect(screen.getByText('This is a detailed description for the task')).toBeInTheDocument()
+  })
+})
+
+describe('TaskCard component', () => {
+  const baseTask: CoordinationTask = {
+    id: 'test-task-1',
+    title: 'Test Task',
+    description: 'Test description',
+    prompt: 'Test prompt',
+    priority: 5,
+    status: 'pending',
+    progress: 0,
+    assignedTo: [],
+    results: {},
+    createdAt: new Date().toISOString(),
+  }
+
+  it('shows progress bar for running task', () => {
+    const runningTask = { ...baseTask, status: 'running' as const, progress: 0.5 }
+    render(
+      <TaskCard
+        task={runningTask}
+        isSelected={false}
+        statusColor="bg-accent animate-pulse"
+        priorityColor="text-warning"
+        onClick={() => {}}
+      />
+    )
+    expect(screen.getByText('Progress')).toBeInTheDocument()
+    expect(screen.getByText('50%')).toBeInTheDocument()
+  })
+
+  it('shows assigned agents', () => {
+    const taskWithAgents = { ...baseTask, assignedTo: ['agent-1', 'agent-2', 'agent-3'] }
+    render(
+      <TaskCard
+        task={taskWithAgents}
+        isSelected={false}
+        statusColor="bg-info"
+        priorityColor="text-warning"
+        onClick={() => {}}
+      />
+    )
+    expect(screen.getByText('agent-1')).toBeInTheDocument()
+    expect(screen.getByText('agent-2')).toBeInTheDocument()
+    expect(screen.getByText('agent-3')).toBeInTheDocument()
+  })
+
+  it('shows +N more when more than 3 agents assigned', () => {
+    const taskWithManyAgents = {
+      ...baseTask,
+      assignedTo: ['agent-1', 'agent-2', 'agent-3', 'agent-4', 'agent-5']
+    }
+    render(
+      <TaskCard
+        task={taskWithManyAgents}
+        isSelected={false}
+        statusColor="bg-info"
+        priorityColor="text-warning"
+        onClick={() => {}}
+      />
+    )
+    expect(screen.getByText('+2 more')).toBeInTheDocument()
+  })
+})
+
+describe('TaskDetails component', () => {
+  const baseTask: CoordinationTask = {
+    id: 'detail-task-1',
+    title: 'Detail Task',
+    description: 'Detail description',
+    prompt: 'Detail prompt',
+    priority: 7,
+    status: 'completed',
+    progress: 1,
+    assignedTo: ['agent-a'],
+    results: {},
+    createdAt: new Date().toISOString(),
+  }
+
+  it('shows results with success content', () => {
+    const taskWithResults = {
+      ...baseTask,
+      results: {
+        'agent-a': { content: 'Task completed successfully' }
+      }
+    }
+    render(<TaskDetails task={taskWithResults} onClose={() => {}} />)
+    expect(screen.getByText('Results')).toBeInTheDocument()
+    expect(screen.getByText('agent-a')).toBeInTheDocument()
+    expect(screen.getByText('Task completed successfully')).toBeInTheDocument()
+  })
+
+  it('shows results with error content', () => {
+    const taskWithErrors = {
+      ...baseTask,
+      results: {
+        'agent-b': { error: 'Connection failed' }
+      }
+    }
+    render(<TaskDetails task={taskWithErrors} onClose={() => {}} />)
+    expect(screen.getByText('Results')).toBeInTheDocument()
+    expect(screen.getByText('agent-b')).toBeInTheDocument()
+    expect(screen.getByText('Connection failed')).toBeInTheDocument()
+  })
+
+  it('shows Start button for pending task', () => {
+    const pendingTask = { ...baseTask, status: 'pending' as const }
+    render(<TaskDetails task={pendingTask} onClose={() => {}} />)
+    expect(screen.getByText('Start')).toBeInTheDocument()
+  })
+
+  it('shows Pause and Cancel buttons for running task', () => {
+    const runningTask = { ...baseTask, status: 'running' as const, progress: 0.3 }
+    render(<TaskDetails task={runningTask} onClose={() => {}} />)
+    expect(screen.getByText('Pause')).toBeInTheDocument()
+    expect(screen.getByText('Cancel')).toBeInTheDocument()
   })
 })
