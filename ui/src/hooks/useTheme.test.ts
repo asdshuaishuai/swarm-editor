@@ -1,0 +1,262 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+
+// Simple custom hook for testing theme functionality
+function useTheme() {
+  const getTheme = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') || 'dark'
+    }
+    return 'dark'
+  }
+
+  const setTheme = (theme: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('theme', theme)
+    }
+  }
+
+  const toggleTheme = () => {
+    const current = getTheme()
+    setTheme(current === 'dark' ? 'light' : 'dark')
+  }
+
+  return { getTheme, setTheme, toggleTheme }
+}
+
+describe('useTheme', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('should return dark theme by default', () => {
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.getTheme()).toBe('dark')
+  })
+
+  it('should set theme', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => {
+      result.current.setTheme('light')
+    })
+    expect(result.current.getTheme()).toBe('light')
+  })
+
+  it('should toggle theme from dark to light', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => {
+      result.current.toggleTheme()
+    })
+    expect(result.current.getTheme()).toBe('light')
+  })
+
+  it('should toggle theme from light to dark', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => {
+      result.current.setTheme('light')
+      result.current.toggleTheme()
+    })
+    expect(result.current.getTheme()).toBe('dark')
+  })
+})
+
+// Test utility functions
+describe('Utility Functions', () => {
+  describe('cn (className merger)', () => {
+    it('should merge class names', async () => {
+      const { clsx } = await import('clsx')
+      const { twMerge } = await import('tailwind-merge')
+
+      const cn = (...inputs: (string | undefined | null | false)[]) => {
+        return twMerge(clsx(inputs))
+      }
+
+      expect(cn('foo', 'bar')).toBe('foo bar')
+      expect(cn('foo', undefined, 'bar')).toBe('foo bar')
+      expect(cn('foo', false && 'bar')).toBe('foo')
+      expect(cn('p-4', 'p-2')).toBe('p-2') // tailwind merge should take the last one
+    })
+  })
+})
+
+// Test date formatting
+describe('Date Formatting', () => {
+  it('should format ISO date strings', () => {
+    const isoString = '2024-01-15T10:30:00Z'
+    const date = new Date(isoString)
+
+    expect(date.getFullYear()).toBe(2024)
+    expect(date.getMonth()).toBe(0) // January is 0
+    expect(date.getDate()).toBe(15)
+  })
+
+  it('should calculate time difference', () => {
+    const now = new Date()
+    const past = new Date(now.getTime() - 60000) // 1 minute ago
+
+    const diff = now.getTime() - past.getTime()
+    expect(diff).toBe(60000)
+  })
+})
+
+// Test ID generation
+describe('ID Generation', () => {
+  it('should generate unique IDs', () => {
+    const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+    const id1 = generateId()
+    const id2 = generateId()
+
+    expect(id1).not.toBe(id2)
+    expect(id1).toContain('-')
+    expect(id1.length).toBeGreaterThan(10)
+  })
+})
+
+// Test string utilities
+describe('String Utilities', () => {
+  it('should truncate long strings', () => {
+    const truncate = (str: string, maxLength: number) => {
+      if (str.length <= maxLength) return str
+      return str.slice(0, maxLength - 3) + '...'
+    }
+
+    expect(truncate('short', 10)).toBe('short')
+    expect(truncate('this is a very long string', 10)).toBe('this is...')
+  })
+
+  it('should capitalize strings', () => {
+    const capitalize = (str: string) => {
+      return str.charAt(0).toUpperCase() + str.slice(1)
+    }
+
+    expect(capitalize('hello')).toBe('Hello')
+    expect(capitalize('WORLD')).toBe('WORLD')
+    expect(capitalize('')).toBe('')
+  })
+
+  it('should format file sizes', () => {
+    const formatFileSize = (bytes: number): string => {
+      if (bytes === 0) return '0 B'
+      const k = 1024
+      const sizes = ['B', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+    }
+
+    expect(formatFileSize(0)).toBe('0 B')
+    expect(formatFileSize(1024)).toBe('1 KB')
+    expect(formatFileSize(1048576)).toBe('1 MB')
+    expect(formatFileSize(1536)).toBe('1.5 KB')
+  })
+})
+
+// Test array utilities
+describe('Array Utilities', () => {
+  it('should group array items by key', () => {
+    const groupBy = <T>(array: T[], key: keyof T): Record<string, T[]> => {
+      return array.reduce((result, item) => {
+        const groupKey = String(item[key])
+        if (!result[groupKey]) {
+          result[groupKey] = []
+        }
+        result[groupKey].push(item)
+        return result
+      }, {} as Record<string, T[]>)
+    }
+
+    const items = [
+      { type: 'a', value: 1 },
+      { type: 'b', value: 2 },
+      { type: 'a', value: 3 },
+    ]
+
+    const grouped = groupBy(items, 'type')
+    expect(grouped['a']).toHaveLength(2)
+    expect(grouped['b']).toHaveLength(1)
+  })
+
+  it('should remove duplicates from array', () => {
+    const unique = <T>(array: T[]): T[] => {
+      return [...new Set(array)]
+    }
+
+    expect(unique([1, 2, 2, 3, 3, 3])).toEqual([1, 2, 3])
+    expect(unique(['a', 'b', 'a', 'c'])).toEqual(['a', 'b', 'c'])
+  })
+
+  it('should chunk array', () => {
+    const chunk = <T>(array: T[], size: number): T[][] => {
+      const result: T[][] = []
+      for (let i = 0; i < array.length; i += size) {
+        result.push(array.slice(i, i + size))
+      }
+      return result
+    }
+
+    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+    expect(chunk([1, 2, 3], 3)).toEqual([[1, 2, 3]])
+  })
+})
+
+// Test object utilities
+describe('Object Utilities', () => {
+  it('should pick specific keys from object', () => {
+    const pick = <T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> => {
+      const result = {} as Pick<T, K>
+      keys.forEach(key => {
+        if (key in obj) {
+          result[key] = obj[key]
+        }
+      })
+      return result
+    }
+
+    const obj = { a: 1, b: 2, c: 3 }
+    expect(pick(obj, ['a', 'c'])).toEqual({ a: 1, c: 3 })
+  })
+
+  it('should omit specific keys from object', () => {
+    const omit = <T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> => {
+      const result = { ...obj }
+      keys.forEach(key => {
+        delete result[key]
+      })
+      return result
+    }
+
+    const obj = { a: 1, b: 2, c: 3 }
+    expect(omit(obj, ['b'])).toEqual({ a: 1, c: 3 })
+  })
+})
+
+// Test debounce utility
+describe('Debounce Utility', () => {
+  it('should debounce function calls', async () => {
+    const debounce = <T extends (...args: unknown[]) => unknown>(
+      fn: T,
+      delay: number
+    ): ((...args: Parameters<T>) => void) => {
+      let timeoutId: ReturnType<typeof setTimeout>
+      return (...args: Parameters<T>) => {
+        clearTimeout(timeoutId)
+        timeoutId = setTimeout(() => fn(...args), delay)
+      }
+    }
+
+    let callCount = 0
+    const fn = debounce(() => {
+      callCount++
+    }, 100)
+
+    fn()
+    fn()
+    fn()
+
+    expect(callCount).toBe(0) // Not called yet
+
+    await new Promise(resolve => setTimeout(resolve, 150))
+
+    expect(callCount).toBe(1) // Only called once
+  })
+})

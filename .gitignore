@@ -1,0 +1,60 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/dist/
+
+# UI
+ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/coverage/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Tauri
+ui/src-tauri/target/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Data
+data/
+*.db
+*.db-journal
+
+# BadgerDB
+badger/

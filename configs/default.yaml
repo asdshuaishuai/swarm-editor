@@ -1,0 +1,83 @@
+# Swarm Editor Default Configuration
+
+# Server configuration
+server:
+  host: "127.0.0.1"
+  port: 8080
+  grpc_port: 9090
+
+# ACP Protocol settings
+acp:
+  version: "1.0"
+  timeout: 30s
+  max_message_size: 10485760  # 10MB
+
+# Agent defaults
+agent:
+  default_type: "coder"
+  max_concurrent_sessions: 10
+  heartbeat_interval: 30s
+  session_timeout: 1h
+
+# Swarm orchestration
+swarm:
+  default_topology: "star"      # star, mesh, tree, ring, hybrid
+  default_strategy: "parallel"  # parallel, sequential, pipeline, mapreduce
+  max_agents: 100
+  task_timeout: 5m
+  consensus:
+    algorithm: "simple_majority"  # simple_majority, supermajority, unanimity, weighted, byzantine
+    timeout: 60s
+    min_agreement: 0.51
+
+# Pair programming
+pair:
+  default_session_timeout: 30m
+  role_switch_cooldown: 5m
+  max_suggestions: 10
+
+# Team collaboration
+team:
+  max_teams: 50
+  max_members_per_team: 100
+  workspace_sync_interval: 1m
+
+# LLM Provider settings
+llm:
+  default_provider: "claude"
+  providers:
+    claude:
+      model: "claude-sonnet-4-6"
+      max_tokens: 8192
+      temperature: 0.7
+    openai:
+      model: "gpt-4"
+      max_tokens: 8192
+      temperature: 0.7
+
+# Storage settings
+storage:
+  type: "sqlite"  # sqlite, badger, memory
+  sqlite:
+    path: "./data/swarm-editor.db"
+  badger:
+    path: "./data/badger"
+
+# Logging
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json" # json, text
+  output: "stdout"  # stdout, stderr, file
+  file:
+    path: "./logs/swarm-editor.log"
+    max_size: 100  # MB
+    max_backups: 5
+    max_age: 30    # days
+
+# UI settings
+ui:
+  theme: "dark"
+  editor_font: "Fira Code"
+  editor_font_size: 14
+  sidebar_width: 280
+  panel_height: 200
