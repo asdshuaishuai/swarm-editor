@@ -292,7 +292,7 @@ interface AgentConfigCardProps {
   onDelete: () => void
 }
 
-function AgentConfigCard({ agent, onEdit, onTest, onDelete }: AgentConfigCardProps) {
+export function AgentConfigCard({ agent, onEdit, onTest, onDelete }: AgentConfigCardProps) {
   const [status] = useState<'idle' | 'testing' | 'connected' | 'error'>('idle')
 
   const statusColors = {

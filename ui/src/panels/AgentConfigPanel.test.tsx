@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import AgentConfigPanel from './AgentConfigPanel'
+import AgentConfigPanel, { AgentConfigCard } from './AgentConfigPanel'
+import { AgentConfig } from '../types'
 
 // Mock console.log
 vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -236,5 +237,132 @@ describe('AgentConfigPanel form inputs', () => {
     fireEvent.click(screen.getByText('Cancel'))
     // Modal should close without saving
     expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigCard', () => {
+  const mockAgent: AgentConfig = {
+    id: 'test-agent',
+    name: 'Test Agent',
+    command: '/usr/bin/test-agent',
+    args: ['--mode=test'],
+    enabled: true,
+    swarmConfig: {
+      canBeCoordinator: true,
+      canBeWorker: true,
+      preferredRoles: ['coder', 'reviewer'],
+      maxConcurrent: 3,
+      priority: 5,
+    },
+    tags: ['primary', 'coding'],
+  }
+
+  const mockOnEdit = vi.fn()
+  const mockOnTest = vi.fn()
+  const mockOnDelete = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders agent name', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Test Agent')).toBeInTheDocument()
+  })
+
+  it('renders agent id', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('test-agent')).toBeInTheDocument()
+  })
+
+  it('shows enabled badge', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Enabled')).toBeInTheDocument()
+  })
+
+  it('shows disabled badge when agent is disabled', () => {
+    const disabledAgent = { ...mockAgent, enabled: false }
+    render(<AgentConfigCard agent={disabledAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Disabled')).toBeInTheDocument()
+  })
+
+  it('shows command path', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('/usr/bin/test-agent')).toBeInTheDocument()
+  })
+
+  it('shows Coordinator badge when canBeCoordinator is true', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Coordinator')).toBeInTheDocument()
+  })
+
+  it('shows Worker badge when canBeWorker is true', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Worker')).toBeInTheDocument()
+  })
+
+  it('shows priority and max concurrent', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('Priority: 5')).toBeInTheDocument()
+    expect(screen.getByText('Max: 3')).toBeInTheDocument()
+  })
+
+  it('shows tags', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.getByText('primary')).toBeInTheDocument()
+    expect(screen.getByText('coding')).toBeInTheDocument()
+  })
+
+  it('does not show tags when empty', () => {
+    const agentWithoutTags = { ...mockAgent, tags: [] }
+    render(<AgentConfigCard agent={agentWithoutTags} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.queryByText('primary')).not.toBeInTheDocument()
+  })
+
+  it('does not show tags when undefined', () => {
+    const agentWithoutTags = { ...mockAgent, tags: undefined }
+    render(<AgentConfigCard agent={agentWithoutTags} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.queryByText('primary')).not.toBeInTheDocument()
+  })
+
+  it('calls onEdit when edit button clicked', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    const editButton = screen.getByTitle('Edit')
+    fireEvent.click(editButton)
+    expect(mockOnEdit).toHaveBeenCalled()
+  })
+
+  it('calls onTest when test button clicked', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    const testButton = screen.getByTitle('Test Connection')
+    fireEvent.click(testButton)
+    expect(mockOnTest).toHaveBeenCalled()
+  })
+
+  it('calls onDelete when delete button clicked', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+    expect(mockOnDelete).toHaveBeenCalled()
+  })
+
+  it('does not show Coordinator badge when canBeCoordinator is false', () => {
+    const agent = { ...mockAgent, swarmConfig: { ...mockAgent.swarmConfig!, canBeCoordinator: false } }
+    render(<AgentConfigCard agent={agent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.queryByText('Coordinator')).not.toBeInTheDocument()
+  })
+
+  it('does not show Worker badge when canBeWorker is false', () => {
+    const agent = { ...mockAgent, swarmConfig: { ...mockAgent.swarmConfig!, canBeWorker: false } }
+    render(<AgentConfigCard agent={agent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.queryByText('Worker')).not.toBeInTheDocument()
+  })
+
+  it('does not show swarm config section when undefined', () => {
+    const agentWithoutSwarmConfig = { ...mockAgent, swarmConfig: undefined }
+    render(<AgentConfigCard agent={agentWithoutSwarmConfig} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} />)
+    expect(screen.queryByText('Coordinator')).not.toBeInTheDocument()
+    expect(screen.queryByText('Worker')).not.toBeInTheDocument()
+    expect(screen.queryByText('Priority: 5')).not.toBeInTheDocument()
   })
 })
