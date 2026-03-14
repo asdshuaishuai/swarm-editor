@@ -396,7 +396,13 @@ describe('TaskDetails component', () => {
     const taskWithResults = {
       ...baseTask,
       results: {
-        'agent-a': { content: 'Task completed successfully' }
+        'agent-a': {
+          agentId: 'agent-a',
+          content: 'Task completed successfully',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 60000
+        }
       }
     }
     render(<TaskDetails task={taskWithResults} onClose={() => {}} />)
@@ -409,7 +415,14 @@ describe('TaskDetails component', () => {
     const taskWithErrors = {
       ...baseTask,
       results: {
-        'agent-b': { error: 'Connection failed' }
+        'agent-b': {
+          agentId: 'agent-b',
+          content: '',
+          error: 'Connection failed',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 60000
+        }
       }
     }
     render(<TaskDetails task={taskWithErrors} onClose={() => {}} />)
