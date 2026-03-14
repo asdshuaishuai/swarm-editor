@@ -1,48 +1,21 @@
 # Swarm Editor 待解决问题列表
 
-## 更新日期: 2026-03-13
+## 更新日期: 2026-03-14
 
 ---
 
 ## 当前状态
 
-- **UI 总覆盖率**: 96.66% (从 95.83% 提升)
-- **UI 测试数量**: 303 个 (从 294 个增加)
+- **UI 总覆盖率**: 98.4% (从 96.66% 提升)
+- **UI 分支覆盖率**: 91.21%
+- **UI 测试数量**: 309 个 (从 303 个增加)
 - **Go 测试**: 11 个包全部通过 (竞态检测)
 
 ---
 
 ## 🔴 高优先级
 
-### 1. AgentConfigPanel.tsx 测试覆盖率不足 (85.71%)
-
-**问题描述:**
-- `handleTestConnection` 异步函数未被测试覆盖
-- 代理列表渲染逻辑未测试（`sampleAgentConfigs` 始终为空数组）
-- 组件内部状态管理难以从外部测试
-
-**未覆盖行:** 49, 79-83
-
-**建议方案:**
-```typescript
-// 方案1: 通过 props 传递初始代理数据
-interface AgentConfigPanelProps {
-  initialAgents?: AgentConfig[]
-}
-
-// 方案2: 从 store 或 API 获取代理列表
-const { agents, loadAgents } = useAgentStore()
-```
-
-**影响范围:**
-- 代理配置功能可能存在未发现的bug
-- 用户无法测试代理连接状态
-
----
-
-## 🟡 中优先级
-
-### 2. SwarmCoordinatorPanel.tsx 进度更新未完全测试 (97.67%)
+### 1. SwarmCoordinatorPanel.tsx 进度更新未完全测试 (97.67%)
 
 **问题描述:**
 - 运行中任务的进度条更新逻辑未完全测试
@@ -63,7 +36,9 @@ const { agents, loadAgents } = useAgentStore()
 
 ---
 
-### 3. appStore.ts 错误处理不可达 (95.12%)
+## 🟡 中优先级
+
+### 2. appStore.ts 错误处理不可达 (95.12%)
 
 **问题描述:**
 - `initialize` 函数的错误处理分支未被测试
@@ -90,7 +65,7 @@ catch 分支在当前实现中不可达，因为 try 块中没有可能抛出异
 
 ## 🟢 低优先级
 
-### 4. 分支覆盖率优化
+### 3. 分支覆盖率优化
 
 **问题组件:**
 | 组件 | 分支覆盖率 |
@@ -106,7 +81,7 @@ catch 分支在当前实现中不可达，因为 try 块中没有可能抛出异
 
 ## 📋 功能完善建议
 
-### 5. 代理连接测试功能
+### 4. 代理连接测试功能
 
 **当前状态:** `handleTestConnection` 仅输出日志，无实际功能
 
@@ -125,7 +100,7 @@ const handleTestConnection = async (agentId: string) => {
 
 ---
 
-### 6. 群组（Swarm）持久化
+### 5. 群组（Swarm）持久化
 
 **当前状态:** 群组数据仅存在于内存中，刷新后丢失
 
@@ -135,7 +110,7 @@ const handleTestConnection = async (agentId: string) => {
 
 ---
 
-### 7. 任务执行功能
+### 6. 任务执行功能
 
 **当前状态:** 任务状态为 "pending" 后无法启动执行
 
@@ -148,7 +123,7 @@ const handleTestConnection = async (agentId: string) => {
 
 ## 🛠️ 技术债务
 
-### 8. UI 测试警告
+### 7. UI 测试警告
 
 **警告信息:**
 ```
@@ -160,7 +135,7 @@ This option is deprecated, please use `oxc` instead.
 
 ---
 
-### 9. TypeScript 类型完善
+### 8. TypeScript 类型完善
 
 **建议:**
 - 为 `CoordinationTask` 添加更严格的类型定义
@@ -173,18 +148,27 @@ This option is deprecated, please use `oxc` instead.
 | 类别 | 数量 |
 |------|------|
 | 高优先级问题 | 1 |
-| 中优先级问题 | 2 |
+| 中优先级问题 | 1 |
 | 低优先级问题 | 1 |
 | 功能完善建议 | 3 |
 | 技术债务 | 2 |
-| **总计** | **9** |
+| **总计** | **8** |
+
+---
+
+## ✅ 已完成
+
+### AgentConfigPanel.tsx 测试覆盖率 (原 85.71% → 100%)
+- 添加 `initialAgents` prop 支持初始数据
+- 实现实际的代理添加/编辑/删除功能
+- 添加完整的测试覆盖
 
 ---
 
 ## 下一步行动
 
-1. [ ] 解决 AgentConfigPanel 测试问题
-2. [ ] 完善 SwarmCoordinatorPanel 测试 ✅ 已部分完成 (93.02% → 97.67%)
+1. [x] 解决 AgentConfigPanel 测试问题 ✅
+2. [ ] 完善 SwarmCoordinatorPanel 进度更新测试
 3. [ ] 添加 appStore 错误处理测试 (等待后端实现)
 4. [ ] 实现代理连接测试功能
 5. [ ] 实现群组持久化

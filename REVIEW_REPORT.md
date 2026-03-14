@@ -1,6 +1,6 @@
 # Swarm Editor 综合审查报告
 
-## 报告日期: 2026-03-13
+## 报告日期: 2026-03-14
 
 ---
 
@@ -21,10 +21,10 @@ Swarm Editor 是一个多代理协作编辑器，支持群组（Swarm）和团�
 ### 总体覆盖率
 | 指标 | 数值 |
 |------|------|
-| **UI 总覆盖率** | 96.66% |
-| **UI 分支覆盖率** | 90.52% |
+| **UI 总覆盖率** | 98.4% |
+| **UI 分支覆盖率** | 91.21% |
 | **Go 测试** | 11个包全部通过 (竞态检测) |
-| **UI 测试数量** | 303 个测试 |
+| **UI 测试数量** | 309 个测试 |
 
 ### Go 包测试状态 (全部通过)
 - internal/acp
@@ -48,7 +48,7 @@ Swarm Editor 是一个多代理协作编辑器，支持群组（Swarm）和团�
 | Sidebar.tsx | 100% | 100% | - |
 | StatusBar.tsx | 100% | 100% | - |
 | MainLayout.tsx | 100% | 100% | - |
-| AgentConfigPanel.tsx | 85.71% | 81.57% | 49, 79-83 |
+| AgentConfigPanel.tsx | 100% | 86.79% | - |
 | EditorPanel.tsx | 100% | 87.5% | 21 |
 | SettingsPanel.tsx | 100% | 100% | - |
 | SwarmCoordinatorPanel.tsx | 97.67% | 94.73% | 39 |
@@ -71,7 +71,7 @@ Swarm Editor 是一个多代理协作编辑器，支持群组（Swarm）和团�
 ### UI 构建
 | 命令 | 状态 |
 |------|------|
-| `npm run test` | ✅ 303/303 PASS |
+| `npm run test` | ✅ 309/309 PASS |
 | `npm run build` | ✅ PASS |
 
 ---
@@ -80,21 +80,14 @@ Swarm Editor 是一个多代理协作编辑器，支持群组（Swarm）和团�
 
 ### 高优先级
 
-#### 1. AgentConfigPanel.tsx 测试覆盖率 (85.71%)
-- **未覆盖行**: 49, 79-83
-- **问题**:
-  - `handleTestConnection` 异步函数未被测试
-  - 代理列表渲染逻辑未测试
-- **建议**: 通过 props 传递初始代理数据或从 store 获取
-
-### 中优先级
-
-#### 2. SwarmCoordinatorPanel.tsx 进度更新 (97.67%)
+#### 1. SwarmCoordinatorPanel.tsx 进度更新 (97.67%)
 - **未覆盖行**: 39
 - **问题**: 运行中任务的进度条更新逻辑未完全测试
 - **说明**: 需要任务状态为 "running" 且 progress < 1 才能触发
 
-#### 3. appStore.ts 错误处理 (95.12%)
+### 中优先级
+
+#### 2. appStore.ts 错误处理 (95.12%)
 - **未覆盖行**: 83-84
 - **问题**: `initialize` 函数的错误处理分支不可达
 - **原因**: 当前实现没有实际的后端连接可能失败
@@ -102,7 +95,7 @@ Swarm Editor 是一个多代理协作编辑器，支持群组（Swarm）和团�
 
 ### 低优先级
 
-#### 4. 分支覆盖率优化
+#### 3. 分支覆盖率优化
 | 组件 | 分支覆盖率 |
 |------|-----------|
 | SwarmPanel.tsx | 90% |
@@ -152,11 +145,11 @@ This option is deprecated, please use `oxc` instead.
 | 类别 | 数量 |
 |------|------|
 | 高优先级问题 | 1 |
-| 中优先级问题 | 2 |
+| 中优先级问题 | 1 |
 | 低优先级问题 | 1 |
 | 功能完善建议 | 3 |
 | 技术债务 | 2 |
-| **总计** | **9** |
+| **总计** | **8** |
 
 ---
 
@@ -168,8 +161,9 @@ This option is deprecated, please use `oxc` instead.
 
 ## 九、下一步行动
 
-1. [ ] 解决 AgentConfigPanel 测试问题
-2. [ ] 实现代理连接测试功能
-3. [ ] 实现群组持久化
-4. [ ] 实现任务执行功能
-5. [ ] 更新 Vite 配置使用 oxc
+1. [x] 解决 AgentConfigPanel 测试问题 ✅ 已完成 (100% 覆盖)
+2. [ ] 完善 SwarmCoordinatorPanel 进度更新测试
+3. [ ] 实现代理连接测试功能
+4. [ ] 实现群组持久化
+5. [ ] 实现任务执行功能
+6. [ ] 更新 Vite 配置使用 oxc
