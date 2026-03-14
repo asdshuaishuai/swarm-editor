@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AgentConfigPanel, { AgentConfigCard } from './AgentConfigPanel'
 import { AgentConfig } from '../types'
 
@@ -10,6 +10,58 @@ describe('AgentConfigPanel', () => {
   it('renders header with title', () => {
     render(<AgentConfigPanel />)
     expect(screen.getByText('ACP Agent Configuration')).toBeInTheDocument()
+  })
+
+  it('renders initial agents when provided', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'initial-agent',
+        name: 'Initial Agent',
+        command: '/usr/bin/initial',
+        args: [],
+        enabled: true,
+        swarmConfig: {
+          canBeCoordinator: true,
+          canBeWorker: true,
+          preferredRoles: ['coder'],
+          maxConcurrent: 3,
+          priority: 5,
+        },
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    expect(screen.getByText('Initial Agent')).toBeInTheDocument()
+    expect(screen.getByText('initial-agent')).toBeInTheDocument()
+  })
+
+  it('does not show empty state when agents exist', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'test-agent',
+        name: 'Test Agent',
+        command: '/usr/bin/test',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    expect(screen.queryByText('No agents configured')).not.toBeInTheDocument()
+  })
+
+  it('calls handleTestConnection when test button clicked in list', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'connection-test-agent',
+        name: 'Connection Test Agent',
+        command: '/usr/bin/test',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+    fireEvent.click(testButton)
+    expect(console.log).toHaveBeenCalledWith('Testing connection to:', 'connection-test-agent')
   })
 
   it('renders Add Agent button', () => {
@@ -364,5 +416,70 @@ describe('AgentConfigCard', () => {
     expect(screen.queryByText('Coordinator')).not.toBeInTheDocument()
     expect(screen.queryByText('Worker')).not.toBeInTheDocument()
     expect(screen.queryByText('Priority: 5')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigPanel agent management', () => {
+  it('adds a new agent to the list', () => {
+    render(<AgentConfigPanel />)
+    // Open modal
+    fireEvent.click(screen.getByText('Add Agent'))
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('claude-code'), { target: { value: 'new-test-agent' } })
+    fireEvent.change(screen.getByPlaceholderText('Claude Code'), { target: { value: 'New Test Agent' } })
+    fireEvent.change(screen.getByPlaceholderText('/usr/local/bin/claude-code'), { target: { value: '/usr/bin/new-test' } })
+    // Submit
+    const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
+    fireEvent.click(modalButtons[modalButtons.length - 1])
+    // New agent should appear
+    expect(screen.getByText('New Test Agent')).toBeInTheDocument()
+    expect(screen.getByText('new-test-agent')).toBeInTheDocument()
+  })
+
+  it('edits an existing agent', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'edit-test-agent',
+        name: 'Original Name',
+        command: '/usr/bin/original',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    // Click edit button
+    const editButton = screen.getByTitle('Edit')
+    fireEvent.click(editButton)
+    // Modal should show Edit Agent title
+    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    // Update name
+    const nameInput = screen.getByPlaceholderText('Claude Code')
+    fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
+    // Save
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    // Agent should be updated
+    expect(screen.getByText('Updated Name')).toBeInTheDocument()
+  })
+
+  it('deletes an agent from the list', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'delete-test-agent',
+        name: 'Agent To Delete',
+        command: '/usr/bin/delete',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    // Agent should be visible
+    expect(screen.getByText('Agent To Delete')).toBeInTheDocument()
+    // Click delete button
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+    // Agent should be removed
+    expect(screen.queryByText('Agent To Delete')).not.toBeInTheDocument()
+    // Empty state should show
+    expect(screen.getByText('No agents configured')).toBeInTheDocument()
   })
 })

@@ -9,11 +9,12 @@ import {
 } from 'lucide-react'
 import { AgentConfig } from '../types'
 
-// Sample agent configs for demo purposes
-const sampleAgentConfigs: AgentConfig[] = []
+interface AgentConfigPanelProps {
+  initialAgents?: AgentConfig[]
+}
 
-export default function AgentConfigPanel() {
-  const [agentConfigs] = useState<AgentConfig[]>(sampleAgentConfigs)
+export default function AgentConfigPanel({ initialAgents = [] }: AgentConfigPanelProps) {
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>(initialAgents)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
   const [newAgent, setNewAgent] = useState<Partial<AgentConfig>>({
@@ -33,6 +34,24 @@ export default function AgentConfigPanel() {
 
   const handleSaveAgent = () => {
     // Save agent configuration
+    if (editingAgent) {
+      // Update existing agent
+      setAgentConfigs((prev) =>
+        prev.map((a) => (a.id === editingAgent.id ? { ...a, ...newAgent } as AgentConfig : a))
+      )
+    } else {
+      // Add new agent
+      const agent: AgentConfig = {
+        id: newAgent.id || `agent-${Date.now()}`,
+        name: newAgent.name || '',
+        command: newAgent.command || '',
+        args: newAgent.args || [],
+        enabled: newAgent.enabled ?? true,
+        swarmConfig: newAgent.swarmConfig,
+        tags: newAgent.tags,
+      }
+      setAgentConfigs((prev) => [...prev, agent])
+    }
     setShowAddModal(false)
     setEditingAgent(null)
     setNewAgent({
@@ -41,7 +60,18 @@ export default function AgentConfigPanel() {
       command: '',
       args: [],
       enabled: true,
+      swarmConfig: {
+        canBeCoordinator: true,
+        canBeWorker: true,
+        preferredRoles: ['coder'],
+        maxConcurrent: 3,
+        priority: 5,
+      },
     })
+  }
+
+  const handleDeleteAgent = (agentId: string) => {
+    setAgentConfigs((prev) => prev.filter((a) => a.id !== agentId))
   }
 
   const handleTestConnection = async (agentId: string) => {
@@ -81,7 +111,7 @@ export default function AgentConfigPanel() {
               agent={agent}
               onEdit={() => setEditingAgent(agent)}
               onTest={() => handleTestConnection(agent.id)}
-              onDelete={() => {}}
+              onDelete={() => handleDeleteAgent(agent.id)}
             />
           ))
         )}
