@@ -366,11 +366,11 @@ type SwarmStopParams struct {
 
 // SwarmSubmitTaskParams 提交任务参数
 type SwarmSubmitTaskParams struct {
-	SwarmID     string  `json:"swarmId"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Prompt      Prompt  `json:"prompt"`
-	Priority    int     `json:"priority"`
+	SwarmID     string `json:"swarmId"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Prompt      Prompt `json:"prompt"`
+	Priority    int    `json:"priority"`
 }
 
 // SwarmSubmitTaskResult 提交任务结果
@@ -391,15 +391,15 @@ type SwarmGetStatusParams struct {
 
 // SwarmStatusResult 状态结果
 type SwarmStatusResult struct {
-	SwarmID         string            `json:"swarmId"`
-	State           string            `json:"state"`
-	AgentCount      int               `json:"agentCount"`
-	IdleAgents      int               `json:"idleAgents"`
-	ExecutingAgents int               `json:"executingAgents"`
-	PendingTasks    int               `json:"pendingTasks"`
-	CompletedTasks  int               `json:"completedTasks"`
-	Topology        string            `json:"topology"`
-	Strategy        string            `json:"strategy"`
+	SwarmID         string `json:"swarmId"`
+	State           string `json:"state"`
+	AgentCount      int    `json:"agentCount"`
+	IdleAgents      int    `json:"idleAgents"`
+	ExecutingAgents int    `json:"executingAgents"`
+	PendingTasks    int    `json:"pendingTasks"`
+	CompletedTasks  int    `json:"completedTasks"`
+	Topology        string `json:"topology"`
+	Strategy        string `json:"strategy"`
 }
 
 // SwarmTaskResult 任务执行结果
