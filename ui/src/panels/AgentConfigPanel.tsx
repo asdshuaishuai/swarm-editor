@@ -11,12 +11,21 @@ import { AgentConfig } from '../types'
 
 interface AgentConfigPanelProps {
   initialAgents?: AgentConfig[]
+  /** For testing: simulate connection failure */
+  simulateConnectionError?: boolean
+  /** For testing: simulate agent not found scenario */
+  simulateAgentNotFound?: boolean
 }
 
-export default function AgentConfigPanel({ initialAgents = [] }: AgentConfigPanelProps) {
+export default function AgentConfigPanel({
+  initialAgents = [],
+  simulateConnectionError = false,
+  simulateAgentNotFound = false,
+}: AgentConfigPanelProps) {
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>(initialAgents)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
+  const [agentStatuses, setAgentStatuses] = useState<Map<string, 'idle' | 'testing' | 'connected' | 'error'>>(new Map())
   const [newAgent, setNewAgent] = useState<Partial<AgentConfig>>({
     id: '',
     name: '',
@@ -75,8 +84,37 @@ export default function AgentConfigPanel({ initialAgents = [] }: AgentConfigPane
   }
 
   const handleTestConnection = async (agentId: string) => {
-    // Test connection to agent
-    console.log('Testing connection to:', agentId)
+    // Set testing status
+    setAgentStatuses((prev) => new Map(prev).set(agentId, 'testing'))
+
+    // Simulate connection test (in real implementation, this would call the backend)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+
+      // For testing: simulate agent not found scenario
+      if (simulateAgentNotFound) {
+        throw new Error('Agent not found')
+      }
+
+      // Find the agent to verify it exists (defensive check)
+      // Note: This should always succeed in normal UI flow since the button is only shown for existing agents
+      const agent = agentConfigs.find((a) => a.id === agentId)
+      if (!agent) {
+        throw new Error('Agent not found')
+      }
+
+      // For testing: simulate connection error
+      if (simulateConnectionError) {
+        throw new Error('Connection failed')
+      }
+
+      // Simulate success (in real implementation, this would depend on actual connection)
+      setAgentStatuses((prev) => new Map(prev).set(agentId, 'connected'))
+    } catch (error) {
+      // Log error for debugging (defensive code)
+      console.error('Connection test failed:', error)
+      setAgentStatuses((prev) => new Map(prev).set(agentId, 'error'))
+    }
   }
 
   return (
@@ -109,6 +147,7 @@ export default function AgentConfigPanel({ initialAgents = [] }: AgentConfigPane
             <AgentConfigCard
               key={agent.id}
               agent={agent}
+              status={agentStatuses.get(agent.id) || 'idle'}
               onEdit={() => setEditingAgent(agent)}
               onTest={() => handleTestConnection(agent.id)}
               onDelete={() => handleDeleteAgent(agent.id)}
@@ -320,10 +359,15 @@ interface AgentConfigCardProps {
   onEdit: () => void
   onTest: () => void
   onDelete: () => void
+  /** Status controlled by parent component */
+  status?: 'idle' | 'testing' | 'connected' | 'error'
+  /** Initial status for testing purposes (used when status is not provided) */
+  initialStatus?: 'idle' | 'testing' | 'connected' | 'error'
 }
 
-export function AgentConfigCard({ agent, onEdit, onTest, onDelete }: AgentConfigCardProps) {
-  const [status] = useState<'idle' | 'testing' | 'connected' | 'error'>('idle')
+export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: controlledStatus, initialStatus = 'idle' }: AgentConfigCardProps) {
+  const [localStatus] = useState<'idle' | 'testing' | 'connected' | 'error'>(initialStatus)
+  const status = controlledStatus ?? localStatus
 
   const statusColors = {
     idle: 'bg-text-secondary',

@@ -193,3 +193,92 @@ describe('MemberRow', () => {
     expect(screen.getByText('observer')).toBeInTheDocument()
   })
 })
+
+describe('TeamCard with active state', () => {
+  const mockTeam = {
+    id: '1',
+    name: 'Active Team',
+    description: 'An active team',
+    members: [],
+    stats: {
+      memberCount: 1,
+      agentCount: 0,
+      onlineMembers: 0,
+      idleAgents: 0,
+      workspaceCount: 0,
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows active styling when team is selected', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeam],
+        activeTeam: mockTeam,
+        setActiveTeam: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<TeamPanel />)
+    // Find the card container (has rounded-lg class)
+    const teamCard = screen.getByText('Active Team').closest('.rounded-lg')
+    expect(teamCard).toHaveClass('border-accent')
+    expect(teamCard).toHaveClass('bg-accent/10')
+  })
+})
+
+describe('TeamCard with many members', () => {
+  const mockTeamWithManyMembers = {
+    id: '1',
+    name: 'Large Team',
+    description: 'A team with many members',
+    members: [
+      { id: '1', name: 'Member 1', role: 'owner' as const, online: true },
+      { id: '2', name: 'Member 2', role: 'developer' as const, online: false },
+      { id: '3', name: 'Member 3', role: 'developer' as const, online: true },
+      { id: '4', name: 'Member 4', role: 'developer' as const, online: false },
+      { id: '5', name: 'Member 5', role: 'developer' as const, online: true },
+      { id: '6', name: 'Member 6', role: 'developer' as const, online: false },
+      { id: '7', name: 'Member 7', role: 'observer' as const, online: true },
+    ],
+    stats: {
+      memberCount: 7,
+      agentCount: 0,
+      onlineMembers: 4,
+      idleAgents: 0,
+      workspaceCount: 0,
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeamWithManyMembers],
+        activeTeam: null,
+        setActiveTeam: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows +N more members button when more than 5 members', () => {
+    render(<TeamPanel />)
+    fireEvent.click(screen.getByText('Large Team'))
+    expect(screen.getByText('+2 more members')).toBeInTheDocument()
+  })
+
+  it('shows only first 5 members', () => {
+    render(<TeamPanel />)
+    fireEvent.click(screen.getByText('Large Team'))
+    expect(screen.getByText('Member 1')).toBeInTheDocument()
+    expect(screen.getByText('Member 5')).toBeInTheDocument()
+    // Member 6 and 7 should not be visible individually
+    expect(screen.queryByText('Member 6')).not.toBeInTheDocument()
+    expect(screen.queryByText('Member 7')).not.toBeInTheDocument()
+  })
+})

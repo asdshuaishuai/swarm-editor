@@ -140,9 +140,9 @@ func TestClientConfigFields(t *testing.T) {
 		Command: "/usr/bin/test",
 		Args:    []string{"--verbose", "--debug"},
 		Env: map[string]string{
-			"HOME":   "/home/user",
-			"PATH":   "/usr/bin",
-			"DEBUG":  "1",
+			"HOME":  "/home/user",
+			"PATH":  "/usr/bin",
+			"DEBUG": "1",
 		},
 	}
 

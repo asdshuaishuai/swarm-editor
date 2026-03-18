@@ -35,9 +35,9 @@ func NewServer(config *ServerConfig) *Server {
 		}
 	}
 	return &Server{
-		name:    config.Name,
-		config:  config,
-		tools:   make(map[string]ToolHandler),
+		name:   config.Name,
+		config: config,
+		tools:  make(map[string]ToolHandler),
 	}
 }
 

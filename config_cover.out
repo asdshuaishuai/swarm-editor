@@ -1,0 +1,8 @@
+mode: set
+github.com/swarm-editor/swarm-editor/internal/config/config.go:131.33,213.2 1 1
+github.com/swarm-editor/swarm-editor/internal/config/config.go:216.26,217.58 1 1
+github.com/swarm-editor/swarm-editor/internal/config/config.go:217.58,219.3 1 1
+github.com/swarm-editor/swarm-editor/internal/config/config.go:221.2,222.16 2 1
+github.com/swarm-editor/swarm-editor/internal/config/config.go:222.16,224.3 1 0
+github.com/swarm-editor/swarm-editor/internal/config/config.go:226.2,226.73 1 1
+github.com/swarm-editor/swarm-editor/internal/config/config.go:230.35,233.2 2 1

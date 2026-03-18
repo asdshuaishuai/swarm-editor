@@ -33,9 +33,9 @@ type Tool struct {
 
 // InputSchema defines the input schema for a tool
 type InputSchema struct {
-	Type       string                 `json:"type"`
-	Properties map[string]Property    `json:"properties"`
-	Required   []string               `json:"required"`
+	Type       string              `json:"type"`
+	Properties map[string]Property `json:"properties"`
+	Required   []string            `json:"required"`
 }
 
 // Property defines a property in the input schema

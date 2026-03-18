@@ -1,11 +1,36 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useAppStore } from './appStore'
 import type { Agent, Swarm, Team, Session } from '../types'
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {}
+  return {
+    getItem: vi.fn((key: string) => store[key] || null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete store[key]
+    }),
+    clear: vi.fn(() => {
+      store = {}
+    }),
+  }
+})()
+
+// Set up localStorage mock
+;(globalThis as unknown as { localStorage: typeof localStorageMock }).localStorage = localStorageMock
 
 describe('appStore', () => {
   beforeEach(() => {
     // Reset store to initial state before each test
+    localStorageMock.clear()
     useAppStore.getState().reset()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
   })
 
   describe('initial state', () => {
@@ -338,6 +363,28 @@ describe('appStore', () => {
       setConnected(true)
       expect(useAppStore.getState().connectionError).toBeNull()
     })
+
+    it('should handle initialization error', async () => {
+      const { initialize } = useAppStore.getState()
+      await initialize(true) // Pass true to simulate error
+      expect(useAppStore.getState().connected).toBe(false)
+      expect(useAppStore.getState().connecting).toBe(false)
+      expect(useAppStore.getState().connectionError).toBe('Simulated initialization error')
+    })
+
+    it('should handle agent loading failure gracefully', async () => {
+      const { api } = await import('../services')
+      vi.spyOn(api.agent, 'getAgents').mockRejectedValueOnce(new Error('Agent load failed'))
+
+      const { initialize } = useAppStore.getState()
+      await initialize()
+
+      // Should still connect but with empty agents
+      expect(useAppStore.getState().connected).toBe(true)
+      expect(useAppStore.getState().connecting).toBe(false)
+      expect(useAppStore.getState().agents).toHaveLength(0)
+      expect(useAppStore.getState().connectionError).toBeNull()
+    })
   })
 
   describe('edge cases', () => {
@@ -578,6 +625,353 @@ describe('appStore', () => {
       const { setSessions } = useAppStore.getState()
       setSessions([session1, session2])
       expect(useAppStore.getState().sessions).toHaveLength(2)
+    })
+  })
+
+  describe('persistence', () => {
+    const mockSwarm: Swarm = {
+      id: 'swarm-persist-1',
+      name: 'Persist Test Swarm',
+      topology: 'star',
+      strategy: 'parallel',
+      state: 'active',
+      agents: [],
+      stats: {
+        agentCount: 0,
+        idleAgents: 0,
+        executingAgents: 0,
+        pendingTasks: 0,
+        completedTasks: 0,
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'active',
+      },
+    }
+
+    const mockTeam: Team = {
+      id: 'team-persist-1',
+      name: 'Persist Test Team',
+      description: 'Test team for persistence',
+      owner: 'user-1',
+      members: [],
+      agents: [],
+      workspaces: [],
+      stats: {
+        memberCount: 0,
+        onlineMembers: 0,
+        agentCount: 0,
+        idleAgents: 0,
+        workspaceCount: 0,
+      },
+    }
+
+    it('should persist swarm when adding', () => {
+      const { addSwarm } = useAppStore.getState()
+      addSwarm(mockSwarm)
+
+      // Check that localStorage.setItem was called
+      expect(localStorageMock.setItem).toHaveBeenCalled()
+      const lastCall = localStorageMock.setItem.mock.calls[localStorageMock.setItem.mock.calls.length - 1]
+      const savedData = JSON.parse(lastCall[1])
+      expect(savedData.swarms).toHaveLength(1)
+      expect(savedData.swarms[0].id).toBe('swarm-persist-1')
+    })
+
+    it('should persist swarm when removing', () => {
+      const { setSwarms, removeSwarm } = useAppStore.getState()
+      setSwarms([mockSwarm])
+      removeSwarm('swarm-persist-1')
+
+      // Check that localStorage.setItem was called with empty swarms
+      expect(localStorageMock.setItem).toHaveBeenCalled()
+      const lastCall = localStorageMock.setItem.mock.calls[localStorageMock.setItem.mock.calls.length - 1]
+      const savedData = JSON.parse(lastCall[1])
+      expect(savedData.swarms).toHaveLength(0)
+    })
+
+    it('should persist team when adding', () => {
+      const { addTeam } = useAppStore.getState()
+      addTeam(mockTeam)
+
+      // Check that localStorage.setItem was called
+      expect(localStorageMock.setItem).toHaveBeenCalled()
+      const lastCall = localStorageMock.setItem.mock.calls[localStorageMock.setItem.mock.calls.length - 1]
+      const savedData = JSON.parse(lastCall[1])
+      expect(savedData.teams).toHaveLength(1)
+      expect(savedData.teams[0].id).toBe('team-persist-1')
+    })
+
+    it('should persist team when removing', () => {
+      const { setTeams, removeTeam } = useAppStore.getState()
+      setTeams([mockTeam])
+      removeTeam('team-persist-1')
+
+      // Check that localStorage.setItem was called with empty teams
+      expect(localStorageMock.setItem).toHaveBeenCalled()
+      const lastCall = localStorageMock.setItem.mock.calls[localStorageMock.setItem.mock.calls.length - 1]
+      const savedData = JSON.parse(lastCall[1])
+      expect(savedData.teams).toHaveLength(0)
+    })
+
+    it('should clear persisted data with clearPersistedData', () => {
+      const { addSwarm, clearPersistedData } = useAppStore.getState()
+      addSwarm(mockSwarm)
+
+      // Clear persisted data
+      clearPersistedData()
+
+      // Check that localStorage.removeItem was called
+      expect(localStorageMock.removeItem).toHaveBeenCalled()
+    })
+
+    it('should clear persisted data on reset', () => {
+      const { addSwarm, reset } = useAppStore.getState()
+      addSwarm(mockSwarm)
+
+      // Reset should clear persisted data
+      reset()
+
+      // Check that localStorage.removeItem was called
+      expect(localStorageMock.removeItem).toHaveBeenCalled()
+    })
+
+    it('should load persisted data on initialize', async () => {
+      // Set up persisted data
+      const persistedData = {
+        swarms: [mockSwarm],
+        teams: [mockTeam],
+      }
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(persistedData))
+
+      // Initialize should load the data
+      const { initialize } = useAppStore.getState()
+      await initialize()
+
+      // Check that swarms and teams were loaded
+      expect(useAppStore.getState().swarms).toHaveLength(1)
+      expect(useAppStore.getState().swarms[0].id).toBe('swarm-persist-1')
+      expect(useAppStore.getState().teams).toHaveLength(1)
+      expect(useAppStore.getState().teams[0].id).toBe('team-persist-1')
+    })
+
+    it('should handle invalid persisted data gracefully', async () => {
+      // Set up invalid persisted data
+      localStorageMock.getItem.mockReturnValue('invalid json')
+
+      // Initialize should not throw
+      const { initialize } = useAppStore.getState()
+      await initialize()
+
+      // Should still connect but with empty swarms/teams
+      expect(useAppStore.getState().connected).toBe(true)
+      expect(useAppStore.getState().swarms).toHaveLength(0)
+      expect(useAppStore.getState().teams).toHaveLength(0)
+    })
+
+    it('should handle missing persisted data gracefully', async () => {
+      // Set up null persisted data
+      localStorageMock.getItem.mockReturnValue(null)
+
+      // Initialize should not throw
+      const { initialize } = useAppStore.getState()
+      await initialize()
+
+      // Should still connect but with empty swarms/teams
+      expect(useAppStore.getState().connected).toBe(true)
+      expect(useAppStore.getState().swarms).toHaveLength(0)
+      expect(useAppStore.getState().teams).toHaveLength(0)
+    })
+
+    it('should handle localStorage throw on getItem', async () => {
+      // Make localStorage.getItem throw
+      localStorageMock.getItem.mockImplementation(() => {
+        throw new Error('Storage error')
+      })
+
+      // Initialize should still work
+      const { initialize } = useAppStore.getState()
+      await initialize()
+
+      // Should connect with empty data
+      expect(useAppStore.getState().connected).toBe(true)
+      expect(useAppStore.getState().swarms).toHaveLength(0)
+    })
+
+    it('should handle localStorage throw on setItem', () => {
+      // Make localStorage.setItem throw
+      localStorageMock.setItem.mockImplementation(() => {
+        throw new Error('Storage full')
+      })
+
+      const { addSwarm } = useAppStore.getState()
+      // Should not throw even if storage fails
+      expect(() => addSwarm(mockSwarm)).not.toThrow()
+      // Swarm should still be added to state
+      expect(useAppStore.getState().swarms).toHaveLength(1)
+    })
+
+    it('should handle localStorage throw on removeItem in reset', () => {
+      // Make localStorage.removeItem throw
+      localStorageMock.removeItem.mockImplementation(() => {
+        throw new Error('Storage error')
+      })
+
+      const { addSwarm, reset } = useAppStore.getState()
+      addSwarm(mockSwarm)
+
+      // Reset should not throw even if storage fails
+      expect(() => reset()).not.toThrow()
+      expect(useAppStore.getState().swarms).toHaveLength(0)
+    })
+
+    it('should handle localStorage throw on removeItem in clearPersistedData', () => {
+      // Make localStorage.removeItem throw
+      localStorageMock.removeItem.mockImplementation(() => {
+        throw new Error('Storage error')
+      })
+
+      const { clearPersistedData } = useAppStore.getState()
+      // Should not throw even if storage fails
+      expect(() => clearPersistedData()).not.toThrow()
+    })
+  })
+
+  describe('agent API actions', () => {
+    it('should load agents successfully', async () => {
+      const { api } = await import('../services')
+      vi.spyOn(api.agent, 'refreshAgents').mockResolvedValueOnce([
+        {
+          id: 'agent-1',
+          name: 'Test Agent',
+          type: 'coder',
+          status: 'stopped',
+          command: 'claude',
+          capabilities: ['load_session', 'pair_programming'],
+          lastActive: '2024-01-01T00:00:00Z',
+          enabled: true,
+        },
+      ])
+
+      const { loadAgents } = useAppStore.getState()
+      await loadAgents()
+
+      expect(useAppStore.getState().agents).toHaveLength(1)
+      expect(useAppStore.getState().agents[0].id).toBe('agent-1')
+    })
+
+    it('should handle loadAgents error', async () => {
+      const { api } = await import('../services')
+      vi.spyOn(api.agent, 'refreshAgents').mockRejectedValueOnce(new Error('Load failed'))
+
+      const { loadAgents } = useAppStore.getState()
+      // Should not throw
+      await expect(loadAgents()).resolves.toBeUndefined()
+      // Agents should remain empty
+      expect(useAppStore.getState().agents).toHaveLength(0)
+    })
+
+    it('should handle startAgent error', async () => {
+      const { api } = await import('../services')
+      vi.spyOn(api.agent, 'startAgent').mockRejectedValueOnce(new Error('Start failed'))
+
+      const { startAgent } = useAppStore.getState()
+      // Should throw
+      await expect(startAgent('agent-1')).rejects.toThrow('Start failed')
+    })
+
+    it('should handle stopAgent error', async () => {
+      const { api } = await import('../services')
+      vi.spyOn(api.agent, 'stopAgent').mockRejectedValueOnce(new Error('Stop failed'))
+
+      const { stopAgent } = useAppStore.getState()
+      // Should throw
+      await expect(stopAgent('agent-1')).rejects.toThrow('Stop failed')
+    })
+
+    it('should update agent state after successful startAgent', async () => {
+      const { api } = await import('../services')
+      const mockAgent: Agent = {
+        id: 'agent-1',
+        name: 'Test Agent',
+        type: 'coder',
+        state: 'idle',
+        capabilities: {
+          loadSession: true,
+          promptCapabilities: { image: false, audio: false, embeddedContext: false },
+          mcp: { http: false, sse: false },
+          pairProgramming: true,
+          teamCollaboration: true,
+        },
+        createdAt: '2024-01-01T00:00:00Z',
+        lastActive: '2024-01-01T00:00:00Z',
+      }
+
+      // Set up initial agent
+      const { setAgents, startAgent, selectAgent } = useAppStore.getState()
+      setAgents([mockAgent])
+      selectAgent(mockAgent)
+
+      // Mock successful start - use API response format (capabilities as array)
+      vi.spyOn(api.agent, 'startAgent').mockResolvedValueOnce({
+        id: 'agent-1',
+        name: 'Test Agent',
+        type: 'coder',
+        status: 'running', // Maps to 'executing' state
+        command: 'claude',
+        capabilities: ['load_session', 'pair_programming'],
+        lastActive: '2024-01-01T00:00:00Z',
+        enabled: true,
+      })
+
+      await startAgent('agent-1')
+
+      // Agent should be updated
+      expect(useAppStore.getState().agents[0].state).toBe('executing')
+      // Selected agent should also be updated
+      expect(useAppStore.getState().selectedAgent?.state).toBe('executing')
+    })
+
+    it('should update agent state after successful stopAgent', async () => {
+      const { api } = await import('../services')
+      const mockAgent: Agent = {
+        id: 'agent-1',
+        name: 'Test Agent',
+        type: 'coder',
+        state: 'executing',
+        capabilities: {
+          loadSession: true,
+          promptCapabilities: { image: false, audio: false, embeddedContext: false },
+          mcp: { http: false, sse: false },
+          pairProgramming: true,
+          teamCollaboration: true,
+        },
+        createdAt: '2024-01-01T00:00:00Z',
+        lastActive: '2024-01-01T00:00:00Z',
+      }
+
+      // Set up initial agent
+      const { setAgents, stopAgent, selectAgent } = useAppStore.getState()
+      setAgents([mockAgent])
+      selectAgent(mockAgent)
+
+      // Mock successful stop - use API response format (capabilities as array)
+      vi.spyOn(api.agent, 'stopAgent').mockResolvedValueOnce({
+        id: 'agent-1',
+        name: 'Test Agent',
+        type: 'coder',
+        status: 'idle',
+        command: 'claude',
+        capabilities: ['load_session', 'pair_programming'],
+        lastActive: '2024-01-01T00:00:00Z',
+        enabled: true,
+      })
+
+      await stopAgent('agent-1')
+
+      // Agent should be updated
+      expect(useAppStore.getState().agents[0].state).toBe('idle')
+      // Selected agent should also be updated
+      expect(useAppStore.getState().selectedAgent?.state).toBe('idle')
     })
   })
 })

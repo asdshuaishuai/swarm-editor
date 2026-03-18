@@ -7,8 +7,10 @@ import {
   RefreshCw,
   Network,
   ChevronLeft,
+  Loader2,
 } from 'lucide-react'
 import { Swarm, TopologyType, TaskStrategy } from '../types'
+import { api } from '../services'
 import SwarmCoordinatorPanel from './SwarmCoordinatorPanel'
 
 const topologyIcons: Record<TopologyType, string> = {
@@ -28,24 +30,77 @@ const topologyDescriptions: Record<TopologyType, string> = {
 }
 
 export default function SwarmPanel() {
-  const { swarms, activeSwarm, setActiveSwarm } = useAppStore()
+  // Get entire state to avoid selector type inference issues
+  const store = useAppStore()
+  const swarms: Swarm[] = store.swarms
+  const activeSwarm = store.activeSwarm
+  const setActiveSwarm = store.setActiveSwarm
+  const agents = store.agents
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newSwarm, setNewSwarm] = useState({
     name: '',
     topology: 'star' as TopologyType,
     strategy: 'parallel' as TaskStrategy,
-    agentCount: 3,
+    agentIds: [] as string[],
   })
+  const [loading, setLoading] = useState(false)
 
-  const handleCreateSwarm = () => {
-    // This would call the backend to create a swarm
-    setShowCreateModal(false)
-    setNewSwarm({
-      name: '',
-      topology: 'star',
-      strategy: 'parallel',
-      agentCount: 3,
-    })
+  // 加载后端蜂群
+  const loadSwarms = async () => {
+    try {
+      setLoading(true)
+      await api.swarm.getSwarms()
+    } catch (err) {
+      console.error('Failed to load swarms:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCreateSwarm = async () => {
+    if (!newSwarm.name || newSwarm.agentIds.length === 0) return
+
+    try {
+      setLoading(true)
+      const swarmInfo = await api.swarm.createSwarm({
+        name: newSwarm.name,
+        topology: newSwarm.topology,
+        strategy: newSwarm.strategy,
+        agentIds: newSwarm.agentIds,
+      })
+
+      // 添加到本地状态
+      const swarm: Swarm = {
+        id: swarmInfo.id,
+        name: swarmInfo.name,
+        topology: swarmInfo.topology as TopologyType,
+        strategy: swarmInfo.strategy as TaskStrategy,
+        state: swarmInfo.state as Swarm['state'],
+        agents: agents.filter(a => swarmInfo.agents.includes(a.id)),
+        stats: {
+          agentCount: swarmInfo.stats.agentCount,
+          idleAgents: swarmInfo.stats.idleAgents,
+          executingAgents: swarmInfo.stats.executingAgents,
+          pendingTasks: swarmInfo.stats.pendingTasks,
+          completedTasks: swarmInfo.stats.completedTasks,
+          topology: swarmInfo.topology,
+          strategy: swarmInfo.strategy,
+          state: swarmInfo.state,
+        },
+      }
+      store.addSwarm(swarm)
+      setShowCreateModal(false)
+      setNewSwarm({
+        name: '',
+        topology: 'star',
+        strategy: 'parallel',
+        agentIds: [],
+      })
+    } catch (err) {
+      console.error('Failed to create swarm:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleSelectSwarm = (swarm: Swarm) => {
@@ -55,6 +110,47 @@ export default function SwarmPanel() {
   const handleBackToList = () => {
     setActiveSwarm(null)
   }
+
+  const handleStartSwarm = async (swarmId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await api.swarm.startSwarm(swarmId)
+      await loadSwarms()
+    } catch (err) {
+      console.error('Failed to start swarm:', err)
+    }
+  }
+
+  const handleStopSwarm = async (swarmId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await api.swarm.stopSwarm(swarmId)
+      await loadSwarms()
+    } catch (err) {
+      console.error('Failed to stop swarm:', err)
+    }
+  }
+
+  const toggleAgentSelection = (agentId: string) => {
+    setNewSwarm(prev => ({
+      ...prev,
+      agentIds: prev.agentIds.includes(agentId)
+        ? prev.agentIds.filter(id => id !== agentId)
+        : [...prev.agentIds, agentId],
+    }))
+  }
+
+  // Pre-compute swarm cards to avoid type inference issues
+  const swarmCards = swarms.map((swarm: Swarm) => (
+    <SwarmCard
+      key={swarm.id}
+      swarm={swarm}
+      isActive={activeSwarm?.id === swarm.id}
+      onSelect={() => handleSelectSwarm(swarm)}
+      onStart={(e) => handleStartSwarm(swarm.id, e)}
+      onStop={(e) => handleStopSwarm(swarm.id, e)}
+    />
+  ))
 
   // Show coordinator panel when a swarm is selected
   if (activeSwarm) {
@@ -84,13 +180,22 @@ export default function SwarmPanel() {
           <Network size={20} className="text-accent" />
           <h2 className="text-lg font-semibold">Swarm Control</h2>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center space-x-1 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
-        >
-          <Plus size={16} />
-          <span>New Swarm</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={loadSwarms}
+            className="p-1.5 hover:bg-panel-border rounded"
+            title="Refresh"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center space-x-1 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
+          >
+            <Plus size={16} />
+            <span>New Swarm</span>
+          </button>
+        </div>
       </div>
 
       {/* Swarm List */}
@@ -103,14 +208,7 @@ export default function SwarmPanel() {
           </div>
         ) : (
           <div className="space-y-4">
-            {swarms.map((swarm) => (
-              <SwarmCard
-                key={swarm.id}
-                swarm={swarm}
-                isActive={activeSwarm?.id === swarm.id}
-                onSelect={() => handleSelectSwarm(swarm)}
-              />
-            ))}
+            {swarmCards}
           </div>
         )}
       </div>
@@ -118,7 +216,7 @@ export default function SwarmPanel() {
       {/* Create Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-panel-bg border border-panel-border rounded-lg p-6 w-96">
+          <div className="bg-panel-bg border border-panel-border rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Create New Swarm</h3>
 
             <div className="space-y-4">
@@ -185,21 +283,31 @@ export default function SwarmPanel() {
 
               <div>
                 <label className="block text-sm text-text-secondary mb-1">
-                  Agent Count: {newSwarm.agentCount}
+                  Select Agents ({newSwarm.agentIds.length} selected)
                 </label>
-                <input
-                  type="range"
-                  min="2"
-                  max="10"
-                  value={newSwarm.agentCount}
-                  onChange={(e) =>
-                    setNewSwarm({
-                      ...newSwarm,
-                      agentCount: parseInt(e.target.value),
-                    })
-                  }
-                  className="w-full"
-                />
+                <div className="bg-editor-bg border border-panel-border rounded max-h-40 overflow-y-auto">
+                  {agents.length === 0 ? (
+                    <div className="p-2 text-xs text-text-secondary">No agents available</div>
+                  ) : (
+                    agents.map((agent) => (
+                      <label
+                        key={agent.id}
+                        className="flex items-center px-3 py-2 hover:bg-panel-border cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={newSwarm.agentIds.includes(agent.id)}
+                          onChange={() => toggleAgentSelection(agent.id)}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">{agent.name}</span>
+                        <span className="text-xs text-text-secondary ml-auto capitalize">
+                          {agent.type}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
 
@@ -212,9 +320,11 @@ export default function SwarmPanel() {
               </button>
               <button
                 onClick={handleCreateSwarm}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover rounded text-sm"
+                disabled={!newSwarm.name || newSwarm.agentIds.length === 0 || loading}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-sm flex items-center space-x-2"
               >
-                Create Swarm
+                {loading && <Loader2 size={14} className="animate-spin" />}
+                <span>Create Swarm</span>
               </button>
             </div>
           </div>
@@ -228,9 +338,11 @@ interface SwarmCardProps {
   swarm: Swarm
   isActive: boolean
   onSelect: () => void
+  onStart: (e: React.MouseEvent) => void
+  onStop: (e: React.MouseEvent) => void
 }
 
-function SwarmCard({ swarm, isActive, onSelect }: SwarmCardProps) {
+export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop }: SwarmCardProps) {
   const statusColors = {
     initializing: 'bg-warning',
     active: 'bg-success',
@@ -238,6 +350,8 @@ function SwarmCard({ swarm, isActive, onSelect }: SwarmCardProps) {
     stopping: 'bg-warning',
     stopped: 'bg-text-secondary',
   }
+
+  const isRunning = swarm.state === 'active'
 
   return (
     <div
@@ -285,29 +399,28 @@ function SwarmCard({ swarm, isActive, onSelect }: SwarmCardProps) {
       <div className="flex items-center space-x-2">
         <button
           className="flex-1 flex items-center justify-center space-x-1 py-1 bg-accent hover:bg-accent-hover rounded text-xs"
-          onClick={(e) => {
-            e.stopPropagation()
-          }}
+          onClick={onSelect}
         >
           <Play size={12} />
-          <span>Execute</span>
+          <span>Manage</span>
         </button>
-        <button
-          className="p-1 border border-panel-border hover:bg-panel-border rounded"
-          onClick={(e) => {
-            e.stopPropagation()
-          }}
-        >
-          <RefreshCw size={14} />
-        </button>
-        <button
-          className="p-1 border border-panel-border hover:bg-panel-border rounded"
-          onClick={(e) => {
-            e.stopPropagation()
-          }}
-        >
-          <Square size={14} />
-        </button>
+        {!isRunning ? (
+          <button
+            className="p-1 border border-panel-border hover:bg-panel-border rounded text-success"
+            onClick={onStart}
+            title="Start Swarm"
+          >
+            <Play size={14} />
+          </button>
+        ) : (
+          <button
+            className="p-1 border border-panel-border hover:bg-panel-border rounded text-error"
+            onClick={onStop}
+            title="Stop Swarm"
+          >
+            <Square size={14} />
+          </button>
+        )}
       </div>
     </div>
   )

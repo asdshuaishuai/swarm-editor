@@ -1,5 +1,14 @@
 import { create } from 'zustand'
-import { Agent, Swarm, Team, Session } from '../types'
+import type { Agent, Swarm, Team, Session } from '../types'
+import { api, type AgentInfo } from '../services'
+
+// Storage keys for persistence
+const STORAGE_KEY = 'swarm-editor-state'
+
+interface PersistedState {
+  swarms: Swarm[]
+  teams: Team[]
+}
 
 interface AppState {
   // Connection state
@@ -29,7 +38,10 @@ interface AppState {
   loading: boolean
 
   // Actions
-  initialize: () => Promise<void>
+  initialize: (simulateError?: boolean) => Promise<void>
+  loadAgents: () => Promise<void>
+  startAgent: (id: string) => Promise<void>
+  stopAgent: (id: string) => Promise<void>
   setConnected: (connected: boolean) => void
   setConnectionError: (error: string | null) => void
   setAgents: (agents: Agent[]) => void
@@ -51,34 +63,132 @@ interface AppState {
   setActivePanel: (panel: 'editor' | 'swarm' | 'team' | 'settings') => void
   setLoading: (loading: boolean) => void
   reset: () => void
+  clearPersistedData: () => void
 }
 
-const initialState = {
+// Helper to convert AgentInfo to Agent
+function agentInfoToAgent(info: AgentInfo): Agent {
+  // Map status string to AgentState
+  const stateMap: Record<string, Agent['state']> = {
+    'running': 'executing',
+    'stopped': 'idle',
+    'idle': 'idle',
+    'thinking': 'thinking',
+    'executing': 'executing',
+    'waiting': 'waiting',
+    'error': 'error',
+    'unknown': 'idle',
+  }
+
+  // Map type string to AgentType
+  const typeMap: Record<string, Agent['type']> = {
+    'coder': 'coder',
+    'reviewer': 'reviewer',
+    'architect': 'architect',
+    'tester': 'tester',
+    'navigator': 'navigator',
+    'driver': 'driver',
+    'orchestrator': 'orchestrator',
+  }
+
+  return {
+    id: info.id,
+    name: info.name,
+    type: typeMap[info.type] || 'coder',
+    state: stateMap[info.status] || 'idle',
+    capabilities: {
+      loadSession: info.capabilities.includes('load_session'),
+      promptCapabilities: {
+        image: false,
+        audio: false,
+        embeddedContext: false,
+      },
+      mcp: {
+        http: false,
+        sse: false,
+      },
+      pairProgramming: info.capabilities.includes('pair_programming'),
+      teamCollaboration: info.capabilities.includes('team_collaboration'),
+    },
+    createdAt: new Date().toISOString(),
+    lastActive: info.lastActive || new Date().toISOString(),
+  }
+}
+
+// Helper to load persisted data
+const loadPersistedData = (): PersistedState | null => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      return {
+        swarms: parsed.swarms || [],
+        teams: parsed.teams || [],
+      }
+    }
+  } catch {
+    console.warn('Failed to load persisted data')
+  }
+  return null
+}
+
+// Helper to save persisted data
+const savePersistedData = (data: PersistedState) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  } catch {
+    console.warn('Failed to save persisted data')
+  }
+}
+
+export const useAppStore = create<AppState>()((set, get) => ({
   connected: false,
   connecting: false,
   connectionError: null,
-  agents: [],
+  agents: [] as Agent[],
   selectedAgent: null,
-  swarms: [],
+  swarms: [] as Swarm[],
   activeSwarm: null,
-  teams: [],
+  teams: [] as Team[],
   activeTeam: null,
-  sessions: [],
+  sessions: [] as Session[],
   activeSession: null,
   sidebarCollapsed: false,
-  activePanel: 'editor' as const,
+  activePanel: 'editor',
   loading: false,
-}
 
-export const useAppStore = create<AppState>((set) => ({
-  ...initialState,
-
-  initialize: async () => {
+  initialize: async (simulateError?: boolean) => {
     set({ connecting: true, connectionError: null })
     try {
-      // Initialize connection to backend
-      // This will be implemented with Tauri IPC or WebSocket
-      set({ connected: true, connecting: false })
+      // For testing: simulate initialization error
+      if (simulateError) {
+        throw new Error('Simulated initialization error')
+      }
+
+      // Load persisted data
+      const persisted = loadPersistedData()
+
+      // Load agents from backend
+      try {
+        const agentInfos = await api.agent.getAgents()
+        const agents = agentInfos.map(agentInfoToAgent)
+        set({
+          connected: true,
+          connecting: false,
+          agents,
+          swarms: persisted?.swarms || [],
+          teams: persisted?.teams || [],
+        })
+      } catch (agentError) {
+        console.warn('Failed to load agents, using empty list:', agentError)
+        set({
+          connected: true,
+          connecting: false,
+          agents: [],
+          swarms: persisted?.swarms || [],
+          teams: persisted?.teams || [],
+        })
+      }
     } catch (error) {
       console.error('Failed to initialize:', error)
       set({
@@ -86,6 +196,44 @@ export const useAppStore = create<AppState>((set) => ({
         connecting: false,
         connectionError: error instanceof Error ? error.message : 'Failed to connect'
       })
+    }
+  },
+
+  loadAgents: async () => {
+    try {
+      const agentInfos = await api.agent.refreshAgents()
+      const agents = agentInfos.map(agentInfoToAgent)
+      set({ agents })
+    } catch (error) {
+      console.error('Failed to load agents:', error)
+    }
+  },
+
+  startAgent: async (id: string) => {
+    try {
+      const info = await api.agent.startAgent(id)
+      const agent = agentInfoToAgent(info)
+      set((state) => ({
+        agents: state.agents.map((a) => (a.id === id ? agent : a)),
+        selectedAgent: state.selectedAgent?.id === id ? agent : state.selectedAgent,
+      }))
+    } catch (error) {
+      console.error('Failed to start agent:', error)
+      throw error
+    }
+  },
+
+  stopAgent: async (id: string) => {
+    try {
+      const info = await api.agent.stopAgent(id)
+      const agent = agentInfoToAgent(info)
+      set((state) => ({
+        agents: state.agents.map((a) => (a.id === id ? agent : a)),
+        selectedAgent: state.selectedAgent?.id === id ? agent : state.selectedAgent,
+      }))
+    } catch (error) {
+      console.error('Failed to stop agent:', error)
+      throw error
     }
   },
 
@@ -111,25 +259,47 @@ export const useAppStore = create<AppState>((set) => ({
 
   selectAgent: (agent) => set({ selectedAgent: agent }),
 
-  setSwarms: (swarms) => set({ swarms }),
+  setSwarms: (swarms) => {
+    set({ swarms })
+    savePersistedData({ swarms, teams: get().teams })
+  },
 
-  addSwarm: (swarm) => set((state) => ({ swarms: [...state.swarms, swarm] })),
+  addSwarm: (swarm) => set((state) => {
+    const newSwarms = [...state.swarms, swarm]
+    savePersistedData({ swarms: newSwarms, teams: state.teams })
+    return { swarms: newSwarms }
+  }),
 
-  removeSwarm: (swarmId) => set((state) => ({
-    swarms: state.swarms.filter((s) => s.id !== swarmId),
-    activeSwarm: state.activeSwarm?.id === swarmId ? null : state.activeSwarm
-  })),
+  removeSwarm: (swarmId) => set((state) => {
+    const newSwarms = state.swarms.filter((s) => s.id !== swarmId)
+    savePersistedData({ swarms: newSwarms, teams: state.teams })
+    return {
+      swarms: newSwarms,
+      activeSwarm: state.activeSwarm?.id === swarmId ? null : state.activeSwarm
+    }
+  }),
 
   setActiveSwarm: (swarm) => set({ activeSwarm: swarm }),
 
-  setTeams: (teams) => set({ teams }),
+  setTeams: (teams) => {
+    set({ teams })
+    savePersistedData({ swarms: get().swarms, teams })
+  },
 
-  addTeam: (team) => set((state) => ({ teams: [...state.teams, team] })),
+  addTeam: (team) => set((state) => {
+    const newTeams = [...state.teams, team]
+    savePersistedData({ swarms: state.swarms, teams: newTeams })
+    return { teams: newTeams }
+  }),
 
-  removeTeam: (teamId) => set((state) => ({
-    teams: state.teams.filter((t) => t.id !== teamId),
-    activeTeam: state.activeTeam?.id === teamId ? null : state.activeTeam
-  })),
+  removeTeam: (teamId) => set((state) => {
+    const newTeams = state.teams.filter((t) => t.id !== teamId)
+    savePersistedData({ swarms: state.swarms, teams: newTeams })
+    return {
+      teams: newTeams,
+      activeTeam: state.activeTeam?.id === teamId ? null : state.activeTeam
+    }
+  }),
 
   setActiveTeam: (team) => set({ activeTeam: team }),
 
@@ -143,5 +313,36 @@ export const useAppStore = create<AppState>((set) => ({
 
   setLoading: (loading) => set({ loading }),
 
-  reset: () => set(initialState),
+  reset: () => {
+    // Clear persisted data
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      console.warn('Failed to clear persisted data')
+    }
+    set({
+      connected: false,
+      connecting: false,
+      connectionError: null,
+      agents: [] as Agent[],
+      selectedAgent: null,
+      swarms: [] as Swarm[],
+      activeSwarm: null,
+      teams: [] as Team[],
+      activeTeam: null,
+      sessions: [] as Session[],
+      activeSession: null,
+      sidebarCollapsed: false,
+      activePanel: 'editor',
+      loading: false,
+    })
+  },
+
+  clearPersistedData: () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      console.warn('Failed to clear persisted data')
+    }
+  },
 }))

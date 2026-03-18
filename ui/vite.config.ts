@@ -5,6 +5,10 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // Use oxc instead of deprecated esbuild
+  oxc: {
+    jsx: 'automatic',
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

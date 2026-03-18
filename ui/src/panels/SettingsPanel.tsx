@@ -7,7 +7,10 @@ import {
   Bell,
   Shield,
   Info,
+  RotateCcw,
 } from 'lucide-react'
+import { useSettings } from '../hooks/useSettings'
+import { useTheme } from '../hooks/useTheme'
 
 const settingsSections = [
   { id: 'general', label: 'General', icon: SettingsIcon },
@@ -21,24 +24,17 @@ const settingsSections = [
 
 export default function SettingsPanel() {
   const [activeSection, setActiveSection] = useState('general')
-  const [settings, setSettings] = useState({
-    theme: 'dark',
-    fontSize: 14,
-    fontFamily: 'JetBrains Mono',
-    tabSize: 2,
-    autoSave: true,
-    autoSaveDelay: 1000,
-    minimap: true,
-    lineNumbers: true,
-    wordWrap: true,
-    notifications: true,
-    sounds: false,
-    apiKey: '',
-    apiEndpoint: 'https://api.anthropic.com',
-  })
+  const { settings, updateSetting, resetSettings } = useSettings()
+  const { setTheme } = useTheme()
 
-  const handleSettingChange = (key: string, value: unknown) => {
-    setSettings({ ...settings, [key]: value })
+  const handleThemeChange = (theme: 'dark' | 'light' | 'system') => {
+    updateSetting('theme', theme)
+    setTheme(theme)
+  }
+
+  const handleResetSettings = () => {
+    resetSettings()
+    setTheme('dark')
   }
 
   return (
@@ -80,7 +76,7 @@ export default function SettingsPanel() {
             <SettingRow label="Theme">
               <select
                 value={settings.theme}
-                onChange={(e) => handleSettingChange('theme', e.target.value)}
+                onChange={(e) => handleThemeChange(e.target.value as 'dark' | 'light' | 'system')}
                 className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               >
                 <option value="dark">Dark</option>
@@ -92,7 +88,7 @@ export default function SettingsPanel() {
             <SettingRow label="Auto Save">
               <Toggle
                 checked={settings.autoSave}
-                onChange={(v) => handleSettingChange('autoSave', v)}
+                onChange={(v) => updateSetting('autoSave', v)}
               />
             </SettingRow>
 
@@ -101,11 +97,21 @@ export default function SettingsPanel() {
                 type="number"
                 value={settings.autoSaveDelay}
                 onChange={(e) =>
-                  handleSettingChange('autoSaveDelay', parseInt(e.target.value))
+                  updateSetting('autoSaveDelay', parseInt(e.target.value) || 1000)
                 }
                 className="w-32 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               />
             </SettingRow>
+
+            <div className="mt-6 pt-4 border-t border-panel-border">
+              <button
+                onClick={handleResetSettings}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-panel-border rounded hover:bg-panel-border transition-colors"
+              >
+                <RotateCcw size={14} />
+                Reset to Defaults
+              </button>
+            </div>
           </SettingsSection>
         )}
 
@@ -116,7 +122,7 @@ export default function SettingsPanel() {
                 type="number"
                 value={settings.fontSize}
                 onChange={(e) =>
-                  handleSettingChange('fontSize', parseInt(e.target.value))
+                  updateSetting('fontSize', parseInt(e.target.value) || 14)
                 }
                 className="w-20 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               />
@@ -125,7 +131,7 @@ export default function SettingsPanel() {
             <SettingRow label="Font Family">
               <select
                 value={settings.fontFamily}
-                onChange={(e) => handleSettingChange('fontFamily', e.target.value)}
+                onChange={(e) => updateSetting('fontFamily', e.target.value)}
                 className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               >
                 <option value="JetBrains Mono">JetBrains Mono</option>
@@ -140,7 +146,7 @@ export default function SettingsPanel() {
               <select
                 value={settings.tabSize}
                 onChange={(e) =>
-                  handleSettingChange('tabSize', parseInt(e.target.value))
+                  updateSetting('tabSize', parseInt(e.target.value))
                 }
                 className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               >
@@ -153,21 +159,21 @@ export default function SettingsPanel() {
             <SettingRow label="Show Minimap">
               <Toggle
                 checked={settings.minimap}
-                onChange={(v) => handleSettingChange('minimap', v)}
+                onChange={(v) => updateSetting('minimap', v)}
               />
             </SettingRow>
 
             <SettingRow label="Line Numbers">
               <Toggle
                 checked={settings.lineNumbers}
-                onChange={(v) => handleSettingChange('lineNumbers', v)}
+                onChange={(v) => updateSetting('lineNumbers', v)}
               />
             </SettingRow>
 
             <SettingRow label="Word Wrap">
               <Toggle
                 checked={settings.wordWrap}
-                onChange={(v) => handleSettingChange('wordWrap', v)}
+                onChange={(v) => updateSetting('wordWrap', v)}
               />
             </SettingRow>
           </SettingsSection>
@@ -180,7 +186,7 @@ export default function SettingsPanel() {
                 type="text"
                 value={settings.apiEndpoint}
                 onChange={(e) =>
-                  handleSettingChange('apiEndpoint', e.target.value)
+                  updateSetting('apiEndpoint', e.target.value)
                 }
                 className="w-80 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               />
@@ -190,7 +196,7 @@ export default function SettingsPanel() {
               <input
                 type="password"
                 value={settings.apiKey}
-                onChange={(e) => handleSettingChange('apiKey', e.target.value)}
+                onChange={(e) => updateSetting('apiKey', e.target.value)}
                 placeholder="Enter your API key"
                 className="w-80 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
               />
@@ -207,14 +213,14 @@ export default function SettingsPanel() {
             <SettingRow label="Enable Notifications">
               <Toggle
                 checked={settings.notifications}
-                onChange={(v) => handleSettingChange('notifications', v)}
+                onChange={(v) => updateSetting('notifications', v)}
               />
             </SettingRow>
 
             <SettingRow label="Sound Effects">
               <Toggle
                 checked={settings.sounds}
-                onChange={(v) => handleSettingChange('sounds', v)}
+                onChange={(v) => updateSetting('sounds', v)}
               />
             </SettingRow>
           </SettingsSection>

@@ -1,62 +1,269 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import { useTheme } from './useTheme'
 
-// Simple custom hook for testing theme functionality
-function useTheme() {
-  const getTheme = () => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') || 'dark'
-    }
-    return 'dark'
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {}
+  return {
+    getItem: vi.fn((key: string) => store[key] || null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete store[key]
+    }),
+    clear: vi.fn(() => {
+      store = {}
+    }),
   }
+})()
 
-  const setTheme = (theme: string) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('theme', theme)
-    }
-  }
+Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-  const toggleTheme = () => {
-    const current = getTheme()
-    setTheme(current === 'dark' ? 'light' : 'dark')
-  }
+// Mock matchMedia
+const matchMediaMock = vi.fn((query: string) => ({
+  matches: query.includes('dark'),
+  media: query,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+}))
 
-  return { getTheme, setTheme, toggleTheme }
-}
+Object.defineProperty(window, 'matchMedia', { value: matchMediaMock })
+
+// Test getSystemTheme when matchMedia is not available
+describe('getSystemTheme SSR edge case', () => {
+  it('should return dark when matchMedia is not available', async () => {
+    const originalMatchMedia = window.matchMedia
+
+    // Use Object.defineProperty to temporarily remove matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    })
+
+    // Re-import to get fresh function
+    vi.resetModules()
+    const { getSystemTheme } = await import('./useTheme')
+
+    expect(getSystemTheme()).toBe('dark')
+
+    // Restore
+    Object.defineProperty(window, 'matchMedia', {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    })
+  })
+})
 
 describe('useTheme', () => {
   beforeEach(() => {
-    localStorage.clear()
+    localStorageMock.clear()
+    vi.clearAllMocks()
+    document.documentElement.removeAttribute('data-theme')
+    document.documentElement.classList.remove('dark')
   })
 
-  it('should return dark theme by default', () => {
-    const { result } = renderHook(() => useTheme())
-    expect(result.current.getTheme()).toBe('dark')
-  })
-
-  it('should set theme', () => {
-    const { result } = renderHook(() => useTheme())
-    act(() => {
-      result.current.setTheme('light')
+  describe('initial state', () => {
+    it('should return dark theme by default', () => {
+      const { result } = renderHook(() => useTheme())
+      expect(result.current.theme).toBe('dark')
+      expect(result.current.effectiveTheme).toBe('dark')
+      expect(result.current.isDark).toBe(true)
     })
-    expect(result.current.getTheme()).toBe('light')
+
+    it('should load theme from localStorage', () => {
+      localStorageMock.getItem.mockReturnValue('light')
+      const { result } = renderHook(() => useTheme())
+      expect(result.current.theme).toBe('light')
+      expect(result.current.effectiveTheme).toBe('light')
+      expect(result.current.isDark).toBe(false)
+    })
+
+    it('should handle system theme', () => {
+      localStorageMock.getItem.mockReturnValue('system')
+      const { result } = renderHook(() => useTheme())
+      expect(result.current.theme).toBe('system')
+      // Since matchMedia mock returns dark for prefers-color-scheme: dark
+      expect(result.current.effectiveTheme).toBe('dark')
+    })
+
+    it('should handle invalid stored theme value', () => {
+      localStorageMock.getItem.mockReturnValue('invalid-theme')
+      const { result } = renderHook(() => useTheme())
+      // Should fall back to dark
+      expect(result.current.theme).toBe('dark')
+    })
+
+    it('should handle null from localStorage', () => {
+      localStorageMock.getItem.mockReturnValue(null)
+      const { result } = renderHook(() => useTheme())
+      expect(result.current.theme).toBe('dark')
+    })
   })
 
-  it('should toggle theme from dark to light', () => {
-    const { result } = renderHook(() => useTheme())
-    act(() => {
-      result.current.toggleTheme()
+  describe('setTheme', () => {
+    it('should set theme to light', () => {
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.setTheme('light')
+      })
+
+      expect(result.current.theme).toBe('light')
+      expect(result.current.effectiveTheme).toBe('light')
+      expect(result.current.isDark).toBe(false)
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('swarm-editor-theme', 'light')
     })
-    expect(result.current.getTheme()).toBe('light')
+
+    it('should set theme to dark', () => {
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.setTheme('dark')
+      })
+
+      expect(result.current.theme).toBe('dark')
+      expect(result.current.effectiveTheme).toBe('dark')
+      expect(result.current.isDark).toBe(true)
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('swarm-editor-theme', 'dark')
+    })
+
+    it('should set theme to system', () => {
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.setTheme('system')
+      })
+
+      expect(result.current.theme).toBe('system')
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('swarm-editor-theme', 'system')
+    })
   })
 
-  it('should toggle theme from light to dark', () => {
-    const { result } = renderHook(() => useTheme())
-    act(() => {
-      result.current.setTheme('light')
-      result.current.toggleTheme()
+  describe('toggleTheme', () => {
+    it('should toggle from dark to light', () => {
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.toggleTheme()
+      })
+
+      expect(result.current.theme).toBe('light')
+      expect(result.current.isDark).toBe(false)
     })
-    expect(result.current.getTheme()).toBe('dark')
+
+    it('should toggle from light to dark', () => {
+      localStorageMock.getItem.mockReturnValue('light')
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.toggleTheme()
+      })
+
+      expect(result.current.theme).toBe('dark')
+      expect(result.current.isDark).toBe(true)
+    })
+  })
+
+  describe('DOM updates', () => {
+    it('should set data-theme attribute on document', () => {
+      localStorageMock.getItem.mockReturnValue('dark')
+      const { result } = renderHook(() => useTheme())
+      // The effect runs after render
+      act(() => {
+        result.current.setTheme('dark')
+      })
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    })
+
+    it('should toggle dark class on document', () => {
+      localStorageMock.getItem.mockReturnValue('dark')
+      const { result } = renderHook(() => useTheme())
+      act(() => {
+        result.current.setTheme('dark')
+      })
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+    })
+
+    it('should set light theme on document', () => {
+      localStorageMock.getItem.mockReturnValue('light')
+      const { result } = renderHook(() => useTheme())
+      act(() => {
+        result.current.setTheme('light')
+      })
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+    })
+  })
+
+  describe('system theme', () => {
+    it('should use dark theme when system prefers dark', () => {
+      localStorageMock.getItem.mockReturnValue('system')
+      matchMediaMock.mockReturnValue({
+        matches: true,
+        media: '(prefers-color-scheme: dark)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.theme).toBe('system')
+      expect(result.current.effectiveTheme).toBe('dark')
+    })
+
+    it('should use light theme when system prefers light', () => {
+      localStorageMock.getItem.mockReturnValue('system')
+      matchMediaMock.mockReturnValue({
+        matches: false,
+        media: '(prefers-color-scheme: dark)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.theme).toBe('system')
+      expect(result.current.effectiveTheme).toBe('light')
+    })
+
+    it('should respond to system theme changes', () => {
+      const changeHandler: { current: (() => void) | null } = { current: null }
+      const currentMatches = true
+
+      localStorageMock.getItem.mockReturnValue('system')
+      matchMediaMock.mockReturnValue({
+        matches: currentMatches,
+        media: '(prefers-color-scheme: dark)',
+        addEventListener: vi.fn((_: string, handler: () => void) => {
+          changeHandler.current = handler
+        }),
+        removeEventListener: vi.fn(),
+      })
+
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.effectiveTheme).toBe('dark')
+
+      // Simulate system theme change to light
+      if (changeHandler.current) {
+        matchMediaMock.mockReturnValue({
+          matches: false,
+          media: '(prefers-color-scheme: dark)',
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })
+        const handler = changeHandler.current
+        act(() => {
+          handler()
+        })
+      }
+
+      expect(result.current.effectiveTheme).toBe('light')
+    })
   })
 })
 
@@ -73,7 +280,7 @@ describe('Utility Functions', () => {
 
       expect(cn('foo', 'bar')).toBe('foo bar')
       expect(cn('foo', undefined, 'bar')).toBe('foo bar')
-      expect(cn('foo', false && 'bar')).toBe('foo')
+      const includeBar = false; expect(cn('foo', includeBar ? 'bar' : '')).toBe('foo')
       expect(cn('p-4', 'p-2')).toBe('p-2') // tailwind merge should take the last one
     })
   })

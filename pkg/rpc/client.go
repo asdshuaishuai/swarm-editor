@@ -313,15 +313,16 @@ func (c *Client) readLoop() {
 		c.mu.RUnlock()
 
 		if ok {
+			// Delete from pending first to prevent double-close race with Close()
+			c.mu.Lock()
+			delete(c.pending, resp.ID)
+			c.mu.Unlock()
+
 			call.resp = resp.Result
 			if resp.Error != nil {
 				call.err = resp.Error
 			}
 			close(call.done)
-
-			c.mu.Lock()
-			delete(c.pending, resp.ID)
-			c.mu.Unlock()
 		}
 	}
 }

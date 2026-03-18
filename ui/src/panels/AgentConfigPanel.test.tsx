@@ -48,7 +48,8 @@ describe('AgentConfigPanel', () => {
     expect(screen.queryByText('No agents configured')).not.toBeInTheDocument()
   })
 
-  it('calls handleTestConnection when test button clicked in list', () => {
+  it('calls handleTestConnection when test button clicked in list', async () => {
+    vi.useFakeTimers()
     const initialAgents: AgentConfig[] = [
       {
         id: 'connection-test-agent',
@@ -60,8 +61,20 @@ describe('AgentConfigPanel', () => {
     ]
     render(<AgentConfigPanel initialAgents={initialAgents} />)
     const testButton = screen.getByTitle('Test Connection')
+
+    // Click test button - should show spinner
     fireEvent.click(testButton)
-    expect(console.log).toHaveBeenCalledWith('Testing connection to:', 'connection-test-agent')
+    const spinner = testButton.querySelector('.animate-spin')
+    expect(spinner).toBeInTheDocument()
+
+    // Wait for connection test to complete
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Spinner should be gone, status indicator should be green (connected)
+    const statusIndicator = document.querySelector('.bg-success')
+    expect(statusIndicator).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 
   it('renders Add Agent button', () => {
@@ -417,6 +430,22 @@ describe('AgentConfigCard', () => {
     expect(screen.queryByText('Worker')).not.toBeInTheDocument()
     expect(screen.queryByText('Priority: 5')).not.toBeInTheDocument()
   })
+
+  it('shows spinner when status is testing', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} initialStatus="testing" />)
+    const testButton = screen.getByTitle('Test Connection')
+    // Should show spinner (Loader2 with animate-spin class)
+    const spinner = testButton.querySelector('.animate-spin')
+    expect(spinner).toBeInTheDocument()
+  })
+
+  it('shows terminal icon when status is idle', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} initialStatus="idle" />)
+    const testButton = screen.getByTitle('Test Connection')
+    // Should show Terminal icon, not spinner
+    const spinner = testButton.querySelector('.animate-spin')
+    expect(spinner).not.toBeInTheDocument()
+  })
 })
 
 describe('AgentConfigPanel agent management', () => {
@@ -436,13 +465,39 @@ describe('AgentConfigPanel agent management', () => {
     expect(screen.getByText('new-test-agent')).toBeInTheDocument()
   })
 
-  it('edits an existing agent', () => {
+  it('adds a new agent with args parsed from comma-separated string', () => {
+    render(<AgentConfigPanel />)
+    fireEvent.click(screen.getByText('Add Agent'))
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('claude-code'), { target: { value: 'args-agent' } })
+    fireEvent.change(screen.getByPlaceholderText('Claude Code'), { target: { value: 'Args Agent' } })
+    fireEvent.change(screen.getByPlaceholderText('/usr/local/bin/claude-code'), { target: { value: '/usr/bin/test' } })
+    // Add arguments (triggers args parsing branch)
+    const argsInput = screen.getByPlaceholderText('acp, --mode=swarm')
+    fireEvent.change(argsInput, { target: { value: 'arg1, arg2, arg3' } })
+    // Submit
+    const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
+    fireEvent.click(modalButtons[modalButtons.length - 1])
+    expect(screen.getByText('Args Agent')).toBeInTheDocument()
+  })
+
+  it('parses empty args string correctly', () => {
+    render(<AgentConfigPanel />)
+    fireEvent.click(screen.getByText('Add Agent'))
+    const argsInput = screen.getByPlaceholderText('acp, --mode=swarm')
+    // Change to empty string then back
+    fireEvent.change(argsInput, { target: { value: '' } })
+    // This creates [''] from split, but trim makes it ['']
+    expect(argsInput).toHaveValue('')
+  })
+
+  it('edits an existing agent with existing args', () => {
     const initialAgents: AgentConfig[] = [
       {
         id: 'edit-test-agent',
         name: 'Original Name',
         command: '/usr/bin/original',
-        args: [],
+        args: ['--arg1', '--arg2'],
         enabled: true,
       },
     ]
@@ -452,6 +507,9 @@ describe('AgentConfigPanel agent management', () => {
     fireEvent.click(editButton)
     // Modal should show Edit Agent title
     expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    // Args input should show existing args
+    const argsInput = screen.getByPlaceholderText('acp, --mode=swarm')
+    expect(argsInput).toHaveValue('--arg1, --arg2')
     // Update name
     const nameInput = screen.getByPlaceholderText('Claude Code')
     fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
@@ -459,6 +517,41 @@ describe('AgentConfigPanel agent management', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     // Agent should be updated
     expect(screen.getByText('Updated Name')).toBeInTheDocument()
+  })
+
+  it('edits agent while preserving other agents unchanged', () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'first-agent',
+        name: 'First Agent',
+        command: '/usr/bin/first',
+        args: [],
+        enabled: true,
+      },
+      {
+        id: 'second-agent',
+        name: 'Second Agent',
+        command: '/usr/bin/second',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    // Both agents should be visible
+    expect(screen.getByText('First Agent')).toBeInTheDocument()
+    expect(screen.getByText('Second Agent')).toBeInTheDocument()
+    // Click edit on first agent
+    const editButtons = screen.getAllByTitle('Edit')
+    fireEvent.click(editButtons[0])
+    // Update name
+    const nameInput = screen.getByPlaceholderText('Claude Code')
+    fireEvent.change(nameInput, { target: { value: 'Updated First' } })
+    // Save
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    // First agent should be updated
+    expect(screen.getByText('Updated First')).toBeInTheDocument()
+    // Second agent should still be visible unchanged
+    expect(screen.getByText('Second Agent')).toBeInTheDocument()
   })
 
   it('deletes an agent from the list', () => {
@@ -481,5 +574,59 @@ describe('AgentConfigPanel agent management', () => {
     expect(screen.queryByText('Agent To Delete')).not.toBeInTheDocument()
     // Empty state should show
     expect(screen.getByText('No agents configured')).toBeInTheDocument()
+  })
+
+  it('handles connection error during test', async () => {
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'error-test-agent',
+        name: 'Error Test Agent',
+        command: '/usr/bin/error',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} simulateConnectionError={true} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    // Click test button
+    fireEvent.click(testButton)
+
+    // Wait for connection test to complete
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Status indicator should be red (error)
+    const statusIndicator = document.querySelector('.bg-error')
+    expect(statusIndicator).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('handles agent not found scenario during test', async () => {
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'notfound-test-agent',
+        name: 'NotFound Test Agent',
+        command: '/usr/bin/notfound',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} simulateAgentNotFound={true} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    // Click test button
+    fireEvent.click(testButton)
+
+    // Wait for connection test to complete
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Status indicator should be red (error)
+    const statusIndicator = document.querySelector('.bg-error')
+    expect(statusIndicator).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 })

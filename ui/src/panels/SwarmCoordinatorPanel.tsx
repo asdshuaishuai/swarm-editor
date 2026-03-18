@@ -15,10 +15,16 @@ import {
   Target,
 } from 'lucide-react'
 import type { CoordinationTask } from '../types'
+import { api } from '../services'
 
-export default function SwarmCoordinatorPanel() {
+interface SwarmCoordinatorPanelProps {
+  /** Initial tasks for testing purposes */
+  initialTasks?: CoordinationTask[]
+}
+
+export default function SwarmCoordinatorPanel({ initialTasks = [] }: SwarmCoordinatorPanelProps) {
   const { activeSwarm } = useAppStore()
-  const [tasks, setTasks] = useState<CoordinationTask[]>([])
+  const [tasks, setTasks] = useState<CoordinationTask[]>(initialTasks)
   const [selectedTask, setSelectedTask] = useState<CoordinationTask | null>(null)
   const [newTaskModal, setNewTaskModal] = useState(false)
   const [newTask, setNewTask] = useState({
@@ -35,8 +41,43 @@ export default function SwarmCoordinatorPanel() {
       // Simulate task progress updates
       setTasks((prev) =>
         prev.map((t) => {
-          if (t.status === 'running' && t.progress < 1) {
-            return { ...t, progress: Math.min(t.progress + 0.1, 1) }
+          if (t.status === 'running') {
+            // Auto-complete if already at 100%
+            if (t.progress >= 1) {
+              return {
+                ...t,
+                status: 'completed' as const,
+                results: {
+                  'default-agent': {
+                    agentId: 'default-agent',
+                    content: `Task "${t.title}" completed successfully.`,
+                    startedAt: new Date(Date.now() - 10000).toISOString(),
+                    completedAt: new Date().toISOString(),
+                    duration: 10000,
+                  },
+                },
+              }
+            }
+            // Increment progress
+            const newProgress = Math.min(t.progress + 0.1, 1)
+            // Auto-complete when progress reaches 100%
+            if (newProgress >= 1) {
+              return {
+                ...t,
+                progress: 1,
+                status: 'completed' as const,
+                results: {
+                  'default-agent': {
+                    agentId: 'default-agent',
+                    content: `Task "${t.title}" completed successfully.`,
+                    startedAt: new Date(Date.now() - 10000).toISOString(),
+                    completedAt: new Date().toISOString(),
+                    duration: 10000,
+                  },
+                },
+              }
+            }
+            return { ...t, progress: newProgress }
           }
           return t
         })
@@ -46,29 +87,44 @@ export default function SwarmCoordinatorPanel() {
     return () => clearInterval(interval)
   }, [])
 
-  const handleSubmitTask = () => {
-    const task: CoordinationTask = {
-      id: `task-${Date.now()}`,
-      title: newTask.title,
-      description: newTask.description,
-      prompt: newTask.prompt,
-      priority: newTask.priority,
-      status: 'pending',
-      progress: 0,
-      assignedTo: [],
-      results: {},
-      createdAt: new Date().toISOString(),
-    }
+  const handleSubmitTask = async () => {
+    if (!activeSwarm) return
 
-    setTasks((prev) => [...prev, task])
-    setNewTaskModal(false)
-    setNewTask({
-      title: '',
-      description: '',
-      prompt: '',
-      priority: 5,
-      requiredRole: '',
-    })
+    try {
+      // 提交任务到后端
+      const taskId = await api.swarm.submitTask({
+        swarmId: activeSwarm.id,
+        title: newTask.title,
+        description: newTask.description,
+        prompt: newTask.prompt,
+        priority: newTask.priority,
+      })
+
+      const task: CoordinationTask = {
+        id: taskId,
+        title: newTask.title,
+        description: newTask.description,
+        prompt: newTask.prompt,
+        priority: newTask.priority,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+
+      setTasks((prev) => [...prev, task])
+      setNewTaskModal(false)
+      setNewTask({
+        title: '',
+        description: '',
+        prompt: '',
+        priority: 5,
+        requiredRole: '',
+      })
+    } catch (err) {
+      console.error('Failed to submit task:', err)
+    }
   }
 
   const statusColors = {
@@ -79,6 +135,80 @@ export default function SwarmCoordinatorPanel() {
     consensus: 'bg-warning',
     completed: 'bg-success',
     failed: 'bg-error',
+  }
+
+  const handleStartTask = async (taskId: string) => {
+    if (!activeSwarm) return
+
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, status: 'running' as const, progress: 0 } : t
+      )
+    )
+    setSelectedTask((prev) =>
+      prev?.id === taskId ? { ...prev, status: 'running' as const, progress: 0 } : prev
+    )
+
+    try {
+      // 调用后端执行任务
+      const result = await api.swarm.executeTask(activeSwarm.id, taskId)
+
+      // 更新任务结果
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? {
+            ...t,
+            status: 'completed' as const,
+            progress: 1,
+            results: Object.fromEntries(
+              Object.entries(result.agentResults).map(([id, r]) => [id, {
+                agentId: r.agentId,
+                content: r.content,
+                startedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                duration: r.durationMs,
+              }])
+            ),
+          } : t
+        )
+      )
+      setSelectedTask((prev) =>
+        prev?.id === taskId ? {
+          ...prev,
+          status: 'completed' as const,
+          progress: 1,
+        } : prev
+      )
+    } catch (err) {
+      console.error('Failed to execute task:', err)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed' as const } : t
+        )
+      )
+    }
+  }
+
+  const handlePauseTask = (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, status: 'pending' as const } : t
+      )
+    )
+    setSelectedTask((prev) =>
+      prev?.id === taskId ? { ...prev, status: 'pending' as const } : prev
+    )
+  }
+
+  const handleCancelTask = (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, status: 'failed' as const } : t
+      )
+    )
+    setSelectedTask((prev) =>
+      prev?.id === taskId ? { ...prev, status: 'failed' as const } : prev
+    )
   }
 
   const priorityColors = {
@@ -181,7 +311,13 @@ export default function SwarmCoordinatorPanel() {
         {/* Task Details Panel */}
         {selectedTask && (
           <div className="w-80 border-l border-panel-border p-4 overflow-y-auto">
-            <TaskDetails task={selectedTask} onClose={() => setSelectedTask(null)} />
+            <TaskDetails
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onStart={handleStartTask}
+              onPause={handlePauseTask}
+              onCancel={handleCancelTask}
+            />
           </div>
         )}
       </div>
@@ -393,9 +529,15 @@ export function TaskCard({
 export function TaskDetails({
   task,
   onClose,
+  onStart,
+  onPause,
+  onCancel,
 }: {
   task: CoordinationTask
   onClose: () => void
+  onStart: (taskId: string) => void
+  onPause: (taskId: string) => void
+  onCancel: (taskId: string) => void
 }) {
   return (
     <div>
@@ -465,18 +607,27 @@ export function TaskDetails({
         {/* Actions */}
         <div className="flex space-x-2 pt-4 border-t border-panel-border">
           {task.status === 'pending' && (
-            <button className="flex-1 flex items-center justify-center space-x-1 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm">
+            <button
+              onClick={() => onStart(task.id)}
+              className="flex-1 flex items-center justify-center space-x-1 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
+            >
               <Play size={14} />
               <span>Start</span>
             </button>
           )}
           {task.status === 'running' && (
             <>
-              <button className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-panel-border hover:bg-panel-border rounded text-sm">
+              <button
+                onClick={() => onPause(task.id)}
+                className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-panel-border hover:bg-panel-border rounded text-sm"
+              >
                 <Pause size={14} />
                 <span>Pause</span>
               </button>
-              <button className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-error text-error hover:bg-error/20 rounded text-sm">
+              <button
+                onClick={() => onCancel(task.id)}
+                className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-error text-error hover:bg-error/20 rounded text-sm"
+              >
                 <Square size={14} />
                 <span>Cancel</span>
               </button>

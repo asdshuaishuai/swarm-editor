@@ -59,14 +59,19 @@ func (t *StdioTransport) Send(msg *Message) error {
 
 // Receive reads a message from stdin
 func (t *StdioTransport) Receive() (*Message, error) {
+	t.mu.Lock()
 	if t.closed {
+		t.mu.Unlock()
 		return nil, fmt.Errorf("transport is closed")
 	}
+	t.mu.Unlock()
 
 	line, err := t.reader.ReadString('\n')
 	if err != nil {
 		if err == io.EOF {
+			t.mu.Lock()
 			t.closed = true
+			t.mu.Unlock()
 		}
 		return nil, err
 	}
@@ -131,9 +136,12 @@ func (t *WebSocketTransport) Send(msg *Message) error {
 
 // Receive reads a message from WebSocket
 func (t *WebSocketTransport) Receive() (*Message, error) {
+	t.mu.Lock()
 	if t.closed {
+		t.mu.Unlock()
 		return nil, fmt.Errorf("transport is closed")
 	}
+	t.mu.Unlock()
 
 	_, data, err := t.conn.ReadMessage()
 	if err != nil {

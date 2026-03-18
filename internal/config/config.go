@@ -8,16 +8,16 @@ import (
 
 // AppConfig represents the main application configuration
 type AppConfig struct {
-	Server   ServerConfig   `yaml:"server"`
-	ACP      ACPConfig      `yaml:"acp"`
-	Agent    AgentConfig    `yaml:"agent"`
-	Swarm    SwarmConfig    `yaml:"swarm"`
-	Pair     PairConfig     `yaml:"pair"`
-	Team     TeamConfig     `yaml:"team"`
-	LLM      LLMConfig      `yaml:"llm"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	UI       UIConfig       `yaml:"ui"`
+	Server  ServerConfig  `yaml:"server"`
+	ACP     ACPConfig     `yaml:"acp"`
+	Agent   AgentConfig   `yaml:"agent"`
+	Swarm   SwarmConfig   `yaml:"swarm"`
+	Pair    PairConfig    `yaml:"pair"`
+	Team    TeamConfig    `yaml:"team"`
+	LLM     LLMConfig     `yaml:"llm"`
+	Storage StorageConfig `yaml:"storage"`
+	Logging LoggingConfig `yaml:"logging"`
+	UI      UIConfig      `yaml:"ui"`
 }
 
 // ServerConfig holds server configuration
@@ -29,9 +29,9 @@ type ServerConfig struct {
 
 // ACPConfig holds ACP protocol settings
 type ACPConfig struct {
-	Version       string `yaml:"version"`
-	Timeout       string `yaml:"timeout"`
-	MaxMessageSize int   `yaml:"max_message_size"`
+	Version        string `yaml:"version"`
+	Timeout        string `yaml:"timeout"`
+	MaxMessageSize int    `yaml:"max_message_size"`
 }
 
 // AgentConfig holds agent defaults
@@ -44,17 +44,17 @@ type AgentConfig struct {
 
 // SwarmConfig holds swarm orchestration settings
 type SwarmConfig struct {
-	DefaultTopology string         `yaml:"default_topology"`
-	DefaultStrategy string         `yaml:"default_strategy"`
-	MaxAgents       int            `yaml:"max_agents"`
-	TaskTimeout     string         `yaml:"task_timeout"`
+	DefaultTopology string          `yaml:"default_topology"`
+	DefaultStrategy string          `yaml:"default_strategy"`
+	MaxAgents       int             `yaml:"max_agents"`
+	TaskTimeout     string          `yaml:"task_timeout"`
 	Consensus       ConsensusConfig `yaml:"consensus"`
 }
 
 // ConsensusConfig holds consensus algorithm settings
 type ConsensusConfig struct {
-	Algorithm  string  `yaml:"algorithm"`
-	Timeout    string  `yaml:"timeout"`
+	Algorithm    string  `yaml:"algorithm"`
+	Timeout      string  `yaml:"timeout"`
 	MinAgreement float64 `yaml:"min_agreement"`
 }
 
@@ -67,8 +67,8 @@ type PairConfig struct {
 
 // TeamConfig holds team collaboration settings
 type TeamConfig struct {
-	MaxTeams            int    `yaml:"max_teams"`
-	MaxMembersPerTeam   int    `yaml:"max_members_per_team"`
+	MaxTeams              int    `yaml:"max_teams"`
+	MaxMembersPerTeam     int    `yaml:"max_members_per_team"`
 	WorkspaceSyncInterval string `yaml:"workspace_sync_interval"`
 }
 
@@ -163,8 +163,8 @@ func DefaultConfig() *AppConfig {
 			MaxSuggestions:        10,
 		},
 		Team: TeamConfig{
-			MaxTeams:            50,
-			MaxMembersPerTeam:   100,
+			MaxTeams:              50,
+			MaxMembersPerTeam:     100,
 			WorkspaceSyncInterval: "1m",
 		},
 		LLM: LLMConfig{
