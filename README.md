@@ -126,6 +126,20 @@ swarm-editor/
 - Node.js 18+
 - Rust 1.70+ (用于Tauri)
 
+#### Linux 系统依赖 (Tauri)
+
+在 Fedora/RHEL 上安装：
+```bash
+sudo dnf install webkit2gtk4.1-devel javascriptcoregtk4.1-devel \
+    openssl-devel curl wget libappindicator-gtk3-devel
+```
+
+在 Ubuntu/Debian 上安装：
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+    build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+```
+
 ### 构建
 
 ```bash
