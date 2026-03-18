@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Agent, Swarm, Team, Session } from '../types'
-import { api, type AgentInfo } from '../services'
+import { api, type AgentInfo, type PermissionRequestEvent } from '../services'
 
 // Storage keys for persistence
 const STORAGE_KEY = 'swarm-editor-state'
@@ -8,6 +8,18 @@ const STORAGE_KEY = 'swarm-editor-state'
 interface PersistedState {
   swarms: Swarm[]
   teams: Team[]
+}
+
+// Permission request stored for UI handling
+export interface PermissionRequest {
+  id: string
+  requestId: string
+  sessionId: string
+  toolCallId: string
+  toolName: string
+  description: string
+  options: PermissionRequestEvent['options']
+  timestamp: number
 }
 
 interface AppState {
@@ -31,6 +43,10 @@ interface AppState {
   // Sessions
   sessions: Session[]
   activeSession: Session | null
+
+  // Permissions
+  permissionQueue: PermissionRequest[]
+  activePermission: PermissionRequest | null
 
   // UI state
   sidebarCollapsed: boolean
@@ -62,6 +78,13 @@ interface AppState {
   toggleSidebar: () => void
   setActivePanel: (panel: 'editor' | 'swarm' | 'team' | 'settings') => void
   setLoading: (loading: boolean) => void
+
+  // Permission actions
+  addPermissionRequest: (request: PermissionRequestEvent) => void
+  resolvePermission: (requestId: string, optionId: string) => void
+  dismissPermission: (requestId: string) => void
+  clearPermissionQueue: () => void
+
   reset: () => void
   clearPersistedData: () => void
 }
@@ -153,6 +176,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   activeTeam: null,
   sessions: [] as Session[],
   activeSession: null,
+  permissionQueue: [] as PermissionRequest[],
+  activePermission: null,
   sidebarCollapsed: false,
   activePanel: 'editor',
   loading: false,
@@ -313,6 +338,60 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   setLoading: (loading) => set({ loading }),
 
+  addPermissionRequest: (event) => set((state) => {
+    const request: PermissionRequest = {
+      id: event.request_id,
+      requestId: event.request_id,
+      sessionId: event.session_id,
+      toolCallId: event.tool_call_id,
+      toolName: event.tool_name,
+      description: event.description,
+      options: event.options,
+      timestamp: Date.now(),
+    }
+
+    // If no active permission, set this as active
+    if (!state.activePermission) {
+      return {
+        permissionQueue: [...state.permissionQueue, request],
+        activePermission: request,
+      }
+    }
+
+    // Otherwise, just add to queue
+    return {
+      permissionQueue: [...state.permissionQueue, request],
+    }
+  }),
+
+  resolvePermission: (requestId, _optionId) => set((state) => {
+    // Remove the resolved request
+    const remainingQueue = state.permissionQueue.filter((p) => p.requestId !== requestId)
+
+    // Get the next permission from queue if any
+    const nextPermission = remainingQueue.length > 0 ? remainingQueue[0] : null
+
+    return {
+      permissionQueue: remainingQueue,
+      activePermission: state.activePermission?.requestId === requestId ? nextPermission : state.activePermission,
+    }
+  }),
+
+  dismissPermission: (requestId) => set((state) => {
+    const remainingQueue = state.permissionQueue.filter((p) => p.requestId !== requestId)
+    const nextPermission = remainingQueue.length > 0 ? remainingQueue[0] : null
+
+    return {
+      permissionQueue: remainingQueue,
+      activePermission: state.activePermission?.requestId === requestId ? nextPermission : state.activePermission,
+    }
+  }),
+
+  clearPermissionQueue: () => set({
+    permissionQueue: [],
+    activePermission: null,
+  }),
+
   reset: () => {
     // Clear persisted data
     try {
@@ -332,6 +411,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       activeTeam: null,
       sessions: [] as Session[],
       activeSession: null,
+      permissionQueue: [] as PermissionRequest[],
+      activePermission: null,
       sidebarCollapsed: false,
       activePanel: 'editor',
       loading: false,

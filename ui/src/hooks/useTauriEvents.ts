@@ -117,10 +117,8 @@ export function useTauriEvents() {
         const unlistenPermission = await tauri.events.onPermissionRequest((event) => {
           console.log('[Tauri Event] permission-request:', event)
 
-          // Store permission request in state for UI to handle
-          // This could be extended with a dedicated permission queue in the store
-          // For now, we'll just log it
-          // TODO: Add permission handling to appStore if needed
+          // Add permission request to the store's queue
+          store.addPermissionRequest(event)
         })
         unlistenFns.current.push(unlistenPermission)
 
