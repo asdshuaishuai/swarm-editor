@@ -12,8 +12,8 @@ use tokio::process::Command as TokioCommand;
 // ============================================================================
 
 mod acp;
-mod swarm;
 mod events;
+mod swarm;
 
 // ============================================================================
 // 类型定义 - 与 Go 后端配置格式对齐
@@ -126,11 +126,21 @@ pub struct DefaultSwarmSettings {
     pub max_retries: i32,
 }
 
-fn default_topology() -> String { "star".to_string() }
-fn default_strategy() -> String { "parallel".to_string() }
-fn default_consensus() -> f64 { 0.6 }
-fn default_timeout() -> i32 { 300 }
-fn default_retries() -> i32 { 3 }
+fn default_topology() -> String {
+    "star".to_string()
+}
+fn default_strategy() -> String {
+    "parallel".to_string()
+}
+fn default_consensus() -> f64 {
+    0.6
+}
+fn default_timeout() -> i32 {
+    300
+}
+fn default_retries() -> i32 {
+    3
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -145,8 +155,12 @@ pub struct Config {
     pub default_swarm_config: Option<DefaultSwarmSettings>,
 }
 
-fn default_max_connections() -> i32 { 10 }
-fn default_connect_timeout() -> i32 { 30 }
+fn default_max_connections() -> i32 {
+    10
+}
+fn default_connect_timeout() -> i32 {
+    30
+}
 
 // ============================================================================
 // 前端 API 类型
@@ -326,11 +340,17 @@ impl SwarmManager {
         }
     }
 
-    pub fn create_swarm(&self, request: SwarmCreateRequest, agents: &[AgentInfo]) -> Result<SwarmInfo, String> {
+    pub fn create_swarm(
+        &self,
+        request: SwarmCreateRequest,
+        agents: &[AgentInfo],
+    ) -> Result<SwarmInfo, String> {
         let id = format!("swarm-{}", chrono::Utc::now().timestamp_millis());
 
         // 验证 Agent 存在
-        let valid_agents: Vec<String> = request.agent_ids.iter()
+        let valid_agents: Vec<String> = request
+            .agent_ids
+            .iter()
             .filter(|id| agents.iter().any(|a| &a.id == *id))
             .cloned()
             .collect();
@@ -340,10 +360,10 @@ impl SwarmManager {
         }
 
         // 找到可用的协调者
-        let coordinator_id = agents.iter()
+        let coordinator_id = agents
+            .iter()
             .find(|a| {
-                valid_agents.contains(&a.id) &&
-                a.capabilities.contains(&"coordinator".to_string())
+                valid_agents.contains(&a.id) && a.capabilities.contains(&"coordinator".to_string())
             })
             .map(|a| a.id.clone());
 
@@ -389,7 +409,8 @@ impl SwarmManager {
 
     pub fn start_swarm(&self, id: &str) -> Result<SwarmInfo, String> {
         let mut swarms = self.swarms.lock().unwrap();
-        let state = swarms.get_mut(id)
+        let state = swarms
+            .get_mut(id)
             .ok_or_else(|| format!("Swarm not found: {}", id))?;
 
         state.info.state = "active".to_string();
@@ -398,7 +419,8 @@ impl SwarmManager {
 
     pub fn stop_swarm(&self, id: &str) -> Result<SwarmInfo, String> {
         let mut swarms = self.swarms.lock().unwrap();
-        let state = swarms.get_mut(id)
+        let state = swarms
+            .get_mut(id)
             .ok_or_else(|| format!("Swarm not found: {}", id))?;
 
         state.info.state = "stopped".to_string();
@@ -407,14 +429,16 @@ impl SwarmManager {
 
     pub fn delete_swarm(&self, id: &str) -> Result<(), String> {
         let mut swarms = self.swarms.lock().unwrap();
-        swarms.remove(id)
+        swarms
+            .remove(id)
             .ok_or_else(|| format!("Swarm not found: {}", id))?;
         Ok(())
     }
 
     pub fn submit_task(&self, request: SwarmTaskRequest) -> Result<String, String> {
         let mut swarms = self.swarms.lock().unwrap();
-        let state = swarms.get_mut(&request.swarm_id)
+        let state = swarms
+            .get_mut(&request.swarm_id)
             .ok_or_else(|| format!("Swarm not found: {}", request.swarm_id))?;
 
         let task_id = format!("task-{}", chrono::Utc::now().timestamp_millis());
@@ -456,15 +480,13 @@ fn load_config() -> Config {
     }
 
     match fs::read_to_string(&config_path) {
-        Ok(content) => {
-            match serde_json::from_str(&content) {
-                Ok(config) => config,
-                Err(e) => {
-                    log::warn!("Failed to parse config: {}, using default", e);
-                    create_default_config()
-                }
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(config) => config,
+            Err(e) => {
+                log::warn!("Failed to parse config: {}, using default", e);
+                create_default_config()
             }
-        }
+        },
         Err(e) => {
             log::warn!("Failed to read config: {}, using default", e);
             create_default_config()
@@ -475,7 +497,7 @@ fn load_config() -> Config {
 /// 保存配置
 fn save_config(config: &Config) -> Result<(), String> {
     let config_path = get_agents_config_path();
-    
+
     // 确保目录存在
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent)
@@ -485,88 +507,105 @@ fn save_config(config: &Config) -> Result<(), String> {
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))
+    fs::write(&config_path, content).map_err(|e| format!("Failed to write config: {}", e))
 }
 
 /// 创建默认配置
 fn create_default_config() -> Config {
     let mut agents = HashMap::new();
-    
-    agents.insert("claude-code".to_string(), AgentConfig {
-        id: "claude-code".to_string(),
-        name: "Claude Code".to_string(),
-        description: Some("Claude-powered coding assistant".to_string()),
-        enabled: true,
-        command: "claude".to_string(),
-        args: vec!["acp".to_string()],
-        env: HashMap::from([
-            ("ANTHROPIC_API_KEY".to_string(), "${ANTHROPIC_API_KEY}".to_string()),
-        ]),
-        mcp_settings: MCPSettings {
-            use_custom_mcp: true,
-            use_editor_mcp: true,
-            ..Default::default()
-        },
-        swarm_config: Some(AgentSwarmConfig {
-            can_be_coordinator: true,
-            can_be_worker: true,
-            preferred_roles: vec!["coder".to_string(), "architect".to_string()],
-            max_concurrent: Some(3),
-            priority: Some(10),
-        }),
-        tags: vec!["primary".to_string(), "coding".to_string()],
-        timeout: Some(300),
-        ..Default::default()
-    });
 
-    agents.insert("code-reviewer".to_string(), AgentConfig {
-        id: "code-reviewer".to_string(),
-        name: "Code Reviewer".to_string(),
-        description: Some("Specialized code review agent".to_string()),
-        enabled: true,
-        command: "claude".to_string(),
-        args: vec!["acp".to_string(), "--role".to_string(), "reviewer".to_string()],
-        env: HashMap::new(),
-        mcp_settings: MCPSettings {
-            use_custom_mcp: true,
+    agents.insert(
+        "claude-code".to_string(),
+        AgentConfig {
+            id: "claude-code".to_string(),
+            name: "Claude Code".to_string(),
+            description: Some("Claude-powered coding assistant".to_string()),
+            enabled: true,
+            command: "claude".to_string(),
+            args: vec!["acp".to_string()],
+            env: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_string(),
+                "${ANTHROPIC_API_KEY}".to_string(),
+            )]),
+            mcp_settings: MCPSettings {
+                use_custom_mcp: true,
+                use_editor_mcp: true,
+                ..Default::default()
+            },
+            swarm_config: Some(AgentSwarmConfig {
+                can_be_coordinator: true,
+                can_be_worker: true,
+                preferred_roles: vec!["coder".to_string(), "architect".to_string()],
+                max_concurrent: Some(3),
+                priority: Some(10),
+            }),
+            tags: vec!["primary".to_string(), "coding".to_string()],
+            timeout: Some(300),
             ..Default::default()
         },
-        swarm_config: Some(AgentSwarmConfig {
-            can_be_coordinator: false,
-            can_be_worker: true,
-            preferred_roles: vec!["reviewer".to_string()],
-            max_concurrent: Some(5),
-            priority: Some(8),
-        }),
-        tags: vec!["review".to_string(), "quality".to_string()],
-        timeout: Some(120),
-        ..Default::default()
-    });
+    );
 
-    agents.insert("test-generator".to_string(), AgentConfig {
-        id: "test-generator".to_string(),
-        name: "Test Generator".to_string(),
-        description: Some("Automated test generation agent".to_string()),
-        enabled: true,
-        command: "claude".to_string(),
-        args: vec!["acp".to_string(), "--role".to_string(), "tester".to_string()],
-        env: HashMap::new(),
-        mcp_settings: MCPSettings {
-            use_custom_mcp: true,
+    agents.insert(
+        "code-reviewer".to_string(),
+        AgentConfig {
+            id: "code-reviewer".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: Some("Specialized code review agent".to_string()),
+            enabled: true,
+            command: "claude".to_string(),
+            args: vec![
+                "acp".to_string(),
+                "--role".to_string(),
+                "reviewer".to_string(),
+            ],
+            env: HashMap::new(),
+            mcp_settings: MCPSettings {
+                use_custom_mcp: true,
+                ..Default::default()
+            },
+            swarm_config: Some(AgentSwarmConfig {
+                can_be_coordinator: false,
+                can_be_worker: true,
+                preferred_roles: vec!["reviewer".to_string()],
+                max_concurrent: Some(5),
+                priority: Some(8),
+            }),
+            tags: vec!["review".to_string(), "quality".to_string()],
+            timeout: Some(120),
             ..Default::default()
         },
-        swarm_config: Some(AgentSwarmConfig {
-            can_be_coordinator: false,
-            can_be_worker: true,
-            preferred_roles: vec!["tester".to_string()],
-            max_concurrent: Some(2),
-            priority: Some(6),
-        }),
-        tags: vec!["testing".to_string(), "automation".to_string()],
-        timeout: Some(180),
-        ..Default::default()
-    });
+    );
+
+    agents.insert(
+        "test-generator".to_string(),
+        AgentConfig {
+            id: "test-generator".to_string(),
+            name: "Test Generator".to_string(),
+            description: Some("Automated test generation agent".to_string()),
+            enabled: true,
+            command: "claude".to_string(),
+            args: vec![
+                "acp".to_string(),
+                "--role".to_string(),
+                "tester".to_string(),
+            ],
+            env: HashMap::new(),
+            mcp_settings: MCPSettings {
+                use_custom_mcp: true,
+                ..Default::default()
+            },
+            swarm_config: Some(AgentSwarmConfig {
+                can_be_coordinator: false,
+                can_be_worker: true,
+                preferred_roles: vec!["tester".to_string()],
+                max_concurrent: Some(2),
+                priority: Some(6),
+            }),
+            tags: vec!["testing".to_string(), "automation".to_string()],
+            timeout: Some(180),
+            ..Default::default()
+        },
+    );
 
     Config {
         default_mcp_settings: MCPSettings {
@@ -590,10 +629,7 @@ fn create_default_config() -> Config {
 /// 检测 Agent 进程是否运行中
 fn check_agent_process_status(command: &str) -> (String, Option<u32>) {
     // 使用 pgrep 查找进程
-    let output = StdCommand::new("pgrep")
-        .arg("-f")
-        .arg(command)
-        .output();
+    let output = StdCommand::new("pgrep").arg("-f").arg(command).output();
 
     match output {
         Ok(o) if !o.stdout.is_empty() => {
@@ -614,7 +650,7 @@ fn check_agent_process_status(command: &str) -> (String, Option<u32>) {
 /// 将 AgentConfig 转换为 AgentInfo
 fn config_to_info(config: &AgentConfig) -> AgentInfo {
     let (status, pid) = check_agent_process_status(&config.command);
-    
+
     // 构建能力列表
     let mut capabilities = Vec::new();
     if let Some(ref caps) = config.expected_capabilities {
@@ -628,7 +664,7 @@ fn config_to_info(config: &AgentConfig) -> AgentInfo {
             capabilities.push("team_collaboration".to_string());
         }
     }
-    
+
     // 从 swarm 配置添加角色
     if let Some(ref swarm) = config.swarm_config {
         for role in &swarm.preferred_roles {
@@ -656,7 +692,8 @@ fn config_to_info(config: &AgentConfig) -> AgentInfo {
     AgentInfo {
         id: config.id.clone(),
         name: config.name.clone(),
-        agent_type: config.swarm_config
+        agent_type: config
+            .swarm_config
             .as_ref()
             .and_then(|s| s.preferred_roles.first().cloned())
             .unwrap_or_else(|| "agent".to_string()),
@@ -673,7 +710,9 @@ fn config_to_info(config: &AgentConfig) -> AgentInfo {
 /// 扫描所有 Agent 并返回状态
 fn scan_agents() -> Vec<AgentInfo> {
     let config = load_config();
-    config.agents.values()
+    config
+        .agents
+        .values()
         .filter(|a| a.enabled)
         .map(config_to_info)
         .collect()
@@ -715,12 +754,10 @@ fn list_directory(path: &str) -> Result<Vec<FileEntry>, String> {
         Err(e) => return Err(format!("Failed to read directory: {}", e)),
     }
 
-    entries.sort_by(|a, b| {
-        match (a.is_directory, b.is_directory) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     Ok(entries)
@@ -759,7 +796,9 @@ fn refresh_agents() -> Result<Vec<AgentInfo>, String> {
 #[tauri::command]
 async fn start_agent(id: String, app: tauri::AppHandle) -> Result<AgentInfo, String> {
     let config = load_config();
-    let agent_config = config.agents.get(&id)
+    let agent_config = config
+        .agents
+        .get(&id)
         .ok_or_else(|| format!("Agent not found: {}", id))?
         .clone();
 
@@ -778,7 +817,7 @@ async fn start_agent(id: String, app: tauri::AppHandle) -> Result<AgentInfo, Str
     for (key, value) in &agent_config.env {
         // 替换环境变量引用
         let resolved = if value.starts_with("${") && value.ends_with("}") {
-            let var_name = &value[2..value.len()-1];
+            let var_name = &value[2..value.len() - 1];
             std::env::var(var_name).unwrap_or_default()
         } else {
             value.clone()
@@ -789,7 +828,7 @@ async fn start_agent(id: String, app: tauri::AppHandle) -> Result<AgentInfo, Str
     // 启动进程
     let mut cmd = TokioCommand::new(&agent_config.command);
     cmd.args(&agent_config.args);
-    
+
     for (key, value) in &envs {
         cmd.env(key, value);
     }
@@ -807,7 +846,7 @@ async fn start_agent(id: String, app: tauri::AppHandle) -> Result<AgentInfo, Str
         Ok(child) => {
             let pid = child.id();
             log::info!("Started agent {} with PID {:?}", id, pid);
-            
+
             let mut info = config_to_info(&agent_config);
             info.status = "running".to_string();
             info.pid = pid;
@@ -825,13 +864,15 @@ async fn start_agent(id: String, app: tauri::AppHandle) -> Result<AgentInfo, Str
 #[tauri::command]
 async fn stop_agent(id: String) -> Result<AgentInfo, String> {
     let config = load_config();
-    let agent_config = config.agents.get(&id)
+    let agent_config = config
+        .agents
+        .get(&id)
         .ok_or_else(|| format!("Agent not found: {}", id))?
         .clone();
 
     // 检查进程状态
     let (status, pid) = check_agent_process_status(&agent_config.command);
-    
+
     if status != "running" {
         let mut info = config_to_info(&agent_config);
         info.status = "stopped".to_string();
@@ -871,7 +912,9 @@ async fn stop_agent(id: String) -> Result<AgentInfo, String> {
 #[tauri::command]
 fn get_agent(id: String) -> Result<AgentInfo, String> {
     let config = load_config();
-    let agent_config = config.agents.get(&id)
+    let agent_config = config
+        .agents
+        .get(&id)
         .ok_or_else(|| format!("Agent not found: {}", id))?;
     Ok(config_to_info(agent_config))
 }
@@ -884,14 +927,14 @@ fn add_agent(config: AgentConfig) -> Result<AgentInfo, String> {
     }
 
     let mut full_config = load_config();
-    
+
     if full_config.agents.contains_key(&config.id) {
         return Err(format!("Agent {} already exists", config.id));
     }
 
     let info = config_to_info(&config);
     full_config.agents.insert(config.id.clone(), config);
-    
+
     save_config(&full_config)?;
     Ok(info)
 }
@@ -904,14 +947,14 @@ fn update_agent(config: AgentConfig) -> Result<AgentInfo, String> {
     }
 
     let mut full_config = load_config();
-    
+
     if !full_config.agents.contains_key(&config.id) {
         return Err(format!("Agent {} not found", config.id));
     }
 
     let info = config_to_info(&config);
     full_config.agents.insert(config.id.clone(), config);
-    
+
     save_config(&full_config)?;
     Ok(info)
 }
@@ -920,11 +963,11 @@ fn update_agent(config: AgentConfig) -> Result<AgentInfo, String> {
 #[tauri::command]
 fn delete_agent(id: String) -> Result<(), String> {
     let mut config = load_config();
-    
+
     if config.agents.remove(&id).is_none() {
         return Err(format!("Agent {} not found", id));
     }
-    
+
     save_config(&config)
 }
 
@@ -1073,7 +1116,10 @@ async fn create_swarm(
                 });
             }
             Err(e) => {
-                log::warn!("Go backend create_swarm failed: {}, falling back to local", e);
+                log::warn!(
+                    "Go backend create_swarm failed: {}, falling back to local",
+                    e
+                );
             }
         }
     }
@@ -1091,8 +1137,12 @@ fn get_swarms(swarm_manager: tauri::State<'_, SwarmManager>) -> Result<Vec<Swarm
 
 /// 获取单个蜂群
 #[tauri::command]
-fn get_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) -> Result<SwarmInfo, String> {
-    swarm_manager.get_swarm(&id)
+fn get_swarm(
+    id: String,
+    swarm_manager: tauri::State<'_, SwarmManager>,
+) -> Result<SwarmInfo, String> {
+    swarm_manager
+        .get_swarm(&id)
         .ok_or_else(|| format!("Swarm not found: {}", id))
 }
 
@@ -1110,7 +1160,10 @@ async fn start_swarm(
                 log::info!("Started swarm {} via Go backend", id);
             }
             Err(e) => {
-                log::warn!("Go backend start_swarm failed: {}, falling back to local", e);
+                log::warn!(
+                    "Go backend start_swarm failed: {}, falling back to local",
+                    e
+                );
             }
         }
     }
@@ -1119,7 +1172,8 @@ async fn start_swarm(
     let config = load_config();
     let agents_to_start: Vec<String> = {
         let swarms = swarm_manager.swarms.lock().unwrap();
-        swarms.get(&id)
+        swarms
+            .get(&id)
             .map(|s| s.info.agents.clone())
             .unwrap_or_default()
     };
@@ -1134,7 +1188,7 @@ async fn start_swarm(
 
                 for (key, value) in &agent_config.env {
                     let resolved = if value.starts_with("${") && value.ends_with("}") {
-                        let var_name = &value[2..value.len()-1];
+                        let var_name = &value[2..value.len() - 1];
                         std::env::var(var_name).unwrap_or_default()
                     } else {
                         value.clone()
@@ -1209,7 +1263,10 @@ async fn submit_swarm_task(
                 return Ok(info.id);
             }
             Err(e) => {
-                log::warn!("Go backend submit_task failed: {}, falling back to local", e);
+                log::warn!(
+                    "Go backend submit_task failed: {}, falling back to local",
+                    e
+                );
             }
         }
     }
@@ -1256,11 +1313,13 @@ async fn execute_swarm_task(
 
     // 本地回退实现
     log::info!("Using local fallback for task execution");
-    let swarm_info = swarm_manager.get_swarm(&swarm_id)
+    let swarm_info = swarm_manager
+        .get_swarm(&swarm_id)
         .ok_or_else(|| format!("Swarm not found: {}", swarm_id))?;
 
     let agents = scan_agents();
-    let available_agents: Vec<AgentInfo> = agents.into_iter()
+    let available_agents: Vec<AgentInfo> = agents
+        .into_iter()
         .filter(|a| swarm_info.agents.contains(&a.id) && a.status == "running")
         .collect();
 
@@ -1280,12 +1339,15 @@ async fn execute_swarm_task(
         agent_results: {
             let mut results = HashMap::new();
             for agent in &available_agents {
-                results.insert(agent.id.clone(), AgentTaskResult {
-                    agent_id: agent.id.clone(),
-                    content: format!("Task processed by {}", agent.name),
-                    success: true,
-                    duration_ms: 100,
-                });
+                results.insert(
+                    agent.id.clone(),
+                    AgentTaskResult {
+                        agent_id: agent.id.clone(),
+                        content: format!("Task processed by {}", agent.name),
+                        success: true,
+                        duration_ms: 100,
+                    },
+                );
             }
             results
         },
@@ -1307,7 +1369,9 @@ async fn execute_swarm_task(
 
 /// 检查后端连接状态
 #[tauri::command]
-fn get_backend_status(swarm_bridge: tauri::State<'_, swarm::SwarmBridge>) -> Result<serde_json::Value, String> {
+fn get_backend_status(
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "connected": swarm_bridge.is_connected(),
         "backendType": "go"
@@ -1372,24 +1436,27 @@ pub fn run() {
 
                         // Set up notification handler to emit events to frontend
                         let app_handle_clone = app_handle.clone();
-                        state.set_notification_handler(move |method, params| {
-                            log::info!("Notification from Go backend: {} {:?}", method, params);
+                        state
+                            .set_notification_handler(move |method, params| {
+                                log::info!("Notification from Go backend: {} {:?}", method, params);
 
-                            // Emit event to frontend based on notification type
-                            if let Some(params_value) = params {
-                                let event_name = match method {
-                                    "swarm/task_update" => "swarm-task-update",
-                                    "swarm/status_change" => "swarm-status-change",
-                                    "agent/status_change" => "agent-status-change",
-                                    "permission/request" => "permission-request",
-                                    _ => "backend-notification",
-                                };
+                                // Emit event to frontend based on notification type
+                                if let Some(params_value) = params {
+                                    let event_name = match method {
+                                        "swarm/task_update" => "swarm-task-update",
+                                        "swarm/status_change" => "swarm-status-change",
+                                        "agent/status_change" => "agent-status-change",
+                                        "permission/request" => "permission-request",
+                                        _ => "backend-notification",
+                                    };
 
-                                if let Err(e) = app_handle_clone.emit(event_name, params_value) {
-                                    log::error!("Failed to emit event {}: {}", event_name, e);
+                                    if let Err(e) = app_handle_clone.emit(event_name, params_value)
+                                    {
+                                        log::error!("Failed to emit event {}: {}", event_name, e);
+                                    }
                                 }
-                            }
-                        }).await;
+                            })
+                            .await;
                     }
                     Err(e) => log::error!("Failed to connect to Go backend: {}", e),
                 }

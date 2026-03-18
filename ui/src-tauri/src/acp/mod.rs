@@ -87,7 +87,8 @@ impl Client {
         let transport_clone = Arc::clone(&transport);
         let pending_clone = Arc::clone(&pending);
         let connected_clone = Arc::clone(&connected);
-        let notification_handler: Arc<Mutex<Option<NotificationHandler>>> = Arc::new(Mutex::new(None));
+        let notification_handler: Arc<Mutex<Option<NotificationHandler>>> =
+            Arc::new(Mutex::new(None));
         let notification_handler_clone = Arc::clone(&notification_handler);
 
         tokio::spawn(async move {
@@ -106,7 +107,12 @@ impl Client {
                 {
                     Ok(Ok(msg)) => {
                         // Handle received message
-                        Self::handle_incoming_message(msg, &pending_clone, &notification_handler_clone).await;
+                        Self::handle_incoming_message(
+                            msg,
+                            &pending_clone,
+                            &notification_handler_clone,
+                        )
+                        .await;
                     }
                     Ok(Err(e)) => {
                         log::error!("Transport error: {}", e);
@@ -146,9 +152,7 @@ impl Client {
         // Get the request ID
         let id = match &msg.id {
             Some(RequestId::Number(n)) => *n as u64,
-            Some(RequestId::String(s)) => {
-                s.parse::<u64>().unwrap_or(0)
-            }
+            Some(RequestId::String(s)) => s.parse::<u64>().unwrap_or(0),
             None => {
                 // Notification - no ID, call notification handler
                 if let Some(method) = &msg.method {
@@ -253,12 +257,7 @@ impl Client {
         }
 
         // Wait for response with timeout
-        let result = match tokio::time::timeout(
-            tokio::time::Duration::from_secs(60),
-            rx,
-        )
-        .await
-        {
+        let result = match tokio::time::timeout(tokio::time::Duration::from_secs(60), rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
                 return Err(ClientError::Cancelled);
@@ -318,35 +317,57 @@ impl Client {
     }
 
     /// Create a new session
-    pub async fn session_new(&self, params: SessionNewParams) -> Result<SessionNewResult, ClientError> {
+    pub async fn session_new(
+        &self,
+        params: SessionNewParams,
+    ) -> Result<SessionNewResult, ClientError> {
         self.request("session/new", params).await
     }
 
     /// Load an existing session
     pub async fn session_load(&self, session_id: &str) -> Result<Value, ClientError> {
-        self.request("session/load", serde_json::json!({
-            "sessionId": session_id
-        })).await
+        self.request(
+            "session/load",
+            serde_json::json!({
+                "sessionId": session_id
+            }),
+        )
+        .await
     }
 
     /// Send a prompt to a session
-    pub async fn session_prompt(&self, params: SessionPromptParams) -> Result<SessionPromptResult, ClientError> {
+    pub async fn session_prompt(
+        &self,
+        params: SessionPromptParams,
+    ) -> Result<SessionPromptResult, ClientError> {
         self.request("session/prompt", params).await
     }
 
     /// Cancel an ongoing prompt turn
     pub async fn session_cancel(&self, session_id: &str) -> Result<(), ClientError> {
-        self.request("session/cancel", serde_json::json!({
-            "sessionId": session_id
-        })).await
+        self.request(
+            "session/cancel",
+            serde_json::json!({
+                "sessionId": session_id
+            }),
+        )
+        .await
     }
 
     /// Set session mode
-    pub async fn session_set_mode(&self, session_id: &str, mode: SessionMode) -> Result<(), ClientError> {
-        self.request("session/setMode", serde_json::json!({
-            "sessionId": session_id,
-            "mode": mode
-        })).await
+    pub async fn session_set_mode(
+        &self,
+        session_id: &str,
+        mode: SessionMode,
+    ) -> Result<(), ClientError> {
+        self.request(
+            "session/setMode",
+            serde_json::json!({
+                "sessionId": session_id,
+                "mode": mode
+            }),
+        )
+        .await
     }
 
     /// Respond to a permission request
@@ -356,15 +377,22 @@ impl Client {
         tool_call_id: &str,
         outcome: &PermissionOutcome,
     ) -> Result<(), ClientError> {
-        self.request("session/respondPermission", serde_json::json!({
-            "sessionId": session_id,
-            "toolCallId": tool_call_id,
-            "outcome": outcome
-        })).await
+        self.request(
+            "session/respondPermission",
+            serde_json::json!({
+                "sessionId": session_id,
+                "toolCallId": tool_call_id,
+                "outcome": outcome
+            }),
+        )
+        .await
     }
 
     /// Report an update to the agent (notification)
-    pub async fn session_report_update(&self, params: SessionUpdateParams) -> Result<(), ClientError> {
+    pub async fn session_report_update(
+        &self,
+        params: SessionUpdateParams,
+    ) -> Result<(), ClientError> {
         self.notify("session/reportUpdate", params).await
     }
 

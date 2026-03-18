@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api, mockApi, isTauriEnv, agentApi } from './index'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { api, mockApi, isTauriEnv, agentApi, swarmApi, fsApi, executeApi } from './index'
 
 // Mock Tauri invoke
 const mockInvoke = vi.fn()
@@ -272,11 +272,75 @@ describe('api (non-Tauri environment)', () => {
 })
 
 describe('api (Tauri environment simulation)', () => {
-  // These tests simulate Tauri environment by mocking isTauriEnv
-  // The actual invoke calls are mocked and return test data
+  // These tests simulate Tauri environment by setting window.__TAURI__
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Set up Tauri environment
+    Object.defineProperty(window, '__TAURI__', { value: {}, writable: true, configurable: true })
+  })
+
+  afterEach(() => {
+    // Clean up Tauri environment
+    delete (window as unknown as Record<string, unknown>).__TAURI__
+  })
+
+  it('calls invoke for getAgents in Tauri env', async () => {
+    const mockAgents = [
+      { id: 'agent-1', name: 'Test Agent', status: 'stopped' },
+    ]
+    mockInvoke.mockResolvedValueOnce(mockAgents)
+
+    const result = await agentApi.getAgents()
+    expect(mockInvoke).toHaveBeenCalledWith('get_agents')
+    expect(result).toEqual(mockAgents)
+  })
+
+  it('calls invoke for refreshAgents in Tauri env', async () => {
+    const mockAgents = [
+      { id: 'agent-1', name: 'Test Agent', status: 'stopped' },
+    ]
+    mockInvoke.mockResolvedValueOnce(mockAgents)
+
+    const result = await agentApi.refreshAgents()
+    expect(mockInvoke).toHaveBeenCalledWith('refresh_agents')
+    expect(result).toEqual(mockAgents)
+  })
+
+  it('calls invoke for getAgent in Tauri env', async () => {
+    const mockSwarm = {
+      id: 'swarm-1',
+      name: 'Test Swarm',
+      topology: 'star',
+      strategy: 'parallel',
+      state: 'active',
+      agents: ['agent-1'],
+      stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0 },
+      createdAt: '2024-01-01T00:00:00Z',
+    }
+    mockInvoke.mockResolvedValueOnce(mockSwarm)
+
+    const result = await swarmApi.getSwarm('swarm-1')
+    expect(mockInvoke).toHaveBeenCalledWith('get_swarm', { id: 'swarm-1' })
+    expect(result).toEqual(mockSwarm)
+  })
+
+  it('calls invoke for startSwarm in Tauri env', async () => {
+    const mockSwarm = {
+      id: 'swarm-1',
+      name: 'Test Swarm',
+      topology: 'star',
+      strategy: 'parallel',
+      state: 'active',
+      agents: ['agent-1'],
+      stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0 },
+      createdAt: '2024-01-01T00:00:00Z',
+    }
+    mockInvoke.mockResolvedValueOnce(mockSwarm)
+
+    const result = await swarmApi.startSwarm('swarm-1')
+    expect(mockInvoke).toHaveBeenCalledWith('start_swarm', { id: 'swarm-1' })
+    expect(result).toEqual(mockSwarm)
   })
 
   it('calls invoke for stopSwarm in Tauri env', async () => {
@@ -292,8 +356,7 @@ describe('api (Tauri environment simulation)', () => {
     }
     mockInvoke.mockResolvedValueOnce(mockSwarm)
 
-    // Directly call the invoke path (simulating Tauri env)
-    const result = await mockInvoke('stop_swarm', { id: 'swarm-1' })
+    const result = await swarmApi.stopSwarm('swarm-1')
     expect(mockInvoke).toHaveBeenCalledWith('stop_swarm', { id: 'swarm-1' })
     expect(result).toEqual(mockSwarm)
   })
@@ -301,15 +364,25 @@ describe('api (Tauri environment simulation)', () => {
   it('calls invoke for deleteSwarm in Tauri env', async () => {
     mockInvoke.mockResolvedValueOnce(undefined)
 
-    await mockInvoke('delete_swarm', { id: 'swarm-1' })
+    await swarmApi.deleteSwarm('swarm-1')
     expect(mockInvoke).toHaveBeenCalledWith('delete_swarm', { id: 'swarm-1' })
   })
 
   it('calls invoke for submitTask in Tauri env', async () => {
     mockInvoke.mockResolvedValueOnce('task-123')
 
-    const result = await mockInvoke('submit_swarm_task', { request: { swarmId: 'swarm-1', title: 'Test', prompt: 'test' } })
-    expect(mockInvoke).toHaveBeenCalledWith('submit_swarm_task', { request: { swarmId: 'swarm-1', title: 'Test', prompt: 'test' } })
+    const result = await swarmApi.submitTask({
+      swarmId: 'swarm-1',
+      title: 'Test',
+      prompt: 'test',
+    })
+    expect(mockInvoke).toHaveBeenCalledWith('submit_swarm_task', {
+      request: {
+        swarmId: 'swarm-1',
+        title: 'Test',
+        prompt: 'test',
+      },
+    })
     expect(result).toBe('task-123')
   })
 
@@ -322,8 +395,168 @@ describe('api (Tauri environment simulation)', () => {
     }
     mockInvoke.mockResolvedValueOnce(mockResult)
 
-    const result = await mockInvoke('execute_swarm_task', { swarmId: 'swarm-1', taskId: 'task-1' })
+    const result = await swarmApi.executeTask('swarm-1', 'task-1')
     expect(mockInvoke).toHaveBeenCalledWith('execute_swarm_task', { swarmId: 'swarm-1', taskId: 'task-1' })
     expect(result).toEqual(mockResult)
+  })
+
+  it('calls invoke for readFile in Tauri env', async () => {
+    mockInvoke.mockResolvedValueOnce('file content')
+
+    const result = await fsApi.readFile('/test/file.ts')
+    expect(mockInvoke).toHaveBeenCalledWith('read_file', { path: '/test/file.ts' })
+    expect(result).toBe('file content')
+  })
+
+  it('calls invoke for getWorkspace in Tauri env', async () => {
+    mockInvoke.mockResolvedValueOnce('/home/user/project')
+
+    const result = await fsApi.getWorkspace()
+    expect(mockInvoke).toHaveBeenCalledWith('get_workspace')
+    expect(result).toBe('/home/user/project')
+  })
+
+  it('calls invoke for executeCode in Tauri env', async () => {
+    const mockResult = { success: true, output: 'executed' }
+    mockInvoke.mockResolvedValueOnce(mockResult)
+
+    const result = await executeApi.executeCode('/test/file.ts', 'code', 'typescript')
+    expect(mockInvoke).toHaveBeenCalledWith('execute_code', {
+      filePath: '/test/file.ts',
+      content: 'code',
+      language: 'typescript',
+      agentId: undefined,
+    })
+    expect(result).toEqual(mockResult)
+  })
+
+  it('calls invoke for createSwarm in Tauri env', async () => {
+    const mockSwarm = {
+      id: 'swarm-1',
+      name: 'Test Swarm',
+      topology: 'star',
+      strategy: 'parallel',
+      state: 'stopped',
+      agents: ['agent-1'],
+      stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0 },
+      createdAt: '2024-01-01T00:00:00Z',
+    }
+    mockInvoke.mockResolvedValueOnce(mockSwarm)
+
+    const result = await swarmApi.createSwarm({
+      name: 'Test',
+      topology: 'star',
+      strategy: 'parallel',
+      agentIds: ['agent-1'],
+    })
+    expect(mockInvoke).toHaveBeenCalledWith('create_swarm', {
+      request: {
+        name: 'Test',
+        topology: 'star',
+        strategy: 'parallel',
+        agentIds: ['agent-1'],
+      },
+    })
+    expect(result).toEqual(mockSwarm)
+  })
+
+  it('calls invoke for getSwarms in Tauri env', async () => {
+    const mockSwarms = [
+      {
+        id: 'swarm-1',
+        name: 'Test Swarm',
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'active',
+        agents: ['agent-1'],
+        stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0 },
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+    ]
+    mockInvoke.mockResolvedValueOnce(mockSwarms)
+
+    const result = await swarmApi.getSwarms()
+    expect(mockInvoke).toHaveBeenCalledWith('get_swarms')
+    expect(result).toEqual(mockSwarms)
+  })
+
+  it('calls invoke for listDir in Tauri env', async () => {
+    const mockEntries = [{ name: 'file.ts', path: '/test/file.ts', isDirectory: false }]
+    mockInvoke.mockResolvedValueOnce(mockEntries)
+
+    const result = await fsApi.listDir('/test')
+    expect(mockInvoke).toHaveBeenCalledWith('list_dir', { path: '/test' })
+    expect(result).toEqual(mockEntries)
+  })
+
+  it('calls invoke for updateAgent in Tauri env', async () => {
+    const mockAgent = { id: 'agent-1', name: 'Test', status: 'stopped' }
+    mockInvoke.mockResolvedValueOnce(mockAgent)
+
+    const result = await agentApi.updateAgent({ id: 'agent-1', name: 'Test', enabled: true, command: 'test' })
+    expect(mockInvoke).toHaveBeenCalledWith('update_agent', {
+      config: { id: 'agent-1', name: 'Test', enabled: true, command: 'test' },
+    })
+    expect(result).toEqual(mockAgent)
+  })
+
+  it('calls invoke for deleteAgent in Tauri env', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined)
+
+    await agentApi.deleteAgent('agent-1')
+    expect(mockInvoke).toHaveBeenCalledWith('delete_agent', { id: 'agent-1' })
+  })
+
+  it('calls invoke for getConfigPath in Tauri env', async () => {
+    mockInvoke.mockResolvedValueOnce('/custom/path/agents.json')
+
+    const result = await agentApi.getConfigPath()
+    expect(mockInvoke).toHaveBeenCalledWith('get_config_path')
+    expect(result).toBe('/custom/path/agents.json')
+  })
+
+  it('calls invoke for getAgent in Tauri env', async () => {
+    const mockAgent = { id: 'agent-1', name: 'Test Agent', status: 'stopped' }
+    mockInvoke.mockResolvedValueOnce(mockAgent)
+
+    const result = await agentApi.getAgent('agent-1')
+    expect(mockInvoke).toHaveBeenCalledWith('get_agent', { id: 'agent-1' })
+    expect(result).toEqual(mockAgent)
+  })
+
+  it('calls invoke for startAgent in Tauri env', async () => {
+    const mockAgent = { id: 'agent-1', name: 'Test Agent', status: 'running' }
+    mockInvoke.mockResolvedValueOnce(mockAgent)
+
+    const result = await agentApi.startAgent('agent-1')
+    expect(mockInvoke).toHaveBeenCalledWith('start_agent', { id: 'agent-1' })
+    expect(result).toEqual(mockAgent)
+  })
+
+  it('calls invoke for stopAgent in Tauri env', async () => {
+    const mockAgent = { id: 'agent-1', name: 'Test Agent', status: 'stopped' }
+    mockInvoke.mockResolvedValueOnce(mockAgent)
+
+    const result = await agentApi.stopAgent('agent-1')
+    expect(mockInvoke).toHaveBeenCalledWith('stop_agent', { id: 'agent-1' })
+    expect(result).toEqual(mockAgent)
+  })
+
+  it('calls invoke for addAgent in Tauri env', async () => {
+    const mockAgent = { id: 'agent-1', name: 'New Agent', status: 'stopped' }
+    mockInvoke.mockResolvedValueOnce(mockAgent)
+
+    const result = await agentApi.addAgent({ id: 'agent-1', name: 'New Agent', enabled: true, command: 'test' })
+    expect(mockInvoke).toHaveBeenCalledWith('add_agent', {
+      config: { id: 'agent-1', name: 'New Agent', enabled: true, command: 'test' },
+    })
+    expect(result).toEqual(mockAgent)
+  })
+
+  it('calls invoke for writeFile in Tauri env', async () => {
+    mockInvoke.mockResolvedValueOnce(undefined)
+
+    await fsApi.writeFile('/test/file.ts', 'content')
+    expect(mockInvoke).toHaveBeenCalledWith('write_file', { path: '/test/file.ts', content: 'content' })
   })
 })

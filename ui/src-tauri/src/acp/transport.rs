@@ -33,21 +33,19 @@ pub struct StdioTransport {
 impl StdioTransport {
     /// Create a new stdio transport from an existing child process
     pub fn from_child(child: &mut Child) -> Result<Self, TransportError> {
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| TransportError::IoError(std::io::Error::new(
+        let stdin = child.stdin.take().ok_or_else(|| {
+            TransportError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Failed to capture stdin",
-            )))?;
+            ))
+        })?;
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| TransportError::IoError(std::io::Error::new(
+        let stdout = child.stdout.take().ok_or_else(|| {
+            TransportError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Failed to capture stdout",
-            )))?;
+            ))
+        })?;
 
         Ok(Self {
             stdin: Mutex::new(stdin),
@@ -100,9 +98,7 @@ impl StdioTransport {
         }
 
         // Parse JSON message
-        let msg = serde_json::from_str(&line).map_err(|e| {
-            TransportError::SerializationError(e)
-        })?;
+        let msg = serde_json::from_str(&line).map_err(|e| TransportError::SerializationError(e))?;
 
         Ok(msg)
     }
@@ -130,9 +126,7 @@ pub async fn spawn_agent_process(
         cmd.env(key, value);
     }
 
-    let mut child = cmd.spawn().map_err(|e| {
-        TransportError::IoError(e)
-    })?;
+    let mut child = cmd.spawn().map_err(|e| TransportError::IoError(e))?;
 
     let transport = StdioTransport::from_child(&mut child)?;
 

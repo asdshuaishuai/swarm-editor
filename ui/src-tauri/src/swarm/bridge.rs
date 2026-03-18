@@ -4,19 +4,19 @@
 //! This replaces the mock implementations with real Go backend calls.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::acp::{Client, ClientBuilder, ClientError};
 use crate::acp::types::{
-    SwarmCreateParams, SwarmCreateResult, SwarmStartParams, SwarmStopParams,
-    SwarmSubmitTaskParams, SwarmSubmitTaskResult, SwarmExecuteTaskParams,
-    SwarmTaskResult, SwarmGetStatusParams, SwarmStatusResult,
+    SwarmCreateParams, SwarmCreateResult, SwarmExecuteTaskParams, SwarmGetStatusParams,
+    SwarmStartParams, SwarmStatusResult, SwarmStopParams, SwarmSubmitTaskParams,
+    SwarmSubmitTaskResult, SwarmTaskResult,
 };
+use crate::acp::{Client, ClientBuilder, ClientError};
 
 /// Swarm bridge errors
 #[derive(Error, Debug)]
@@ -268,9 +268,7 @@ impl SwarmBridge {
     /// Get the ACP client (internal helper)
     async fn get_client(&self) -> Result<Client, SwarmBridgeError> {
         let client_guard = self.client.lock().await;
-        client_guard
-            .clone()
-            .ok_or(SwarmBridgeError::NotConnected)
+        client_guard.clone().ok_or(SwarmBridgeError::NotConnected)
     }
 
     /// Create a new swarm
@@ -310,7 +308,9 @@ impl SwarmBridge {
             swarm_id: swarm_id.to_string(),
         };
 
-        client.request::<_, serde_json::Value>("swarm/start", params).await?;
+        client
+            .request::<_, serde_json::Value>("swarm/start", params)
+            .await?;
 
         log::info!("Started swarm: {}", swarm_id);
         Ok(())
@@ -324,7 +324,9 @@ impl SwarmBridge {
             swarm_id: swarm_id.to_string(),
         };
 
-        client.request::<_, serde_json::Value>("swarm/stop", params).await?;
+        client
+            .request::<_, serde_json::Value>("swarm/stop", params)
+            .await?;
 
         log::info!("Stopped swarm: {}", swarm_id);
         Ok(())

@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { tauri, isTauriEnv, agentApi, fsApi, executeApi } from './tauri'
+import { tauri, isTauriEnv, agentApi, fsApi, executeApi, eventApi } from './tauri'
 
 // Mock Tauri invoke
 const mockInvoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
+}))
+
+// Mock Tauri listen
+const mockUnlisten = vi.fn()
+const mockListen = vi.fn().mockResolvedValue(mockUnlisten)
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: (...args: unknown[]) => mockListen(...args),
 }))
 
 describe('isTauriEnv', () => {
@@ -144,5 +151,162 @@ describe('executeApi (Tauri invoke calls)', () => {
       agentId: 'agent-1',
     })
     expect(result).toEqual(mockResult)
+  })
+})
+
+describe('eventApi (Tauri event listeners)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('exports events API', () => {
+    expect(tauri.events).toBe(eventApi)
+  })
+
+  it('onSwarmTaskUpdate registers listener and returns unlisten function', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onSwarmTaskUpdate(handler)
+
+    expect(mockListen).toHaveBeenCalledWith('swarm-task-update', expect.any(Function))
+    expect(unlisten).toBe(mockUnlisten)
+  })
+
+  it('onSwarmTaskUpdate handler receives event payload', async () => {
+    const handler = vi.fn()
+    await eventApi.onSwarmTaskUpdate(handler)
+
+    // Get the callback passed to listen
+    const listenCallback = mockListen.mock.calls[0][1]
+    const mockEvent = {
+      payload: {
+        task_id: 'task-1',
+        swarm_id: 'swarm-1',
+        status: 'completed',
+        progress: 100,
+        agent_results: {},
+      },
+    }
+
+    // Simulate event being fired
+    listenCallback(mockEvent)
+
+    expect(handler).toHaveBeenCalledWith(mockEvent.payload)
+  })
+
+  it('onSwarmStatusChange registers listener and returns unlisten function', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onSwarmStatusChange(handler)
+
+    expect(mockListen).toHaveBeenCalledWith('swarm-status-change', expect.any(Function))
+    expect(unlisten).toBe(mockUnlisten)
+  })
+
+  it('onSwarmStatusChange handler receives event payload', async () => {
+    const handler = vi.fn()
+    await eventApi.onSwarmStatusChange(handler)
+
+    const listenCallback = mockListen.mock.calls[0][1]
+    const mockEvent = {
+      payload: {
+        swarm_id: 'swarm-1',
+        old_state: 'idle',
+        new_state: 'running',
+      },
+    }
+
+    listenCallback(mockEvent)
+
+    expect(handler).toHaveBeenCalledWith(mockEvent.payload)
+  })
+
+  it('onAgentStatusChange registers listener and returns unlisten function', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onAgentStatusChange(handler)
+
+    expect(mockListen).toHaveBeenCalledWith('agent-status-change', expect.any(Function))
+    expect(unlisten).toBe(mockUnlisten)
+  })
+
+  it('onAgentStatusChange handler receives event payload', async () => {
+    const handler = vi.fn()
+    await eventApi.onAgentStatusChange(handler)
+
+    const listenCallback = mockListen.mock.calls[0][1]
+    const mockEvent = {
+      payload: {
+        agent_id: 'agent-1',
+        status: 'running',
+        pid: 12345,
+      },
+    }
+
+    listenCallback(mockEvent)
+
+    expect(handler).toHaveBeenCalledWith(mockEvent.payload)
+  })
+
+  it('onPermissionRequest registers listener and returns unlisten function', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onPermissionRequest(handler)
+
+    expect(mockListen).toHaveBeenCalledWith('permission-request', expect.any(Function))
+    expect(unlisten).toBe(mockUnlisten)
+  })
+
+  it('onPermissionRequest handler receives event payload', async () => {
+    const handler = vi.fn()
+    await eventApi.onPermissionRequest(handler)
+
+    const listenCallback = mockListen.mock.calls[0][1]
+    const mockEvent = {
+      payload: {
+        request_id: 'perm-1',
+        session_id: 'session-1',
+        tool_call_id: 'tool-1',
+        tool_name: 'test-tool',
+        description: 'Test permission',
+        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+      },
+    }
+
+    listenCallback(mockEvent)
+
+    expect(handler).toHaveBeenCalledWith(mockEvent.payload)
+  })
+
+  it('onLog registers listener and returns unlisten function', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onLog(handler)
+
+    expect(mockListen).toHaveBeenCalledWith('log', expect.any(Function))
+    expect(unlisten).toBe(mockUnlisten)
+  })
+
+  it('onLog handler receives event payload', async () => {
+    const handler = vi.fn()
+    await eventApi.onLog(handler)
+
+    const listenCallback = mockListen.mock.calls[0][1]
+    const mockEvent = {
+      payload: {
+        level: 'info',
+        source: 'test',
+        message: 'Test log message',
+        timestamp: Date.now(),
+      },
+    }
+
+    listenCallback(mockEvent)
+
+    expect(handler).toHaveBeenCalledWith(mockEvent.payload)
+  })
+
+  it('unlisten function can be called to unsubscribe', async () => {
+    const handler = vi.fn()
+    const unlisten = await eventApi.onSwarmTaskUpdate(handler)
+
+    unlisten()
+
+    expect(mockUnlisten).toHaveBeenCalled()
   })
 })

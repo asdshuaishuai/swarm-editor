@@ -85,8 +85,8 @@ pub enum EventType {
 /// Helper to emit events via Tauri
 #[cfg(feature = "tauri")]
 pub mod emitter {
-    use tauri::{AppHandle, Emitter};
     use super::*;
+    use tauri::{AppHandle, Emitter};
 
     /// Emit a swarm task update event
     pub fn emit_task_update(app: &AppHandle, event: SwarmTaskUpdateEvent) {
