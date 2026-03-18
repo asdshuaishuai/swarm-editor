@@ -98,6 +98,39 @@ describe('appStore', () => {
       expect(state.agents[0].id).toBe('agent-1')
     })
 
+    it('handles agent without lastActive field', async () => {
+      // Agent missing lastActive - tests line 138 fallback
+      const mockAgents = [
+        { id: 'agent-1', name: 'Agent 1', status: 'stopped', type: 'coder', capabilities: [] },
+      ]
+      mockGetAgents.mockResolvedValueOnce(mockAgents)
+
+      await act(async () => {
+        await useAppStore.getState().initialize()
+      })
+
+      const state = useAppStore.getState()
+      expect(state.agents).toHaveLength(1)
+      expect(state.agents[0].lastActive).toBeDefined()
+    })
+
+    it('handles agent with unknown type and status', async () => {
+      // Unknown type and status - tests lines 121-122 fallbacks
+      const mockAgents = [
+        { id: 'agent-1', name: 'Agent 1', status: 'unknown_status', type: 'unknown_type', capabilities: [] },
+      ]
+      mockGetAgents.mockResolvedValueOnce(mockAgents)
+
+      await act(async () => {
+        await useAppStore.getState().initialize()
+      })
+
+      const state = useAppStore.getState()
+      expect(state.agents).toHaveLength(1)
+      expect(state.agents[0].type).toBe('coder') // fallback
+      expect(state.agents[0].state).toBe('idle') // fallback
+    })
+
     it('handles initialization errors gracefully', async () => {
       mockGetAgents.mockRejectedValueOnce(new Error('Network error'))
 
@@ -133,6 +166,42 @@ describe('appStore', () => {
       expect(state.teams).toHaveLength(1)
     })
 
+    it('loads persisted data with missing swarms array', async () => {
+      // Only teams, no swarms - tests line 149 fallback
+      const persistedState = {
+        teams: [{ id: 'team-1', name: 'Team' }],
+      }
+      localStorageMock.setItem('swarm-editor-state', JSON.stringify(persistedState))
+
+      mockGetAgents.mockResolvedValueOnce([])
+
+      await act(async () => {
+        await useAppStore.getState().initialize()
+      })
+
+      const state = useAppStore.getState()
+      expect(state.swarms).toHaveLength(0)
+      expect(state.teams).toHaveLength(1)
+    })
+
+    it('loads persisted data with missing teams array', async () => {
+      // Only swarms, no teams - tests line 150 fallback
+      const persistedState = {
+        swarms: [{ id: 'persisted-1', name: 'Persisted Swarm' }],
+      }
+      localStorageMock.setItem('swarm-editor-state', JSON.stringify(persistedState))
+
+      mockGetAgents.mockResolvedValueOnce([])
+
+      await act(async () => {
+        await useAppStore.getState().initialize()
+      })
+
+      const state = useAppStore.getState()
+      expect(state.swarms).toHaveLength(1)
+      expect(state.teams).toHaveLength(0)
+    })
+
     it('handles localStorage getItem error gracefully', async () => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
@@ -148,8 +217,8 @@ describe('appStore', () => {
         await useAppStore.getState().initialize()
       })
 
-      // Should have logged a warning
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to load persisted data')
+      // Should have logged a warning with the logger
+      expect(consoleSpy).toHaveBeenCalledWith('[Storage]', 'Failed to load persisted data')
 
       // State should still initialize (with empty swarms/teams)
       const state = useAppStore.getState()
@@ -275,6 +344,36 @@ describe('appStore', () => {
       expect(state.selectedAgent?.state).toBe('executing')
     })
 
+    it('does not update selectedAgent when starting a different agent', async () => {
+      const agent1 = { id: 'agent-1', name: 'Agent 1', state: 'idle' as const, type: 'coder' as const, capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }
+      const agent2 = { id: 'agent-2', name: 'Agent 2', state: 'idle' as const, type: 'coder' as const, capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }
+      useAppStore.setState({
+        agents: [agent1, agent2],
+        selectedAgent: agent1,
+      })
+
+      mockStartAgent.mockResolvedValueOnce({
+        id: 'agent-2',
+        status: 'running',
+        pid: 12345,
+        name: 'Agent 2',
+        type: 'coder',
+        capabilities: [],
+        lastActive: '2024-01-01T00:00:00Z',
+      })
+
+      await act(async () => {
+        await useAppStore.getState().startAgent('agent-2')
+      })
+
+      const state = useAppStore.getState()
+      // selectedAgent should remain unchanged (agent1, not agent2)
+      expect(state.selectedAgent?.id).toBe('agent-1')
+      expect(state.selectedAgent?.state).toBe('idle')
+      // But agent2 in the agents list should be updated
+      expect(state.agents.find(a => a.id === 'agent-2')?.state).toBe('executing')
+    })
+
     it('handles startAgent errors', async () => {
       useAppStore.setState({
         agents: [{ id: 'agent-1', name: 'Agent 1', state: 'idle', type: 'coder', capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }],
@@ -345,6 +444,35 @@ describe('appStore', () => {
 
       const state = useAppStore.getState()
       expect(state.selectedAgent?.state).toBe('idle')
+    })
+
+    it('does not update selectedAgent when stopping a different agent', async () => {
+      const agent1 = { id: 'agent-1', name: 'Agent 1', state: 'executing' as const, type: 'coder' as const, capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }
+      const agent2 = { id: 'agent-2', name: 'Agent 2', state: 'executing' as const, type: 'coder' as const, capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }
+      useAppStore.setState({
+        agents: [agent1, agent2],
+        selectedAgent: agent1,
+      })
+
+      mockStopAgent.mockResolvedValueOnce({
+        id: 'agent-2',
+        status: 'stopped',
+        name: 'Agent 2',
+        type: 'coder',
+        capabilities: [],
+        lastActive: '2024-01-01T00:00:00Z',
+      })
+
+      await act(async () => {
+        await useAppStore.getState().stopAgent('agent-2')
+      })
+
+      const state = useAppStore.getState()
+      // selectedAgent should remain unchanged (agent1, not agent2)
+      expect(state.selectedAgent?.id).toBe('agent-1')
+      expect(state.selectedAgent?.state).toBe('executing')
+      // But agent2 in the agents list should be updated
+      expect(state.agents.find(a => a.id === 'agent-2')?.state).toBe('idle')
     })
 
     it('handles stopAgent errors', async () => {
@@ -476,8 +604,8 @@ describe('appStore', () => {
         useAppStore.getState().setSwarms(swarms as Swarm[])
       })
 
-      // Should have logged a warning
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to save persisted data')
+      // Should have logged a warning with the logger
+      expect(consoleSpy).toHaveBeenCalledWith('[Storage]', 'Failed to save persisted data')
 
       // State should still be updated
       expect(useAppStore.getState().swarms).toEqual(swarms)
@@ -996,8 +1124,8 @@ describe('appStore', () => {
         useAppStore.getState().clearPersistedData()
       })
 
-      // Should have logged a warning
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to clear persisted data')
+      // Should have logged a warning with the logger
+      expect(consoleSpy).toHaveBeenCalledWith('[Storage]', 'Failed to clear persisted data')
 
       // Restore
       localStorageMock.removeItem = originalRemoveItem
@@ -1022,8 +1150,8 @@ describe('appStore', () => {
         useAppStore.getState().reset()
       })
 
-      // Should have logged a warning
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to clear persisted data')
+      // Should have logged a warning with the logger
+      expect(consoleSpy).toHaveBeenCalledWith('[Storage]', 'Failed to clear persisted data')
 
       // State should still be reset
       expect(useAppStore.getState().agents).toHaveLength(0)
@@ -1093,6 +1221,17 @@ describe('appStore', () => {
       })
 
       expect(useAppStore.getState().connectionError).toBeNull()
+    })
+
+    it('sets connectionError to undefined when disconnected', () => {
+      useAppStore.setState({ connectionError: 'Some error' })
+
+      act(() => {
+        useAppStore.getState().setConnected(false)
+      })
+
+      expect(useAppStore.getState().connected).toBe(false)
+      expect(useAppStore.getState().connectionError).toBeUndefined()
     })
   })
 

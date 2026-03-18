@@ -321,6 +321,31 @@ describe('useTauriEvents', () => {
     expect(mockSetSwarms).not.toHaveBeenCalled()
   })
 
+  it('should not update swarm state if swarm not found in status change event', async () => {
+    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+
+    // Empty swarms array - swarm not found
+    createMockStore({ swarms: [] })
+
+    renderHook(() => useTauriEvents())
+
+    await vi.waitFor(() => {
+      expect(tauriModule.tauri.events.onSwarmStatusChange).toHaveBeenCalled()
+    })
+
+    const statusCallback = vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mock.calls[0][0]
+
+    statusCallback({
+      swarm_id: 'unknown-swarm',
+      old_state: 'initializing',
+      new_state: 'active',
+    })
+
+    // Should not call setSwarms since swarm was not found
+    expect(mockSetSwarms).not.toHaveBeenCalled()
+    expect(mockSetActiveSwarm).not.toHaveBeenCalled()
+  })
+
   it('should update swarm state on status change event', async () => {
     vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
 
@@ -431,6 +456,30 @@ describe('useTauriEvents', () => {
     })
 
     expect(mockUpdateAgent).toHaveBeenCalledWith('agent-1', { state: 'running' })
+  })
+
+  it('should not update agent if not found in agent status change event', async () => {
+    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+
+    // Empty agents array - agent not found
+    createMockStore({ agents: [] })
+
+    renderHook(() => useTauriEvents())
+
+    await vi.waitFor(() => {
+      expect(tauriModule.tauri.events.onAgentStatusChange).toHaveBeenCalled()
+    })
+
+    const agentCallback = vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mock.calls[0][0]
+
+    agentCallback({
+      agent_id: 'unknown-agent',
+      status: 'running',
+    })
+
+    // Should not call updateAgent or setAgents since agent was not found
+    expect(mockUpdateAgent).not.toHaveBeenCalled()
+    expect(mockSetAgents).not.toHaveBeenCalled()
   })
 
   it('should fallback to setAgents when updateAgent is not available', async () => {

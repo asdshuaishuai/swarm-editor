@@ -8,6 +8,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { AgentConfig } from '../types'
+import { logger } from '../utils'
 
 interface AgentConfigPanelProps {
   initialAgents?: AgentConfig[]
@@ -112,7 +113,7 @@ export default function AgentConfigPanel({
       setAgentStatuses((prev) => new Map(prev).set(agentId, 'connected'))
     } catch (error) {
       // Log error for debugging (defensive code)
-      console.error('Connection test failed:', error)
+      logger.error('AgentConfig', 'Connection test failed:', error)
       setAgentStatuses((prev) => new Map(prev).set(agentId, 'error'))
     }
   }

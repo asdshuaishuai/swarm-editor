@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { logger } from '../utils'
 
 export interface Settings {
   theme: 'dark' | 'light' | 'system'
@@ -43,7 +44,7 @@ export function loadSettings(): Settings {
         return { ...defaultSettings, ...parsed }
       }
     } catch {
-      console.warn('Failed to load settings from localStorage')
+      logger.warn('Settings', 'Failed to load settings from localStorage')
     }
   }
   return defaultSettings
@@ -54,7 +55,7 @@ export function saveSettings(settings: Settings): void {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
     } catch {
-      console.warn('Failed to save settings to localStorage')
+      logger.warn('Settings', 'Failed to save settings to localStorage')
     }
   }
 }

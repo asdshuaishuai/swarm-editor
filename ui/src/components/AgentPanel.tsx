@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
+import { logger } from '../utils'
 
 export default function AgentPanel() {
   const { agents, selectedAgent, selectAgent, startAgent, stopAgent, loadAgents } = useAppStore()
@@ -67,7 +68,7 @@ export default function AgentPanel() {
         await startAgent(agentId)
       }
     } catch (error) {
-      console.error('Failed to toggle agent:', error)
+      logger.error('Agents', 'Failed to toggle agent:', error)
     } finally {
       setIsToggling(null)
     }

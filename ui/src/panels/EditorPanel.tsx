@@ -4,6 +4,7 @@ import { useAppStore } from '../store/appStore'
 import { PanelLeft, Play, Save, ChevronRight, ChevronDown, Folder, FileText, X } from 'lucide-react'
 import { api, FileEntry } from '../services'
 import TerminalPanel, { TerminalEntry } from './TerminalPanel'
+import { logger } from '../utils'
 
 export default function EditorPanel() {
   const { swarms } = useAppStore()
@@ -60,7 +61,7 @@ main()
       const entries = await api.fs.listDir(ws)
       setFileTree(entries)
     } catch (err) {
-      console.error('Failed to load workspace:', err)
+      logger.error('Editor', 'Failed to load workspace:', err)
     } finally {
       setLoading(false)
     }
@@ -80,7 +81,7 @@ main()
       setCurrentFile(entry.path)
       setLanguage(getLanguageFromPath(entry.path))
     } catch (err) {
-      console.error('Failed to load file:', err)
+      logger.error('Editor', 'Failed to load file:', err)
     } finally {
       setLoading(false)
     }
@@ -95,7 +96,7 @@ main()
       await api.fs.writeFile(currentFile, code)
       addTerminalEntry('success', `Saved: ${currentFile.split('/').pop()}`)
     } catch (err) {
-      console.error('Failed to save file:', err)
+      logger.error('Editor', 'Failed to save file:', err)
       addTerminalEntry('error', `Failed to save file: ${err}`)
     } finally {
       setLoading(false)
@@ -131,7 +132,7 @@ main()
         addTerminalEntry('error', 'Execution failed', result.error || result.output)
       }
     } catch (err) {
-      console.error('Failed to execute code:', err)
+      logger.error('Editor', 'Failed to execute code:', err)
       addTerminalEntry('error', `Execution error: ${err}`)
     } finally {
       setLoading(false)
@@ -192,7 +193,7 @@ main()
           }
           setFileTree(updateChildren(fileTree, entry.path))
         } catch (err) {
-          console.error('Failed to load directory:', err)
+          logger.error('Editor', 'Failed to load directory:', err)
         }
       }
     }

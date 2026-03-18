@@ -31,33 +31,6 @@ const matchMediaMock = vi.fn((query: string) => ({
 
 Object.defineProperty(window, 'matchMedia', { value: matchMediaMock })
 
-// Test getSystemTheme when matchMedia is not available
-describe('getSystemTheme SSR edge case', () => {
-  it('should return dark when matchMedia is not available', async () => {
-    const originalMatchMedia = window.matchMedia
-
-    // Use Object.defineProperty to temporarily remove matchMedia
-    Object.defineProperty(window, 'matchMedia', {
-      value: undefined,
-      writable: true,
-      configurable: true,
-    })
-
-    // Re-import to get fresh function
-    vi.resetModules()
-    const { getSystemTheme } = await import('./useTheme')
-
-    expect(getSystemTheme()).toBe('dark')
-
-    // Restore
-    Object.defineProperty(window, 'matchMedia', {
-      value: originalMatchMedia,
-      writable: true,
-      configurable: true,
-    })
-  })
-})
-
 describe('useTheme', () => {
   beforeEach(() => {
     localStorageMock.clear()
@@ -467,3 +440,25 @@ describe('Debounce Utility', () => {
     expect(callCount).toBe(1) // Only called once
   })
 })
+
+// SSR Edge Case Tests - Must be at the end of the file
+// These tests modify global state and need to run last to avoid breaking other tests
+describe('getSystemTheme SSR edge case', () => {
+  it('should return dark when matchMedia is not available', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    })
+    vi.resetModules()
+    const { getSystemTheme } = await import('./useTheme')
+    expect(getSystemTheme()).toBe('dark')
+    Object.defineProperty(window, 'matchMedia', {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    })
+  })
+})
+

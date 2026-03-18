@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Agent, Swarm, Team, Session } from '../types'
 import { api, type AgentInfo, type PermissionRequestEvent } from '../services'
+import { logger } from '../utils'
 
 // Storage keys for persistence
 const STORAGE_KEY = 'swarm-editor-state'
@@ -150,7 +151,7 @@ const loadPersistedData = (): PersistedState | null => {
       }
     }
   } catch {
-    console.warn('Failed to load persisted data')
+    logger.warn('Storage', 'Failed to load persisted data')
   }
   return null
 }
@@ -160,7 +161,7 @@ const savePersistedData = (data: PersistedState) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch {
-    console.warn('Failed to save persisted data')
+    logger.warn('Storage', 'Failed to save persisted data')
   }
 }
 
@@ -205,7 +206,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
           teams: persisted?.teams || [],
         })
       } catch (agentError) {
-        console.warn('Failed to load agents, using empty list:', agentError)
+        logger.warn('Agents', 'Failed to load agents, using empty list:', agentError)
         set({
           connected: true,
           connecting: false,
@@ -215,7 +216,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         })
       }
     } catch (error) {
-      console.error('Failed to initialize:', error)
+      logger.error('Init', 'Failed to initialize:', error)
       set({
         connected: false,
         connecting: false,
@@ -230,7 +231,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       const agents = agentInfos.map(agentInfoToAgent)
       set({ agents })
     } catch (error) {
-      console.error('Failed to load agents:', error)
+      logger.error('Agents', 'Failed to load agents:', error)
     }
   },
 
@@ -243,7 +244,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         selectedAgent: state.selectedAgent?.id === id ? agent : state.selectedAgent,
       }))
     } catch (error) {
-      console.error('Failed to start agent:', error)
+      logger.error('Agents', 'Failed to start agent:', error)
       throw error
     }
   },
@@ -257,7 +258,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         selectedAgent: state.selectedAgent?.id === id ? agent : state.selectedAgent,
       }))
     } catch (error) {
-      console.error('Failed to stop agent:', error)
+      logger.error('Agents', 'Failed to stop agent:', error)
       throw error
     }
   },
@@ -397,7 +398,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
-      console.warn('Failed to clear persisted data')
+      logger.warn('Storage', 'Failed to clear persisted data')
     }
     set({
       connected: false,
@@ -423,7 +424,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
-      console.warn('Failed to clear persisted data')
+      logger.warn('Storage', 'Failed to clear persisted data')
     }
   },
 }))

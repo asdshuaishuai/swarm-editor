@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type { CoordinationTask } from '../types'
 import { api } from '../services'
+import { logger } from '../utils'
 
 interface SwarmCoordinatorPanelProps {
   /** Initial tasks for testing purposes */
@@ -123,7 +124,7 @@ export default function SwarmCoordinatorPanel({ initialTasks = [] }: SwarmCoordi
         requiredRole: '',
       })
     } catch (err) {
-      console.error('Failed to submit task:', err)
+      logger.error('Swarm', 'Failed to submit task:', err)
     }
   }
 
@@ -180,7 +181,7 @@ export default function SwarmCoordinatorPanel({ initialTasks = [] }: SwarmCoordi
         } : prev
       )
     } catch (err) {
-      console.error('Failed to execute task:', err)
+      logger.error('Swarm', 'Failed to execute task:', err)
       setTasks((prev) =>
         prev.map((t) =>
           t.id === taskId ? { ...t, status: 'failed' as const } : t

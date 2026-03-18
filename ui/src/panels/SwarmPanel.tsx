@@ -12,6 +12,7 @@ import {
 import { Swarm, TopologyType, TaskStrategy } from '../types'
 import { api } from '../services'
 import SwarmCoordinatorPanel from './SwarmCoordinatorPanel'
+import { logger } from '../utils'
 
 const topologyIcons: Record<TopologyType, string> = {
   star: '★',
@@ -73,7 +74,7 @@ export default function SwarmPanel() {
 
       store.setSwarms(convertedSwarms)
     } catch (err) {
-      console.error('Failed to load swarms:', err)
+      logger.error('Swarm', 'Failed to load swarms:', err)
     } finally {
       setLoading(false)
     }
@@ -119,7 +120,7 @@ export default function SwarmPanel() {
         agentIds: [],
       })
     } catch (err) {
-      console.error('Failed to create swarm:', err)
+      logger.error('Swarm', 'Failed to create swarm:', err)
     } finally {
       setLoading(false)
     }
@@ -139,7 +140,7 @@ export default function SwarmPanel() {
       await api.swarm.startSwarm(swarmId)
       await loadSwarms()
     } catch (err) {
-      console.error('Failed to start swarm:', err)
+      logger.error('Swarm', 'Failed to start swarm:', err)
     }
   }
 
@@ -149,7 +150,7 @@ export default function SwarmPanel() {
       await api.swarm.stopSwarm(swarmId)
       await loadSwarms()
     } catch (err) {
-      console.error('Failed to stop swarm:', err)
+      logger.error('Swarm', 'Failed to stop swarm:', err)
     }
   }
 
