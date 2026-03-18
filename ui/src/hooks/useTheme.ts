@@ -11,7 +11,7 @@ export function getSystemTheme(): 'dark' | 'light' {
   return 'dark'
 }
 
-function getStoredTheme(): Theme {
+export function getStoredTheme(): Theme {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'dark' || stored === 'light' || stored === 'system') {
@@ -21,7 +21,7 @@ function getStoredTheme(): Theme {
   return 'dark'
 }
 
-function setStoredTheme(theme: Theme): void {
+export function setStoredTheme(theme: Theme): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(STORAGE_KEY, theme)
   }

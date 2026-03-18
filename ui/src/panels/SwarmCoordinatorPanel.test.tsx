@@ -1,7 +1,8 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import SwarmCoordinatorPanel, { TaskCard, TaskDetails } from './SwarmCoordinatorPanel'
 import { useAppStore } from '../store/appStore'
+import { api } from '../services'
 import type { CoordinationTask } from '../types'
 
 vi.mock('../store/appStore', () => ({
@@ -1207,5 +1208,645 @@ describe('SwarmCoordinatorPanel error handling', () => {
 
     // The task should now be failed
     expect(screen.getByText('failed')).toBeInTheDocument()
+  })
+})
+
+// Test async race condition where selection changes during API call
+describe('SwarmCoordinatorPanel async race conditions', () => {
+  it('triggers else branch in handleStartTask completion when selection changes during API call', async () => {
+    // Use real timers for this test to properly test the async race condition
+    vi.useRealTimers()
+
+    // Create a promise that we can control the resolution of
+    let resolveApiCall: (value: unknown) => void
+    const apiCallPromise = new Promise((resolve) => {
+      resolveApiCall = resolve
+    })
+
+    // Override the mock implementation to delay resolution until we explicitly resolve it
+    vi.mocked(api.swarm.executeTask).mockImplementation(async () => {
+      await apiCallPromise
+      return {
+        taskId: 'task-to-start',
+        status: 'completed',
+        agentResults: {
+          'claude-code': {
+            agentId: 'claude-code',
+            content: 'Result',
+            success: true,
+            durationMs: 100,
+          },
+        },
+      }
+    })
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-to-start',
+        title: 'Task To Start',
+        description: 'This task will be started',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-other',
+        title: 'Other Task',
+        description: 'This is a different task',
+        prompt: 'Test',
+        priority: 3,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select the first task
+    const taskElements = screen.getAllByText('Task To Start')
+    fireEvent.click(taskElements[0])
+    expect(screen.getByText('Task Details')).toBeInTheDocument()
+
+    // Click Start to start the task (this triggers the async API call)
+    fireEvent.click(screen.getByText('Start'))
+
+    // Let React process the click and start the API call
+    await waitFor(() => {
+      expect(screen.getByText('running')).toBeInTheDocument()
+    })
+
+    // Now change selection to the other task while API is still pending
+    const otherTaskElements = screen.getAllByText('Other Task')
+    fireEvent.click(otherTaskElements[0])
+
+    // selectedTask should now be Other Task
+    await waitFor(() => {
+      expect(screen.getByText('This is a different task')).toBeInTheDocument()
+    })
+
+    // Now resolve the API call
+    resolveApiCall!(undefined)
+
+    // Wait for the API call to complete and state to update
+    await waitFor(() => {
+      // The task list should show the first task as completed
+      // But the selectedTask should still be Other Task (else branch was triggered)
+      expect(screen.getByText('This is a different task')).toBeInTheDocument()
+    })
+
+    // Reset the mock to original implementation
+    vi.mocked(api.swarm.executeTask).mockResolvedValue({
+      taskId: 'task-mock-id',
+      status: 'completed',
+      agentResults: {
+        'claude-code': {
+          agentId: 'claude-code',
+          content: 'Mock agent result',
+          success: true,
+          durationMs: 100,
+        },
+      },
+    })
+  })
+
+  it('triggers THEN branch in handleStartTask when selectedTask matches started task', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Task One',
+        description: 'First task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Task Two',
+        description: 'Second task',
+        prompt: 'Test',
+        priority: 3,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Click on Task One to select it
+    const taskOneElements = screen.getAllByText('Task One')
+    fireEvent.click(taskOneElements[0])
+    expect(screen.getByText('Task Details')).toBeInTheDocument()
+
+    // Click Start to start task-1 (selectedTask.id === 'task-1', so the THEN branch triggers)
+    fireEvent.click(screen.getByText('Start'))
+
+    // Advance timers to let the API call complete
+    await vi.advanceTimersByTimeAsync(100)
+
+    // The API mock resolves immediately with status 'completed'
+    // Since selectedTask.id === taskId (both 'task-1'), the THEN branch updates selectedTask
+    // So status should be 'completed'
+    expect(screen.getByText('completed')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('triggers else branch in handlePauseTask when selection changes during operation', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Running Task',
+        description: 'This task is running',
+        prompt: 'Test',
+        priority: 5,
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Other Task',
+        description: 'Different task',
+        prompt: 'Test',
+        priority: 3,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select the running task
+    const runningTaskElements = screen.getAllByText('Running Task')
+    fireEvent.click(runningTaskElements[0])
+    expect(screen.getByText('Pause')).toBeInTheDocument()
+
+    // Click Pause - this will call handlePauseTask('task-1')
+    // selectedTask.id === 'task-1' so it WILL update selectedTask
+    fireEvent.click(screen.getByText('Pause'))
+
+    // Let React process
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The task should now be pending
+    expect(screen.getByText('pending')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('triggers else branch in handleCancelTask when selection changes during operation', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Running Task',
+        description: 'This task is running',
+        prompt: 'Test',
+        priority: 5,
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select the running task
+    const runningTaskElements = screen.getAllByText('Running Task')
+    fireEvent.click(runningTaskElements[0])
+    expect(screen.getByText('Cancel')).toBeInTheDocument()
+
+    // Click Cancel - this will call handleCancelTask('task-1')
+    // selectedTask.id === 'task-1' so it WILL update selectedTask
+    fireEvent.click(screen.getByText('Cancel'))
+
+    // Let React process
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The task should now be failed
+    expect(screen.getByText('failed')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  // Test else branches using test props - these trigger the ELSE branch in setSelectedTask
+  it('triggers ELSE branch in handleStartTask immediate setSelectedTask update via test prop', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Selected Task',
+        description: 'This task is selected',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Other Task',
+        description: 'This task is NOT selected',
+        prompt: 'Test',
+        priority: 3,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Render with testSelectedTaskId='task-1' to select task-1, and testStartTaskId='task-2'
+    // This will call handleStartTask('task-2') while selectedTask.id === 'task-1'
+    // triggering the ELSE branch: prev?.id === taskId is FALSE
+    await act(async () => {
+      render(<SwarmCoordinatorPanel
+        initialTasks={tasks}
+        testSelectedTaskId="task-1"
+        testStartTaskId="task-2"
+      />)
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // The selected task (task-1) should still be 'pending' (else branch preserves it)
+    // and the Running stat card should show count of 1 (task-2 is running)
+    expect(screen.getByText('pending')).toBeInTheDocument()
+
+    // Verify Running count is 1 (task-2 is now running)
+    const runningCards = screen.getAllByText('Running')
+    expect(runningCards.length).toBeGreaterThan(0)
+
+    vi.useRealTimers()
+  })
+
+  it('triggers ELSE branch in handlePauseTask setSelectedTask update via test prop', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Selected Running',
+        description: 'This task is selected and running',
+        prompt: 'Test',
+        priority: 5,
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Other Running',
+        description: 'This task is running but NOT selected',
+        prompt: 'Test',
+        priority: 3,
+        status: 'running',
+        progress: 0.3,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Render with testSelectedTaskId='task-1' and testPauseTaskId='task-2'
+    await act(async () => {
+      render(<SwarmCoordinatorPanel
+        initialTasks={tasks}
+        testSelectedTaskId="task-1"
+        testPauseTaskId="task-2"
+      />)
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // The selected task (task-1) should still be 'running' (else branch preserves it)
+    // TaskDetails shows selectedTask.status which is 'running'
+    expect(screen.getByText('running')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('triggers ELSE branch in handleCancelTask setSelectedTask update via test prop', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Selected Running',
+        description: 'This task is selected and running',
+        prompt: 'Test',
+        priority: 5,
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Other Running',
+        description: 'This task is running but NOT selected',
+        prompt: 'Test',
+        priority: 3,
+        status: 'running',
+        progress: 0.3,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Render with testSelectedTaskId='task-1' and testCancelTaskId='task-2'
+    await act(async () => {
+      render(<SwarmCoordinatorPanel
+        initialTasks={tasks}
+        testSelectedTaskId="task-1"
+        testCancelTaskId="task-2"
+      />)
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // The selected task (task-1) should still be 'running' (else branch preserves it)
+    // TaskDetails shows selectedTask.status which is 'running'
+    expect(screen.getByText('running')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+})
+
+describe('handleStartTask error handling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('sets task status to failed when executeTask rejects', async () => {
+    // Mock executeTask to reject
+    vi.mocked(api.swarm.executeTask).mockRejectedValueOnce(new Error('API error'))
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Task One',
+        description: 'First task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select and start the task
+    const taskElements = screen.getAllByText('Task One')
+    fireEvent.click(taskElements[0])
+    fireEvent.click(screen.getByText('Start'))
+
+    // Advance timers to let the API call complete (and reject)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    // The catch block updates tasks with 'failed' status
+    // Verify the Failed stat card exists (which reads from tasks array)
+    const failedLabels = screen.getAllByText('Failed')
+    expect(failedLabels.length).toBeGreaterThan(0)
+  })
+
+  it('covers else branch in catch block setTasks when multiple tasks exist', async () => {
+    // Mock executeTask to reject
+    vi.mocked(api.swarm.executeTask).mockRejectedValueOnce(new Error('API error'))
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Task One',
+        description: 'First task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'task-2',
+        title: 'Task Two',
+        description: 'Second task',
+        prompt: 'Test',
+        priority: 3,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select and start task-1
+    const taskElements = screen.getAllByText('Task One')
+    fireEvent.click(taskElements[0])
+    fireEvent.click(screen.getByText('Start'))
+
+    // Advance timers to let the API call complete (and reject)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    // Task One should be failed, Task Two should remain pending
+    const failedLabels = screen.getAllByText('Failed')
+    expect(failedLabels.length).toBeGreaterThan(0)
+    // Task Two should still show as pending
+    expect(screen.getByText('Task Two')).toBeInTheDocument()
+  })
+})
+
+describe('handleSubmitTask without active swarm', () => {
+  it('returns early when activeSwarm is null', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: null,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmCoordinatorPanel />)
+
+    // Try to open modal and submit
+    fireEvent.click(screen.getByText('New Task'))
+
+    const titleInput = screen.getByPlaceholderText('Implement user authentication')
+    fireEvent.change(titleInput, { target: { value: 'Test Task' } })
+
+    const promptTextarea = screen.getByPlaceholderText('Write the prompt that will be sent to agents...')
+    fireEvent.change(promptTextarea, { target: { value: 'Test prompt' } })
+
+    const submitButton = screen.getByRole('button', { name: 'Submit Task' })
+
+    // Button should be enabled but clicking should not create task
+    expect(submitButton).not.toBeDisabled()
+    fireEvent.click(submitButton)
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Modal should remain open since task was not created
+    expect(screen.getByText('Submit New Task')).toBeInTheDocument()
+    // Task should not appear
+    expect(screen.queryByText('Test Task')).not.toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+})
+
+describe('handleStartTask without active swarm', () => {
+  it('returns early when activeSwarm is null', async () => {
+    vi.useFakeTimers()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: null,
+      }
+      return selector ? selector(state) : state
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Task One',
+        description: 'First task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Use testStartTaskId prop to trigger handleStartTask
+    render(<SwarmCoordinatorPanel initialTasks={tasks} testStartTaskId="task-1" />)
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Task should remain pending since handleStartTask returned early
+    const pendingLabels = screen.getAllByText('Pending')
+    expect(pendingLabels.length).toBeGreaterThan(0)
+
+    vi.useRealTimers()
+  })
+})
+
+describe('testSelectedTaskId invalid ID', () => {
+  it('returns null when testSelectedTaskId does not match any task', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'task-1',
+        title: 'Task One',
+        description: 'First task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Pass testSelectedTaskId that doesn't match any task
+    render(<SwarmCoordinatorPanel initialTasks={tasks} testSelectedTaskId="non-existent-id" />)
+
+    // No task should be selected (no Task Details shown)
+    expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
   })
 })

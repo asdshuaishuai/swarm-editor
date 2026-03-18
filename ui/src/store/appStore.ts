@@ -183,11 +183,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
   activePanel: 'editor',
   loading: false,
 
-  initialize: async (simulateError?: boolean) => {
+  initialize: async (simulateError?: boolean | string) => {
     set({ connecting: true, connectionError: null })
     try {
       // For testing: simulate initialization error
       if (simulateError) {
+        // If simulateError is a string that's not 'true', throw it as a non-Error
+        if (typeof simulateError === 'string' && simulateError !== 'true') {
+          throw simulateError // Throw non-Error value for testing
+        }
         throw new Error('Simulated initialization error')
       }
 

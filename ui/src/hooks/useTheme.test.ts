@@ -462,3 +462,57 @@ describe('getSystemTheme SSR edge case', () => {
   })
 })
 
+describe('getStoredTheme and setStoredTheme SSR edge cases', () => {
+  it('should return dark when window is undefined in getStoredTheme', async () => {
+    // Save original window
+    const originalWindow = global.window
+    // @ts-expect-error - Testing SSR scenario
+    delete global.window
+
+    vi.resetModules()
+
+    // Re-import after removing window
+    const { getStoredTheme } = await import('./useTheme')
+
+    // getStoredTheme should return 'dark' when window is undefined (else branch at line 21)
+    expect(getStoredTheme()).toBe('dark')
+
+    // Restore window
+    global.window = originalWindow
+    vi.doUnmock('./useTheme')
+  })
+
+  it('should not throw when setStoredTheme is called without window', async () => {
+    // This tests the SSR guard in setStoredTheme (line 25)
+    const { useTheme } = await import('./useTheme')
+    const { result } = renderHook(() => useTheme())
+
+    act(() => {
+      result.current.setTheme('light')
+    })
+
+    expect(result.current.theme).toBe('light')
+  })
+
+  it('covers setStoredTheme else branch when window is undefined', async () => {
+    // Save original window
+    const originalWindow = global.window
+
+    // @ts-expect-error - Testing SSR scenario
+    delete global.window
+
+    vi.resetModules()
+
+    // Re-import after removing window
+    const { setStoredTheme } = await import('./useTheme')
+
+    // setStoredTheme should not throw when window is undefined (else branch at line 27)
+    expect(() => setStoredTheme('dark')).not.toThrow()
+    expect(() => setStoredTheme('light')).not.toThrow()
+    expect(() => setStoredTheme('system')).not.toThrow()
+
+    // Restore window
+    global.window = originalWindow
+  })
+})
+

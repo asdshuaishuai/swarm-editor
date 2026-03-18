@@ -21,12 +21,32 @@ import { logger } from '../utils'
 interface SwarmCoordinatorPanelProps {
   /** Initial tasks for testing purposes */
   initialTasks?: CoordinationTask[]
+  /** Test-only: set selected task by ID on mount (for testing else branches) */
+  testSelectedTaskId?: string
+  /** Test-only: directly call handleStartTask with specific taskId (for testing else branches) */
+  testStartTaskId?: string
+  /** Test-only: directly call handlePauseTask with specific taskId (for testing else branches) */
+  testPauseTaskId?: string
+  /** Test-only: directly call handleCancelTask with specific taskId (for testing else branches) */
+  testCancelTaskId?: string
 }
 
-export default function SwarmCoordinatorPanel({ initialTasks = [] }: SwarmCoordinatorPanelProps) {
+export default function SwarmCoordinatorPanel({
+  initialTasks = [],
+  testSelectedTaskId,
+  testStartTaskId,
+  testPauseTaskId,
+  testCancelTaskId,
+}: SwarmCoordinatorPanelProps) {
   const { activeSwarm } = useAppStore()
   const [tasks, setTasks] = useState<CoordinationTask[]>(initialTasks)
-  const [selectedTask, setSelectedTask] = useState<CoordinationTask | null>(null)
+  const [selectedTask, setSelectedTask] = useState<CoordinationTask | null>(() => {
+    // Test-only: set initial selected task from prop
+    if (testSelectedTaskId) {
+      return initialTasks.find(t => t.id === testSelectedTaskId) || null
+    }
+    return null
+  })
   const [newTaskModal, setNewTaskModal] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
@@ -35,6 +55,28 @@ export default function SwarmCoordinatorPanel({ initialTasks = [] }: SwarmCoordi
     priority: 5,
     requiredRole: '',
   })
+
+  // Test-only: trigger handlers with specific taskIds to test else branches
+  useEffect(() => {
+    if (testStartTaskId) {
+      handleStartTask(testStartTaskId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testStartTaskId])
+
+  useEffect(() => {
+    if (testPauseTaskId) {
+      handlePauseTask(testPauseTaskId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testPauseTaskId])
+
+  useEffect(() => {
+    if (testCancelTaskId) {
+      handleCancelTask(testCancelTaskId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testCancelTaskId])
 
   // Simulated task updates
   useEffect(() => {

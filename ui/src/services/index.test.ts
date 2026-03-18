@@ -241,6 +241,24 @@ describe('api (non-Tauri environment)', () => {
       await expect(api.swarm.getSwarm('nonexistent')).rejects.toThrow('Swarm not found')
     })
 
+    it('getSwarm returns swarm when found', async () => {
+      const mockSwarm = {
+        id: 'test-swarm',
+        name: 'Test Swarm',
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'stopped',
+        agents: ['agent-1'],
+        stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0 },
+        createdAt: '2024-01-01T00:00:00Z',
+      }
+      vi.spyOn(mockApi.swarm, 'getSwarms').mockResolvedValue([mockSwarm])
+
+      const swarm = await api.swarm.getSwarm('test-swarm')
+      expect(swarm.id).toBe('test-swarm')
+      expect(swarm.name).toBe('Test Swarm')
+    })
+
     it('startSwarm uses mock in non-Tauri env', async () => {
       const swarm = await api.swarm.startSwarm('swarm-1')
       expect(swarm.state).toBe('active')

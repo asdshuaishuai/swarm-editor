@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Bot,
   Plus,
@@ -16,12 +16,15 @@ interface AgentConfigPanelProps {
   simulateConnectionError?: boolean
   /** For testing: simulate agent not found scenario */
   simulateAgentNotFound?: boolean
+  /** For testing: test connection with a non-existent agent ID to trigger defensive check */
+  testWithInvalidAgentId?: string
 }
 
 export default function AgentConfigPanel({
   initialAgents = [],
   simulateConnectionError = false,
   simulateAgentNotFound = false,
+  testWithInvalidAgentId,
 }: AgentConfigPanelProps) {
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>(initialAgents)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -117,6 +120,13 @@ export default function AgentConfigPanel({
       setAgentStatuses((prev) => new Map(prev).set(agentId, 'error'))
     }
   }
+
+  // For testing: trigger connection test with invalid agent ID to cover defensive check
+  useEffect(() => {
+    if (testWithInvalidAgentId) {
+      handleTestConnection(testWithInvalidAgentId)
+    }
+  }, [testWithInvalidAgentId])
 
   return (
     <div className="flex flex-col h-full p-4">

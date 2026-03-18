@@ -17,6 +17,7 @@ import {
   sleep,
   isDefined,
   isBrowser,
+  logger,
 } from './index'
 
 describe('cn', () => {
@@ -252,6 +253,72 @@ describe('isBrowser', () => {
   it('should return true in test environment', () => {
     // jsdom provides window, so this should be true
     expect(isBrowser()).toBe(true)
+  })
+})
+
+describe('logger', () => {
+  it('should log debug messages in DEV mode', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // In test environment, DEV is typically true
+    logger.debug('TestTag', 'debug message')
+
+    // Verify console.warn was called (DEV mode)
+    expect(consoleSpy).toHaveBeenCalledWith('[TestTag]', 'debug message')
+
+    consoleSpy.mockRestore()
+  })
+
+  it('should not log debug messages in production mode', async () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // Stub DEV to be false
+    vi.stubEnv('DEV', false)
+
+    // Re-import to get the new env value
+    vi.resetModules()
+    const { logger: prodLogger } = await import('./index')
+
+    // Clear any calls from import
+    consoleSpy.mockClear()
+
+    prodLogger.debug('TestTag', 'debug message')
+
+    // In production mode, debug should not call console.warn
+    expect(consoleSpy).not.toHaveBeenCalled()
+
+    vi.unstubAllEnvs()
+    consoleSpy.mockRestore()
+  })
+
+  it('should log info messages', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    logger.info('TestTag', 'info message')
+
+    expect(consoleSpy).toHaveBeenCalledWith('[TestTag]', 'info message')
+
+    consoleSpy.mockRestore()
+  })
+
+  it('should log warn messages', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    logger.warn('TestTag', 'warn message')
+
+    expect(consoleSpy).toHaveBeenCalledWith('[TestTag]', 'warn message')
+
+    consoleSpy.mockRestore()
+  })
+
+  it('should log error messages', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    logger.error('TestTag', 'error message')
+
+    expect(consoleSpy).toHaveBeenCalledWith('[TestTag]', 'error message')
+
+    consoleSpy.mockRestore()
   })
 })
 

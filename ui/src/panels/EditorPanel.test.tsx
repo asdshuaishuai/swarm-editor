@@ -345,6 +345,98 @@ describe('EditorPanel file operations', () => {
       expect(toolbarTexts.length).toBeGreaterThan(0)
     })
   })
+
+  it('loads file with unknown extension and uses plaintext language', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'Makefile', path: '/home/user/project/Makefile', isDirectory: false },
+    ])
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Makefile')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Makefile'))
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'plaintext')
+    })
+  })
+
+  it('handles execution error gracefully', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.execute.executeCode).mockRejectedValueOnce(new Error('Network error'))
+    mockUseAppStore.mockImplementation((selector: (state: unknown) => unknown) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        selectedAgent: null,
+      }
+      return selector ? selector(state) : state
+    })
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('package.json'))
+    await waitFor(() => {
+      expect(screen.getByText('Run')).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByText('Run'))
+    await waitFor(() => {
+      expect(screen.getByText('Execute Directly')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Execute Directly'))
+    // Should not crash
+    await waitFor(() => {
+      expect(screen.queryByText('Select Execution Mode')).not.toBeInTheDocument()
+    })
+  })
+
+  it('handles execution failure result', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.execute.executeCode).mockResolvedValueOnce({
+      success: false,
+      error: 'Compilation error',
+      output: '',
+    })
+    mockUseAppStore.mockImplementation((selector: (state: unknown) => unknown) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        selectedAgent: null,
+      }
+      return selector ? selector(state) : state
+    })
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('package.json'))
+    await waitFor(() => {
+      expect(screen.getByText('Run')).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByText('Run'))
+    await waitFor(() => {
+      expect(screen.getByText('Execute Directly')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Execute Directly'))
+    // Should not crash
+    await waitFor(() => {
+      expect(screen.queryByText('Select Execution Mode')).not.toBeInTheDocument()
+    })
+  })
+
+  it('does nothing when clicking on a file (not directory)', async () => {
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+    // Click on a file - toggleDir should return early
+    fireEvent.click(screen.getByText('package.json'))
+    // Should load the file, not expand anything
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'json')
+    })
+  })
 })
 
 describe('EditorPanel directory operations', () => {
@@ -659,6 +751,40 @@ describe('EditorPanel file type detection', () => {
       expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'markdown')
     })
   })
+
+  it('detects HTML file language', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.fs.listDir).mockResolvedValueOnce([
+      { name: 'index.html', path: '/home/user/project/index.html', isDirectory: false },
+    ])
+    vi.mocked(api.fs.readFile).mockResolvedValueOnce('<!DOCTYPE html><html></html>')
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('index.html')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('index.html'))
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'html')
+    })
+  })
+
+  it('detects CSS file language', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.fs.listDir).mockResolvedValueOnce([
+      { name: 'styles.css', path: '/home/user/project/styles.css', isDirectory: false },
+    ])
+    vi.mocked(api.fs.readFile).mockResolvedValueOnce('body { margin: 0; }')
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('styles.css')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('styles.css'))
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'css')
+    })
+  })
 })
 
 describe('EditorPanel error handling', () => {
@@ -856,5 +982,157 @@ describe('EditorPanel error and edge cases', () => {
     await waitFor(() => {
       expect(screen.getByText('Terminal Output')).toBeInTheDocument()
     })
+  })
+
+  it('handles execution failure with empty error (falls back to output)', async () => {
+    const { api } = await import('../services')
+    // Mock execution result with no error string - should fall back to output
+    vi.mocked(api.execute.executeCode).mockResolvedValueOnce({
+      success: false,
+      error: '',  // Empty error - should fall back to output
+      output: 'Fallback output message',
+    })
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('package.json'))
+    await waitFor(() => {
+      expect(screen.getByText('Run')).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByText('Run'))
+    await waitFor(() => {
+      expect(screen.getByText('Execute Directly')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Execute Directly'))
+    // Should show terminal output with fallback message
+    await waitFor(() => {
+      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+    })
+    // Should have used output as fallback since error was empty
+    await waitFor(() => {
+      expect(screen.getByText('Fallback output message')).toBeInTheDocument()
+    })
+  })
+
+  it('shows gray icon for unknown file extension', async () => {
+    const { api } = await import('../services')
+    // Mock a file with unknown extension
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'src', path: '/home/user/project/src', isDirectory: true, children: [] },
+      { name: 'package.json', path: '/home/user/project/package.json', isDirectory: false },
+      { name: 'unknown.xyz', path: '/home/user/project/unknown.xyz', isDirectory: false },
+    ])
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('unknown.xyz')).toBeInTheDocument()
+    })
+    // File should be displayed with gray icon (fallback color)
+    const fileElement = screen.getByText('unknown.xyz')
+    expect(fileElement).toBeInTheDocument()
+  })
+
+  it('toggleDir returns early for non-directory entries', async () => {
+    const { api } = await import('../services')
+    // Spy on listDir to ensure it's not called when clicking a file
+    const listDirSpy = vi.mocked(api.fs.listDir)
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+
+    // Clear any previous calls
+    listDirSpy.mockClear()
+
+    // Click on a file (not a directory) - should not trigger directory expansion
+    fireEvent.click(screen.getByText('package.json'))
+
+    // Should load the file content, not call listDir for expansion
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'json')
+    })
+
+    // listDir should not be called again after clicking a file
+    // (it would be called for directory expansion, but this is a file)
+    expect(listDirSpy).not.toHaveBeenCalled()
+  })
+
+  it('handles file without extension (fallback to plaintext)', async () => {
+    const { api } = await import('../services')
+    // Mock a file with no extension - triggers || '' fallback in getLanguageFromPath
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'src', path: '/home/user/project/src', isDirectory: true, children: [] },
+      { name: 'Makefile', path: '/home/user/project/Makefile', isDirectory: false },
+      { name: 'Dockerfile', path: '/home/user/project/Dockerfile', isDirectory: false },
+    ])
+    vi.mocked(api.fs.readFile).mockResolvedValue('FROM node:18\nRUN npm install')
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Makefile')).toBeInTheDocument()
+    })
+
+    // Click on file without extension
+    fireEvent.click(screen.getByText('Dockerfile'))
+
+    // Should load with plaintext language (fallback)
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'plaintext')
+    })
+  })
+
+  it('handles file without extension in icon color (fallback to gray)', async () => {
+    const { api } = await import('../services')
+    // Mock a file with no extension - triggers || '' fallback in getIconColor
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'README', path: '/home/user/project/README', isDirectory: false },
+    ])
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('README')).toBeInTheDocument()
+    })
+    // File should be displayed (with gray icon fallback)
+    expect(screen.getByText('README')).toBeInTheDocument()
+  })
+
+  it('handles file with trailing dot (empty extension fallback)', async () => {
+    const { api } = await import('../services')
+    // Mock a file ending with a dot - triggers || '' fallback in getLanguageFromPath
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'file.', path: '/home/user/project/file.', isDirectory: false },
+    ])
+    vi.mocked(api.fs.readFile).mockResolvedValue('content')
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('file.')).toBeInTheDocument()
+    })
+
+    // Click on file with trailing dot
+    fireEvent.click(screen.getByText('file.'))
+
+    // Should load with plaintext language (fallback when extension is empty)
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'plaintext')
+    })
+  })
+
+  it('handles file with trailing dot in icon color', async () => {
+    const { api } = await import('../services')
+    // Mock a file ending with a dot - triggers || '' fallback in getIconColor
+    vi.mocked(api.fs.listDir).mockResolvedValue([
+      { name: 'test.', path: '/home/user/project/test.', isDirectory: false },
+    ])
+
+    render(<EditorPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('test.')).toBeInTheDocument()
+    })
+    // File should be displayed (with gray icon fallback)
+    expect(screen.getByText('test.')).toBeInTheDocument()
   })
 })

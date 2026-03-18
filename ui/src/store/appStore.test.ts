@@ -261,6 +261,21 @@ describe('appStore', () => {
 
       consoleSpy.mockRestore()
     })
+
+    it('handles non-Error thrown during initialization', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Use the simulateError parameter with a non-Error string value
+      await act(async () => {
+        await useAppStore.getState().initialize('non-error-string')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.connected).toBe(false)
+      expect(state.connectionError).toBe('Failed to connect') // Should use fallback message
+
+      consoleSpy.mockRestore()
+    })
   })
 
   describe('loadAgents', () => {

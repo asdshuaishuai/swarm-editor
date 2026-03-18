@@ -77,6 +77,7 @@ describe('AgentPanel', () => {
   })
 
   it('sends message on button click when agent is selected', async () => {
+    vi.useFakeTimers()
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         ...defaultMockState,
@@ -95,9 +96,16 @@ describe('AgentPanel', () => {
     expect(screen.getByText('Hello agent')).toBeInTheDocument()
     // Input should be cleared
     expect(input).toHaveValue('')
+
+    // Advance timers to complete the setTimeout and prevent unhandled errors
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
   })
 
   it('sends message on Enter key when agent is selected', async () => {
+    vi.useFakeTimers()
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         ...defaultMockState,
@@ -111,6 +119,12 @@ describe('AgentPanel', () => {
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 
     expect(screen.getByText('Test message')).toBeInTheDocument()
+
+    // Advance timers to complete the setTimeout and prevent unhandled errors
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
   })
 
   it('does not send message on Shift+Enter', async () => {
@@ -131,6 +145,7 @@ describe('AgentPanel', () => {
   })
 
   it('shows loading indicator after sending', async () => {
+    vi.useFakeTimers()
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         ...defaultMockState,
@@ -148,6 +163,12 @@ describe('AgentPanel', () => {
     // Loading indicator should appear
     const spinners = document.querySelectorAll('.animate-spin')
     expect(spinners.length).toBeGreaterThan(0)
+
+    // Advance timers to complete the setTimeout and prevent unhandled errors
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
   })
 
   it('receives agent response after delay', async () => {
@@ -228,6 +249,39 @@ describe('AgentPanel', () => {
     render(<AgentPanel />)
     expect(screen.getByText('No agents available')).toBeInTheDocument()
   })
+
+  it('calls selectAgent when agent card is clicked in agent list', () => {
+    render(<AgentPanel />)
+    // Find the agent card by looking for the agent name in the list
+    const agentName = screen.getByText('Agent 1')
+    // The parent div with onClick is 4 levels up from the name span
+    // Agent name is in: div > div.flex-1.min-w-0 > div.text-sm.font-medium.truncate > span
+    // The clickable card is: div.cursor-pointer (the grandparent of agentName's parent)
+    const agentCard = agentName.closest('.cursor-pointer')
+    expect(agentCard).toBeInTheDocument()
+    fireEvent.click(agentCard!)
+    expect(mockSelectAgent).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
+  })
+
+  it('shows visual selection state when agent is selected in list', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        ...defaultMockState,
+        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
+      }
+      return selector ? selector(state) : state
+    })
+    render(<AgentPanel />)
+    // The selected agent card should have the accent border class
+    // Use getAllByText since 'Agent 1' appears in both dropdown and list
+    const agentNames = screen.getAllByText('Agent 1')
+    // Find the one that's inside a cursor-pointer element (the list card)
+    const agentCard = agentNames
+      .map(el => el.closest('.cursor-pointer'))
+      .find(el => el !== null)
+    expect(agentCard).toHaveClass('border')
+    expect(agentCard).toHaveClass('border-accent/30')
+  })
 })
 
 describe('AgentPanel with selected agent', () => {
@@ -257,6 +311,25 @@ describe('AgentPanel with selected agent', () => {
   it('shows chat prompt with agent name', () => {
     render(<AgentPanel />)
     expect(screen.getByText('Chat with Selected Agent')).toBeInTheDocument()
+  })
+
+  it('shows capabilities when agent has pairProgramming and teamCollaboration', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } }],
+        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } },
+        selectAgent: mockSelectAgent,
+        startAgent: vi.fn(),
+        stopAgent: vi.fn(),
+        loadAgents: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+    render(<AgentPanel />)
+    // Check that capabilities text contains both capabilities
+    const capabilitiesText = screen.getByText(/Pair Programming/)
+    expect(capabilitiesText).toBeInTheDocument()
+    expect(capabilitiesText.textContent).toContain('Team Collaboration')
   })
 })
 

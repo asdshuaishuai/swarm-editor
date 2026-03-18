@@ -127,6 +127,57 @@ describe('SwarmPanel', () => {
     // Modal stays open because no agents selected (button should be disabled)
     expect(screen.getByText('Create New Swarm')).toBeInTheDocument()
   })
+
+  it('does not create swarm when name is empty (early return)', async () => {
+    const mockAddSwarm = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: mockAddSwarm,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    fireEvent.click(screen.getByText('New Swarm'))
+
+    // Don't enter a name, just try to create (button should be disabled)
+    const createButton = screen.getByRole('button', { name: 'Create Swarm' })
+    expect(createButton).toBeDisabled()
+
+    // addSwarm should not be called
+    expect(mockAddSwarm).not.toHaveBeenCalled()
+  })
+
+  it('does not create swarm when no agents selected (early return)', async () => {
+    const mockAddSwarm = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: mockAddSwarm,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    fireEvent.click(screen.getByText('New Swarm'))
+
+    // Enter a name but don't select any agents
+    fireEvent.change(screen.getByPlaceholderText('My Swarm'), { target: { value: 'Test Swarm' } })
+
+    // Button should still be disabled because no agents selected
+    const createButton = screen.getByRole('button', { name: 'Create Swarm' })
+    expect(createButton).toBeDisabled()
+
+    // addSwarm should not be called
+    expect(mockAddSwarm).not.toHaveBeenCalled()
+  })
 })
 
 describe('SwarmPanel with swarms', () => {
@@ -978,6 +1029,66 @@ describe('SwarmPanel successful operations', () => {
     // Should reload swarms
     await waitFor(() => {
       expect(api.swarm.getSwarms).toHaveBeenCalled()
+    })
+  })
+
+  it('loads swarms with matching agents from API', async () => {
+    const { api } = await import('../services')
+    const mockSetSwarms = vi.fn()
+
+    // Mock API to return swarms with agent IDs
+    vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([
+      {
+        id: 'swarm-1',
+        name: 'Swarm With Agents',
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'active',
+        agents: ['agent-1', 'agent-2'], // These IDs should match store agents
+        stats: {
+          agentCount: 2,
+          idleAgents: 1,
+          executingAgents: 1,
+          pendingTasks: 0,
+          completedTasks: 5,
+        },
+        createdAt: new Date().toISOString(),
+      },
+    ])
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [
+          { id: 'agent-1', name: 'Agent One', type: 'coder', state: 'idle', capabilities: {} },
+          { id: 'agent-2', name: 'Agent Two', type: 'reviewer', state: 'executing', capabilities: {} },
+          { id: 'agent-3', name: 'Agent Three', type: 'tester', state: 'idle', capabilities: {} },
+        ],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        setSwarms: mockSetSwarms,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+
+    // Click refresh to trigger loadSwarms
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    // Wait for API call
+    await waitFor(() => {
+      expect(api.swarm.getSwarms).toHaveBeenCalled()
+    })
+
+    // Verify setSwarms was called with agents filtered correctly
+    await waitFor(() => {
+      expect(mockSetSwarms).toHaveBeenCalled()
+      const calledSwarms = mockSetSwarms.mock.calls[0][0]
+      expect(calledSwarms[0].agents).toHaveLength(2)
+      expect(calledSwarms[0].agents[0].id).toBe('agent-1')
+      expect(calledSwarms[0].agents[1].id).toBe('agent-2')
     })
   })
 })

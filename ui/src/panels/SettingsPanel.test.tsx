@@ -2,6 +2,11 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import SettingsPanel from './SettingsPanel'
 
+// Module-level mock functions so we can track calls in tests
+const mockUpdateSetting = vi.fn()
+const mockSetSettings = vi.fn()
+const mockResetSettings = vi.fn()
+
 // Mock the hooks
 vi.mock('../hooks/useSettings', () => ({
   useSettings: () => ({
@@ -20,9 +25,9 @@ vi.mock('../hooks/useSettings', () => ({
       apiKey: '',
       apiEndpoint: 'https://api.anthropic.com',
     },
-    updateSetting: vi.fn(),
-    setSettings: vi.fn(),
-    resetSettings: vi.fn(),
+    updateSetting: mockUpdateSetting,
+    setSettings: mockSetSettings,
+    resetSettings: mockResetSettings,
   }),
 }))
 
@@ -206,6 +211,16 @@ describe('SettingsPanel setting inputs', () => {
     expect(selects.length).toBeGreaterThan(1)
   })
 
+  it('can fire change event on tab size select', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Appearance'))
+    const selects = screen.getAllByRole('combobox')
+    // Tab size is the second select (index 1)
+    fireEvent.change(selects[1], { target: { value: '4' } })
+    // Event fires without error - actual state update is handled by mock
+    expect(selects[1]).toBeInTheDocument()
+  })
+
   it('toggles minimap setting', () => {
     render(<SettingsPanel />)
     fireEvent.click(screen.getByText('Appearance'))
@@ -327,5 +342,46 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(resetButton)
     // Button should still be in document after click
     expect(resetButton).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel parseInt fallback branches', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('falls back to 1000 when autoSaveDelay input is cleared', () => {
+    render(<SettingsPanel />)
+    const delayInput = screen.getByRole('spinbutton')
+    // Clear the input to trigger parseInt('') || 1000
+    fireEvent.change(delayInput, { target: { value: '' } })
+    // parseInt('') returns NaN, which is falsy, so fallback to 1000
+    expect(mockUpdateSetting).toHaveBeenCalledWith('autoSaveDelay', 1000)
+  })
+
+  it('falls back to 1000 when autoSaveDelay input has non-numeric value', () => {
+    render(<SettingsPanel />)
+    const delayInput = screen.getByRole('spinbutton')
+    // Non-numeric input triggers NaN, which falls back to 1000
+    fireEvent.change(delayInput, { target: { value: 'abc' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('autoSaveDelay', 1000)
+  })
+
+  it('falls back to 14 when fontSize input is cleared', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Appearance'))
+    const fontSizeInputs = screen.getAllByRole('spinbutton')
+    // Clear the input to trigger parseInt('') || 14
+    fireEvent.change(fontSizeInputs[0], { target: { value: '' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('fontSize', 14)
+  })
+
+  it('falls back to 14 when fontSize input has non-numeric value', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Appearance'))
+    const fontSizeInputs = screen.getAllByRole('spinbutton')
+    // Non-numeric input triggers NaN, which falls back to 14
+    fireEvent.change(fontSizeInputs[0], { target: { value: 'invalid' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('fontSize', 14)
   })
 })
