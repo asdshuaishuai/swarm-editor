@@ -133,6 +133,34 @@ describe('appStore', () => {
       expect(state.teams).toHaveLength(1)
     })
 
+    it('handles localStorage getItem error gracefully', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Mock localStorage.getItem to throw an error
+      const originalGetItem = localStorageMock.getItem
+      localStorageMock.getItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      mockGetAgents.mockResolvedValueOnce([])
+
+      await act(async () => {
+        await useAppStore.getState().initialize()
+      })
+
+      // Should have logged a warning
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to load persisted data')
+
+      // State should still initialize (with empty swarms/teams)
+      const state = useAppStore.getState()
+      expect(state.swarms).toHaveLength(0)
+      expect(state.teams).toHaveLength(0)
+
+      // Restore
+      localStorageMock.getItem = originalGetItem
+      consoleSpy.mockRestore()
+    })
+
     it('sets connecting state during initialization', async () => {
       mockGetAgents.mockImplementationOnce(() =>
         new Promise(resolve => setTimeout(() => resolve([]), 100))
@@ -433,6 +461,32 @@ describe('appStore', () => {
       expect(useAppStore.getState().swarms).toEqual(swarms)
     })
 
+    it('setSwarms handles localStorage setItem error gracefully', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Mock localStorage.setItem to throw an error
+      const originalSetItem = localStorageMock.setItem
+      localStorageMock.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      const swarms = [{ id: 'swarm-1', name: 'Swarm 1', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }]
+
+      act(() => {
+        useAppStore.getState().setSwarms(swarms as Swarm[])
+      })
+
+      // Should have logged a warning
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to save persisted data')
+
+      // State should still be updated
+      expect(useAppStore.getState().swarms).toEqual(swarms)
+
+      // Restore
+      localStorageMock.setItem = originalSetItem
+      consoleSpy.mockRestore()
+    })
+
     it('addSwarm adds a new swarm', () => {
       useAppStore.setState({ swarms: [] })
 
@@ -456,6 +510,34 @@ describe('appStore', () => {
       })
 
       expect(useAppStore.getState().swarms).toHaveLength(0)
+    })
+
+    it('removeSwarm clears activeSwarm when removing the active swarm', () => {
+      const swarm1 = { id: 'swarm-1', name: 'Swarm 1', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
+      const swarm2 = { id: 'swarm-2', name: 'Swarm 2', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
+      useAppStore.setState({ swarms: [swarm1, swarm2] as Swarm[], activeSwarm: swarm1 as Swarm })
+
+      act(() => {
+        useAppStore.getState().removeSwarm('swarm-1')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.swarms).toHaveLength(1)
+      expect(state.activeSwarm).toBeNull()
+    })
+
+    it('removeSwarm keeps activeSwarm when removing a different swarm', () => {
+      const swarm1 = { id: 'swarm-1', name: 'Swarm 1', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
+      const swarm2 = { id: 'swarm-2', name: 'Swarm 2', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
+      useAppStore.setState({ swarms: [swarm1, swarm2] as Swarm[], activeSwarm: swarm1 as Swarm })
+
+      act(() => {
+        useAppStore.getState().removeSwarm('swarm-2')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.swarms).toHaveLength(1)
+      expect(state.activeSwarm?.id).toBe('swarm-1')
     })
 
     it('setActiveSwarm updates active swarm', () => {
@@ -501,6 +583,34 @@ describe('appStore', () => {
       })
 
       expect(useAppStore.getState().teams).toHaveLength(0)
+    })
+
+    it('removeTeam clears activeTeam when removing the active team', () => {
+      const team1 = { id: 'team-1', name: 'Team 1', description: 'Test team', owner: 'user-1', members: [], agents: [], workspaces: [], stats: { memberCount: 0, onlineMembers: 0, agentCount: 0, idleAgents: 0, workspaceCount: 0 } }
+      const team2 = { id: 'team-2', name: 'Team 2', description: 'Test team', owner: 'user-1', members: [], agents: [], workspaces: [], stats: { memberCount: 0, onlineMembers: 0, agentCount: 0, idleAgents: 0, workspaceCount: 0 } }
+      useAppStore.setState({ teams: [team1, team2] as Team[], activeTeam: team1 as Team })
+
+      act(() => {
+        useAppStore.getState().removeTeam('team-1')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.teams).toHaveLength(1)
+      expect(state.activeTeam).toBeNull()
+    })
+
+    it('removeTeam keeps activeTeam when removing a different team', () => {
+      const team1 = { id: 'team-1', name: 'Team 1', description: 'Test team', owner: 'user-1', members: [], agents: [], workspaces: [], stats: { memberCount: 0, onlineMembers: 0, agentCount: 0, idleAgents: 0, workspaceCount: 0 } }
+      const team2 = { id: 'team-2', name: 'Team 2', description: 'Test team', owner: 'user-1', members: [], agents: [], workspaces: [], stats: { memberCount: 0, onlineMembers: 0, agentCount: 0, idleAgents: 0, workspaceCount: 0 } }
+      useAppStore.setState({ teams: [team1, team2] as Team[], activeTeam: team1 as Team })
+
+      act(() => {
+        useAppStore.getState().removeTeam('team-2')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.teams).toHaveLength(1)
+      expect(state.activeTeam?.id).toBe('team-1')
     })
 
     it('setActiveTeam updates active team', () => {
@@ -637,6 +747,146 @@ describe('appStore', () => {
       expect(useAppStore.getState().permissionQueue).toHaveLength(0)
     })
 
+    it('resolvePermission sets next permission when queue has more items', () => {
+      const request1: PermissionRequest = {
+        id: 'perm-1',
+        requestId: 'perm-1',
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        toolName: 'test-tool',
+        description: 'Test permission 1',
+        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+        timestamp: Date.now(),
+      }
+      const request2: PermissionRequest = {
+        id: 'perm-2',
+        requestId: 'perm-2',
+        sessionId: 'session-1',
+        toolCallId: 'tool-2',
+        toolName: 'test-tool-2',
+        description: 'Test permission 2',
+        options: [{ option_id: 'opt-2', name: 'Allow', kind: 'allow' }],
+        timestamp: Date.now(),
+      }
+      useAppStore.setState({
+        permissionQueue: [request1, request2],
+        activePermission: request1,
+      })
+
+      act(() => {
+        useAppStore.getState().resolvePermission('perm-1', 'opt-1')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-2')
+    })
+
+    it('resolvePermission keeps activePermission when resolving different request', () => {
+      const request1: PermissionRequest = {
+        id: 'perm-1',
+        requestId: 'perm-1',
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        toolName: 'test-tool',
+        description: 'Test permission 1',
+        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+        timestamp: Date.now(),
+      }
+      const request2: PermissionRequest = {
+        id: 'perm-2',
+        requestId: 'perm-2',
+        sessionId: 'session-1',
+        toolCallId: 'tool-2',
+        toolName: 'test-tool-2',
+        description: 'Test permission 2',
+        options: [],
+        timestamp: Date.now(),
+      }
+      useAppStore.setState({
+        permissionQueue: [request1, request2],
+        activePermission: request1,
+      })
+
+      act(() => {
+        useAppStore.getState().resolvePermission('perm-2', 'opt-1')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-1')
+    })
+
+    it('dismissPermission sets next permission when queue has more items', () => {
+      const request1: PermissionRequest = {
+        id: 'perm-1',
+        requestId: 'perm-1',
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        toolName: 'test-tool',
+        description: 'Test permission 1',
+        options: [],
+        timestamp: Date.now(),
+      }
+      const request2: PermissionRequest = {
+        id: 'perm-2',
+        requestId: 'perm-2',
+        sessionId: 'session-1',
+        toolCallId: 'tool-2',
+        toolName: 'test-tool-2',
+        description: 'Test permission 2',
+        options: [],
+        timestamp: Date.now(),
+      }
+      useAppStore.setState({
+        permissionQueue: [request1, request2],
+        activePermission: request1,
+      })
+
+      act(() => {
+        useAppStore.getState().dismissPermission('perm-1')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-2')
+    })
+
+    it('dismissPermission keeps activePermission when dismissing different request', () => {
+      const request1: PermissionRequest = {
+        id: 'perm-1',
+        requestId: 'perm-1',
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        toolName: 'test-tool',
+        description: 'Test permission 1',
+        options: [],
+        timestamp: Date.now(),
+      }
+      const request2: PermissionRequest = {
+        id: 'perm-2',
+        requestId: 'perm-2',
+        sessionId: 'session-1',
+        toolCallId: 'tool-2',
+        toolName: 'test-tool-2',
+        description: 'Test permission 2',
+        options: [],
+        timestamp: Date.now(),
+      }
+      useAppStore.setState({
+        permissionQueue: [request1, request2],
+        activePermission: request1,
+      })
+
+      act(() => {
+        useAppStore.getState().dismissPermission('perm-2')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-1')
+    })
+
     it('clearPermissionQueue clears all permissions', () => {
       const perm1: PermissionRequest = {
         id: 'perm-1', requestId: 'perm-1', sessionId: 's1', toolCallId: 't1', toolName: 'tool1', description: 'd1', options: [], timestamp: 1
@@ -731,6 +981,56 @@ describe('appStore', () => {
       })
 
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('swarm-editor-state')
+    })
+
+    it('clearPersistedData handles localStorage removeItem error gracefully', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Mock localStorage.removeItem to throw an error
+      const originalRemoveItem = localStorageMock.removeItem
+      localStorageMock.removeItem = vi.fn(() => {
+        throw new Error('Storage error')
+      })
+
+      act(() => {
+        useAppStore.getState().clearPersistedData()
+      })
+
+      // Should have logged a warning
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to clear persisted data')
+
+      // Restore
+      localStorageMock.removeItem = originalRemoveItem
+      consoleSpy.mockRestore()
+    })
+
+    it('reset handles localStorage removeItem error gracefully', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Mock localStorage.removeItem to throw an error
+      const originalRemoveItem = localStorageMock.removeItem
+      localStorageMock.removeItem = vi.fn(() => {
+        throw new Error('Storage error')
+      })
+
+      useAppStore.setState({
+        connected: true,
+        agents: [{ id: 'agent-1', name: 'Agent 1', state: 'idle', type: 'coder', capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }] as Agent[],
+      })
+
+      act(() => {
+        useAppStore.getState().reset()
+      })
+
+      // Should have logged a warning
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to clear persisted data')
+
+      // State should still be reset
+      expect(useAppStore.getState().agents).toHaveLength(0)
+
+      // Restore
+      localStorageMock.removeItem = originalRemoveItem
+      consoleSpy.mockRestore()
     })
   })
 
