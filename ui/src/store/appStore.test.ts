@@ -1341,10 +1341,10 @@ describe('appStore', () => {
     it('removeToast removes specific toast', () => {
       useAppStore.setState({ toasts: [] })
 
-      let id1: string, id2: string
+      let id1: string
       act(() => {
         id1 = useAppStore.getState().addToast('success', 'Toast 1')
-        id2 = useAppStore.getState().addToast('error', 'Toast 2')
+        useAppStore.getState().addToast('error', 'Toast 2')
       })
 
       expect(useAppStore.getState().toasts).toHaveLength(2)
