@@ -131,6 +131,11 @@ export interface ExecuteResult {
   error?: string
 }
 
+export interface BackendStatus {
+  connected: boolean
+  backendType: string
+}
+
 // 检测是否在 Tauri 环境中运行
 export function isTauriEnv(): boolean {
   return typeof window !== 'undefined' && '__TAURI__' in window
@@ -275,6 +280,14 @@ export const swarmApi = {
   async executeTask(swarmId: string, taskId: string): Promise<SwarmTaskResult> {
     if (!isTauriEnv()) return mockApi.swarm.executeTask(swarmId, taskId)
     return invoke('execute_swarm_task', { swarmId, taskId })
+  },
+}
+
+// Backend Status API
+export const backendApi = {
+  async getStatus(): Promise<BackendStatus> {
+    if (!isTauriEnv()) return mockApi.backend.getStatus()
+    return invoke('get_backend_status')
   },
 }
 
@@ -461,6 +474,15 @@ export const mockApi = {
       }
     },
   },
+
+  backend: {
+    async getStatus(): Promise<BackendStatus> {
+      return {
+        connected: false,
+        backendType: 'mock',
+      }
+    },
+  },
 }
 
 // 统一导出
@@ -470,4 +492,5 @@ export const api = {
   fs: fsApi,
   execute: executeApi,
   swarm: swarmApi,
+  backend: backendApi,
 }

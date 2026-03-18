@@ -227,6 +227,18 @@ export const executeApi = {
   },
 }
 
+// Backend Status API
+export interface BackendStatus {
+  connected: boolean
+  backendType: string
+}
+
+export const backendApi = {
+  async getStatus(): Promise<BackendStatus> {
+    return invoke('get_backend_status')
+  },
+}
+
 // 统一导出
 export const tauri = {
   isTauriEnv,
@@ -234,5 +246,6 @@ export const tauri = {
   fs: fsApi,
   execute: executeApi,
   events: eventApi,
+  backend: backendApi,
 }
 

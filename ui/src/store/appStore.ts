@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { Agent, Swarm, Team, Session } from '../types'
 import { api, type AgentInfo, type PermissionRequestEvent } from '../services'
-import { logger } from '../utils'
+import { logger, generateId } from '../utils'
+import type { Toast, ToastType } from '../components/Toast'
 
 // Storage keys for persistence
 const STORAGE_KEY = 'swarm-editor-state'
@@ -49,6 +50,9 @@ interface AppState {
   permissionQueue: PermissionRequest[]
   activePermission: PermissionRequest | null
 
+  // Toast notifications
+  toasts: Toast[]
+
   // UI state
   sidebarCollapsed: boolean
   activePanel: 'editor' | 'swarm' | 'team' | 'settings'
@@ -85,6 +89,11 @@ interface AppState {
   resolvePermission: (requestId: string, optionId: string) => void
   dismissPermission: (requestId: string) => void
   clearPermissionQueue: () => void
+
+  // Toast actions
+  addToast: (type: ToastType, title: string, message?: string, options?: Partial<Toast>) => string
+  removeToast: (id: string) => void
+  clearToasts: () => void
 
   reset: () => void
   clearPersistedData: () => void
@@ -179,6 +188,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   activeSession: null,
   permissionQueue: [] as PermissionRequest[],
   activePermission: null,
+  toasts: [] as Toast[],
   sidebarCollapsed: false,
   activePanel: 'editor',
   loading: false,
@@ -397,6 +407,26 @@ export const useAppStore = create<AppState>()((set, get) => ({
     activePermission: null,
   }),
 
+  addToast: (type, title, message, options = {}) => {
+    const id = generateId('toast')
+    const toast: Toast = {
+      id,
+      type,
+      title,
+      message,
+      duration: 5000,
+      ...options,
+    }
+    set((state) => ({ toasts: [...state.toasts, toast] }))
+    return id
+  },
+
+  removeToast: (id) => set((state) => ({
+    toasts: state.toasts.filter((t) => t.id !== id),
+  })),
+
+  clearToasts: () => set({ toasts: [] }),
+
   reset: () => {
     // Clear persisted data
     try {
@@ -418,6 +448,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       activeSession: null,
       permissionQueue: [] as PermissionRequest[],
       activePermission: null,
+      toasts: [],
       sidebarCollapsed: false,
       activePanel: 'editor',
       loading: false,

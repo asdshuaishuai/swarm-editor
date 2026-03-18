@@ -7,9 +7,10 @@ import EditorPage from './panels/EditorPanel'
 import SwarmPage from './panels/SwarmPanel'
 import TeamPage from './panels/TeamPanel'
 import SettingsPage from './panels/SettingsPanel'
+import { ToastContainer } from './components/Toast'
 
 function App() {
-  const { initialize } = useAppStore()
+  const { initialize, toasts, removeToast } = useAppStore()
 
   // Subscribe to Tauri backend events
   useTauriEvents()
@@ -19,14 +20,17 @@ function App() {
   }, [initialize])
 
   return (
-    <MainLayout>
-      <Routes>
-        <Route path="/" element={<EditorPage />} />
-        <Route path="/swarm" element={<SwarmPage />} />
-        <Route path="/team" element={<TeamPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Routes>
-    </MainLayout>
+    <>
+      <MainLayout>
+        <Routes>
+          <Route path="/" element={<EditorPage />} />
+          <Route path="/swarm" element={<SwarmPage />} />
+          <Route path="/team" element={<TeamPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+      </MainLayout>
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+    </>
   )
 }
 

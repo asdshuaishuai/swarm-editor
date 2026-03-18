@@ -52,6 +52,8 @@ describe('SwarmPanel', () => {
         activeSwarm: null,
         setActiveSwarm: mockSetActiveSwarm,
         addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -137,6 +139,7 @@ describe('SwarmPanel', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -161,6 +164,7 @@ describe('SwarmPanel', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -203,6 +207,7 @@ describe('SwarmPanel with swarms', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: mockSetActiveSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -242,6 +247,7 @@ describe('SwarmPanel topology selection', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -323,6 +329,7 @@ describe('SwarmPanel topology selection', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -371,6 +378,7 @@ describe('SwarmPanel with active swarm', () => {
         agents: [],
         activeSwarm: null, // Start without active swarm
         setActiveSwarm: mockSetActiveSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -425,6 +433,7 @@ describe('SwarmPanel coordinator view', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: mockSetActiveSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -441,6 +450,7 @@ describe('SwarmPanel coordinator view', () => {
         agents: [],
         activeSwarm: mockSwarm,
         setActiveSwarm: mockSetActiveSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -459,6 +469,7 @@ describe('SwarmPanel coordinator view', () => {
         agents: [],
         activeSwarm: mockSwarm,
         setActiveSwarm: mockSetActiveSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -482,7 +493,7 @@ describe('SwarmPanel swarm states', () => {
 
   it('shows initializing state', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = { swarms: [createSwarmWithState('initializing')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn() }
+      const state = { swarms: [createSwarmWithState('initializing')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn(), addToast: vi.fn() }
       return selector ? selector(state) : state
     })
     render(<SwarmPanel />)
@@ -491,7 +502,7 @@ describe('SwarmPanel swarm states', () => {
 
   it('shows paused state', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = { swarms: [createSwarmWithState('paused')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn() }
+      const state = { swarms: [createSwarmWithState('paused')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn(), addToast: vi.fn() }
       return selector ? selector(state) : state
     })
     render(<SwarmPanel />)
@@ -500,7 +511,7 @@ describe('SwarmPanel swarm states', () => {
 
   it('shows stopping state', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = { swarms: [createSwarmWithState('stopping')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn() }
+      const state = { swarms: [createSwarmWithState('stopping')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn(), addToast: vi.fn() }
       return selector ? selector(state) : state
     })
     render(<SwarmPanel />)
@@ -509,7 +520,7 @@ describe('SwarmPanel swarm states', () => {
 
   it('shows stopped state', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = { swarms: [createSwarmWithState('stopped')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn() }
+      const state = { swarms: [createSwarmWithState('stopped')], agents: [], activeSwarm: null, setActiveSwarm: vi.fn(), addToast: vi.fn() }
       return selector ? selector(state) : state
     })
     render(<SwarmPanel />)
@@ -535,6 +546,7 @@ describe('SwarmPanel action buttons', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -574,6 +586,7 @@ describe('SwarmCard active styling', () => {
         agents: [],
         activeSwarm: mockSwarm, // Swarm is active
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -592,6 +605,7 @@ describe('SwarmCard active styling', () => {
         agents: [],
         activeSwarm: null, // No active swarm
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -732,6 +746,7 @@ describe('SwarmPanel API error handling', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -760,6 +775,7 @@ describe('SwarmPanel API error handling', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -781,6 +797,8 @@ describe('SwarmPanel API error handling', () => {
         agents: [],
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -805,6 +823,7 @@ describe('SwarmPanel API error handling', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -833,6 +852,8 @@ describe('SwarmPanel agent selection toggle', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -872,6 +893,8 @@ describe('SwarmPanel successful operations', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -960,6 +983,8 @@ describe('SwarmPanel successful operations', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1013,6 +1038,8 @@ describe('SwarmPanel successful operations', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1067,6 +1094,7 @@ describe('SwarmPanel successful operations', () => {
         activeSwarm: null,
         setActiveSwarm: vi.fn(),
         setSwarms: mockSetSwarms,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })

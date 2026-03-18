@@ -37,6 +37,7 @@ export default function SwarmPanel() {
   const activeSwarm = store.activeSwarm
   const setActiveSwarm = store.setActiveSwarm
   const agents = store.agents
+  const addToast = store.addToast
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newSwarm, setNewSwarm] = useState({
     name: '',
@@ -75,6 +76,7 @@ export default function SwarmPanel() {
       store.setSwarms(convertedSwarms)
     } catch (err) {
       logger.error('Swarm', 'Failed to load swarms:', err)
+      addToast('error', 'Failed to load swarms', err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -119,8 +121,10 @@ export default function SwarmPanel() {
         strategy: 'parallel',
         agentIds: [],
       })
+      addToast('success', 'Swarm created', `Swarm "${swarmInfo.name}" is ready`)
     } catch (err) {
       logger.error('Swarm', 'Failed to create swarm:', err)
+      addToast('error', 'Failed to create swarm', err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -139,8 +143,10 @@ export default function SwarmPanel() {
     try {
       await api.swarm.startSwarm(swarmId)
       await loadSwarms()
+      addToast('success', 'Swarm started')
     } catch (err) {
       logger.error('Swarm', 'Failed to start swarm:', err)
+      addToast('error', 'Failed to start swarm', err instanceof Error ? err.message : 'Unknown error')
     }
   }
 
@@ -149,8 +155,10 @@ export default function SwarmPanel() {
     try {
       await api.swarm.stopSwarm(swarmId)
       await loadSwarms()
+      addToast('success', 'Swarm stopped')
     } catch (err) {
       logger.error('Swarm', 'Failed to stop swarm:', err)
+      addToast('error', 'Failed to stop swarm', err instanceof Error ? err.message : 'Unknown error')
     }
   }
 
