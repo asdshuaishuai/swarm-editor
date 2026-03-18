@@ -258,6 +258,13 @@ func (s *Swarm) GetAgents() []*agent.Agent {
 	return result
 }
 
+// GetTask returns a task by ID
+func (s *Swarm) GetTask(taskID string) *Task {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tasks[taskID]
+}
+
 // Start starts the swarm
 func (s *Swarm) Start(ctx context.Context) error {
 	s.mu.Lock()

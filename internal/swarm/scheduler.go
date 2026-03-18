@@ -3,6 +3,7 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -656,15 +657,129 @@ Only output the JSON, no other text.`, task.Title, task.Description),
 		return nil, err
 	}
 
+	// Set up content capture before sending prompt
+	session.StartContentCapture()
+
+	// Wire up the OnUpdate callback to capture content
+	s.coordinator.Connection.OnUpdate(func(sid acp.SessionID, update *acp.Update) {
+		if sid == session.ID && update.Content != nil {
+			// Capture content block from the update
+			session.AddContent(*update.Content)
+		}
+	})
+
 	result, err := s.coordinator.Connection.SendPrompt(ctx, session.ID, prompt)
 	if err != nil {
+		session.FinishContentCapture()
 		return nil, err
 	}
 
-	// Parse decomposition result
-	_ = result // Would parse the response to get subtasks
+	// Finish content capture and get the captured content
+	session.FinishContentCapture()
+	content := session.GetContent()
+	_ = result // StopReason is in result, content is captured via updates
 
-	return []*Task{task}, nil
+	// Parse decomposition result from captured content
+	subtasks, err := s.parseDecompositionResponse(content, task)
+	if err != nil {
+		// If parsing fails, return original task
+		return []*Task{task}, nil
+	}
+
+	return subtasks, nil
+}
+
+// SubtaskDefinition represents a subtask from coordinator's decomposition
+type SubtaskDefinition struct {
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Priority     string `json:"priority"`
+	RequiredRole string `json:"requiredRole"`
+}
+
+// DecomposeDecision represents the decision not to decompose
+type DecomposeDecision struct {
+	Decompose bool `json:"decompose"`
+}
+
+// parseDecompositionResponse parses the coordinator's response to extract subtasks
+func (s *Scheduler) parseDecompositionResponse(content []acp.ContentBlock, originalTask *Task) ([]*Task, error) {
+	if len(content) == 0 {
+		return nil, fmt.Errorf("no content captured")
+	}
+
+	// Find text content block
+	var textContent string
+	for _, block := range content {
+		if block.Type == "text" && block.Text != "" {
+			textContent = block.Text
+			break
+		}
+	}
+
+	if textContent == "" {
+		return nil, fmt.Errorf("no text content found")
+	}
+
+	// Clean up the text - remove markdown code blocks if present
+	textContent = strings.TrimSpace(textContent)
+	if strings.HasPrefix(textContent, "```json") {
+		textContent = strings.TrimPrefix(textContent, "```json")
+		textContent = strings.TrimSuffix(textContent, "```")
+		textContent = strings.TrimSpace(textContent)
+	} else if strings.HasPrefix(textContent, "```") {
+		textContent = strings.TrimPrefix(textContent, "```")
+		textContent = strings.TrimSuffix(textContent, "```")
+		textContent = strings.TrimSpace(textContent)
+	}
+
+	// Try to parse as decomposition decision first
+	var decision DecomposeDecision
+	if err := json.Unmarshal([]byte(textContent), &decision); err == nil && !decision.Decompose {
+		// Coordinator decided not to decompose
+		return []*Task{originalTask}, nil
+	}
+
+	// Try to parse as array of subtasks
+	var definitions []SubtaskDefinition
+	if err := json.Unmarshal([]byte(textContent), &definitions); err != nil {
+		return nil, fmt.Errorf("failed to parse subtasks: %w", err)
+	}
+
+	if len(definitions) == 0 {
+		return []*Task{originalTask}, nil
+	}
+
+	// Convert definitions to Task objects
+	subtasks := make([]*Task, 0, len(definitions))
+	for i, def := range definitions {
+		priority := PriorityMedium
+		switch strings.ToLower(def.Priority) {
+		case "high":
+			priority = PriorityHigh
+		case "low":
+			priority = PriorityLow
+		}
+
+		subtask := &Task{
+			ID:          fmt.Sprintf("%s_%d", originalTask.ID, i+1),
+			ParentID:    originalTask.ID,
+			Title:       def.Title,
+			Description: def.Description,
+			Priority:    priority,
+			State:       TaskStatePending,
+			CreatedAt:   time.Now(),
+			Metadata:    make(map[string]interface{}),
+		}
+
+		if def.RequiredRole != "" {
+			subtask.Metadata["requiredRole"] = def.RequiredRole
+		}
+
+		subtasks = append(subtasks, subtask)
+	}
+
+	return subtasks, nil
 }
 
 // decomposeByRules decomposes tasks using rule-based logic

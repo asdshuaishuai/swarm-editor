@@ -366,18 +366,10 @@ func (h *ACPServerHandler) SwarmExecuteTask(ctx context.Context, params *acp.Swa
 		return nil, fmt.Errorf("swarm not found: %s", params.SwarmID)
 	}
 
-	// Find task
-	var task *swarm.Task
-	for _, t := range s.GetAgents() {
-		// This is a simplified approach - in reality we'd need to look up the task
-		// from the swarm's task map
-		_ = t
-	}
-
-	// For now, create a placeholder task to execute
-	task = &swarm.Task{
-		ID:     params.TaskID,
-		Prompt: acp.Prompt{{Type: "text", Text: "Execute task"}},
+	// Get the task from the swarm
+	task := s.GetTask(params.TaskID)
+	if task == nil {
+		return nil, fmt.Errorf("task not found: %s in swarm: %s", params.TaskID, params.SwarmID)
 	}
 
 	result, err := s.ExecuteTask(ctx, task)

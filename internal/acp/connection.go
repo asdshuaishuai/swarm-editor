@@ -61,6 +61,63 @@ type AgentSession struct {
 	Mode       SessionMode
 	CreatedAt  time.Time
 	LastActive time.Time
+
+	// Content capture for prompt responses
+	mu      sync.Mutex
+	content []ContentBlock
+	done    chan struct{}
+}
+
+// StartContentCapture initializes content capture for a prompt turn
+func (s *AgentSession) StartContentCapture() {
+	s.mu.Lock()
+	s.content = nil
+	s.done = make(chan struct{})
+	s.mu.Unlock()
+}
+
+// AddContent adds a content block to the session
+func (s *AgentSession) AddContent(block ContentBlock) {
+	s.mu.Lock()
+	s.content = append(s.content, block)
+	s.mu.Unlock()
+}
+
+// FinishContentCapture signals that content capture is complete
+func (s *AgentSession) FinishContentCapture() {
+	s.mu.Lock()
+	if s.done != nil {
+		close(s.done)
+	}
+	s.mu.Unlock()
+}
+
+// WaitForContent waits for content capture to complete with timeout
+func (s *AgentSession) WaitForContent(timeout time.Duration) []ContentBlock {
+	s.mu.Lock()
+	done := s.done
+	s.mu.Unlock()
+
+	if done == nil {
+		return nil
+	}
+
+	select {
+	case <-done:
+		s.mu.Lock()
+		content := s.content
+		s.mu.Unlock()
+		return content
+	case <-time.After(timeout):
+		return nil
+	}
+}
+
+// GetContent returns the captured content
+func (s *AgentSession) GetContent() []ContentBlock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.content
 }
 
 // ConnectionManager manages all agent connections

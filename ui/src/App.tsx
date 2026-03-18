@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAppStore } from './store/appStore'
+import { useTauriEvents } from './hooks'
 import MainLayout from './components/layouts/MainLayout'
 import EditorPage from './panels/EditorPanel'
 import SwarmPage from './panels/SwarmPanel'
@@ -9,6 +10,9 @@ import SettingsPage from './panels/SettingsPanel'
 
 function App() {
   const { initialize } = useAppStore()
+
+  // Subscribe to Tauri backend events
+  useTauriEvents()
 
   useEffect(() => {
     initialize()

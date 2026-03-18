@@ -49,7 +49,29 @@ export default function SwarmPanel() {
   const loadSwarms = async () => {
     try {
       setLoading(true)
-      await api.swarm.getSwarms()
+      const swarmInfos = await api.swarm.getSwarms()
+
+      // Convert SwarmInfo[] to Swarm[]
+      const convertedSwarms: Swarm[] = swarmInfos.map((swarmInfo) => ({
+        id: swarmInfo.id,
+        name: swarmInfo.name,
+        topology: swarmInfo.topology as TopologyType,
+        strategy: swarmInfo.strategy as TaskStrategy,
+        state: swarmInfo.state as Swarm['state'],
+        agents: agents.filter((a) => swarmInfo.agents.includes(a.id)),
+        stats: {
+          agentCount: swarmInfo.stats.agentCount,
+          idleAgents: swarmInfo.stats.idleAgents,
+          executingAgents: swarmInfo.stats.executingAgents,
+          pendingTasks: swarmInfo.stats.pendingTasks,
+          completedTasks: swarmInfo.stats.completedTasks,
+          topology: swarmInfo.topology,
+          strategy: swarmInfo.strategy,
+          state: swarmInfo.state,
+        },
+      }))
+
+      store.setSwarms(convertedSwarms)
     } catch (err) {
       console.error('Failed to load swarms:', err)
     } finally {
