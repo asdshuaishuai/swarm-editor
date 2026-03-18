@@ -1,6 +1,6 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react'
-import { cn, generateId } from '../utils'
+import { cn } from '../utils'
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
 
@@ -129,30 +129,6 @@ export function ToastContainer({
       ))}
     </div>
   )
-}
-
-// Hook for managing toasts
-export function useToast() {
-  const addToast = useCallback(
-    (
-      type: ToastType,
-      title: string,
-      message?: string,
-      options?: Partial<Toast>
-    ): string => {
-      const id = generateId('toast')
-      // This will be connected to the store
-      return id
-    },
-    []
-  )
-
-  return {
-    success: (title: string, message?: string) => addToast('success', title, message),
-    error: (title: string, message?: string) => addToast('error', title, message),
-    warning: (title: string, message?: string) => addToast('warning', title, message),
-    info: (title: string, message?: string) => addToast('info', title, message),
-  }
 }
 
 export default ToastItem

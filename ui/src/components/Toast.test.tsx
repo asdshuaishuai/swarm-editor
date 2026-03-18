@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ToastContainer, useToast, type Toast } from './Toast'
+import { ToastContainer, type Toast } from './Toast'
 
 // Mock the utils module
 vi.mock('../utils', () => ({
   cn: (...args: string[]) => args.filter(Boolean).join(' '),
-  generateId: (prefix: string) => `${prefix}-test-id`,
 }))
 
 describe('ToastContainer', () => {
@@ -163,57 +162,3 @@ describe('ToastContainer', () => {
     })
   })
 })
-
-describe('useToast', () => {
-  it('returns toast methods', () => {
-    const { result } = renderHook(() => useToast())
-    expect(result.current.success).toBeInstanceOf(Function)
-    expect(result.current.error).toBeInstanceOf(Function)
-    expect(result.current.warning).toBeInstanceOf(Function)
-    expect(result.current.info).toBeInstanceOf(Function)
-  })
-
-  it('success method returns toast id', () => {
-    const { result } = renderHook(() => useToast())
-    const id = result.current.success('Success title', 'Success message')
-    expect(id).toBe('toast-test-id')
-  })
-
-  it('error method returns toast id', () => {
-    const { result } = renderHook(() => useToast())
-    const id = result.current.error('Error title', 'Error message')
-    expect(id).toBe('toast-test-id')
-  })
-
-  it('warning method returns toast id', () => {
-    const { result } = renderHook(() => useToast())
-    const id = result.current.warning('Warning title', 'Warning message')
-    expect(id).toBe('toast-test-id')
-  })
-
-  it('info method returns toast id', () => {
-    const { result } = renderHook(() => useToast())
-    const id = result.current.info('Info title', 'Info message')
-    expect(id).toBe('toast-test-id')
-  })
-
-  it('methods can be called without message', () => {
-    const { result } = renderHook(() => useToast())
-    const id = result.current.success('Title only')
-    expect(id).toBe('toast-test-id')
-  })
-})
-
-// Helper function to render hooks
-function renderHook<T>(hook: () => T) {
-  let result: T
-
-  function TestComponent() {
-    result = hook()
-    return null
-  }
-
-  render(<TestComponent />)
-
-  return { result: { current: result! } }
-}
