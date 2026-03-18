@@ -47,6 +47,16 @@ vi.mock('../services', () => ({
   },
 }))
 
+// Mock generateId for toast tests
+vi.mock('../utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils')>()
+  let idCounter = 0
+  return {
+    ...actual,
+    generateId: (prefix: string) => `${prefix}-${++idCounter}`,
+  }
+})
+
 describe('appStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1274,6 +1284,126 @@ describe('appStore', () => {
 
       expect(useAppStore.getState().agents).toHaveLength(1)
       expect(useAppStore.getState().agents[0].id).toBe('agent-1')
+    })
+  })
+
+  describe('toast notifications', () => {
+    it('addToast creates a toast with default duration', () => {
+      useAppStore.setState({ toasts: [] })
+
+      let toastId: string
+      act(() => {
+        toastId = useAppStore.getState().addToast('success', 'Test Toast', 'Test message')
+      })
+
+      const state = useAppStore.getState()
+      expect(state.toasts).toHaveLength(1)
+      expect(state.toasts[0].type).toBe('success')
+      expect(state.toasts[0].title).toBe('Test Toast')
+      expect(state.toasts[0].message).toBe('Test message')
+      expect(state.toasts[0].duration).toBe(5000)
+      expect(toastId!).toBeDefined()
+    })
+
+    it('addToast creates toast for each type', () => {
+      const types = ['success', 'error', 'warning', 'info'] as const
+      useAppStore.setState({ toasts: [] })
+
+      types.forEach((type) => {
+        act(() => {
+          useAppStore.getState().addToast(type, `${type} title`)
+        })
+      })
+
+      const state = useAppStore.getState()
+      expect(state.toasts).toHaveLength(4)
+      expect(state.toasts[0].type).toBe('success')
+      expect(state.toasts[1].type).toBe('error')
+      expect(state.toasts[2].type).toBe('warning')
+      expect(state.toasts[3].type).toBe('info')
+    })
+
+    it('addToast accepts custom options', () => {
+      useAppStore.setState({ toasts: [] })
+
+      act(() => {
+        useAppStore.getState().addToast('error', 'Error', 'Details', {
+          duration: 10000,
+          persistent: true,
+        })
+      })
+
+      const state = useAppStore.getState()
+      expect(state.toasts[0].duration).toBe(10000)
+      expect(state.toasts[0].persistent).toBe(true)
+    })
+
+    it('removeToast removes specific toast', () => {
+      useAppStore.setState({ toasts: [] })
+
+      let id1: string, id2: string
+      act(() => {
+        id1 = useAppStore.getState().addToast('success', 'Toast 1')
+        id2 = useAppStore.getState().addToast('error', 'Toast 2')
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(2)
+
+      act(() => {
+        useAppStore.getState().removeToast(id1!)
+      })
+
+      const state = useAppStore.getState()
+      expect(state.toasts).toHaveLength(1)
+      expect(state.toasts[0].title).toBe('Toast 2')
+    })
+
+    it('removeToast does nothing for non-existent toast', () => {
+      useAppStore.setState({ toasts: [] })
+
+      act(() => {
+        useAppStore.getState().addToast('success', 'Toast')
+      })
+
+      act(() => {
+        useAppStore.getState().removeToast('non-existent-id')
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(1)
+    })
+
+    it('clearToasts removes all toasts', () => {
+      useAppStore.setState({ toasts: [] })
+
+      act(() => {
+        useAppStore.getState().addToast('success', 'Toast 1')
+        useAppStore.getState().addToast('error', 'Toast 2')
+        useAppStore.getState().addToast('warning', 'Toast 3')
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(3)
+
+      act(() => {
+        useAppStore.getState().clearToasts()
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(0)
+    })
+
+    it('reset clears toasts', () => {
+      useAppStore.setState({ toasts: [] })
+
+      act(() => {
+        useAppStore.getState().addToast('success', 'Test')
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(1)
+
+      act(() => {
+        useAppStore.getState().reset()
+      })
+
+      expect(useAppStore.getState().toasts).toHaveLength(0)
     })
   })
 })
