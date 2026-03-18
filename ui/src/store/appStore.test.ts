@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act } from '@testing-library/react'
 import { useAppStore } from './appStore'
+import type { PermissionRequest } from './appStore'
 import type { Team, Session, Swarm, Agent } from '../types'
 
 // Mock localStorage
@@ -423,7 +424,7 @@ describe('appStore', () => {
 
   describe('swarm management', () => {
     it('setSwarms updates swarms', () => {
-      const swarms = [{ id: 'swarm-1', name: 'Swarm 1', state: 'idle' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'idle' } }]
+      const swarms = [{ id: 'swarm-1', name: 'Swarm 1', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }]
 
       act(() => {
         useAppStore.getState().setSwarms(swarms as Swarm[])
@@ -435,7 +436,7 @@ describe('appStore', () => {
     it('addSwarm adds a new swarm', () => {
       useAppStore.setState({ swarms: [] })
 
-      const newSwarm = { id: 'swarm-1', name: 'New Swarm', state: 'idle' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'idle' } }
+      const newSwarm = { id: 'swarm-1', name: 'New Swarm', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
 
       act(() => {
         useAppStore.getState().addSwarm(newSwarm as Swarm)
@@ -447,7 +448,7 @@ describe('appStore', () => {
     })
 
     it('removeSwarm removes a swarm', () => {
-      const swarm = { id: 'swarm-1', name: 'Swarm 1', state: 'idle' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'idle' } }
+      const swarm = { id: 'swarm-1', name: 'Swarm 1', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
       useAppStore.setState({ swarms: [swarm] as Swarm[] })
 
       act(() => {
@@ -458,7 +459,7 @@ describe('appStore', () => {
     })
 
     it('setActiveSwarm updates active swarm', () => {
-      const swarm = { id: 'swarm-1', name: 'Active Swarm', state: 'idle' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'idle' } }
+      const swarm = { id: 'swarm-1', name: 'Active Swarm', state: 'active' as const, topology: 'star' as const, strategy: 'parallel' as const, agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }
 
       act(() => {
         useAppStore.getState().setActiveSwarm(swarm as Swarm)
@@ -589,14 +590,14 @@ describe('appStore', () => {
     })
 
     it('resolvePermission removes from queue and updates active', () => {
-      const request = {
+      const request: PermissionRequest = {
         id: 'perm-1',
         requestId: 'perm-1',
         sessionId: 'session-1',
         toolCallId: 'tool-1',
         toolName: 'test-tool',
         description: 'Test permission',
-        options: [{ optionId: 'opt-1', name: 'Allow' }],
+        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
         timestamp: Date.now(),
       }
       useAppStore.setState({
@@ -614,7 +615,7 @@ describe('appStore', () => {
     })
 
     it('dismissPermission removes from queue', () => {
-      const request = {
+      const request: PermissionRequest = {
         id: 'perm-1',
         requestId: 'perm-1',
         sessionId: 'session-1',
@@ -637,12 +638,15 @@ describe('appStore', () => {
     })
 
     it('clearPermissionQueue clears all permissions', () => {
+      const perm1: PermissionRequest = {
+        id: 'perm-1', requestId: 'perm-1', sessionId: 's1', toolCallId: 't1', toolName: 'tool1', description: 'd1', options: [], timestamp: 1
+      }
+      const perm2: PermissionRequest = {
+        id: 'perm-2', requestId: 'perm-2', sessionId: 's2', toolCallId: 't2', toolName: 'tool2', description: 'd2', options: [], timestamp: 2
+      }
       useAppStore.setState({
-        permissionQueue: [
-          { id: 'perm-1', requestId: 'perm-1', sessionId: 's1', toolCallId: 't1', toolName: 'tool1', description: 'd1', options: [], timestamp: 1 },
-          { id: 'perm-2', requestId: 'perm-2', sessionId: 's2', toolCallId: 't2', toolName: 'tool2', description: 'd2', options: [], timestamp: 2 },
-        ] as unknown as typeof useAppStore.getState>['permissionQueue'],
-        activePermission: { id: 'perm-1', requestId: 'perm-1', sessionId: 's1', toolCallId: 't1', toolName: 'tool1', description: 'd1', options: [], timestamp: 1 } as unknown as typeof useAppStore.getState>['activePermission'],
+        permissionQueue: [perm1, perm2],
+        activePermission: perm1,
       })
 
       act(() => {
@@ -698,7 +702,7 @@ describe('appStore', () => {
       useAppStore.setState({
         connected: true,
         agents: [{ id: 'agent-1', name: 'Agent 1', state: 'idle', type: 'coder', capabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcp: { http: false, sse: false }, pairProgramming: false, teamCollaboration: false }, createdAt: '2024-01-01T00:00:00Z', lastActive: '2024-01-01T00:00:00Z' }] as Agent[],
-        swarms: [{ id: 'swarm-1', name: 'Swarm 1', state: 'idle', topology: 'star', strategy: 'parallel', agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'idle' } }] as Swarm[],
+        swarms: [{ id: 'swarm-1', name: 'Swarm 1', state: 'active', topology: 'star', strategy: 'parallel', agents: [], stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: 'star', strategy: 'parallel', state: 'active' } }] as Swarm[],
         teams: [{ id: 'team-1', name: 'Team 1', description: 'Test', owner: 'user-1', members: [], agents: [], workspaces: [], stats: { memberCount: 0, onlineMembers: 0, agentCount: 0, idleAgents: 0, workspaceCount: 0 } }] as Team[],
         sessions: [{ id: 'session-1', mode: 'default', state: 'active', agents: [], messages: [], files: [], createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }] as Session[],
         sidebarCollapsed: true,
