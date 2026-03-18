@@ -974,4 +974,123 @@ describe('appStore', () => {
       expect(useAppStore.getState().selectedAgent?.state).toBe('idle')
     })
   })
+
+  describe('permission actions', () => {
+    const mockPermissionEvent = {
+      request_id: 'perm-1',
+      session_id: 'session-1',
+      tool_call_id: 'tool-1',
+      tool_name: 'execute_command',
+      description: 'Execute shell command',
+      options: [
+        { option_id: 'allow', name: 'Allow', kind: 'allow' },
+        { option_id: 'deny', name: 'Deny', kind: 'deny' },
+      ],
+    }
+
+    it('should have empty permission queue initially', () => {
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toEqual([])
+      expect(state.activePermission).toBeNull()
+    })
+
+    it('should add permission request to queue and set as active', () => {
+      const { addPermissionRequest } = useAppStore.getState()
+      addPermissionRequest(mockPermissionEvent)
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission).not.toBeNull()
+      expect(state.activePermission?.requestId).toBe('perm-1')
+    })
+
+    it('should queue multiple permission requests', () => {
+      const { addPermissionRequest } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(2)
+      // First request should still be active
+      expect(state.activePermission?.requestId).toBe('perm-1')
+    })
+
+    it('should resolve permission and activate next', () => {
+      const { addPermissionRequest, resolvePermission } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+
+      resolvePermission('perm-1', 'allow')
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-2')
+    })
+
+    it('should dismiss permission without resolving', () => {
+      const { addPermissionRequest, dismissPermission } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+
+      dismissPermission('perm-1')
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-2')
+    })
+
+    it('should clear active permission when last is resolved', () => {
+      const { addPermissionRequest, resolvePermission } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      resolvePermission('perm-1', 'allow')
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(0)
+      expect(state.activePermission).toBeNull()
+    })
+
+    it('should clear entire permission queue', () => {
+      const { addPermissionRequest, clearPermissionQueue } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-3' })
+
+      clearPermissionQueue()
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(0)
+      expect(state.activePermission).toBeNull()
+    })
+
+    it('should reset permission queue on store reset', () => {
+      const { addPermissionRequest, reset } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+
+      reset()
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(0)
+      expect(state.activePermission).toBeNull()
+    })
+
+    it('should not change active permission if dismissing non-active request', () => {
+      const { addPermissionRequest, dismissPermission } = useAppStore.getState()
+
+      addPermissionRequest(mockPermissionEvent)
+      addPermissionRequest({ ...mockPermissionEvent, request_id: 'perm-2' })
+
+      dismissPermission('perm-2')
+
+      const state = useAppStore.getState()
+      expect(state.permissionQueue).toHaveLength(1)
+      expect(state.activePermission?.requestId).toBe('perm-1')
+    })
+  })
 })
