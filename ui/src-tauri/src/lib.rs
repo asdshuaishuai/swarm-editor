@@ -8,6 +8,14 @@ use tauri::Manager;
 use tokio::process::Command as TokioCommand;
 
 // ============================================================================
+// ACP 模块 - Agent Communication Protocol
+// ============================================================================
+
+mod acp;
+mod swarm;
+mod events;
+
+// ============================================================================
 // 类型定义 - 与 Go 后端配置格式对齐
 // ============================================================================
 
@@ -981,7 +989,69 @@ fn get_config_path() -> String {
 
 /// 创建蜂群
 #[tauri::command]
-fn create_swarm(request: SwarmCreateRequest, swarm_manager: tauri::State<'_, SwarmManager>) -> Result<SwarmInfo, String> {
+async fn create_swarm(
+    request: SwarmCreateRequest,
+    swarm_manager: tauri::State<'_, SwarmManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+) -> Result<SwarmInfo, String> {
+    // 尝试通过 Go 后端创建
+    if swarm_bridge.is_connected() {
+        let config = swarm::SwarmConfig {
+            name: request.name.clone(),
+            topology: match request.topology.as_str() {
+                "mesh" => swarm::SwarmTopology::Mesh,
+                "tree" => swarm::SwarmTopology::Tree,
+                "ring" => swarm::SwarmTopology::Ring,
+                "hybrid" => swarm::SwarmTopology::Hybrid,
+                _ => swarm::SwarmTopology::Star,
+            },
+            strategy: match request.strategy.as_str() {
+                "sequential" => swarm::TaskStrategy::Sequential,
+                "pipeline" => swarm::TaskStrategy::Pipeline,
+                "mapreduce" => swarm::TaskStrategy::MapReduce,
+                _ => swarm::TaskStrategy::Parallel,
+            },
+            agent_ids: request.agent_ids.clone(),
+        };
+
+        match swarm_bridge.create_swarm(config).await {
+            Ok(info) => {
+                // 同步到本地管理器
+                let agents = scan_agents();
+                let local_request = SwarmCreateRequest {
+                    name: info.name.clone(),
+                    topology: info.topology.clone(),
+                    strategy: info.strategy.clone(),
+                    agent_ids: request.agent_ids.clone(),
+                };
+                let _ = swarm_manager.create_swarm(local_request, &agents);
+                return Ok(SwarmInfo {
+                    id: info.id,
+                    name: info.name,
+                    topology: info.topology,
+                    strategy: info.strategy,
+                    state: info.state,
+                    agents: request.agent_ids,
+                    stats: SwarmStats {
+                        agent_count: info.agent_count,
+                        idle_agents: info.agent_count,
+                        executing_agents: 0,
+                        pending_tasks: 0,
+                        completed_tasks: 0,
+                    },
+                    created_at: chrono::DateTime::from_timestamp(info.created_at as i64, 0)
+                        .map(|t| t.to_rfc3339())
+                        .unwrap_or_default(),
+                    coordinator_id: None,
+                });
+            }
+            Err(e) => {
+                log::warn!("Go backend create_swarm failed: {}, falling back to local", e);
+            }
+        }
+    }
+
+    // 本地回退实现
     let agents = scan_agents();
     swarm_manager.create_swarm(request, &agents)
 }
@@ -1001,8 +1071,24 @@ fn get_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) -> Resul
 
 /// 启动蜂群
 #[tauri::command]
-async fn start_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) -> Result<SwarmInfo, String> {
-    // 先启动所有 Agent
+async fn start_swarm(
+    id: String,
+    swarm_manager: tauri::State<'_, SwarmManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+) -> Result<SwarmInfo, String> {
+    // 尝试通过 Go 后端启动
+    if swarm_bridge.is_connected() {
+        match swarm_bridge.start_swarm(&id).await {
+            Ok(_) => {
+                log::info!("Started swarm {} via Go backend", id);
+            }
+            Err(e) => {
+                log::warn!("Go backend start_swarm failed: {}, falling back to local", e);
+            }
+        }
+    }
+
+    // 启动本地 Agent 进程
     let config = load_config();
     let agents_to_start: Vec<String> = {
         let swarms = swarm_manager.swarms.lock().unwrap();
@@ -1049,7 +1135,23 @@ async fn start_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) 
 
 /// 停止蜂群
 #[tauri::command]
-async fn stop_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) -> Result<SwarmInfo, String> {
+async fn stop_swarm(
+    id: String,
+    swarm_manager: tauri::State<'_, SwarmManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+) -> Result<SwarmInfo, String> {
+    // 尝试通过 Go 后端停止
+    if swarm_bridge.is_connected() {
+        match swarm_bridge.stop_swarm(&id).await {
+            Ok(_) => {
+                log::info!("Stopped swarm {} via Go backend", id);
+            }
+            Err(e) => {
+                log::warn!("Go backend stop_swarm failed: {}, falling back to local", e);
+            }
+        }
+    }
+
     swarm_manager.stop_swarm(&id)
 }
 
@@ -1064,22 +1166,72 @@ fn delete_swarm(id: String, swarm_manager: tauri::State<'_, SwarmManager>) -> Re
 async fn submit_swarm_task(
     request: SwarmTaskRequest,
     swarm_manager: tauri::State<'_, SwarmManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
 ) -> Result<String, String> {
+    // 尝试通过 Go 后端提交任务
+    if swarm_bridge.is_connected() {
+        let config = swarm::TaskConfig {
+            title: request.title.clone(),
+            prompt: request.prompt.clone(),
+            priority: request.priority,
+        };
+
+        match swarm_bridge.submit_task(&request.swarm_id, config).await {
+            Ok(info) => {
+                log::info!("Submitted task {} via Go backend", info.id);
+                return Ok(info.id);
+            }
+            Err(e) => {
+                log::warn!("Go backend submit_task failed: {}, falling back to local", e);
+            }
+        }
+    }
+
+    // 本地回退实现
     swarm_manager.submit_task(request)
 }
 
-/// 执行蜂群任务（真实执行）
+/// 执行蜂群任务（通过 Go 后端）
 #[tauri::command]
 async fn execute_swarm_task(
     swarm_id: String,
     task_id: String,
     swarm_manager: tauri::State<'_, SwarmManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
 ) -> Result<SwarmTaskResult, String> {
-    // 获取蜂群信息
+    // 尝试通过 Go 后端执行
+    if swarm_bridge.is_connected() {
+        match swarm_bridge.execute_task(&swarm_id, &task_id).await {
+            Ok(result) => {
+                // 更新统计
+                {
+                    let mut swarms = swarm_manager.swarms.lock().unwrap();
+                    if let Some(state) = swarms.get_mut(&swarm_id) {
+                        state.info.stats.completed_tasks += 1;
+                        if state.info.stats.pending_tasks > 0 {
+                            state.info.stats.pending_tasks -= 1;
+                        }
+                    }
+                }
+                return Ok(SwarmTaskResult {
+                    task_id: result.task_id,
+                    status: result.status,
+                    output: result.output,
+                    error: result.error,
+                    agent_results: result.agent_results.unwrap_or_default(),
+                });
+            }
+            Err(e) => {
+                log::warn!("Go backend execution failed: {}, falling back to local", e);
+            }
+        }
+    }
+
+    // 本地回退实现
+    log::info!("Using local fallback for task execution");
     let swarm_info = swarm_manager.get_swarm(&swarm_id)
         .ok_or_else(|| format!("Swarm not found: {}", swarm_id))?;
 
-    // 获取可用 Agent
     let agents = scan_agents();
     let available_agents: Vec<AgentInfo> = agents.into_iter()
         .filter(|a| swarm_info.agents.contains(&a.id) && a.status == "running")
@@ -1089,7 +1241,6 @@ async fn execute_swarm_task(
         return Err("No running agents available in swarm".to_string());
     }
 
-    // 创建任务结果
     let result = SwarmTaskResult {
         task_id: task_id.clone(),
         status: "completed".to_string(),
@@ -1127,16 +1278,44 @@ async fn execute_swarm_task(
     Ok(result)
 }
 
+/// 检查后端连接状态
+#[tauri::command]
+fn get_backend_status(swarm_bridge: tauri::State<'_, swarm::SwarmBridge>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "connected": swarm_bridge.is_connected(),
+        "backendType": "go"
+    }))
+}
+
 // ============================================================================
 // 入口
 // ============================================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Determine the Go backend binary path
+    let binary_path = if cfg!(debug_assertions) {
+        // Development: use relative path from project root
+        let manifest_dir = std::env::current_dir()
+            .expect("Failed to get current directory")
+            .parent()
+            .expect("Failed to get parent directory")
+            .join("bin/swarm-editor");
+        manifest_dir.to_string_lossy().to_string()
+    } else {
+        // Production: use sidecar path
+        "binaries/swarm-editor".to_string()
+    };
+
+    log::info!("Go backend binary path: {}", binary_path);
+
+    let swarm_bridge = swarm::SwarmBridge::new(&binary_path);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ProcessManager::new())
         .manage(SwarmManager::new())
+        .manage(swarm_bridge)
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -1155,6 +1334,39 @@ pub fn run() {
                     log::error!("Failed to create default config: {}", e);
                 }
             }
+
+            // Connect to Go backend asynchronously
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle.state::<swarm::SwarmBridge>();
+                match state.connect().await {
+                    Ok(_) => {
+                        log::info!("Connected to Go backend");
+
+                        // Set up notification handler to emit events to frontend
+                        let app_handle_clone = app_handle.clone();
+                        state.set_notification_handler(move |method, params| {
+                            log::info!("Notification from Go backend: {} {:?}", method, params);
+
+                            // Emit event to frontend based on notification type
+                            if let Some(params_value) = params {
+                                let event_name = match method {
+                                    "swarm/task_update" => "swarm-task-update",
+                                    "swarm/status_change" => "swarm-status-change",
+                                    "agent/status_change" => "agent-status-change",
+                                    "permission/request" => "permission-request",
+                                    _ => "backend-notification",
+                                };
+
+                                if let Err(e) = app_handle_clone.emit(event_name, params_value) {
+                                    log::error!("Failed to emit event {}: {}", event_name, e);
+                                }
+                            }
+                        }).await;
+                    }
+                    Err(e) => log::error!("Failed to connect to Go backend: {}", e),
+                }
+            });
 
             Ok(())
         })
@@ -1182,6 +1394,8 @@ pub fn run() {
             delete_swarm,
             submit_swarm_task,
             execute_swarm_task,
+            // 后端状态
+            get_backend_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

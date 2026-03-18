@@ -26,3 +26,5 @@ tokio = { version = "1", features = ["full"] }
 dirs = "5"
 walkdir = "2"
 chrono = "0.4"
+async-trait = "0.1"
+thiserror = "2"

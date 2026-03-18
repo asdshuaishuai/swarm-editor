@@ -54,6 +54,24 @@ type Handler interface {
 	// SessionCancel cancels ongoing prompt
 	SessionCancel(ctx context.Context, sessionID SessionID) error
 
+	// SwarmCreate creates a new swarm
+	SwarmCreate(ctx context.Context, params *SwarmCreateParams) (*SwarmCreateResult, error)
+
+	// SwarmStart starts a swarm
+	SwarmStart(ctx context.Context, params *SwarmStartParams) error
+
+	// SwarmStop stops a swarm
+	SwarmStop(ctx context.Context, params *SwarmStopParams) error
+
+	// SwarmSubmitTask submits a task to a swarm
+	SwarmSubmitTask(ctx context.Context, params *SwarmSubmitTaskParams) (*SwarmSubmitTaskResult, error)
+
+	// SwarmExecuteTask executes a task in a swarm
+	SwarmExecuteTask(ctx context.Context, params *SwarmExecuteTaskParams) (*SwarmTaskResult, error)
+
+	// SwarmGetStatus gets swarm status
+	SwarmGetStatus(ctx context.Context, params *SwarmGetStatusParams) (*SwarmStatusResult, error)
+
 	// OnUpdate registers a callback for session updates
 	OnUpdate(callback func(sessionID SessionID, update *Update))
 
@@ -267,6 +285,42 @@ func (s *Server) handleRequest(msg *Message) {
 		var params SessionCancelParams
 		if err = json.Unmarshal(msg.Params, &params); err == nil {
 			err = s.handler.SessionCancel(ctx, params.SessionID)
+		}
+
+	case MethodSwarmCreate:
+		var params SwarmCreateParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.SwarmCreate(ctx, &params)
+		}
+
+	case MethodSwarmStart:
+		var params SwarmStartParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			err = s.handler.SwarmStart(ctx, &params)
+		}
+
+	case MethodSwarmStop:
+		var params SwarmStopParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			err = s.handler.SwarmStop(ctx, &params)
+		}
+
+	case MethodSwarmSubmitTask:
+		var params SwarmSubmitTaskParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.SwarmSubmitTask(ctx, &params)
+		}
+
+	case MethodSwarmExecuteTask:
+		var params SwarmExecuteTaskParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.SwarmExecuteTask(ctx, &params)
+		}
+
+	case MethodSwarmGetStatus:
+		var params SwarmGetStatusParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.SwarmGetStatus(ctx, &params)
 		}
 
 	default:

@@ -113,3 +113,27 @@ func (h *AgentHandler) OnUpdate(callback func(sessionID acp.SessionID, update *a
 
 func (h *AgentHandler) OnPermissionRequest(callback func(sessionID acp.SessionID, request *acp.SessionRequestPermissionParams) (*acp.PermissionOutcome, error)) {
 }
+
+func (h *AgentHandler) SwarmCreate(ctx context.Context, params *acp.SwarmCreateParams) (*acp.SwarmCreateResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) SwarmStart(ctx context.Context, params *acp.SwarmStartParams) error {
+	return fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) SwarmStop(ctx context.Context, params *acp.SwarmStopParams) error {
+	return fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) SwarmSubmitTask(ctx context.Context, params *acp.SwarmSubmitTaskParams) (*acp.SwarmSubmitTaskResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) SwarmExecuteTask(ctx context.Context, params *acp.SwarmExecuteTaskParams) (*acp.SwarmTaskResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) SwarmGetStatus(ctx context.Context, params *acp.SwarmGetStatusParams) (*acp.SwarmStatusResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support swarm operations")
+}

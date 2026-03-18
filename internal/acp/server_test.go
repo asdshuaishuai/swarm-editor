@@ -88,6 +88,30 @@ func (m *MockHandler) OnPermissionRequest(callback func(sessionID SessionID, req
 	m.permissionCallback = callback
 }
 
+func (m *MockHandler) SwarmCreate(ctx context.Context, params *SwarmCreateParams) (*SwarmCreateResult, error) {
+	return &SwarmCreateResult{SwarmID: "test-swarm"}, nil
+}
+
+func (m *MockHandler) SwarmStart(ctx context.Context, params *SwarmStartParams) error {
+	return nil
+}
+
+func (m *MockHandler) SwarmStop(ctx context.Context, params *SwarmStopParams) error {
+	return nil
+}
+
+func (m *MockHandler) SwarmSubmitTask(ctx context.Context, params *SwarmSubmitTaskParams) (*SwarmSubmitTaskResult, error) {
+	return &SwarmSubmitTaskResult{TaskID: "test-task"}, nil
+}
+
+func (m *MockHandler) SwarmExecuteTask(ctx context.Context, params *SwarmExecuteTaskParams) (*SwarmTaskResult, error) {
+	return &SwarmTaskResult{TaskID: params.TaskID, Status: "completed"}, nil
+}
+
+func (m *MockHandler) SwarmGetStatus(ctx context.Context, params *SwarmGetStatusParams) (*SwarmStatusResult, error) {
+	return &SwarmStatusResult{SwarmID: params.SwarmID, State: "active"}, nil
+}
+
 // MockTransport implements Transport for testing with proper context handling
 type MockTransport struct {
 	mu          sync.Mutex

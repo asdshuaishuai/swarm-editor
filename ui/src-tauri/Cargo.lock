@@ -82,6 +82,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3517,6 +3528,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "swarm-editor"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "dirs 5.0.1",
  "log",
@@ -3526,6 +3538,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-log",
  "tauri-plugin-shell",
+ "thiserror 2.0.18",
  "tokio",
  "walkdir",
 ]

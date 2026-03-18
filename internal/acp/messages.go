@@ -329,6 +329,95 @@ const (
 	PermRejectAlways PermissionKind = "reject_always"
 )
 
+// ==================== Swarm API Types ====================
+
+// Swarm 方法常量
+const (
+	MethodSwarmCreate      = "swarm/create"
+	MethodSwarmStart       = "swarm/start"
+	MethodSwarmStop        = "swarm/stop"
+	MethodSwarmSubmitTask  = "swarm/submitTask"
+	MethodSwarmExecuteTask = "swarm/executeTask"
+	MethodSwarmGetStatus   = "swarm/getStatus"
+)
+
+// SwarmCreateParams 创建 Swarm 参数
+type SwarmCreateParams struct {
+	Name     string   `json:"name"`
+	Topology string   `json:"topology"`
+	Strategy string   `json:"strategy"`
+	AgentIDs []string `json:"agentIds"`
+}
+
+// SwarmCreateResult 创建 Swarm 结果
+type SwarmCreateResult struct {
+	SwarmID string `json:"swarmId"`
+}
+
+// SwarmStartParams 启动 Swarm 参数
+type SwarmStartParams struct {
+	SwarmID string `json:"swarmId"`
+}
+
+// SwarmStopParams 停止 Swarm 参数
+type SwarmStopParams struct {
+	SwarmID string `json:"swarmId"`
+}
+
+// SwarmSubmitTaskParams 提交任务参数
+type SwarmSubmitTaskParams struct {
+	SwarmID     string  `json:"swarmId"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Prompt      Prompt  `json:"prompt"`
+	Priority    int     `json:"priority"`
+}
+
+// SwarmSubmitTaskResult 提交任务结果
+type SwarmSubmitTaskResult struct {
+	TaskID string `json:"taskId"`
+}
+
+// SwarmExecuteTaskParams 执行任务参数
+type SwarmExecuteTaskParams struct {
+	SwarmID string `json:"swarmId"`
+	TaskID  string `json:"taskId"`
+}
+
+// SwarmGetStatusParams 获取状态参数
+type SwarmGetStatusParams struct {
+	SwarmID string `json:"swarmId"`
+}
+
+// SwarmStatusResult 状态结果
+type SwarmStatusResult struct {
+	SwarmID         string            `json:"swarmId"`
+	State           string            `json:"state"`
+	AgentCount      int               `json:"agentCount"`
+	IdleAgents      int               `json:"idleAgents"`
+	ExecutingAgents int               `json:"executingAgents"`
+	PendingTasks    int               `json:"pendingTasks"`
+	CompletedTasks  int               `json:"completedTasks"`
+	Topology        string            `json:"topology"`
+	Strategy        string            `json:"strategy"`
+}
+
+// SwarmTaskResult 任务执行结果
+type SwarmTaskResult struct {
+	TaskID       string                     `json:"taskId"`
+	Status       string                     `json:"status"`
+	Output       string                     `json:"output"`
+	AgentResults map[string]AgentTaskResult `json:"agentResults"`
+}
+
+// AgentTaskResult Agent 任务结果
+type AgentTaskResult struct {
+	AgentID    string `json:"agentId"`
+	Status     string `json:"status"`
+	Output     string `json:"output"`
+	DurationMs int64  `json:"durationMs"`
+}
+
 // PermissionOutcome is the result of a permission request
 type PermissionOutcome struct {
 	Outcome  string `json:"outcome"` // "selected", "cancelled"

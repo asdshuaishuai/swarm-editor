@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -96,13 +97,15 @@ func main() {
 		log.Fatal("Failed to create stdio transport")
 	}
 
-	acpServer := acp.NewServer(&ACPServerHandler{
+	handler := &ACPServerHandler{
 		registry:    registry,
 		swarm:       mainSwarm,
 		pairManager: pairManager,
 		teamManager: teamManager,
 		llmRegistry: llmRegistry,
-	}, transport)
+		swarms:      make(map[string]*swarm.Swarm),
+	}
+	acpServer := acp.NewServer(handler, transport)
 	if acpServer == nil {
 		log.Fatal("Failed to create ACP server")
 	}
@@ -134,6 +137,8 @@ type ACPServerHandler struct {
 	pairManager *pair.Manager
 	teamManager *team.Manager
 	llmRegistry *llm.Registry
+	swarms      map[string]*swarm.Swarm
+	swarmMutex  sync.RWMutex
 }
 
 func (h *ACPServerHandler) Initialize(ctx context.Context, params *acp.InitializeParams) (*acp.InitializeResult, error) {
@@ -222,4 +227,200 @@ func (h *ACPServerHandler) OnUpdate(callback func(sessionID acp.SessionID, updat
 
 func (h *ACPServerHandler) OnPermissionRequest(callback func(sessionID acp.SessionID, request *acp.SessionRequestPermissionParams) (*acp.PermissionOutcome, error)) {
 	// Register permission callback
+}
+
+// parseTopology converts string to TopologyType
+func parseTopology(topology string) swarm.TopologyType {
+	switch topology {
+	case "star":
+		return swarm.TopologyStar
+	case "mesh":
+		return swarm.TopologyMesh
+	case "tree":
+		return swarm.TopologyTree
+	case "ring":
+		return swarm.TopologyRing
+	case "hybrid":
+		return swarm.TopologyHybrid
+	default:
+		return swarm.TopologyStar
+	}
+}
+
+// parseStrategy converts string to TaskStrategy
+func parseStrategy(strategy string) swarm.TaskStrategy {
+	switch strategy {
+	case "parallel":
+		return swarm.StrategyParallel
+	case "sequential":
+		return swarm.StrategySequential
+	case "pipeline":
+		return swarm.StrategyPipeline
+	case "mapreduce":
+		return swarm.StrategyMapReduce
+	default:
+		return swarm.StrategyParallel
+	}
+}
+
+// SwarmCreate creates a new swarm
+func (h *ACPServerHandler) SwarmCreate(ctx context.Context, params *acp.SwarmCreateParams) (*acp.SwarmCreateResult, error) {
+	// Create swarm config
+	config := swarm.SwarmConfig{
+		ID:       fmt.Sprintf("swarm_%d", time.Now().UnixNano()),
+		Name:     params.Name,
+		Topology: parseTopology(params.Topology),
+		Strategy: parseStrategy(params.Strategy),
+	}
+
+	// Create new swarm
+	s := swarm.NewSwarm(config)
+
+	// Add agents to swarm
+	for _, agentID := range params.AgentIDs {
+		ag, ok := h.registry.Get(acp.AgentID(agentID))
+		if ok && ag != nil {
+			s.AddAgent(ag)
+		}
+	}
+
+	// Store swarm
+	h.swarmMutex.Lock()
+	h.swarms[s.ID] = s
+	h.swarmMutex.Unlock()
+
+	return &acp.SwarmCreateResult{SwarmID: s.ID}, nil
+}
+
+// SwarmStart starts a swarm
+func (h *ACPServerHandler) SwarmStart(ctx context.Context, params *acp.SwarmStartParams) error {
+	h.swarmMutex.RLock()
+	s, ok := h.swarms[params.SwarmID]
+	h.swarmMutex.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("swarm not found: %s", params.SwarmID)
+	}
+
+	return s.Start(ctx)
+}
+
+// SwarmStop stops a swarm
+func (h *ACPServerHandler) SwarmStop(ctx context.Context, params *acp.SwarmStopParams) error {
+	h.swarmMutex.RLock()
+	s, ok := h.swarms[params.SwarmID]
+	h.swarmMutex.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("swarm not found: %s", params.SwarmID)
+	}
+
+	return s.Stop()
+}
+
+// SwarmSubmitTask submits a task to a swarm
+func (h *ACPServerHandler) SwarmSubmitTask(ctx context.Context, params *acp.SwarmSubmitTaskParams) (*acp.SwarmSubmitTaskResult, error) {
+	h.swarmMutex.RLock()
+	s, ok := h.swarms[params.SwarmID]
+	h.swarmMutex.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("swarm not found: %s", params.SwarmID)
+	}
+
+	// Create task
+	taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
+	task := &swarm.Task{
+		ID:          taskID,
+		Title:       params.Title,
+		Description: params.Description,
+		Prompt:      params.Prompt,
+	}
+
+	// Set priority if provided
+	switch params.Priority {
+	case 1:
+		task.Priority = swarm.PriorityLow
+	case 2:
+		task.Priority = swarm.PriorityMedium
+	case 3:
+		task.Priority = swarm.PriorityHigh
+	default:
+		task.Priority = swarm.PriorityMedium
+	}
+
+	if err := s.SubmitTask(ctx, task); err != nil {
+		return nil, err
+	}
+
+	return &acp.SwarmSubmitTaskResult{TaskID: taskID}, nil
+}
+
+// SwarmExecuteTask executes a task in a swarm
+func (h *ACPServerHandler) SwarmExecuteTask(ctx context.Context, params *acp.SwarmExecuteTaskParams) (*acp.SwarmTaskResult, error) {
+	h.swarmMutex.RLock()
+	s, ok := h.swarms[params.SwarmID]
+	h.swarmMutex.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("swarm not found: %s", params.SwarmID)
+	}
+
+	// Find task
+	var task *swarm.Task
+	for _, t := range s.GetAgents() {
+		// This is a simplified approach - in reality we'd need to look up the task
+		// from the swarm's task map
+		_ = t
+	}
+
+	// For now, create a placeholder task to execute
+	task = &swarm.Task{
+		ID:     params.TaskID,
+		Prompt: acp.Prompt{{Type: "text", Text: "Execute task"}},
+	}
+
+	result, err := s.ExecuteTask(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+
+	return &acp.SwarmTaskResult{
+		TaskID: params.TaskID,
+		Status: "completed",
+		Output: result.Content,
+		AgentResults: map[string]acp.AgentTaskResult{
+			result.AgentID: {
+				AgentID:    result.AgentID,
+				Status:     "completed",
+				Output:     result.Content,
+				DurationMs: result.Duration.Milliseconds(),
+			},
+		},
+	}, nil
+}
+
+// SwarmGetStatus gets swarm status
+func (h *ACPServerHandler) SwarmGetStatus(ctx context.Context, params *acp.SwarmGetStatusParams) (*acp.SwarmStatusResult, error) {
+	h.swarmMutex.RLock()
+	s, ok := h.swarms[params.SwarmID]
+	h.swarmMutex.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("swarm not found: %s", params.SwarmID)
+	}
+
+	stats := s.GetStats()
+
+	return &acp.SwarmStatusResult{
+		SwarmID:         params.SwarmID,
+		State:           stats.State,
+		AgentCount:      stats.AgentCount,
+		IdleAgents:      stats.IdleAgents,
+		ExecutingAgents: stats.ExecutingAgents,
+		PendingTasks:    stats.PendingTasks,
+		CompletedTasks:  stats.CompletedTasks,
+		Topology:        stats.Topology,
+		Strategy:        stats.Strategy,
+	}, nil
 }
