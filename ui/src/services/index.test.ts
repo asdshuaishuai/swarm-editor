@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { api, mockApi, isTauriEnv, agentApi, swarmApi, fsApi, executeApi } from './index'
+import { api, mockApi, isTauriEnv, agentApi, swarmApi, fsApi, executeApi, backendApi } from './index'
 
 // Mock Tauri invoke
 const mockInvoke = vi.fn()
@@ -576,5 +576,28 @@ describe('api (Tauri environment simulation)', () => {
 
     await fsApi.writeFile('/test/file.ts', 'content')
     expect(mockInvoke).toHaveBeenCalledWith('write_file', { path: '/test/file.ts', content: 'content' })
+  })
+
+  it('calls invoke for backend.getStatus in Tauri env', async () => {
+    const mockStatus = { connected: true, backendType: 'go' }
+    mockInvoke.mockResolvedValueOnce(mockStatus)
+
+    const result = await backendApi.getStatus()
+    expect(mockInvoke).toHaveBeenCalledWith('get_backend_status')
+    expect(result).toEqual(mockStatus)
+  })
+
+  it('returns mock status for backend.getStatus in non-Tauri env', async () => {
+    // Temporarily remove __TAURI__ to simulate non-Tauri env
+    const originalTauri = (window as unknown as Record<string, unknown>).__TAURI__
+    delete (window as unknown as Record<string, unknown>).__TAURI__
+
+    const result = await backendApi.getStatus()
+    expect(result).toEqual({ connected: false, backendType: 'mock' })
+
+    // Restore __TAURI__
+    if (originalTauri) {
+      (window as unknown as Record<string, unknown>).__TAURI__ = originalTauri
+    }
   })
 })
