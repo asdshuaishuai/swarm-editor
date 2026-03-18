@@ -46,11 +46,6 @@ vi.mock('../services', () => ({
   },
 }))
 
-import { api } from '../services'
-
-// Create mock references for easier usage
-const agentApi = api.agent
-
 describe('appStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
