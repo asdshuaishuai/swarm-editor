@@ -465,9 +465,9 @@ describe('getSystemTheme SSR edge case', () => {
 describe('getStoredTheme and setStoredTheme SSR edge cases', () => {
   it('should return dark when window is undefined in getStoredTheme', async () => {
     // Save original window
-    const originalWindow = global.window
+    const originalWindow = globalThis.window
     // @ts-expect-error - Testing SSR scenario
-    delete global.window
+    delete globalThis.window
 
     vi.resetModules()
 
@@ -478,7 +478,7 @@ describe('getStoredTheme and setStoredTheme SSR edge cases', () => {
     expect(getStoredTheme()).toBe('dark')
 
     // Restore window
-    global.window = originalWindow
+    globalThis.window = originalWindow
     vi.doUnmock('./useTheme')
   })
 
@@ -496,10 +496,10 @@ describe('getStoredTheme and setStoredTheme SSR edge cases', () => {
 
   it('covers setStoredTheme else branch when window is undefined', async () => {
     // Save original window
-    const originalWindow = global.window
+    const originalWindow = globalThis.window
 
     // @ts-expect-error - Testing SSR scenario
-    delete global.window
+    delete globalThis.window
 
     vi.resetModules()
 
@@ -512,7 +512,7 @@ describe('getStoredTheme and setStoredTheme SSR edge cases', () => {
     expect(() => setStoredTheme('system')).not.toThrow()
 
     // Restore window
-    global.window = originalWindow
+    globalThis.window = originalWindow
   })
 })
 

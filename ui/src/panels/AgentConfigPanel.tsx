@@ -126,6 +126,7 @@ export default function AgentConfigPanel({
     if (testWithInvalidAgentId) {
       handleTestConnection(testWithInvalidAgentId)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testWithInvalidAgentId])
 
   return (

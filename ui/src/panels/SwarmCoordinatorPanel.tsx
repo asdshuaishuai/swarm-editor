@@ -68,14 +68,12 @@ export default function SwarmCoordinatorPanel({
     if (testPauseTaskId) {
       handlePauseTask(testPauseTaskId)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testPauseTaskId])
 
   useEffect(() => {
     if (testCancelTaskId) {
       handleCancelTask(testCancelTaskId)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testCancelTaskId])
 
   // Simulated task updates
