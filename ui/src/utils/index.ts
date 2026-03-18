@@ -180,3 +180,24 @@ export function isDefined<T>(value: T | null | undefined): value is T {
 export function isBrowser(): boolean {
   return typeof window !== 'undefined'
 }
+
+/**
+ * Logger for development/debugging purposes
+ * Uses console.warn/error to comply with ESLint no-console rule
+ */
+export const logger = {
+  debug: (tag: string, ...args: unknown[]) => {
+    if (import.meta.env.DEV) {
+      console.warn(`[${tag}]`, ...args)
+    }
+  },
+  info: (tag: string, ...args: unknown[]) => {
+    console.warn(`[${tag}]`, ...args)
+  },
+  warn: (tag: string, ...args: unknown[]) => {
+    console.warn(`[${tag}]`, ...args)
+  },
+  error: (tag: string, ...args: unknown[]) => {
+    console.error(`[${tag}]`, ...args)
+  },
+}

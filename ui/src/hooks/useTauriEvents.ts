@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { tauri, type UnlistenFn } from '../services/tauri'
 import { useAppStore } from '../store/appStore'
+import { logger } from '../utils'
 
 /**
  * Hook to subscribe to Tauri backend events and update the Zustand store.
@@ -26,7 +27,7 @@ export function useTauriEvents() {
       try {
         // Subscribe to swarm task updates
         const unlistenTaskUpdate = await tauri.events.onSwarmTaskUpdate((event) => {
-          console.log('[Tauri Event] swarm-task-update:', event)
+          logger.debug('Tauri Event', 'swarm-task-update:', event)
 
           // Update swarm stats if we have the swarm in state
           const swarms = store.swarms
@@ -57,7 +58,7 @@ export function useTauriEvents() {
 
         // Subscribe to swarm status changes
         const unlistenSwarmStatus = await tauri.events.onSwarmStatusChange((event) => {
-          console.log('[Tauri Event] swarm-status-change:', event)
+          logger.debug('Tauri Event', 'swarm-status-change:', event)
 
           // Update swarm state
           const swarms = store.swarms
@@ -88,7 +89,7 @@ export function useTauriEvents() {
 
         // Subscribe to agent status changes
         const unlistenAgentStatus = await tauri.events.onAgentStatusChange((event) => {
-          console.log('[Tauri Event] agent-status-change:', event)
+          logger.debug('Tauri Event', 'agent-status-change:', event)
 
           // Update agent in store
           const agents = store.agents
@@ -115,7 +116,7 @@ export function useTauriEvents() {
 
         // Subscribe to permission requests
         const unlistenPermission = await tauri.events.onPermissionRequest((event) => {
-          console.log('[Tauri Event] permission-request:', event)
+          logger.debug('Tauri Event', 'permission-request:', event)
 
           // Add permission request to the store's queue
           store.addPermissionRequest(event)
@@ -124,19 +125,18 @@ export function useTauriEvents() {
 
         // Subscribe to log events
         const unlistenLog = await tauri.events.onLog((event) => {
-          console.log('[Tauri Event] log:', event)
+          logger.debug('Tauri Event', 'log:', event)
 
           // Log events could be stored in a dedicated log state
-          // For now, we just console log them at the appropriate level
+          // For now, we just log them at the appropriate level
           const logMethod = event.level.toLowerCase() as 'debug' | 'info' | 'warn' | 'error'
-          const logger = console[logMethod] || console.log
-          logger(`[${event.source}] ${event.message}`)
+          logger[logMethod](event.source, event.message)
         })
         unlistenFns.current.push(unlistenLog)
 
-        console.log('[Tauri Events] All event listeners registered')
+        logger.info('Tauri Events', 'All event listeners registered')
       } catch (error) {
-        console.error('[Tauri Events] Failed to subscribe to events:', error)
+        logger.error('Tauri Events', 'Failed to subscribe to events:', error)
       }
     }
 
@@ -148,11 +148,11 @@ export function useTauriEvents() {
         try {
           unlisten()
         } catch (error) {
-          console.error('[Tauri Events] Error during cleanup:', error)
+          logger.error('Tauri Events', 'Error during cleanup:', error)
         }
       })
       unlistenFns.current = []
-      console.log('[Tauri Events] All event listeners cleaned up')
+      logger.info('Tauri Events', 'All event listeners cleaned up')
     }
   }, [store])
 }
