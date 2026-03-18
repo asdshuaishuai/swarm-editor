@@ -203,16 +203,20 @@ describe('useTauriEvents', () => {
   it('should update swarm stats on task update event', async () => {
     vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
 
-    // Create mock swarm data
+    // Create mock swarm data with valid SwarmState
     const mockSwarm = {
       id: 'swarm-1',
       name: 'Test Swarm',
-      state: 'running' as const,
+      state: 'active' as const,
       stats: {
-        completedTasks: 0,
+        agentCount: 1,
+        idleAgents: 0,
+        executingAgents: 1,
         pendingTasks: 0,
-        runningTasks: 0,
-        failedTasks: 0,
+        completedTasks: 0,
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'active',
       },
     }
     createMockStore({ swarms: [mockSwarm] })
@@ -245,19 +249,94 @@ describe('useTauriEvents', () => {
     ])
   })
 
+  it('should update pending tasks on pending status', async () => {
+    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+
+    const mockSwarm = {
+      id: 'swarm-1',
+      name: 'Test Swarm',
+      state: 'active' as const,
+      stats: {
+        agentCount: 1,
+        idleAgents: 0,
+        executingAgents: 1,
+        pendingTasks: 0,
+        completedTasks: 0,
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'active',
+      },
+    }
+    createMockStore({ swarms: [mockSwarm] })
+
+    renderHook(() => useTauriEvents())
+
+    await vi.waitFor(() => {
+      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
+    })
+
+    const taskUpdateCallback = vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mock.calls[0][0]
+
+    // Trigger task pending event
+    taskUpdateCallback({
+      task_id: 'task-1',
+      swarm_id: 'swarm-1',
+      status: 'pending',
+      progress: 0,
+      agent_results: {},
+    })
+
+    expect(mockSetSwarms).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'swarm-1',
+        stats: expect.objectContaining({
+          pendingTasks: 1,
+        }),
+      }),
+    ])
+  })
+
+  it('should not update swarm if not found in store', async () => {
+    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+
+    // Empty swarms array
+    createMockStore({ swarms: [] })
+
+    renderHook(() => useTauriEvents())
+
+    await vi.waitFor(() => {
+      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
+    })
+
+    const taskUpdateCallback = vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mock.calls[0][0]
+
+    taskUpdateCallback({
+      task_id: 'task-1',
+      swarm_id: 'unknown-swarm',
+      status: 'completed',
+      progress: 100,
+      agent_results: {},
+    })
+
+    expect(mockSetSwarms).not.toHaveBeenCalled()
+  })
+
   it('should update swarm state on status change event', async () => {
     vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
 
     const mockSwarm = {
       id: 'swarm-1',
       name: 'Test Swarm',
-      state: 'idle' as const,
+      state: 'initializing' as const,
       stats: {
-        state: 'idle',
-        completedTasks: 0,
+        agentCount: 1,
+        idleAgents: 0,
+        executingAgents: 1,
         pendingTasks: 0,
-        runningTasks: 0,
-        failedTasks: 0,
+        completedTasks: 0,
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'initializing',
       },
     }
     createMockStore({ swarms: [mockSwarm] })
@@ -272,14 +351,14 @@ describe('useTauriEvents', () => {
 
     statusCallback({
       swarm_id: 'swarm-1',
-      old_state: 'idle',
-      new_state: 'running',
+      old_state: 'initializing',
+      new_state: 'active',
     })
 
     expect(mockSetSwarms).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'swarm-1',
-        state: 'running',
+        state: 'active',
       }),
     ])
   })
@@ -290,13 +369,16 @@ describe('useTauriEvents', () => {
     const mockSwarm = {
       id: 'swarm-1',
       name: 'Test Swarm',
-      state: 'idle' as const,
+      state: 'initializing' as const,
       stats: {
-        state: 'idle',
-        completedTasks: 0,
+        agentCount: 1,
+        idleAgents: 0,
+        executingAgents: 1,
         pendingTasks: 0,
-        runningTasks: 0,
-        failedTasks: 0,
+        completedTasks: 0,
+        topology: 'star',
+        strategy: 'parallel',
+        state: 'initializing',
       },
     }
     createMockStore({ swarms: [mockSwarm], activeSwarm: mockSwarm })
@@ -311,14 +393,14 @@ describe('useTauriEvents', () => {
 
     statusCallback({
       swarm_id: 'swarm-1',
-      old_state: 'idle',
-      new_state: 'running',
+      old_state: 'initializing',
+      new_state: 'active',
     })
 
     expect(mockSetActiveSwarm).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'swarm-1',
-        state: 'running',
+        state: 'active',
       })
     )
   })
