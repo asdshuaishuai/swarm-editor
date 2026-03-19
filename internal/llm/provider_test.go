@@ -266,6 +266,7 @@ func TestMockProviderStream(t *testing.T) {
 func TestMockProviderStreamCancelled(t *testing.T) {
 	provider := NewMockProvider("test")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure cancel is always called
 
 	req := &GenerateRequest{
 		Model: "mock-model",
