@@ -26,12 +26,12 @@ const (
 
 // TeamSchedulerConfig configures team scheduling
 type TeamSchedulerConfig struct {
-	Mode             SchedulingMode
-	MaxParallel      int
-	TaskTimeout      time.Duration
-	EnableHandoff    bool // Enable task handoff between members
-	EnableReview     bool // Enable peer review
-	EnablePairing    bool // Enable pair programming
+	Mode          SchedulingMode
+	MaxParallel   int
+	TaskTimeout   time.Duration
+	EnableHandoff bool // Enable task handoff between members
+	EnableReview  bool // Enable peer review
+	EnablePairing bool // Enable pair programming
 }
 
 // TeamScheduler handles intelligent task scheduling within teams
@@ -48,14 +48,14 @@ type TeamScheduler struct {
 	team *Team
 
 	// Task queues
-	pendingTasks  map[string]*ScheduledTask
-	runningTasks  map[string]*ScheduledTask
+	pendingTasks   map[string]*ScheduledTask
+	runningTasks   map[string]*ScheduledTask
 	completedTasks map[string]*ScheduledTask
 
 	// Agent tracking
-	agentLoad     map[string]int
-	agentSuccess  map[string]float64
-	peerScores    map[string]map[string]float64 // Agent collaboration scores
+	agentLoad    map[string]int
+	agentSuccess map[string]float64
+	peerScores   map[string]map[string]float64 // Agent collaboration scores
 
 	// Callbacks
 	onTaskAssigned func(taskID, agentID string)
@@ -81,9 +81,9 @@ type ScheduledTask struct {
 	Dependencies []string
 
 	// State
-	Status     string // "pending", "assigned", "running", "review", "completed", "failed"
-	Progress   float64
-	StartedAt  time.Time
+	Status      string // "pending", "assigned", "running", "review", "completed", "failed"
+	Progress    float64
+	StartedAt   time.Time
 	CompletedAt time.Time
 
 	// Results
@@ -119,16 +119,16 @@ func NewTeamScheduler(config TeamSchedulerConfig, team *Team, router *a2a.Router
 	}
 
 	return &TeamScheduler{
-		config:        config,
-		team:          team,
-		router:        router,
-		coordinator:   coordinator,
-		pendingTasks:  make(map[string]*ScheduledTask),
-		runningTasks:  make(map[string]*ScheduledTask),
+		config:         config,
+		team:           team,
+		router:         router,
+		coordinator:    coordinator,
+		pendingTasks:   make(map[string]*ScheduledTask),
+		runningTasks:   make(map[string]*ScheduledTask),
 		completedTasks: make(map[string]*ScheduledTask),
-		agentLoad:     make(map[string]int),
-		agentSuccess:  make(map[string]float64),
-		peerScores:    make(map[string]map[string]float64),
+		agentLoad:      make(map[string]int),
+		agentSuccess:   make(map[string]float64),
+		peerScores:     make(map[string]map[string]float64),
 	}
 }
 
@@ -375,9 +375,9 @@ func (s *TeamScheduler) selectCollaborative(agents []string, task *ScheduledTask
 
 	// For collaborative mode, select 2-3 agents with good peer scores
 	type scoredAgent struct {
-		id          string
-		score       float64
-		peerScore   float64
+		id        string
+		score     float64
+		peerScore float64
 	}
 
 	scored := make([]scoredAgent, len(agents))
@@ -543,7 +543,7 @@ func (s *TeamScheduler) CompleteTask(taskID string, result *ScheduledTaskResult)
 		if result.Error == "" {
 			s.agentSuccess[id] = (s.agentSuccess[id]*9 + 1.0) / 10
 		} else {
-			s.agentSuccess[id] = (s.agentSuccess[id]*9) / 10
+			s.agentSuccess[id] = (s.agentSuccess[id] * 9) / 10
 		}
 	}
 
@@ -686,12 +686,12 @@ type AgentToAgentCoordination struct {
 
 // Collaboration represents an active collaboration between agents
 type Collaboration struct {
-	ID          string
-	TaskID      string
-	Agents      []string
-	Type        string // "pair_programming", "review", "help", "sync"
-	Status      string
-	StartedAt   time.Time
+	ID        string
+	TaskID    string
+	Agents    []string
+	Type      string // "pair_programming", "review", "help", "sync"
+	Status    string
+	StartedAt time.Time
 }
 
 // NewAgentToAgentCoordination creates a new A2A coordination handler

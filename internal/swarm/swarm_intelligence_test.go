@@ -79,7 +79,7 @@ func TestSwarmIntelligenceScheduler_PheromoneEvaporation(t *testing.T) {
 func TestSwarmIntelligenceScheduler_SelectAgentsWithPheromone(t *testing.T) {
 	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
 	config := DefaultSwarmIntelligenceConfig()
-	config.ExplorationRate = 0 // Disable exploration for deterministic selection
+	config.ExplorationRate = 0       // Disable exploration for deterministic selection
 	config.CongestionThreshold = 0.3 // Lower congestion weight to favor pheromone
 	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
 
@@ -168,11 +168,11 @@ func TestSwarmIntelligenceScheduler_SubmitBid(t *testing.T) {
 
 	// Submit bid
 	bid := &Bid{
-		AgentID:    "agent1",
-		TaskID:     "task1",
-		Capability: 0.8,
+		AgentID:      "agent1",
+		TaskID:       "task1",
+		Capability:   0.8,
 		Availability: 1.0,
-		Cost:       1.0,
+		Cost:         1.0,
 	}
 
 	err := scheduler.SubmitBid("neg1", bid)

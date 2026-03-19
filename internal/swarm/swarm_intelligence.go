@@ -65,8 +65,8 @@ type SwarmIntelligenceScheduler struct {
 	pheromones map[string]map[string]float64
 
 	// Emergent signals
-	signals    map[string]*EmergentSignal
-	signalMu   sync.RWMutex
+	signals  map[string]*EmergentSignal
+	signalMu sync.RWMutex
 
 	// Agent performance tracking
 	agentPerformance map[string]*AgentPerformance
@@ -128,14 +128,14 @@ type Negotiation struct {
 
 // Bid represents an agent's bid for a task
 type Bid struct {
-	AgentID     string
-	TaskID      string
-	Capability  float64 // How well agent can do the task
+	AgentID      string
+	TaskID       string
+	Capability   float64 // How well agent can do the task
 	Availability float64 // How available the agent is
-	Cost        float64 // Estimated cost/duration
-	Value       float64 // Computed bid value
-	Reason      string
-	Timestamp   time.Time
+	Cost         float64 // Estimated cost/duration
+	Value        float64 // Computed bid value
+	Reason       string
+	Timestamp    time.Time
 }
 
 // NewSwarmIntelligenceScheduler creates a new swarm intelligence scheduler
@@ -1015,11 +1015,11 @@ func (s *SwarmIntelligenceScheduler) RequestConsensus(ctx context.Context, subje
 	voteID := fmt.Sprintf("vote_%d", time.Now().UnixNano())
 
 	payload := &a2a.VoteRequestPayload{
-		VoteID:      voteID,
-		Subject:     subject,
-		Options:     options,
-		Algorithm:   "majority",
-		Deadline:    deadline,
+		VoteID:    voteID,
+		Subject:   subject,
+		Options:   options,
+		Algorithm: "majority",
+		Deadline:  deadline,
 	}
 
 	msg := a2a.NewMessage(a2a.MessageTypeVoteRequest, "swarm_scheduler", "broadcast").

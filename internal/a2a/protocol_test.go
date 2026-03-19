@@ -31,9 +31,9 @@ func TestMessageCreation(t *testing.T) {
 
 func TestMessageWithPayload(t *testing.T) {
 	payload := &TaskRequestPayload{
-		TaskID:     "task1",
-		Title:      "Test Task",
-		Priority:   1,
+		TaskID:   "task1",
+		Title:    "Test Task",
+		Priority: 1,
 	}
 
 	msg := NewMessage(MessageTypeTaskRequest, "agent1", "agent2").
@@ -100,7 +100,7 @@ func TestMessageIsExpired(t *testing.T) {
 
 	// Expired
 	msg2 := NewMessage(MessageTypeTaskRequest, "agent1", "agent2").
-		WithTTL(1 * time.Millisecond).
+		WithTTL(1*time.Millisecond).
 		WithHeader("skip", "") // Force timestamp to be set
 
 	time.Sleep(10 * time.Millisecond)

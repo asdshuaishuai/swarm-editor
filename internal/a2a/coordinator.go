@@ -22,8 +22,8 @@ type Coordinator struct {
 	agents map[string]*AgentState
 
 	// Task management
-	pendingTasks  map[string]*CoordinationTask
-	runningTasks  map[string]*CoordinationTask
+	pendingTasks   map[string]*CoordinationTask
+	runningTasks   map[string]*CoordinationTask
 	completedTasks map[string]*CoordinationTask
 
 	// Scheduling strategy
@@ -113,20 +113,20 @@ type PheromoneTrail struct {
 type SchedulingStrategy string
 
 const (
-	StrategyRoundRobin   SchedulingStrategy = "round_robin"
-	StrategyLeastLoaded  SchedulingStrategy = "least_loaded"
-	StrategyCapability   SchedulingStrategy = "capability"
+	StrategyRoundRobin    SchedulingStrategy = "round_robin"
+	StrategyLeastLoaded   SchedulingStrategy = "least_loaded"
+	StrategyCapability    SchedulingStrategy = "capability"
 	StrategyCollaborative SchedulingStrategy = "collaborative"
-	StrategySwarm        SchedulingStrategy = "swarm"
+	StrategySwarm         SchedulingStrategy = "swarm"
 )
 
 // CoordinatorConfig configures the coordinator
 type CoordinatorConfig struct {
-	MaxConcurrent    int
-	TaskTimeout      time.Duration
+	MaxConcurrent      int
+	TaskTimeout        time.Duration
 	NegotiationTimeout time.Duration
-	PheromoneDecay   float64 // Decay rate per second
-	Strategy         SchedulingStrategy
+	PheromoneDecay     float64 // Decay rate per second
+	Strategy           SchedulingStrategy
 }
 
 // NewCoordinator creates a new A2A coordinator
@@ -148,13 +148,13 @@ func NewCoordinator(config CoordinatorConfig, router *Router) *Coordinator {
 	}
 
 	return &Coordinator{
-		router:        router,
-		agents:        make(map[string]*AgentState),
-		pendingTasks:  make(map[string]*CoordinationTask),
-		runningTasks:  make(map[string]*CoordinationTask),
+		router:         router,
+		agents:         make(map[string]*AgentState),
+		pendingTasks:   make(map[string]*CoordinationTask),
+		runningTasks:   make(map[string]*CoordinationTask),
 		completedTasks: make(map[string]*CoordinationTask),
-		pheromones:    make(map[string]*PheromoneTrail),
-		config:        config,
+		pheromones:     make(map[string]*PheromoneTrail),
+		config:         config,
 	}
 }
 
@@ -780,7 +780,7 @@ func (c *Coordinator) handleTaskFailed(msg *Message) error {
 		agent.Status = "idle"
 		agent.CurrentTask = ""
 		agent.Load = math.Max(0, agent.Load-0.3)
-		agent.SuccessRate = (agent.SuccessRate*9) / 10 // Rolling average
+		agent.SuccessRate = (agent.SuccessRate * 9) / 10 // Rolling average
 	}
 
 	// Store failure
@@ -1069,10 +1069,10 @@ func (c *Coordinator) OnAgentAvailable(fn func(agentID string)) {
 func (c *Coordinator) RequestHelp(ctx context.Context, taskID, reason string, skills []string, urgency int) error {
 	msg := NewMessage(MessageTypeHelpRequest, "coordinator", "broadcast").
 		WithPayload(&HelpRequestPayload{
-			TaskID:   taskID,
-			Reason:   reason,
-			Skills:   skills,
-			Urgency:  urgency,
+			TaskID:  taskID,
+			Reason:  reason,
+			Skills:  skills,
+			Urgency: urgency,
 		}).
 		WithPriority(Priority(urgency))
 

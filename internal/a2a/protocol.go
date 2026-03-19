@@ -15,18 +15,18 @@ type MessageType string
 
 const (
 	// Task-related messages
-	MessageTypeTaskRequest    MessageType = "task_request"     // Request task assignment
-	MessageTypeTaskAccept     MessageType = "task_accept"      // Accept task
-	MessageTypeTaskReject     MessageType = "task_reject"      // Reject task
-	MessageTypeTaskComplete   MessageType = "task_complete"    // Task completed
-	MessageTypeTaskFailed     MessageType = "task_failed"      // Task failed
-	MessageTypeTaskProgress   MessageType = "task_progress"    // Progress update
+	MessageTypeTaskRequest  MessageType = "task_request"  // Request task assignment
+	MessageTypeTaskAccept   MessageType = "task_accept"   // Accept task
+	MessageTypeTaskReject   MessageType = "task_reject"   // Reject task
+	MessageTypeTaskComplete MessageType = "task_complete" // Task completed
+	MessageTypeTaskFailed   MessageType = "task_failed"   // Task failed
+	MessageTypeTaskProgress MessageType = "task_progress" // Progress update
 
 	// Coordination messages
-	MessageTypeSync        MessageType = "sync"         // Sync state
-	MessageTypeSyncAck     MessageType = "sync_ack"     // Sync acknowledgment
-	MessageTypeBroadcast   MessageType = "broadcast"   // Broadcast to all
-	MessageTypeMulticast   MessageType = "multicast"   // Multicast to group
+	MessageTypeSync      MessageType = "sync"      // Sync state
+	MessageTypeSyncAck   MessageType = "sync_ack"  // Sync acknowledgment
+	MessageTypeBroadcast MessageType = "broadcast" // Broadcast to all
+	MessageTypeMulticast MessageType = "multicast" // Multicast to group
 
 	// Collaboration messages
 	MessageTypeHelpRequest    MessageType = "help_request"    // Request assistance
@@ -36,9 +36,9 @@ const (
 	MessageTypeResponse       MessageType = "response"        // Response to query
 
 	// Negotiation messages
-	MessageTypeProposal    MessageType = "proposal"    // Propose action
-	MessageTypeCounter     MessageType = "counter"     // Counter proposal
-	MessageTypeAgreement   MessageType = "agreement"   // Accept proposal
+	MessageTypeProposal     MessageType = "proposal"     // Propose action
+	MessageTypeCounter      MessageType = "counter"      // Counter proposal
+	MessageTypeAgreement    MessageType = "agreement"    // Accept proposal
 	MessageTypeDisagreement MessageType = "disagreement" // Reject proposal
 
 	// Consensus messages
@@ -65,25 +65,25 @@ const (
 // Message represents an A2A message
 type Message struct {
 	// Identification
-	ID        string `json:"id"`
+	ID        string      `json:"id"`
 	Type      MessageType `json:"type"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time   `json:"timestamp"`
 
 	// Routing
-	From    string   `json:"from"`              // Sender agent ID
-	To      string   `json:"to"`                // Recipient agent ID (or "broadcast")
-	Group   string   `json:"group,omitempty"`   // Group ID for multicast
-	Cc      []string `json:"cc,omitempty"`      // Carbon copy recipients
+	From  string   `json:"from"`            // Sender agent ID
+	To    string   `json:"to"`              // Recipient agent ID (or "broadcast")
+	Group string   `json:"group,omitempty"` // Group ID for multicast
+	Cc    []string `json:"cc,omitempty"`    // Carbon copy recipients
 
 	// Content
 	Subject string          `json:"subject,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 
 	// Metadata
-	Priority    Priority            `json:"priority"`
-	TTL         time.Duration       `json:"ttl,omitempty"`         // Time to live
-	Correlation string              `json:"correlation,omitempty"` // Correlation ID for request-response
-	Headers     map[string]string   `json:"headers,omitempty"`
+	Priority    Priority          `json:"priority"`
+	TTL         time.Duration     `json:"ttl,omitempty"`         // Time to live
+	Correlation string            `json:"correlation,omitempty"` // Correlation ID for request-response
+	Headers     map[string]string `json:"headers,omitempty"`
 
 	// Routing info
 	HopCount int      `json:"hopCount,omitempty"` // Number of hops (for debugging)
@@ -173,9 +173,9 @@ type TaskRequestPayload struct {
 
 // TaskAcceptPayload represents task acceptance
 type TaskAcceptPayload struct {
-	TaskID    string `json:"taskId"`
-	AgentID   string `json:"agentId"`
-	Estimate  int    `json:"estimate"` // Estimated duration in seconds
+	TaskID    string    `json:"taskId"`
+	AgentID   string    `json:"agentId"`
+	Estimate  int       `json:"estimate"` // Estimated duration in seconds
 	StartTime time.Time `json:"startTime"`
 }
 
@@ -238,11 +238,11 @@ type SyncPayload struct {
 
 // HelpRequestPayload represents a help request
 type HelpRequestPayload struct {
-	TaskID      string `json:"taskId,omitempty"`
-	Reason      string `json:"reason"`
-	Skills      []string `json:"skills,omitempty"` // Required skills
-	Urgency     int    `json:"urgency"` // 1-5
-	Timeout     time.Duration `json:"timeout,omitempty"`
+	TaskID  string        `json:"taskId,omitempty"`
+	Reason  string        `json:"reason"`
+	Skills  []string      `json:"skills,omitempty"` // Required skills
+	Urgency int           `json:"urgency"`          // 1-5
+	Timeout time.Duration `json:"timeout,omitempty"`
 }
 
 // HelpOfferPayload represents a help offer
@@ -255,11 +255,11 @@ type HelpOfferPayload struct {
 
 // KnowledgeSharePayload represents knowledge sharing
 type KnowledgeSharePayload struct {
-	Type        string          `json:"type"` // "pattern", "solution", "warning", "resource"
-	Title       string          `json:"title"`
-	Content     json.RawMessage `json:"content"`
-	Relevance   []string        `json:"relevance,omitempty"` // Relevant task/agent IDs
-	Expiry      *time.Time      `json:"expiry,omitempty"`
+	Type      string          `json:"type"` // "pattern", "solution", "warning", "resource"
+	Title     string          `json:"title"`
+	Content   json.RawMessage `json:"content"`
+	Relevance []string        `json:"relevance,omitempty"` // Relevant task/agent IDs
+	Expiry    *time.Time      `json:"expiry,omitempty"`
 }
 
 // QueryPayload represents a query
@@ -324,20 +324,20 @@ type VoteRequestPayload struct {
 
 // VotePayload represents a vote
 type VotePayload struct {
-	VoteID    string  `json:"voteId"`
-	AgentID   string  `json:"agentId"`
-	Choice    string  `json:"choice"`
-	Weight    float64 `json:"weight,omitempty"`
-	Reason    string  `json:"reason,omitempty"`
+	VoteID  string  `json:"voteId"`
+	AgentID string  `json:"agentId"`
+	Choice  string  `json:"choice"`
+	Weight  float64 `json:"weight,omitempty"`
+	Reason  string  `json:"reason,omitempty"`
 }
 
 // VoteResultPayload represents vote results
 type VoteResultPayload struct {
-	VoteID    string          `json:"voteId"`
-	Winner    string          `json:"winner"`
-	Results   map[string]int  `json:"results"` // choice -> count
-	Tallied   time.Time       `json:"tallied"`
-	Consensus bool            `json:"consensus"`
+	VoteID    string         `json:"voteId"`
+	Winner    string         `json:"winner"`
+	Results   map[string]int `json:"results"` // choice -> count
+	Tallied   time.Time      `json:"tallied"`
+	Consensus bool           `json:"consensus"`
 }
 
 // ============================================================================
@@ -346,8 +346,8 @@ type VoteResultPayload struct {
 
 // SignalPayload represents an emergent signal
 type SignalPayload struct {
-	SignalType string          `json:"signalType"` // "attention", "alert", "resource", "danger"
-	Strength   float64         `json:"strength"`   // 0.0 - 1.0
+	SignalType string          `json:"signalType"`         // "attention", "alert", "resource", "danger"
+	Strength   float64         `json:"strength"`           // 0.0 - 1.0
 	Location   string          `json:"location,omitempty"` // Target location/area
 	Data       json.RawMessage `json:"data,omitempty"`
 }
@@ -363,10 +363,10 @@ type PheromonePayload struct {
 
 // SwarmCommandPayload represents a swarm command
 type SwarmCommandPayload struct {
-	Command   string          `json:"command"` // "converge", "disperse", "follow", "search"
-	Target    string          `json:"target,omitempty"`
-	Params    json.RawMessage `json:"params,omitempty"`
-	Priority  int             `json:"priority"`
+	Command  string          `json:"command"` // "converge", "disperse", "follow", "search"
+	Target   string          `json:"target,omitempty"`
+	Params   json.RawMessage `json:"params,omitempty"`
+	Priority int             `json:"priority"`
 }
 
 // ============================================================================
@@ -421,10 +421,10 @@ type MessageHandler func(*Message) error
 
 // RouterConfig configures the router
 type RouterConfig struct {
-	QueueSize    int           `json:"queueSize"`
-	SendTimeout  time.Duration `json:"sendTimeout"`
-	RetryCount   int           `json:"retryCount"`
-	RetryDelay   time.Duration `json:"retryDelay"`
+	QueueSize   int           `json:"queueSize"`
+	SendTimeout time.Duration `json:"sendTimeout"`
+	RetryCount  int           `json:"retryCount"`
+	RetryDelay  time.Duration `json:"retryDelay"`
 }
 
 // NewRouter creates a new A2A router
