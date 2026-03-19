@@ -59,7 +59,7 @@ interface AppState {
   loading: boolean
 
   // Actions
-  initialize: (simulateError?: boolean | string) => Promise<void>
+  initialize: (options?: { simulateError?: boolean | string }) => Promise<void>
   loadAgents: () => Promise<void>
   startAgent: (id: string) => Promise<void>
   stopAgent: (id: string) => Promise<void>
