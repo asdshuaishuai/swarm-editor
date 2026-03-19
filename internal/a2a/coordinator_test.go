@@ -834,3 +834,120 @@ func TestCoordinatorHandleHelpOffer(t *testing.T) {
 		t.Errorf("handleHelpOffer should not return error: %v", err)
 	}
 }
+
+func TestCoordinatorSelectSwarmWithPheromone(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agents
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.RegisterAgent("agent2", []string{"coding"})
+	coordinator.agents["agent1"].Status = "idle"
+	coordinator.agents["agent2"].Status = "idle"
+
+	// Add pheromone trail
+	coordinator.pheromones["coding:auth-module"] = &PheromoneTrail{
+		Type:      "coding",
+		Location:  "auth-module",
+		Strength:  0.8,
+		DecayRate: 0.1,
+	}
+
+	// Agent1 has experience with auth-module
+	coordinator.agents["agent1"].TaskHistory = []string{"auth-module", "user-service"}
+
+	task := &CoordinationTask{
+		ID:           "task1",
+		RequiredRole: "coding",
+	}
+
+	// Select using swarm strategy
+	selected := coordinator.selectSwarm(task)
+
+	if len(selected) == 0 {
+		t.Error("Expected to select an agent")
+	}
+
+	// Agent1 should be preferred due to pheromone trail experience
+	if len(selected) > 0 && selected[0] != "agent1" {
+		t.Logf("Agent %s was selected (agent1 preferred but not guaranteed)", selected[0])
+	}
+}
+
+func TestCoordinatorSelectSwarmFallbackToCapability(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agents
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.agents["agent1"].Status = "idle"
+
+	// No pheromone trails
+	task := &CoordinationTask{
+		ID:           "task1",
+		RequiredRole: "coding",
+	}
+
+	// Should fallback to capability-based selection
+	selected := coordinator.selectSwarm(task)
+
+	if len(selected) == 0 {
+		t.Error("Expected to select an agent (fallback to capability)")
+	}
+}
+
+func TestCoordinatorSelectSwarmNoIdleAgents(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agents but mark them as busy
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.agents["agent1"].Status = "busy"
+
+	// Add pheromone trail
+	coordinator.pheromones["coding:auth-module"] = &PheromoneTrail{
+		Type:      "coding",
+		Location:  "auth-module",
+		Strength:  0.8,
+	}
+
+	task := &CoordinationTask{
+		ID:           "task1",
+		RequiredRole: "coding",
+	}
+
+	// Should return nil because no idle agents
+	selected := coordinator.selectSwarm(task)
+
+	if len(selected) != 0 {
+		t.Errorf("Expected no selection (no idle agents), got %d", len(selected))
+	}
+}
+
+func TestCoordinatorSelectSwarmWrongRole(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agent with different role
+	coordinator.RegisterAgent("agent1", []string{"testing"})
+	coordinator.agents["agent1"].Status = "idle"
+
+	// Add pheromone trail for coding
+	coordinator.pheromones["coding:auth-module"] = &PheromoneTrail{
+		Type:      "coding",
+		Location:  "auth-module",
+		Strength:  0.8,
+	}
+
+	task := &CoordinationTask{
+		ID:           "task1",
+		RequiredRole: "coding",
+	}
+
+	// Should return nil because agent doesn't have required role
+	selected := coordinator.selectSwarm(task)
+
+	if len(selected) != 0 {
+		t.Errorf("Expected no selection (wrong role), got %d", len(selected))
+	}
+}

@@ -664,3 +664,61 @@ func TestAgentToAgentCoordinationEndCollaboration(t *testing.T) {
 		t.Error("Collaboration should be removed after ending")
 	}
 }
+
+func TestTeamSchedulerCalculatePeerScore(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+	team := &Team{Members: make(map[string]*Member)}
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{}, team, router, coordinator)
+
+	// Register agent
+	scheduler.RegisterTeamAgent("agent1", nil)
+
+	// Initially no peer scores, should return 0
+	score := scheduler.calculatePeerScore("agent1")
+	if score != 0.0 {
+		t.Errorf("Expected 0.0 for agent with no peer scores, got %f", score)
+	}
+
+	// Add peer scores
+	scheduler.mu.Lock()
+	scheduler.peerScores["agent1"] = map[string]float64{
+		"agent2": 0.8,
+		"agent3": 0.6,
+	}
+	scheduler.mu.Unlock()
+
+	// Calculate average
+	score = scheduler.calculatePeerScore("agent1")
+	expected := (0.8 + 0.6) / 2.0
+	if score != expected {
+		t.Errorf("Expected %f, got %f", expected, score)
+	}
+
+	// Test non-existent agent
+	score = scheduler.calculatePeerScore("nonexistent")
+	if score != 0.0 {
+		t.Errorf("Expected 0.0 for non-existent agent, got %f", score)
+	}
+}
+
+func TestTeamSchedulerCalculatePeerScoreEmpty(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+	team := &Team{Members: make(map[string]*Member)}
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{}, team, router, coordinator)
+
+	// Register agent
+	scheduler.RegisterTeamAgent("agent1", nil)
+
+	// Set empty peer scores map
+	scheduler.mu.Lock()
+	scheduler.peerScores["agent1"] = map[string]float64{}
+	scheduler.mu.Unlock()
+
+	// Should return 0 for empty map
+	score := scheduler.calculatePeerScore("agent1")
+	if score != 0.0 {
+		t.Errorf("Expected 0.0 for empty peer scores, got %f", score)
+	}
+}
