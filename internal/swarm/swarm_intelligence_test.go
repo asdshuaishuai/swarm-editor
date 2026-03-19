@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -1004,5 +1005,93 @@ func TestSwarmIntelligenceScheduler_SelectByNegotiationWithRealTimeBids(t *testi
 	// Agent2 should win because it has a higher bid
 	if len(selected) == 0 {
 		t.Error("Expected at least one agent selected")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleProposalTaskBid(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Create a negotiation
+	scheduler.mu.Lock()
+	scheduler.activeNegotiations["neg-1"] = &Negotiation{
+		ID:        "neg-1",
+		TaskID:    "task-1",
+		Status:    "pending",
+		Deadline:  time.Now().Add(5 * time.Second),
+		Bids:      make(map[string]*Bid),
+	}
+	scheduler.mu.Unlock()
+
+	// Handle proposal message with task_bid type
+	bidContent, _ := json.Marshal(&Bid{
+		AgentID:      "agent1",
+		TaskID:       "task-1",
+		Capability:   0.9,
+		Availability: 1.0,
+		Cost:         0.5,
+		Reason:       "I can handle this task",
+	})
+
+	msg := a2a.NewMessage(a2a.MessageTypeProposal, "agent1", "scheduler").
+		WithPayload(&a2a.ProposalPayload{
+			ProposalID: "neg-1",
+			Type:       "task_bid",
+			Content:    bidContent,
+		})
+
+	err := scheduler.handleProposal(msg)
+	if err != nil {
+		t.Errorf("handleProposal should succeed: %v", err)
+	}
+
+	// Verify bid was added
+	scheduler.mu.RLock()
+	bid, exists := scheduler.activeNegotiations["neg-1"].Bids["agent1"]
+	scheduler.mu.RUnlock()
+
+	if !exists {
+		t.Error("Expected bid to be added to negotiation")
+	}
+	if bid != nil && bid.Capability != 0.9 {
+		t.Errorf("Expected capability 0.9, got %f", bid.Capability)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleProposalUnknownType(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Handle proposal message with unknown type
+	msg := a2a.NewMessage(a2a.MessageTypeProposal, "agent1", "scheduler").
+		WithPayload(&a2a.ProposalPayload{
+			ProposalID: "prop-1",
+			Type:       "unknown_type",
+		})
+
+	err := scheduler.handleProposal(msg)
+	if err != nil {
+		t.Errorf("handleProposal should return nil for unknown type: %v", err)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleProposalInvalidPayload(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Handle proposal message with invalid payload (missing payload)
+	msg := &a2a.Message{
+		Type: a2a.MessageTypeProposal,
+	}
+
+	err := scheduler.handleProposal(msg)
+	if err == nil {
+		t.Error("Expected error for message without payload")
 	}
 }
