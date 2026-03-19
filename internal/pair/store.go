@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +14,24 @@ import (
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 )
+
+// validSessionIDRegex validates session IDs to prevent path traversal
+// Allows alphanumeric, dash, underscore, and dot (for timestamp-based IDs)
+var validSessionIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validateSessionID checks if a session ID is safe to use in file paths
+func validateSessionID(id string) error {
+	if id == "" {
+		return fmt.Errorf("session ID cannot be empty")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("session ID too long (max 128 characters)")
+	}
+	if !validSessionIDRegex.MatchString(id) {
+		return fmt.Errorf("session ID contains invalid characters (only alphanumeric, dash, and underscore allowed)")
+	}
+	return nil
+}
 
 // Store manages session persistence
 type Store struct {
@@ -107,6 +126,10 @@ func (s *Store) Save(session *PairSession) error {
 
 // Load loads a session by ID
 func (s *Store) Load(id string) (*StoredSession, error) {
+	if err := validateSessionID(id); err != nil {
+		return nil, fmt.Errorf("invalid session ID: %w", err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -120,6 +143,10 @@ func (s *Store) Load(id string) (*StoredSession, error) {
 
 // Delete removes a session
 func (s *Store) Delete(id string) error {
+	if err := validateSessionID(id); err != nil {
+		return fmt.Errorf("invalid session ID: %w", err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -319,9 +346,18 @@ func (s *Store) Import(data []byte) (*StoredSession, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("data cannot be empty")
 	}
+	if len(data) > 10*1024*1024 { // 10MB limit
+		return nil, fmt.Errorf("data too large (max 10MB)")
+	}
+
 	var session StoredSession
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("failed to parse session: %w", err)
+	}
+
+	// Validate session ID to prevent path traversal
+	if err := validateSessionID(session.ID); err != nil {
+		return nil, fmt.Errorf("invalid session ID in imported data: %w", err)
 	}
 
 	s.mu.Lock()

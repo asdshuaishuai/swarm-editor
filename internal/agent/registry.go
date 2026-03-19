@@ -137,6 +137,7 @@ type Lifecycle struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup // WaitGroup for monitor goroutines
 }
 
 // NewLifecycle creates a new lifecycle manager
@@ -166,6 +167,7 @@ func (l *Lifecycle) Spawn(name string, agentType AgentType) *Agent {
 	}
 
 	// Track state changes only after successful registration
+	l.wg.Add(1)
 	go l.monitorAgent(agent)
 
 	l.mu.RLock()
@@ -228,9 +230,12 @@ func (l *Lifecycle) Stop() {
 	if l.cancel != nil {
 		l.cancel()
 	}
+	// Wait for all monitor goroutines to complete
+	l.wg.Wait()
 }
 
 func (l *Lifecycle) monitorAgent(agent *Agent) {
+	defer l.wg.Done()
 	lastState := agent.GetState()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
