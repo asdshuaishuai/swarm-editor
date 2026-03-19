@@ -115,6 +115,22 @@ pub async fn spawn_agent_process(
     args: &[String],
     envs: &[(String, String)],
 ) -> Result<(Child, StdioTransport), TransportError> {
+    // Validate binary_path to prevent command injection
+    if binary_path.is_empty() {
+        return Err(TransportError::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "binary_path cannot be empty",
+        )));
+    }
+
+    // Check for path traversal attempts
+    if binary_path.contains("..") {
+        return Err(TransportError::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "binary_path cannot contain path traversal sequences",
+        )));
+    }
+
     let mut cmd = Command::new(binary_path);
     cmd.args(args)
         .stdin(Stdio::piped())

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
@@ -454,6 +455,7 @@ func (s *Scheduler) agentHasRole(agent *AgentInfo, role string) bool {
 // executeTask executes a task on assigned agents
 func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 	task := scheduled.Task
+	log.Printf("[Scheduler] Starting execution of task %s on %d agents", task.ID, len(scheduled.AssignedTo))
 
 	// Notify callback
 	if s.onTaskStart != nil {
@@ -513,19 +515,41 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		// All failed
 		scheduled.Status = TaskStatusFailed
 		scheduled.Error = allErrors[0]
+		log.Printf("[Scheduler] Task %s failed: %v", task.ID, allErrors[0])
 
-		// Check for retry
+		// Check for retry with proper cancellation support
 		if scheduled.RetryCount < s.config.RetryCount {
 			scheduled.RetryCount++
 			scheduled.Status = TaskStatusRetrying
-			time.Sleep(s.config.RetryDelay)
+			log.Printf("[Scheduler] Scheduling retry %d/%d for task %s", scheduled.RetryCount, s.config.RetryCount, task.ID)
+
+			// Use select with context for cancellable delay
+			select {
+			case <-s.ctx.Done():
+				// Context cancelled, don't retry
+				log.Printf("[Scheduler] Context cancelled, aborting retry for task %s", task.ID)
+				scheduled.Status = TaskStatusFailed
+				if s.onTaskFail != nil {
+					s.onTaskFail(scheduled, s.ctx.Err())
+				}
+				s.mu.Lock()
+				s.completedTask = append(s.completedTask, scheduled)
+				s.mu.Unlock()
+				return
+			case <-time.After(s.config.RetryDelay):
+				// Delay completed, proceed with retry
+			}
+
+			// Re-queue for retry instead of direct recursive call
 			s.mu.Lock()
-			s.runningTasks[task.ID] = scheduled
+			task.State = TaskStatePending
+			s.pendingQueue.Push(task)
 			s.mu.Unlock()
-			go s.executeTask(scheduled)
+			log.Printf("[Scheduler] Task %s re-queued for retry", task.ID)
 			return
 		}
 
+		log.Printf("[Scheduler] Task %s failed after %d retries", task.ID, scheduled.RetryCount)
 		if s.onTaskFail != nil {
 			s.onTaskFail(scheduled, allErrors[0])
 		}
@@ -540,12 +564,18 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			scheduled.Result = s.aggregateResults(allResults)
 		}
 
+		log.Printf("[Scheduler] Task %s completed successfully with %d results", task.ID, len(allResults))
 		if s.onTaskComplete != nil {
 			s.onTaskComplete(scheduled)
 		}
 	}
 
 	s.mu.Lock()
+	// Limit completed tasks history to prevent memory leak
+	maxCompleted := 1000
+	if len(s.completedTask) >= maxCompleted {
+		s.completedTask = s.completedTask[len(s.completedTask)-maxCompleted/2:]
+	}
 	s.completedTask = append(s.completedTask, scheduled)
 	s.mu.Unlock()
 }
