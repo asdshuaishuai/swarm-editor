@@ -184,6 +184,38 @@ func TestRouterGroupMembership(t *testing.T) {
 	router.LeaveGroup("agent1", "team-alpha")
 }
 
+func TestRouterUnregisterAgentFromGroup(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	router.RegisterAgent("agent1", func(m *Message) error { return nil }, nil)
+	router.RegisterAgent("agent2", func(m *Message) error { return nil }, nil)
+
+	// Add agents to a group
+	router.JoinGroup("agent1", "team-alpha")
+	router.JoinGroup("agent2", "team-alpha")
+
+	// Unregister agent1 - should also remove from group
+	router.UnregisterAgent("agent1")
+
+	// Verify agent is removed
+	_, ok := router.GetAgentStatus("agent1")
+	if ok {
+		t.Error("Expected agent1 to be unregistered")
+	}
+
+	// Verify agent1 is removed from the group by checking group membership
+	// agent2 should still be in the group
+	router.mu.RLock()
+	members := router.groups["team-alpha"]
+	router.mu.RUnlock()
+
+	for _, m := range members {
+		if m == "agent1" {
+			t.Error("Expected agent1 to be removed from group")
+		}
+	}
+}
+
 func TestRouterMessageHandler(t *testing.T) {
 	router := NewRouter(RouterConfig{})
 
