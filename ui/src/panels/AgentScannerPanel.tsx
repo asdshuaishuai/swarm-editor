@@ -87,10 +87,9 @@ export default function AgentScannerPanel() {
           },
         ]
         setDiscoveredAgents(mockDiscovered)
+        setLastScan(new Date())
+        addToast('success', 'Scan Complete', `Found ${mockDiscovered.length} agents`)
       }
-      
-      setLastScan(new Date())
-      addToast('success', 'Scan Complete', `Found ${discoveredAgents.length} agents`)
     } catch (err) {
       logger.error('AgentScanner', 'Scan failed:', err)
       addToast('error', 'Scan Failed', err instanceof Error ? err.message : 'Unknown error')

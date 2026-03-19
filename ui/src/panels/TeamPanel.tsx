@@ -23,12 +23,32 @@ const roleIcons: Record<MemberRole, React.ReactNode> = {
 }
 
 export default function TeamPanel() {
-  const { teams, activeTeam, setActiveTeam } = useAppStore()
+  const { teams, activeTeam, setActiveTeam, addTeam } = useAppStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
 
   const handleCreateTeam = () => {
-    // This would call the backend to create a team
+    if (!newTeamName.trim()) return
+
+    const newTeam = {
+      id: `team-${Date.now()}`,
+      name: newTeamName.trim(),
+      description: '',
+      owner: 'local-user',
+      members: [],
+      agents: [],
+      workspaces: [],
+      stats: {
+        memberCount: 1,
+        onlineMembers: 1,
+        agentCount: 0,
+        idleAgents: 0,
+        workspaceCount: 0,
+      },
+    }
+
+    addTeam(newTeam)
+    setActiveTeam(newTeam)
     setShowCreateModal(false)
     setNewTeamName('')
   }

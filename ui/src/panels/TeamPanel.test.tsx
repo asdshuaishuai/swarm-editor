@@ -9,6 +9,7 @@ vi.mock('../store/appStore', () => ({
 
 describe('TeamPanel', () => {
   const mockSetActiveTeam = vi.fn()
+  const mockAddTeam = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -17,6 +18,7 @@ describe('TeamPanel', () => {
         teams: [],
         activeTeam: null,
         setActiveTeam: mockSetActiveTeam,
+        addTeam: mockAddTeam,
       }
       return selector ? selector(state) : state
     })
@@ -60,6 +62,9 @@ describe('TeamPanel', () => {
   it('closes modal on Create Team click', () => {
     render(<TeamPanel />)
     fireEvent.click(screen.getByText('New Team'))
+    // Fill in the team name first (required for submission)
+    const input = screen.getByPlaceholderText('My Team')
+    fireEvent.change(input, { target: { value: 'Test Team' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Team' }))
     expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
   })

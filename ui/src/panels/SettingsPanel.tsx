@@ -268,7 +268,7 @@ export default function SettingsPanel() {
             <SettingRow label="Default Topology">
               <select
                 value={settings.swarmDefaultTopology}
-                onChange={(e) => updateSetting('swarmDefaultTopology', e.target.value as any)}
+                onChange={(e) => updateSetting('swarmDefaultTopology', e.target.value as 'star' | 'mesh' | 'tree' | 'ring' | 'hybrid')}
                 className="input-mac min-w-40"
               >
                 <option value="star">Star</option>
@@ -282,7 +282,7 @@ export default function SettingsPanel() {
             <SettingRow label="Default Strategy">
               <select
                 value={settings.swarmDefaultStrategy}
-                onChange={(e) => updateSetting('swarmDefaultStrategy', e.target.value as any)}
+                onChange={(e) => updateSetting('swarmDefaultStrategy', e.target.value as 'parallel' | 'sequential' | 'pipeline' | 'mapreduce')}
                 className="input-mac min-w-40"
               >
                 <option value="parallel">Parallel</option>
@@ -311,7 +311,7 @@ export default function SettingsPanel() {
             <SettingRow label="Consensus Algorithm">
               <select
                 value={settings.swarmConsensusAlgorithm}
-                onChange={(e) => updateSetting('swarmConsensusAlgorithm', e.target.value as any)}
+                onChange={(e) => updateSetting('swarmConsensusAlgorithm', e.target.value as 'simple_majority' | 'supermajority' | 'unanimity' | 'weighted' | 'byzantine')}
                 className="input-mac min-w-40"
               >
                 <option value="simple_majority">Simple Majority (&gt;50%)</option>

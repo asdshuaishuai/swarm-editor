@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
 import {
   Play,
@@ -56,6 +56,14 @@ export default function SwarmCoordinatorPanel({
     priority: 5,
     requiredRole: '',
   })
+
+  // Memoized task stats for performance
+  const taskStats = useMemo(() => ({
+    pending: tasks.filter(t => t.status === 'pending').length,
+    running: tasks.filter(t => t.status === 'running').length,
+    completed: tasks.filter(t => t.status === 'completed').length,
+    failed: tasks.filter(t => t.status === 'failed').length,
+  }), [tasks])
 
   // Test-only: trigger handlers with specific taskIds to test else branches
   useEffect(() => {
@@ -304,25 +312,25 @@ export default function SwarmCoordinatorPanel({
             <StatCard
               icon={<Clock size={16} />}
               label="Pending"
-              value={tasks.filter((t) => t.status === 'pending').length}
+              value={taskStats.pending}
               color="text-text-secondary"
             />
             <StatCard
               icon={<Loader2 size={16} className="animate-spin" />}
               label="Running"
-              value={tasks.filter((t) => t.status === 'running').length}
+              value={taskStats.running}
               color="text-accent"
             />
             <StatCard
               icon={<CheckCircle size={16} />}
               label="Completed"
-              value={tasks.filter((t) => t.status === 'completed').length}
+              value={taskStats.completed}
               color="text-success"
             />
             <StatCard
               icon={<XCircle size={16} />}
               label="Failed"
-              value={tasks.filter((t) => t.status === 'failed').length}
+              value={taskStats.failed}
               color="text-error"
             />
           </div>

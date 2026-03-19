@@ -8,7 +8,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react'
-import { AgentConfig } from '../types'
+import { AgentConfig, AgentSwarmConfig } from '../types'
 import { logger } from '../utils'
 
 interface AgentConfigPanelProps {
@@ -301,7 +301,11 @@ export default function AgentConfigPanel({
                   <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
                     <input
                       type="checkbox"
-                      defaultChecked={newAgent.swarmConfig?.canBeCoordinator}
+                      checked={newAgent.swarmConfig?.canBeCoordinator ?? true}
+                      onChange={(e) => setNewAgent({
+                        ...newAgent,
+                        swarmConfig: { ...newAgent.swarmConfig, canBeCoordinator: e.target.checked } as AgentSwarmConfig
+                      })}
                       className="accent-accent"
                     />
                     <span className="text-sm text-text-primary">Can be Coordinator</span>
@@ -309,7 +313,11 @@ export default function AgentConfigPanel({
                   <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
                     <input
                       type="checkbox"
-                      defaultChecked={newAgent.swarmConfig?.canBeWorker}
+                      checked={newAgent.swarmConfig?.canBeWorker ?? true}
+                      onChange={(e) => setNewAgent({
+                        ...newAgent,
+                        swarmConfig: { ...newAgent.swarmConfig, canBeWorker: e.target.checked } as AgentSwarmConfig
+                      })}
                       className="accent-accent"
                     />
                     <span className="text-sm text-text-primary">Can be Worker</span>
@@ -323,7 +331,11 @@ export default function AgentConfigPanel({
                     </label>
                     <input
                       type="number"
-                      defaultValue={newAgent.swarmConfig?.maxConcurrent || 3}
+                      value={newAgent.swarmConfig?.maxConcurrent || 3}
+                      onChange={(e) => setNewAgent({
+                        ...newAgent,
+                        swarmConfig: { ...newAgent.swarmConfig, maxConcurrent: parseInt(e.target.value) || 3 } as AgentSwarmConfig
+                      })}
                       className="w-full input-mac"
                       min={1}
                       max={10}
@@ -335,7 +347,11 @@ export default function AgentConfigPanel({
                     </label>
                     <input
                       type="number"
-                      defaultValue={newAgent.swarmConfig?.priority || 5}
+                      value={newAgent.swarmConfig?.priority || 5}
+                      onChange={(e) => setNewAgent({
+                        ...newAgent,
+                        swarmConfig: { ...newAgent.swarmConfig, priority: parseInt(e.target.value) || 5 } as AgentSwarmConfig
+                      })}
                       className="w-full input-mac"
                       min={1}
                       max={10}
@@ -355,7 +371,17 @@ export default function AgentConfigPanel({
                       >
                         <input
                           type="checkbox"
-                          defaultChecked={newAgent.swarmConfig?.preferredRoles?.includes(role)}
+                          checked={newAgent.swarmConfig?.preferredRoles?.includes(role) ?? false}
+                          onChange={(e) => {
+                            const currentRoles = newAgent.swarmConfig?.preferredRoles || []
+                            const updatedRoles = e.target.checked
+                              ? [...currentRoles, role]
+                              : currentRoles.filter(r => r !== role)
+                            setNewAgent({
+                              ...newAgent,
+                              swarmConfig: { ...newAgent.swarmConfig, preferredRoles: updatedRoles } as AgentSwarmConfig
+                            })
+                          }}
                           className="accent-accent"
                         />
                         <span className="capitalize text-text-primary">{role}</span>
