@@ -1,6 +1,8 @@
 package a2a
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -298,6 +300,7 @@ func TestPayloadTypes(t *testing.T) {
 		{"Signal", &SignalPayload{SignalType: "alert"}},
 		{"Pheromone", &PheromonePayload{PheromoneType: "task"}},
 		{"SwarmCommand", &SwarmCommandPayload{Command: "converge"}},
+		{"TaskResult", &TaskResult{TaskID: "t1", AgentID: "a1"}},
 	}
 
 	for _, tt := range tests {
@@ -309,5 +312,221 @@ func TestPayloadTypes(t *testing.T) {
 				t.Errorf("Payload not set for %s", tt.name)
 			}
 		})
+	}
+}
+
+func TestRouterStartStop(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := router.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start router: %v", err)
+	}
+
+	// Starting again should fail
+	err = router.Start(context.Background())
+	if err == nil {
+		t.Error("Expected error when starting already running router")
+	}
+
+	// Stop should work
+	router.Stop()
+
+	// Stopping again should be safe
+	router.Stop()
+}
+
+func TestRouterBroadcast(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	receivedCount := 0
+	// Register multiple agents
+	router.RegisterAgent("agent1", func(m *Message) error {
+		receivedCount++
+		return nil
+	}, nil)
+	router.RegisterAgent("agent2", func(m *Message) error {
+		receivedCount++
+		return nil
+	}, nil)
+	router.RegisterAgent("agent3", func(m *Message) error {
+		receivedCount++
+		return nil
+	}, nil)
+
+	// Send broadcast
+	msg := NewMessage(MessageTypeBroadcast, "agent1", "broadcast")
+	err := router.Send(msg)
+	if err != nil {
+		t.Errorf("Broadcast failed: %v", err)
+	}
+
+	if receivedCount != 2 { // Not 3 because sender is excluded
+		t.Errorf("Expected 2 recipients, got %d", receivedCount)
+	}
+}
+
+func TestRouterMulticast(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	receivedCount := 0
+	// Register agents
+	router.RegisterAgent("agent1", func(m *Message) error {
+		receivedCount++
+		return nil
+	}, nil)
+	router.RegisterAgent("agent2", func(m *Message) error {
+		receivedCount++
+		return nil
+	}, nil)
+
+	// Create group
+	router.JoinGroup("agent1", "team-alpha")
+	router.JoinGroup("agent2", "team-alpha")
+
+	// Send multicast
+	msg := NewMessage(MessageTypeMulticast, "coordinator", "ignored").
+		WithPayload(map[string]string{"data": "test"})
+	msg.Group = "team-alpha"
+
+	err := router.Send(msg)
+	if err != nil {
+		t.Errorf("Multicast failed: %v", err)
+	}
+
+	if receivedCount != 2 {
+		t.Errorf("Expected 2 recipients, got %d", receivedCount)
+	}
+}
+
+func TestRouterMulticastUnknownGroup(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	msg := NewMessage(MessageTypeMulticast, "agent1", "ignored")
+	msg.Group = "unknown-group"
+
+	err := router.Send(msg)
+	if err == nil {
+		t.Error("Expected error for unknown group")
+	}
+}
+
+func TestRouterEnqueue(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err := router.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start router: %v", err)
+	}
+	defer router.Stop()
+
+	// Register handler
+	handled := make(chan *Message, 1)
+	router.RegisterHandler(MessageTypeTaskRequest, func(m *Message) error {
+		handled <- m
+		return nil
+	})
+
+	// Enqueue message
+	msg := NewMessage(MessageTypeTaskRequest, "agent1", "agent2")
+	err = router.Enqueue(msg)
+	if err != nil {
+		t.Errorf("Enqueue failed: %v", err)
+	}
+
+	// Wait for processing
+	select {
+	case <-handled:
+		// Good
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Message was not processed")
+	}
+}
+
+func TestRouterEnqueueFull(t *testing.T) {
+	router := NewRouter(RouterConfig{QueueSize: 1})
+
+	// Fill the queue
+	msg := NewMessage(MessageTypeTaskRequest, "agent1", "agent2")
+	_ = router.Enqueue(msg)
+
+	// Next enqueue should fail
+	msg2 := NewMessage(MessageTypeTaskRequest, "agent2", "agent3")
+	err := router.Enqueue(msg2)
+	if err == nil {
+		t.Error("Expected error when queue is full")
+	}
+}
+
+func TestRouterSendWithRetry(t *testing.T) {
+	router := NewRouter(RouterConfig{RetryCount: 3, RetryDelay: 10 * time.Millisecond})
+
+	attempts := 0
+	router.RegisterAgent("agent1", func(m *Message) error {
+		attempts++
+		if attempts < 3 {
+			return fmt.Errorf("temporary error")
+		}
+		return nil
+	}, nil)
+
+	msg := NewMessage(MessageTypeTaskRequest, "sender", "agent1")
+	err := router.Send(msg)
+	if err != nil {
+		t.Errorf("Send with retry failed: %v", err)
+	}
+
+	if attempts != 3 {
+		t.Errorf("Expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestRouterSendWithRetryFail(t *testing.T) {
+	router := NewRouter(RouterConfig{RetryCount: 2, RetryDelay: 10 * time.Millisecond})
+
+	router.RegisterAgent("agent1", func(m *Message) error {
+		return fmt.Errorf("permanent error")
+	}, nil)
+
+	msg := NewMessage(MessageTypeTaskRequest, "sender", "agent1")
+	err := router.Send(msg)
+	if err == nil {
+		t.Error("Expected error after all retries failed")
+	}
+}
+
+func TestRouterBroadcastWithError(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	router.RegisterAgent("agent1", func(m *Message) error {
+		return nil
+	}, nil)
+	router.RegisterAgent("agent2", func(m *Message) error {
+		return fmt.Errorf("send error")
+	}, nil)
+
+	msg := NewMessage(MessageTypeBroadcast, "sender", "broadcast")
+	err := router.Send(msg)
+	if err == nil {
+		t.Error("Expected error when some broadcasts fail")
+	}
+}
+
+func TestMessageWithPayloadError(t *testing.T) {
+	// Create a payload that can't be marshaled
+	badPayload := make(chan int) // channels can't be marshaled to JSON
+
+	msg := NewMessage(MessageTypeTaskRequest, "from", "to").
+		WithPayload(badPayload)
+
+	// Should contain error message instead of crashing
+	if msg.Payload == nil {
+		t.Error("Expected payload to contain error message")
 	}
 }

@@ -339,3 +339,413 @@ func TestCoordinatorGetNextTask(t *testing.T) {
 		t.Errorf("Expected task2 (priority 3), got %s (priority %d)", next.ID, next.Priority)
 	}
 }
+
+func TestCoordinatorHandleTaskAccept(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup task
+	task := &CoordinationTask{ID: "task1", Status: "assigned"}
+	coordinator.runningTasks["task1"] = task
+
+	// Create accept message
+	msg := NewMessage(MessageTypeTaskAccept, "agent1", "coordinator").
+		WithPayload(&TaskAcceptPayload{
+			TaskID:    "task1",
+			AgentID:   "agent1",
+			Estimate:  60,
+			StartTime: time.Now(),
+		})
+
+	err := coordinator.handleTaskAccept(msg)
+	if err != nil {
+		t.Errorf("handleTaskAccept failed: %v", err)
+	}
+
+	if task.Status != "running" {
+		t.Errorf("Expected task status 'running', got %s", task.Status)
+	}
+}
+
+func TestCoordinatorHandleTaskProgress(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup task
+	task := &CoordinationTask{ID: "task1", Status: "running"}
+	coordinator.runningTasks["task1"] = task
+
+	// Create progress message
+	msg := NewMessage(MessageTypeTaskProgress, "agent1", "coordinator").
+		WithPayload(&TaskProgressPayload{
+			TaskID:   "task1",
+			Progress: 0.5,
+			Status:   "In progress",
+		})
+
+	err := coordinator.handleTaskProgress(msg)
+	if err != nil {
+		t.Errorf("handleTaskProgress failed: %v", err)
+	}
+
+	if task.Progress != 0.5 {
+		t.Errorf("Expected progress 0.5, got %f", task.Progress)
+	}
+}
+
+func TestCoordinatorHandleTaskComplete(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup agent
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+
+	// Setup task
+	task := &CoordinationTask{
+		ID:         "task1",
+		Status:     "running",
+		AssignedTo: []string{"agent1"},
+	}
+	coordinator.runningTasks["task1"] = task
+
+	// Create complete message
+	msg := NewMessage(MessageTypeTaskComplete, "agent1", "coordinator").
+		WithPayload(&TaskCompletePayload{
+			TaskID:   "task1",
+			Result:   []byte(`{"status": "done"}`),
+			Duration: time.Minute,
+		})
+
+	err := coordinator.handleTaskComplete(msg)
+	if err != nil {
+		t.Errorf("handleTaskComplete failed: %v", err)
+	}
+
+	if task.Status != "completed" {
+		t.Errorf("Expected task status 'completed', got %s", task.Status)
+	}
+
+	if coordinator.agents["agent1"].Status != "idle" {
+		t.Errorf("Expected agent status 'idle', got %s", coordinator.agents["agent1"].Status)
+	}
+}
+
+func TestCoordinatorHandleTaskFailed(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup agent
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+
+	// Setup task with single agent
+	task := &CoordinationTask{
+		ID:         "task1",
+		Status:     "running",
+		AssignedTo: []string{"agent1"},
+	}
+	coordinator.runningTasks["task1"] = task
+
+	// Create failed message
+	msg := NewMessage(MessageTypeTaskFailed, "agent1", "coordinator").
+		WithPayload(&TaskFailedPayload{
+			TaskID:    "task1",
+			Error:     "Something went wrong",
+			Retryable: true,
+		})
+
+	err := coordinator.handleTaskFailed(msg)
+	if err != nil {
+		t.Errorf("handleTaskFailed failed: %v", err)
+	}
+
+	if task.Status != "failed" {
+		t.Errorf("Expected task status 'failed', got %s", task.Status)
+	}
+}
+
+func TestCoordinatorHandleTaskReject(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup agent
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+
+	// Setup task
+	task := &CoordinationTask{
+		ID:         "task1",
+		Status:     "assigned",
+		AssignedTo: []string{"agent1"},
+	}
+	coordinator.runningTasks["task1"] = task
+
+	// Create reject message
+	msg := NewMessage(MessageTypeTaskReject, "agent1", "coordinator").
+		WithPayload(map[string]interface{}{
+			"taskId": "task1",
+			"reason": "Too busy",
+		})
+
+	err := coordinator.handleTaskReject(msg)
+	if err != nil {
+		t.Errorf("handleTaskReject failed: %v", err)
+	}
+
+	// Task should be back in pending
+	if coordinator.pendingTasks["task1"] == nil {
+		t.Error("Task should be back in pending")
+	}
+}
+
+func TestCoordinatorHandleHelpRequest(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup agents
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.RegisterAgent("agent2", []string{"testing"})
+
+	// Create help request message
+	msg := NewMessage(MessageTypeHelpRequest, "agent1", "coordinator").
+		WithPayload(&HelpRequestPayload{
+			TaskID:  "task1",
+			Reason:  "Need testing help",
+			Skills:  []string{"testing"},
+			Urgency: 3,
+		})
+
+	err := coordinator.handleHelpRequest(msg)
+	if err != nil {
+		t.Errorf("handleHelpRequest failed: %v", err)
+	}
+}
+
+func TestCoordinatorHandlePheromone(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Create pheromone message
+	msg := NewMessage(MessageTypePheromone, "agent1", "coordinator").
+		WithPayload(&PheromonePayload{
+			PheromoneType: "coding",
+			Location:      "auth-module",
+			Strength:      0.8,
+			Decay:         0.1,
+		})
+
+	err := coordinator.handlePheromone(msg)
+	if err != nil {
+		t.Errorf("handlePheromone failed: %v", err)
+	}
+
+	key := "coding:auth-module"
+	if coordinator.pheromones[key] == nil {
+		t.Error("Expected pheromone trail to be created")
+	}
+}
+
+func TestCoordinatorDecayPheromones(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Add pheromone
+	coordinator.leavePheromone("coding", "task1")
+	coordinator.pheromones["coding:task1"].Strength = 0.5
+	coordinator.pheromones["coding:task1"].DecayRate = 0.3
+
+	coordinator.decayPheromones()
+
+	if coordinator.pheromones["coding:task1"].Strength >= 0.5 {
+		t.Error("Pheromone should have decayed")
+	}
+}
+
+func TestCoordinatorCleanupOldCompletedTasks(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{MaxCompletedTasks: 2}, router)
+
+	// Add more completed tasks than the limit
+	for i := 0; i < 5; i++ {
+		task := &CoordinationTask{
+			ID:           string(rune('a' + i)),
+			Status:       "completed",
+			CompletedAt:  time.Now().Add(time.Duration(i) * time.Minute),
+		}
+		coordinator.completedTasks[task.ID] = task
+	}
+
+	coordinator.cleanupOldCompletedTasks()
+
+	if len(coordinator.completedTasks) > coordinator.config.MaxCompletedTasks {
+		t.Errorf("Expected max %d completed tasks, got %d",
+			coordinator.config.MaxCompletedTasks, len(coordinator.completedTasks))
+	}
+}
+
+func TestCoordinatorRequestHelp(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agent for receiving
+	received := make(chan *Message, 1)
+	router.RegisterAgent("agent1", func(m *Message) error {
+		received <- m
+		return nil
+	}, []string{"coding"})
+
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+
+	ctx := context.Background()
+	err := coordinator.RequestHelp(ctx, "task1", "Need help", []string{"coding"}, 3)
+	if err != nil {
+		t.Errorf("RequestHelp failed: %v", err)
+	}
+}
+
+func TestCoordinatorBroadcastKnowledge(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register agent for receiving
+	router.RegisterAgent("agent1", func(m *Message) error {
+		return nil
+	}, []string{"coding"})
+
+	ctx := context.Background()
+	err := coordinator.BroadcastKnowledge(ctx, "pattern", "Auth Pattern", map[string]string{"type": "oauth"}, []string{"auth"})
+	if err != nil {
+		t.Errorf("BroadcastKnowledge failed: %v", err)
+	}
+}
+
+func TestCoordinatorOnAgentAvailable(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	called := false
+	coordinator.OnAgentAvailable(func(agentID string) {
+		called = true
+	})
+
+	if coordinator.onAgentAvailable == nil {
+		t.Error("OnAgentAvailable callback should be set")
+	}
+
+	coordinator.onAgentAvailable("agent1")
+	if !called {
+		t.Error("Callback should have been called")
+	}
+}
+
+func TestCoordinatorHandleProposal(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup running task with agent
+	coordinator.RegisterAgent("agent1", []string{})
+	task := &CoordinationTask{
+		ID:         "task1",
+		AssignedTo: []string{"agent1"},
+	}
+	coordinator.runningTasks["task1"] = task
+
+	// Create proposal message
+	msg := NewMessage(MessageTypeProposal, "agent1", "coordinator").
+		WithPayload(&ProposalPayload{
+			ProposalID:   "prop1",
+			Type:         "task_split",
+			Proposer:     "agent1",
+			Content:      []byte(`{"split": true}`),
+			RequiresVote: true,
+		})
+
+	err := coordinator.handleProposal(msg)
+	if err != nil {
+		t.Errorf("handleProposal failed: %v", err)
+	}
+}
+
+func TestCoordinatorHandleAgreement(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Setup task with negotiation
+	task := &CoordinationTask{
+		ID:         "task1",
+		AssignedTo: []string{"agent1"},
+		Negotiations: []*Negotiation{
+			{ID: "prop1", Status: "pending"},
+		},
+	}
+	coordinator.runningTasks["task1"] = task
+
+	// Create agreement message
+	msg := NewMessage(MessageTypeAgreement, "agent2", "coordinator").
+		WithPayload(&AgreementPayload{
+			ProposalID: "prop1",
+			AgentID:    "agent2",
+		})
+
+	err := coordinator.handleAgreement(msg)
+	if err != nil {
+		t.Errorf("handleAgreement failed: %v", err)
+	}
+}
+
+func TestCoordinatorInitiateTaskAssignment(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	// Setup agent with receive function
+	received := make(chan *Message, 1)
+	router.RegisterAgent("agent1", func(m *Message) error {
+		received <- m
+		return nil
+	}, []string{"coding"})
+
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+
+	// Add task to pending
+	task := &CoordinationTask{
+		ID:          "task1",
+		Title:       "Test Task",
+		Description: "Test Description",
+		Priority:    1,
+	}
+	coordinator.pendingTasks["task1"] = task
+
+	// Initiate assignment
+	coordinator.initiateTaskAssignment(task, []string{"agent1"})
+
+	// Verify task moved to running
+	if coordinator.runningTasks["task1"] == nil {
+		t.Error("Task should be in running tasks")
+	}
+
+	// Verify agent is busy
+	if coordinator.agents["agent1"].Status != "busy" {
+		t.Error("Agent should be busy")
+	}
+}
+
+func TestCoordinatorHasRequiredRole(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	agent := &AgentState{
+		ID:           "agent1",
+		Capabilities: []string{"coding", "testing"},
+	}
+
+	if !coordinator.hasRequiredRole(agent, "coding") {
+		t.Error("Agent should have coding role")
+	}
+
+	if coordinator.hasRequiredRole(agent, "design") {
+		t.Error("Agent should not have design role")
+	}
+
+	// Empty required role should always match
+	if !coordinator.hasRequiredRole(agent, "") {
+		t.Error("Empty required role should match any agent")
+	}
+}
