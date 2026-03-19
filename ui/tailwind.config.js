@@ -29,6 +29,9 @@ export default {
         // Glass effect colors
         'glass': 'rgba(255, 255, 255, 0.05)',
         'glass-border': 'rgba(255, 255, 255, 0.1)',
+        // Aliases for convenience
+        'card': 'rgba(255, 255, 255, 0.08)',
+        'card-hover': 'rgba(255, 255, 255, 0.12)',
       },
       backdropBlur: {
         'xs': '2px',

@@ -189,15 +189,15 @@ export default function AgentPanel() {
                   }}
                   disabled={isToggling === agent.id}
                   className={`p-1.5 rounded-mac transition-colors disabled:opacity-50 ${
-                    agent.state === 'executing' || agent.state === 'running'
+                    agent.state === 'executing'
                       ? 'text-error hover:bg-error/10'
                       : 'text-success hover:bg-success/10'
                   }`}
-                  title={agent.state === 'executing' || agent.state === 'running' ? 'Stop agent' : 'Start agent'}
+                  title={agent.state === 'executing' ? 'Stop agent' : 'Start agent'}
                 >
                   {isToggling === agent.id ? (
                     <Loader2 size={14} className="animate-spin" />
-                  ) : agent.state === 'executing' || agent.state === 'running' ? (
+                  ) : agent.state === 'executing' ? (
                     <Square size={14} />
                   ) : (
                     <Play size={14} />

@@ -92,7 +92,7 @@ main()
       addTerminalEntry('success', `Saved: ${currentFile.split('/').pop()}`)
     } catch (err) {
       logger.error('Editor', 'Failed to save file:', err)
-      addTerminalEntry('error', `Failed to save file: ${err}`)
+      addTerminalEntry('error', `Failed to save file: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setLoading(false)
     }
@@ -126,7 +126,7 @@ main()
       }
     } catch (err) {
       logger.error('Editor', 'Failed to execute code:', err)
-      addTerminalEntry('error', `Execution error: ${err}`)
+      addTerminalEntry('error', `Execution error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setLoading(false)
     }

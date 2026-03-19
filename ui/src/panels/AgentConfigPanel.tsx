@@ -36,6 +36,7 @@ export default function AgentConfigPanel({
     name: '',
     command: '',
     args: [],
+    env: {},
     enabled: true,
     swarmConfig: {
       canBeCoordinator: true,
@@ -73,6 +74,7 @@ export default function AgentConfigPanel({
       name: '',
       command: '',
       args: [],
+      env: {},
       enabled: true,
       swarmConfig: {
         canBeCoordinator: true,
@@ -274,6 +276,20 @@ export default function AgentConfigPanel({
                   className="w-full input-mac font-mono resize-none"
                   rows={3}
                   placeholder="API_KEY=${ANTHROPIC_API_KEY}"
+                  value={Object.entries(editingAgent?.env || newAgent.env || {})
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join('\n')}
+                  onChange={(e) => {
+                    const envLines = e.target.value.split('\n').filter(Boolean)
+                    const env: Record<string, string> = {}
+                    envLines.forEach(line => {
+                      const [key, ...valueParts] = line.split('=')
+                      if (key) {
+                        env[key.trim()] = valueParts.join('=').trim()
+                      }
+                    })
+                    setNewAgent({ ...newAgent, env })
+                  }}
                 />
               </div>
 
