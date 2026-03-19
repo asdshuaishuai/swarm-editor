@@ -398,6 +398,11 @@ export default function AgentConfigPanel({
                 </label>
                 <input
                   type="text"
+                  value={(editingAgent?.tags || newAgent.tags || []).join(', ')}
+                  onChange={(e) => {
+                    const tags = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                    setNewAgent({ ...newAgent, tags })
+                  }}
                   className="w-full input-mac"
                   placeholder="primary, coding, review"
                 />

@@ -1756,6 +1756,7 @@ describe('handleSubmitTask without active swarm', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1794,6 +1795,7 @@ describe('handleStartTask without active swarm', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })

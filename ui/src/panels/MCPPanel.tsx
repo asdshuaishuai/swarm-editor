@@ -15,7 +15,7 @@ import { useAppStore } from '../store/appStore'
 import { logger } from '../utils'
 
 export default function MCPPanel() {
-  const { settings, addMCPServer, removeMCPServer, updateMCPServer } = useSettings()
+  const { settings, addMCPServer, removeMCPServer, updateMCPServer, updateSetting } = useSettings()
   const addToast = useAppStore(state => state.addToast)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingServer, setEditingServer] = useState<MCPServerSetting | null>(null)
@@ -123,7 +123,11 @@ export default function MCPPanel() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {}}
+            onClick={() => {
+              addToast('info', 'Refresh', 'Reloading MCP server configurations...')
+              // In Tauri environment, this would reload server configs from backend
+              logger.info('MCP', 'Manual refresh triggered')
+            }}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Refresh"
           >
@@ -155,10 +159,14 @@ export default function MCPPanel() {
           </div>
         </div>
         <button
-          onClick={() => {}}
+          onClick={() => {
+            const newState = !settings.mcpEnabled
+            updateSetting('mcpEnabled', newState)
+            addToast('info', 'MCP Settings', `MCP has been ${newState ? 'enabled' : 'disabled'}`)
+          }}
           className={`px-3 py-1.5 rounded-mac text-xs font-medium transition-colors ${
-            settings.mcpEnabled 
-              ? 'bg-success/20 text-success hover:bg-success/30' 
+            settings.mcpEnabled
+              ? 'bg-success/20 text-success hover:bg-success/30'
               : 'bg-glass text-text-secondary hover:bg-card-hover'
           }`}
         >

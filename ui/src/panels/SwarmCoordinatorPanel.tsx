@@ -39,7 +39,7 @@ export default function SwarmCoordinatorPanel({
   testPauseTaskId,
   testCancelTaskId,
 }: SwarmCoordinatorPanelProps) {
-  const { activeSwarm } = useAppStore()
+  const { activeSwarm, addToast } = useAppStore()
   const [tasks, setTasks] = useState<CoordinationTask[]>(initialTasks)
   const [selectedTask, setSelectedTask] = useState<CoordinationTask | null>(() => {
     // Test-only: set initial selected task from prop
@@ -138,7 +138,10 @@ export default function SwarmCoordinatorPanel({
   }, [])
 
   const handleSubmitTask = async () => {
-    if (!activeSwarm) return
+    if (!activeSwarm) {
+      addToast('warning', 'No Active Swarm', 'Please select or create a swarm first')
+      return
+    }
 
     try {
       // 提交任务到后端
