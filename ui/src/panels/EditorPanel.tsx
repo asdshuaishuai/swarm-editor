@@ -47,23 +47,23 @@ main()
   }, [])
 
   useEffect(() => {
-    loadWorkspace()
-  }, [])
-
-  const loadWorkspace = async () => {
-    try {
-      setLoading(true)
-      const ws = await api.fs.getWorkspace()
-      setWorkspace(ws)
-      const entries = await api.fs.listDir(ws)
-      setFileTree(entries)
-    } catch (err) {
-      logger.error('Editor', 'Failed to load workspace:', err)
-      addToast('error', 'Failed to load workspace', err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
+    const loadWorkspace = async () => {
+      try {
+        setLoading(true)
+        const ws = await api.fs.getWorkspace()
+        setWorkspace(ws)
+        const entries = await api.fs.listDir(ws)
+        setFileTree(entries)
+      } catch (err) {
+        logger.error('Editor', 'Failed to load workspace:', err)
+        addToast('error', 'Failed to load workspace', err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+    loadWorkspace()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadFile = async (entry: FileEntry) => {
     if (entry.isDirectory) {
