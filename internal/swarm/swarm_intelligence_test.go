@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -378,5 +379,267 @@ func TestSwarmIntelligenceScheduler_BroadcastSwarmCommand(t *testing.T) {
 	// Error expected without registered agents
 	if err == nil {
 		// This is fine if broadcast to empty set
+	}
+}
+
+func TestSwarmIntelligenceScheduler_GetActiveNegotiations(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Initially no negotiations
+	negotiations := scheduler.GetActiveNegotiations()
+	if len(negotiations) != 0 {
+		t.Errorf("Expected 0 negotiations, got %d", len(negotiations))
+	}
+
+	// Add a negotiation
+	scheduler.activeNegotiations["neg-1"] = &Negotiation{
+		ID:     "neg-1",
+		Status: "pending",
+	}
+
+	negotiations = scheduler.GetActiveNegotiations()
+	if len(negotiations) != 1 {
+		t.Errorf("Expected 1 negotiation, got %d", len(negotiations))
+	}
+}
+
+func TestSwarmIntelligenceScheduler_GetSignals(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Initially no signals
+	signals := scheduler.GetSignals()
+	if len(signals) != 0 {
+		t.Errorf("Expected 0 signals, got %d", len(signals))
+	}
+
+	// Add a signal manually
+	scheduler.signals["sig-1"] = &EmergentSignal{
+		Type:      "congestion",
+		Location:  "agent1",
+		Timestamp: time.Now(),
+	}
+
+	signals = scheduler.GetSignals()
+	if len(signals) != 1 {
+		t.Errorf("Expected 1 signal, got %d", len(signals))
+	}
+}
+
+func TestSwarmIntelligenceScheduler_GetAgentPerformance(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Get performance for non-existent agent
+	perf := scheduler.GetAgentPerformance("agent1")
+	if perf != nil {
+		t.Error("Expected nil performance for unknown agent")
+	}
+
+	// Add performance data
+	agentPerf := &AgentPerformance{
+		AgentID:        "agent1",
+		TasksCompleted: 10,
+		TasksFailed:    2,
+	}
+	scheduler.agentPerformance["agent1"] = agentPerf
+
+	perf = scheduler.GetAgentPerformance("agent1")
+	if perf == nil {
+		t.Fatal("Expected performance data")
+	}
+	if perf.TasksCompleted != 10 {
+		t.Errorf("Expected 10 completed tasks, got %d", perf.TasksCompleted)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_CalculateBidValue(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	bid := &Bid{
+		AgentID:      "agent1",
+		Capability:   0.9,
+		Availability: 1.0,
+		Cost:         1.0,
+	}
+
+	value := scheduler.calculateBidValue(bid)
+	if value <= 0 {
+		t.Errorf("Expected positive bid value, got %f", value)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_SelectLeastLoaded(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Add workers with different loads
+	agent1 := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	agent1.IncrementLoad()
+	agent1.IncrementLoad()
+
+	agent2 := &AgentInfo{ID: "agent2", MaxConcurrent: 5}
+	agent2.IncrementLoad()
+
+	agents := []*AgentInfo{agent1, agent2}
+
+	selected := scheduler.selectLeastLoaded(agents)
+	if len(selected) == 0 {
+		t.Fatal("Expected at least one agent selected")
+	}
+	if selected[0].ID != "agent2" {
+		t.Errorf("Expected agent2 (least loaded), got %s", selected[0].ID)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_SelectRandomAgents(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.ExplorationRate = 1.0 // Force exploration
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Add workers
+	for i := 0; i < 5; i++ {
+		agent := &AgentInfo{ID: fmt.Sprintf("agent%d", i), MaxConcurrent: 5}
+		scheduler.AddWorker(agent)
+	}
+
+	// Get workers and select
+	scheduler.mu.RLock()
+	agents := make([]*AgentInfo, 0, len(scheduler.workers))
+	for _, w := range scheduler.workers {
+		agents = append(agents, w)
+	}
+	scheduler.mu.RUnlock()
+
+	// Select with exploration
+	task := &Task{ID: "task-1"}
+	selected := scheduler.selectRandomAgents(agents, task)
+	if len(selected) == 0 {
+		t.Error("Expected at least one agent selected")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_A2AMessaging(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Register agent for A2A with proper send function
+	sendFunc := func(m *a2a.Message) error { return nil }
+	scheduler.RegisterAgentForA2A("agent1", sendFunc, []string{"coding"})
+	scheduler.RegisterAgentForA2A("agent2", sendFunc, []string{"testing"})
+
+	// Unregister
+	scheduler.UnregisterAgentFromA2A("agent1")
+
+	// Send A2A message (should not panic)
+	msg := a2a.NewMessage(a2a.MessageTypeTaskRequest, "scheduler", "agent2")
+	err := scheduler.SendA2AMessage(msg)
+	// Error expected because agent2 may not have proper send function
+	_ = err
+}
+
+func TestSwarmIntelligenceScheduler_HandleProposal(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Create a negotiation
+	scheduler.activeNegotiations["neg-1"] = &Negotiation{
+		ID:        "neg-1",
+		TaskID:    "task-1",
+		Status:    "pending",
+		Deadline:  time.Now().Add(5 * time.Second),
+		Bids:      make(map[string]*Bid),
+	}
+
+	// Handle proposal message
+	msg := a2a.NewMessage(a2a.MessageTypeProposal, "agent1", "scheduler").
+		WithPayload(&a2a.ProposalPayload{
+			ProposalID: "prop-1",
+			Type:       "bid",
+		})
+
+	err := scheduler.handleProposal(msg)
+	if err != nil {
+		t.Logf("handleProposal returned: %v (may be expected)", err)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleKnowledgeShare(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Handle knowledge share message
+	msg := a2a.NewMessage(a2a.MessageTypeKnowledgeShare, "agent1", "scheduler").
+		WithPayload(&a2a.KnowledgeSharePayload{
+			Type:    "pattern",
+			Title:   "Best Practice",
+			Content: []byte(`{"pattern": "singleton"}`),
+		})
+
+	err := scheduler.handleKnowledgeShare(msg)
+	if err != nil {
+		t.Logf("handleKnowledgeShare returned: %v", err)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_RequestConsensus(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Request consensus (will fail without proper setup)
+	ctx := context.Background()
+	result, err := scheduler.RequestConsensus(ctx, "Should we proceed?", []string{"yes", "no"}, time.Now().Add(5*time.Second))
+	// Error expected without agents
+	_ = result
+	_ = err
+}
+
+func TestSwarmIntelligenceScheduler_RandomFloat(t *testing.T) {
+	// Test randomFloat function
+	for i := 0; i < 100; i++ {
+		val := randomFloat()
+		if val < 0 || val > 1.0 {
+			t.Errorf("randomFloat returned out of range: %f", val)
+		}
+	}
+}
+
+func TestSwarmIntelligenceScheduler_Min(t *testing.T) {
+	if min(1*time.Second, 2*time.Second) != 1*time.Second {
+		t.Error("min(1s, 2s) should return 1s")
+	}
+	if min(2*time.Second, 1*time.Second) != 1*time.Second {
+		t.Error("min(2s, 1s) should return 1s")
+	}
+	if min(5*time.Second, 5*time.Second) != 5*time.Second {
+		t.Error("min(5s, 5s) should return 5s")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_UnmarshalJSON(t *testing.T) {
+	data := `{"id": "test", "name": "Test"}`
+	var result map[string]interface{}
+	err := unmarshalJSON([]byte(data), &result)
+	if err != nil {
+		t.Errorf("unmarshalJSON failed: %v", err)
+	}
+	if result["id"] != "test" {
+		t.Error("Unexpected result")
 	}
 }
