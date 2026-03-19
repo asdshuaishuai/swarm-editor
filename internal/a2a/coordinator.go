@@ -27,9 +27,6 @@ type Coordinator struct {
 	runningTasks   map[string]*CoordinationTask
 	completedTasks map[string]*CoordinationTask
 
-	// Scheduling strategy
-	strategy SchedulingStrategy
-
 	// Pheromone trails for swarm intelligence
 	pheromones map[string]*PheromoneTrail
 
