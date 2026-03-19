@@ -11,6 +11,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { useSettings } from '../hooks/useSettings'
 import { api } from '../services'
 import { logger } from '../utils'
 
@@ -28,11 +29,14 @@ interface DiscoveredAgent {
 export default function AgentScannerPanel() {
   const agents = useAppStore(state => state.agents)
   const addToast = useAppStore(state => state.addToast)
+  const { settings, updateSetting } = useSettings()
   const [discoveredAgents, setDiscoveredAgents] = useState<DiscoveredAgent[]>([])
   const [scanning, setScanning] = useState(false)
   const [lastScan, setLastScan] = useState<Date | null>(null)
-  const [autoScan, setAutoScan] = useState(false)
-  const [scanInterval, setScanInterval] = useState(30) // seconds
+
+  // Use settings for auto-scan configuration
+  const autoScan = settings.agentAutoScan
+  const scanInterval = settings.agentScanInterval / 1000 // Convert ms to seconds
 
   // Scan for available agents
   const scanAgents = useCallback(async () => {
@@ -180,7 +184,7 @@ export default function AgentScannerPanel() {
         <div className="flex items-center gap-3">
           <span className="text-sm text-text-primary">Auto-scan</span>
           <button
-            onClick={() => setAutoScan(!autoScan)}
+            onClick={() => updateSetting('agentAutoScan', !autoScan)}
             className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
               autoScan ? 'bg-accent' : 'bg-glass border border-glass-border'
             }`}
@@ -196,7 +200,7 @@ export default function AgentScannerPanel() {
             <span className="text-xs text-text-secondary">Every</span>
             <select
               value={scanInterval}
-              onChange={(e) => setScanInterval(parseInt(e.target.value))}
+              onChange={(e) => updateSetting('agentScanInterval', parseInt(e.target.value) * 1000)}
               className="input-mac text-xs py-1"
             >
               <option value={10}>10s</option>
