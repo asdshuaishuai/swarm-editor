@@ -106,9 +106,10 @@ export default function AgentScannerPanel() {
     return () => clearInterval(interval)
   }, [autoScan, scanInterval, scanAgents])
 
-  // Initial scan
+  // Initial scan - only run once on mount
   useEffect(() => {
     scanAgents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Connect to agent
