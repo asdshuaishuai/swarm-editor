@@ -13,6 +13,7 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/config"
 	"github.com/swarm-editor/swarm-editor/internal/llm"
 	"github.com/swarm-editor/swarm-editor/internal/pair"
 	"github.com/swarm-editor/swarm-editor/internal/swarm"
@@ -161,9 +162,9 @@ func (h *ACPServerHandler) Initialize(ctx context.Context, params *acp.Initializ
 			TeamCollaboration: true,
 		},
 		AgentInfo: acp.ImplementationInfo{
-			Name:    "swarm-editor",
+			Name:    config.AppName,
 			Title:   "Swarm Editor Agent",
-			Version: "0.1.0",
+			Version: config.AppVersion,
 		},
 		AuthMethods: []acp.AuthMethod{},
 	}, nil

@@ -9,8 +9,21 @@ import (
 	"sync"
 )
 
+// getConfigDir returns the configuration directory, with fallback for missing HOME
+func getConfigDir() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		// Fallback to current directory if HOME is not set
+		if cwd, err := os.Getwd(); err == nil {
+			return filepath.Join(cwd, ".swarm-editor")
+		}
+		return ".swarm-editor"
+	}
+	return filepath.Join(home, ".swarm-editor")
+}
+
 // ConfigDir is the default directory for ACP configuration
-var ConfigDir = filepath.Join(os.Getenv("HOME"), ".swarm-editor")
+var ConfigDir = getConfigDir()
 
 // ConfigFile is the main configuration file name
 const ConfigFile = "agents.json"

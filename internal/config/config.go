@@ -6,6 +6,13 @@ import (
 	"path/filepath"
 )
 
+// Application version constants
+const (
+	AppVersion    = "0.1.0"
+	AppName       = "swarm-editor"
+	ProtocolMinor = "1.0"
+)
+
 // AppConfig represents the main application configuration
 type AppConfig struct {
 	Server  ServerConfig  `yaml:"server"`

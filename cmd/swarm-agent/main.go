@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/config"
 )
 
 // Standalone ACP Agent that can be launched by editors
@@ -67,7 +68,7 @@ func (h *AgentHandler) Initialize(ctx context.Context, params *acp.InitializePar
 		AgentInfo: acp.ImplementationInfo{
 			Name:    "swarm-agent",
 			Title:   "Swarm Standalone Agent",
-			Version: "0.1.0",
+			Version: config.AppVersion,
 		},
 		AuthMethods: []acp.AuthMethod{},
 	}, nil
