@@ -13,6 +13,7 @@ import {
   Users,
   Zap,
   Target,
+  X,
 } from 'lucide-react'
 import type { CoordinationTask } from '../types'
 import { api } from '../services'
@@ -169,7 +170,7 @@ export default function SwarmCoordinatorPanel({
   }
 
   const statusColors = {
-    pending: 'bg-text-secondary',
+    pending: 'bg-text-tertiary',
     decomposing: 'bg-warning',
     assigned: 'bg-info',
     running: 'bg-accent animate-pulse',
@@ -253,8 +254,8 @@ export default function SwarmCoordinatorPanel({
   }
 
   const priorityColors = {
-    1: 'text-text-secondary',
-    2: 'text-text-secondary',
+    1: 'text-text-tertiary',
+    2: 'text-text-tertiary',
     3: 'text-info',
     4: 'text-warning',
     5: 'text-warning',
@@ -268,26 +269,28 @@ export default function SwarmCoordinatorPanel({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-panel-border">
-        <div className="flex items-center space-x-3">
-          <Zap size={20} className="text-accent" />
+      <div className="flex items-center justify-between p-4 border-b border-glass-border bg-glass/30">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-accent/10 rounded-mac">
+            <Zap size={20} className="text-accent" />
+          </div>
           <div>
-            <h2 className="text-lg font-semibold">Swarm Coordinator</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Swarm Coordinator</h2>
             <p className="text-xs text-text-secondary">
-              {activeSwarm?.name || 'No swarm selected'} - {tasks.length} tasks
+              {activeSwarm?.name || 'No swarm selected'} • {tasks.length} tasks
             </p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setNewTaskModal(true)}
-            className="flex items-center space-x-1 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
+            className="btn-primary"
           >
             <Target size={16} />
             <span>New Task</span>
           </button>
-          <button className="p-2 hover:bg-panel-border rounded" title="Refresh">
-            <RefreshCw size={16} />
+          <button className="p-2 hover:bg-card-hover rounded-mac transition-colors" title="Refresh">
+            <RefreshCw size={16} className="text-text-secondary" />
           </button>
         </div>
       </div>
@@ -297,7 +300,7 @@ export default function SwarmCoordinatorPanel({
         {/* Task List */}
         <div className="flex-1 overflow-y-auto p-4">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-4 gap-3 mb-5">
             <StatCard
               icon={<Clock size={16} />}
               label="Pending"
@@ -326,9 +329,11 @@ export default function SwarmCoordinatorPanel({
 
           {/* Task List */}
           {tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
-              <Network size={48} className="mb-4 opacity-50" />
-              <p className="text-lg mb-2">No tasks yet</p>
+            <div className="flex flex-col items-center justify-center h-64 text-text-tertiary">
+              <div className="p-4 bg-glass rounded-mac-xl mb-4">
+                <Network size={48} className="opacity-50" />
+              </div>
+              <p className="text-base font-medium text-text-secondary mb-1">No tasks yet</p>
               <p className="text-sm">Submit a task to start coordinating agents</p>
             </div>
           ) : (
@@ -351,7 +356,7 @@ export default function SwarmCoordinatorPanel({
 
         {/* Task Details Panel */}
         {selectedTask && (
-          <div className="w-80 border-l border-panel-border p-4 overflow-y-auto">
+          <div className="w-80 border-l border-glass-border bg-mac-panel/50 p-4 overflow-y-auto">
             <TaskDetails
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
@@ -365,45 +370,56 @@ export default function SwarmCoordinatorPanel({
 
       {/* New Task Modal */}
       {newTaskModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-panel-bg border border-panel-border rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-4">Submit New Task</h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                <Target size={18} className="text-accent" />
+                Submit New Task
+              </h3>
+              <button
+                onClick={() => setNewTaskModal(false)}
+                className="p-1.5 hover:bg-card-hover rounded-mac transition-colors"
+              >
+                <X size={18} className="text-text-secondary" />
+              </button>
+            </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Title *
                 </label>
                 <input
                   type="text"
                   value={newTask.title}
                   onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  className="w-full input-mac"
                   placeholder="Implement user authentication"
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Description
                 </label>
                 <textarea
                   value={newTask.description}
                   onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent font-mono"
+                  className="w-full input-mac font-mono resize-none"
                   rows={3}
                   placeholder="Detailed task description..."
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Agent Prompt *
                 </label>
                 <textarea
                   value={newTask.prompt}
                   onChange={(e) => setNewTask({ ...newTask, prompt: e.target.value })}
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent font-mono"
+                  className="w-full input-mac font-mono resize-none"
                   rows={4}
                   placeholder="Write the prompt that will be sent to agents..."
                 />
@@ -411,7 +427,7 @@ export default function SwarmCoordinatorPanel({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">
+                  <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Priority (1-10)
                   </label>
                   <input
@@ -420,17 +436,17 @@ export default function SwarmCoordinatorPanel({
                     max={10}
                     value={newTask.priority}
                     onChange={(e) => setNewTask({ ...newTask, priority: parseInt(e.target.value) })}
-                    className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                    className="w-full input-mac"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">
+                  <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Required Role
                   </label>
                   <select
                     value={newTask.requiredRole}
                     onChange={(e) => setNewTask({ ...newTask, requiredRole: e.target.value })}
-                    className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                    className="w-full input-mac"
                   >
                     <option value="">Any</option>
                     <option value="coder">Coder</option>
@@ -442,17 +458,17 @@ export default function SwarmCoordinatorPanel({
               </div>
             </div>
 
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-glass-border">
               <button
                 onClick={() => setNewTaskModal(false)}
-                className="px-4 py-2 border border-panel-border hover:bg-panel-border rounded text-sm"
+                className="btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmitTask}
                 disabled={!newTask.title || !newTask.prompt}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm"
+                className="btn-primary"
               >
                 Submit Task
               </button>
@@ -477,12 +493,12 @@ function StatCard({
   color: string
 }) {
   return (
-    <div className="bg-editor-bg border border-panel-border rounded p-3">
-      <div className="flex items-center space-x-2">
+    <div className="bg-glass border border-glass-border rounded-mac p-3">
+      <div className="flex items-center gap-2">
         <div className={color}>{icon}</div>
         <span className="text-xs text-text-secondary">{label}</span>
       </div>
-      <div className="text-xl font-bold mt-1">{value}</div>
+      <div className="text-xl font-bold mt-1 text-text-primary">{value}</div>
     </div>
   )
 }
@@ -504,23 +520,23 @@ export function TaskCard({
   return (
     <div
       onClick={onClick}
-      className={`p-3 border rounded cursor-pointer transition-colors ${
+      className={`p-3.5 rounded-mac-xl cursor-pointer transition-all duration-200 ${
         isSelected
-          ? 'border-accent bg-accent/10'
-          : 'border-panel-border hover:border-accent'
+          ? 'bg-accent-muted border-2 border-accent'
+          : 'bg-glass border border-glass-border hover:border-accent/50 hover:bg-card-hover'
       }`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${statusColor}`} />
-            <h4 className="font-medium text-sm">{task.title}</h4>
+            <h4 className="font-medium text-sm text-text-primary">{task.title}</h4>
           </div>
           <p className="text-xs text-text-secondary mt-1 line-clamp-1">
             {task.description || task.prompt?.slice(0, 50) + '...'}
           </p>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center">
           <span className={`text-xs font-mono ${priorityColor}`}>
             P{task.priority}
           </span>
@@ -529,14 +545,14 @@ export function TaskCard({
 
       {/* Progress bar */}
       {task.status === 'running' && (
-        <div className="mt-2">
-          <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-xs text-text-secondary mb-1.5">
             <span>Progress</span>
-            <span>{Math.round(task.progress * 100)}%</span>
+            <span className="font-mono">{Math.round(task.progress * 100)}%</span>
           </div>
-          <div className="h-1 bg-panel-border rounded-full overflow-hidden">
+          <div className="h-1.5 bg-glass rounded-full overflow-hidden">
             <div
-              className="h-full bg-accent transition-all duration-300"
+              className="h-full bg-accent transition-all duration-300 rounded-full"
               style={{ width: `${task.progress * 100}%` }}
             />
           </div>
@@ -545,18 +561,18 @@ export function TaskCard({
 
       {/* Assigned agents */}
       {task.assignedTo && task.assignedTo.length > 0 && (
-        <div className="flex items-center space-x-1 mt-2">
+        <div className="flex items-center gap-2 mt-3">
           <Users size={12} className="text-text-secondary" />
           {task.assignedTo.slice(0, 3).map((agentId) => (
             <div
               key={agentId}
-              className="px-1.5 py-0.5 text-xs bg-panel-border rounded"
+              className="px-2 py-0.5 text-xs bg-glass rounded-mac text-text-secondary"
             >
               {agentId}
             </div>
           ))}
           {task.assignedTo.length > 3 && (
-            <span className="text-xs text-text-secondary">
+            <span className="text-xs text-text-tertiary">
               +{task.assignedTo.length - 3} more
             </span>
           )}
@@ -582,37 +598,37 @@ export function TaskDetails({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Task Details</h3>
-        <button onClick={onClose} className="p-1 hover:bg-panel-border rounded">
-          <XCircle size={16} />
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="font-semibold text-text-primary">Task Details</h3>
+        <button onClick={onClose} className="p-1.5 hover:bg-card-hover rounded-mac transition-colors">
+          <XCircle size={16} className="text-text-secondary" />
         </button>
       </div>
 
       <div className="space-y-4">
-        <div>
-          <label className="text-xs text-text-secondary">ID</label>
-          <p className="font-mono text-sm">{task.id}</p>
+        <div className="bg-glass/50 rounded-mac p-3">
+          <label className="text-xs text-text-tertiary uppercase tracking-wider">ID</label>
+          <p className="font-mono text-sm text-text-primary mt-1">{task.id}</p>
+        </div>
+
+        <div className="bg-glass/50 rounded-mac p-3">
+          <label className="text-xs text-text-tertiary uppercase tracking-wider">Title</label>
+          <p className="text-sm text-text-primary mt-1">{task.title}</p>
+        </div>
+
+        <div className="bg-glass/50 rounded-mac p-3">
+          <label className="text-xs text-text-tertiary uppercase tracking-wider">Status</label>
+          <p className="text-sm capitalize text-text-primary mt-1">{task.status}</p>
+        </div>
+
+        <div className="bg-glass/50 rounded-mac p-3">
+          <label className="text-xs text-text-tertiary uppercase tracking-wider">Priority</label>
+          <p className="text-sm text-text-primary mt-1">{task.priority}/10</p>
         </div>
 
         <div>
-          <label className="text-xs text-text-secondary">Title</label>
-          <p className="text-sm">{task.title}</p>
-        </div>
-
-        <div>
-          <label className="text-xs text-text-secondary">Status</label>
-          <p className="text-sm capitalize">{task.status}</p>
-        </div>
-
-        <div>
-          <label className="text-xs text-text-secondary">Priority</label>
-          <p className="text-sm">{task.priority}/10</p>
-        </div>
-
-        <div>
-          <label className="text-xs text-text-secondary">Prompt</label>
-          <pre className="text-xs bg-editor-bg p-2 rounded overflow-x-auto font-mono">
+          <label className="text-xs text-text-tertiary uppercase tracking-wider">Prompt</label>
+          <pre className="text-xs bg-glass border border-glass-border p-3 rounded-mac overflow-x-auto font-mono mt-2 text-text-secondary">
             {task.prompt}
           </pre>
         </div>
@@ -620,12 +636,12 @@ export function TaskDetails({
         {/* Results */}
         {task.results && Object.keys(task.results).length > 0 && (
           <div>
-            <label className="text-xs text-text-secondary">Results</label>
+            <label className="text-xs text-text-tertiary uppercase tracking-wider">Results</label>
             <div className="space-y-2 mt-2">
               {Object.entries(task.results).map(([agentId, result]) => (
-                <div key={agentId} className="bg-editor-bg p-2 rounded">
+                <div key={agentId} className="bg-glass border border-glass-border p-3 rounded-mac">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium">{agentId}</span>
+                    <span className="text-xs font-medium text-text-primary">{agentId}</span>
                     {result.error ? (
                       <XCircle size={14} className="text-error" />
                     ) : (
@@ -633,9 +649,9 @@ export function TaskDetails({
                     )}
                   </div>
                   {result.error ? (
-                    <p className="text-xs text-error mt-1">{result.error}</p>
+                    <p className="text-xs text-error mt-1.5">{result.error}</p>
                   ) : (
-                    <p className="text-xs text-text-secondary mt-1 line-clamp-2">
+                    <p className="text-xs text-text-secondary mt-1.5 line-clamp-2">
                       {result.content}
                     </p>
                   )}
@@ -646,11 +662,11 @@ export function TaskDetails({
         )}
 
         {/* Actions */}
-        <div className="flex space-x-2 pt-4 border-t border-panel-border">
+        <div className="flex gap-2 pt-4 border-t border-glass-border">
           {task.status === 'pending' && (
             <button
               onClick={() => onStart(task.id)}
-              className="flex-1 flex items-center justify-center space-x-1 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-accent hover:bg-accent-hover rounded-mac text-sm font-medium transition-colors"
             >
               <Play size={14} />
               <span>Start</span>
@@ -660,14 +676,14 @@ export function TaskDetails({
             <>
               <button
                 onClick={() => onPause(task.id)}
-                className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-panel-border hover:bg-panel-border rounded text-sm"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-sm transition-colors"
               >
                 <Pause size={14} />
                 <span>Pause</span>
               </button>
               <button
                 onClick={() => onCancel(task.id)}
-                className="flex-1 flex items-center justify-center space-x-1 py-1.5 border border-error text-error hover:bg-error/20 rounded text-sm"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-error/10 hover:bg-error/20 border border-error/30 text-error rounded-mac text-sm transition-colors"
               >
                 <Square size={14} />
                 <span>Cancel</span>

@@ -6,6 +6,7 @@ import {
   Edit3,
   Terminal,
   Loader2,
+  X,
 } from 'lucide-react'
 import { AgentConfig } from '../types'
 import { logger } from '../utils'
@@ -132,14 +133,19 @@ export default function AgentConfigPanel({
   return (
     <div className="flex flex-col h-full p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2">
-          <Bot size={20} className="text-accent" />
-          <h2 className="text-lg font-semibold">ACP Agent Configuration</h2>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 bg-accent/10 rounded-mac">
+            <Bot size={20} className="text-accent" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">ACP Agent Configuration</h2>
+            <p className="text-xs text-text-secondary">{agentConfigs.length} agents configured</p>
+          </div>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center space-x-1 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded text-sm"
+          className="btn-primary"
         >
           <Plus size={16} />
           <span>Add Agent</span>
@@ -149,9 +155,11 @@ export default function AgentConfigPanel({
       {/* Agent List */}
       <div className="flex-1 overflow-y-auto space-y-3">
         {agentConfigs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
-            <Bot size={48} className="mb-4 opacity-50" />
-            <p className="text-lg mb-2">No agents configured</p>
+          <div className="flex flex-col items-center justify-center h-64 text-text-tertiary">
+            <div className="p-4 bg-glass rounded-mac-xl mb-4">
+              <Bot size={48} className="opacity-50" />
+            </div>
+            <p className="text-base font-medium text-text-secondary mb-1">No agents configured</p>
             <p className="text-sm">Add an ACP agent to get started</p>
           </div>
         ) : (
@@ -170,17 +178,29 @@ export default function AgentConfigPanel({
 
       {/* Add/Edit Modal */}
       {(showAddModal || editingAgent) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-panel-bg border border-panel-border rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-4">
-              {editingAgent ? 'Edit Agent' : 'Add New Agent'}
-            </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                <Bot size={18} className="text-accent" />
+                {editingAgent ? 'Edit Agent' : 'Add New Agent'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAddModal(false)
+                  setEditingAgent(null)
+                }}
+                className="p-1.5 hover:bg-card-hover rounded-mac transition-colors"
+              >
+                <X size={18} className="text-text-secondary" />
+              </button>
+            </div>
 
             <div className="space-y-4">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">
+                  <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Agent ID *
                   </label>
                   <input
@@ -190,12 +210,12 @@ export default function AgentConfigPanel({
                       setNewAgent({ ...newAgent, id: e.target.value })
                     }
                     disabled={!!editingAgent}
-                    className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent disabled:opacity-50"
+                    className="w-full input-mac disabled:opacity-50"
                     placeholder="claude-code"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">
+                  <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Display Name *
                   </label>
                   <input
@@ -204,7 +224,7 @@ export default function AgentConfigPanel({
                     onChange={(e) =>
                       setNewAgent({ ...newAgent, name: e.target.value })
                     }
-                    className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    className="w-full input-mac"
                     placeholder="Claude Code"
                   />
                 </div>
@@ -212,7 +232,7 @@ export default function AgentConfigPanel({
 
               {/* Command */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Command Path *
                 </label>
                 <input
@@ -221,14 +241,14 @@ export default function AgentConfigPanel({
                   onChange={(e) =>
                     setNewAgent({ ...newAgent, command: e.target.value })
                   }
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  className="w-full input-mac"
                   placeholder="/usr/local/bin/claude-code"
                 />
               </div>
 
               {/* Arguments */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Arguments (comma-separated)
                 </label>
                 <input
@@ -240,67 +260,67 @@ export default function AgentConfigPanel({
                       args: e.target.value.split(',').map((s) => s.trim()),
                     })
                   }
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  className="w-full input-mac"
                   placeholder="acp, --mode=swarm"
                 />
               </div>
 
               {/* Environment Variables */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Environment Variables
                 </label>
                 <textarea
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent font-mono"
+                  className="w-full input-mac font-mono resize-none"
                   rows={3}
                   placeholder="API_KEY=${ANTHROPIC_API_KEY}"
                 />
               </div>
 
               {/* Swarm Config */}
-              <div className="border-t border-panel-border pt-4 mt-4">
-                <h4 className="text-sm font-semibold mb-3">Swarm Configuration</h4>
+              <div className="border-t border-glass-border pt-4 mt-4">
+                <h4 className="text-sm font-semibold mb-3 text-text-primary">Swarm Configuration</h4>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <label className="flex items-center space-x-2">
+                  <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
                     <input
                       type="checkbox"
                       defaultChecked={newAgent.swarmConfig?.canBeCoordinator}
-                      className="rounded border-panel-border"
+                      className="accent-accent"
                     />
-                    <span className="text-sm">Can be Coordinator</span>
+                    <span className="text-sm text-text-primary">Can be Coordinator</span>
                   </label>
-                  <label className="flex items-center space-x-2">
+                  <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
                     <input
                       type="checkbox"
                       defaultChecked={newAgent.swarmConfig?.canBeWorker}
-                      className="rounded border-panel-border"
+                      className="accent-accent"
                     />
-                    <span className="text-sm">Can be Worker</span>
+                    <span className="text-sm text-text-primary">Can be Worker</span>
                   </label>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mt-3">
                   <div>
-                    <label className="block text-sm text-text-secondary mb-1">
+                    <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                       Max Concurrent Tasks
                     </label>
                     <input
                       type="number"
                       defaultValue={newAgent.swarmConfig?.maxConcurrent || 3}
-                      className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                      className="w-full input-mac"
                       min={1}
                       max={10}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-text-secondary mb-1">
+                    <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                       Priority (1-10)
                     </label>
                     <input
                       type="number"
                       defaultValue={newAgent.swarmConfig?.priority || 5}
-                      className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                      className="w-full input-mac"
                       min={1}
                       max={10}
                     />
@@ -308,21 +328,21 @@ export default function AgentConfigPanel({
                 </div>
 
                 <div className="mt-3">
-                  <label className="block text-sm text-text-secondary mb-1">
+                  <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Preferred Roles
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {['coder', 'reviewer', 'tester', 'architect'].map((role) => (
                       <label
                         key={role}
-                        className="flex items-center space-x-1 px-2 py-1 border border-panel-border rounded text-sm cursor-pointer hover:border-accent"
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-glass-border rounded-mac text-sm cursor-pointer hover:border-accent/50 hover:bg-card-hover transition-colors"
                       >
                         <input
                           type="checkbox"
                           defaultChecked={newAgent.swarmConfig?.preferredRoles?.includes(role)}
-                          className="rounded border-panel-border"
+                          className="accent-accent"
                         />
-                        <span className="capitalize">{role}</span>
+                        <span className="capitalize text-text-primary">{role}</span>
                       </label>
                     ))}
                   </div>
@@ -331,30 +351,30 @@ export default function AgentConfigPanel({
 
               {/* Tags */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Tags (comma-separated)
                 </label>
                 <input
                   type="text"
-                  className="w-full bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  className="w-full input-mac"
                   placeholder="primary, coding, review"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-glass-border">
               <button
                 onClick={() => {
                   setShowAddModal(false)
                   setEditingAgent(null)
                 }}
-                className="px-4 py-2 border border-panel-border hover:bg-panel-border rounded text-sm"
+                className="btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveAgent}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover rounded text-sm"
+                className="btn-primary"
               >
                 {editingAgent ? 'Save Changes' : 'Add Agent'}
               </button>
@@ -382,65 +402,65 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
   const status = controlledStatus ?? localStatus
 
   const statusColors = {
-    idle: 'bg-text-secondary',
+    idle: 'bg-text-tertiary',
     testing: 'bg-warning animate-pulse',
     connected: 'bg-success',
     error: 'bg-error',
   }
 
   return (
-    <div className="p-4 bg-panel-bg border border-panel-border rounded-lg">
+    <div className="p-4 bg-glass border border-glass-border rounded-mac-xl hover:border-glass-border/80 transition-colors">
       <div className="flex items-start justify-between">
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${statusColors[status]}`} />
           <div>
-            <div className="flex items-center space-x-2">
-              <h4 className="font-medium">{agent.name}</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="font-medium text-text-primary">{agent.name}</h4>
               {agent.enabled ? (
-                <span className="px-1.5 py-0.5 text-xs bg-success/20 text-success rounded">
+                <span className="px-2 py-0.5 text-xs bg-success/10 text-success rounded-mac font-medium">
                   Enabled
                 </span>
               ) : (
-                <span className="px-1.5 py-0.5 text-xs bg-text-secondary/20 text-text-secondary rounded">
+                <span className="px-2 py-0.5 text-xs bg-glass text-text-secondary rounded-mac font-medium">
                   Disabled
                 </span>
               )}
             </div>
-            <p className="text-sm text-text-secondary">{agent.id}</p>
+            <p className="text-sm text-text-secondary mt-0.5">{agent.id}</p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1">
           <button
             onClick={onTest}
-            className="p-1.5 hover:bg-panel-border rounded"
+            className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Test Connection"
           >
             {status === 'testing' ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin text-accent" />
             ) : (
-              <Terminal size={16} />
+              <Terminal size={16} className="text-text-secondary" />
             )}
           </button>
           <button
             onClick={onEdit}
-            className="p-1.5 hover:bg-panel-border rounded"
+            className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Edit"
           >
-            <Edit3 size={16} />
+            <Edit3 size={16} className="text-text-secondary" />
           </button>
           <button
             onClick={onDelete}
-            className="p-1.5 hover:bg-panel-border rounded text-error"
+            className="p-2 hover:bg-error/10 rounded-mac transition-colors group"
             title="Delete"
           >
-            <Trash2 size={16} />
+            <Trash2 size={16} className="text-text-secondary group-hover:text-error" />
           </button>
         </div>
       </div>
 
       <div className="mt-3 text-sm">
-        <div className="flex items-center space-x-2 text-text-secondary">
+        <div className="flex items-center gap-2 text-text-secondary bg-glass/50 rounded-mac px-2.5 py-1.5">
           <Terminal size={14} />
           <span className="font-mono text-xs truncate">{agent.command}</span>
         </div>
@@ -448,29 +468,29 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
 
       {/* Swarm Config Summary */}
       {agent.swarmConfig && (
-        <div className="mt-3 flex items-center space-x-3 text-xs text-text-secondary">
+        <div className="mt-3 flex items-center flex-wrap gap-2 text-xs text-text-secondary">
           {agent.swarmConfig.canBeCoordinator && (
-            <span className="px-1.5 py-0.5 bg-accent/20 text-accent rounded">
+            <span className="px-2 py-1 bg-accent/10 text-accent rounded-mac font-medium">
               Coordinator
             </span>
           )}
           {agent.swarmConfig.canBeWorker && (
-            <span className="px-1.5 py-0.5 bg-info/20 text-info rounded">
+            <span className="px-2 py-1 bg-info/10 text-info rounded-mac font-medium">
               Worker
             </span>
           )}
-          <span>Priority: {agent.swarmConfig.priority}</span>
-          <span>Max: {agent.swarmConfig.maxConcurrent}</span>
+          <span className="px-2 py-1 bg-glass rounded-mac">Priority: {agent.swarmConfig.priority}</span>
+          <span className="px-2 py-1 bg-glass rounded-mac">Max: {agent.swarmConfig.maxConcurrent}</span>
         </div>
       )}
 
       {/* Tags */}
       {agent.tags && agent.tags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {agent.tags.map((tag) => (
             <span
               key={tag}
-              className="px-1.5 py-0.5 text-xs bg-panel-border rounded"
+              className="px-2 py-0.5 text-xs bg-glass border border-glass-border rounded-mac text-text-secondary"
             >
               {tag}
             </span>

@@ -349,7 +349,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
 
     // Verify stats show 1 running task
     expect(screen.getByText('Running')).toBeInTheDocument()
-    const runningStat = screen.getByText('Running').closest('.bg-editor-bg')?.querySelector('.text-xl')
+    const runningStat = screen.getByText('Running').closest('.bg-glass')?.querySelector('.text-xl')
     expect(runningStat?.textContent).toBe('1')
 
     // Advance timer - progress reaches 100% and task auto-completes
@@ -360,13 +360,13 @@ describe('SwarmCoordinatorPanel task progress', () => {
     // Task should be completed now - verify by stats showing 1 completed task
     // The value is in a sibling div to the label container
     const completedLabel = screen.getByText('Completed')
-    const statCard = completedLabel.closest('.bg-editor-bg')
+    const statCard = completedLabel.closest('.bg-glass')
     const completedValue = statCard?.querySelector('.text-xl')
     expect(completedValue?.textContent).toBe('1')
 
     // Running tasks should now be 0
     const runningLabel = screen.getByText('Running')
-    const runningCard = runningLabel.closest('.bg-editor-bg')
+    const runningCard = runningLabel.closest('.bg-glass')
     const runningValue = runningCard?.querySelector('.text-xl')
     expect(runningValue?.textContent).toBe('0')
   })
@@ -425,7 +425,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
 
     // Task should now be completed - verify by stats
     const completedLabel = screen.getByText('Completed')
-    const statCard = completedLabel.closest('.bg-editor-bg')
+    const statCard = completedLabel.closest('.bg-glass')
     const completedValue = statCard?.querySelector('.text-xl')
     expect(completedValue?.textContent).toBe('1')
   })
