@@ -1093,3 +1093,37 @@ func TestConfigNilDefaultSwarmConfig(t *testing.T) {
 	// (or it might be set by NewConfig - depends on implementation)
 	_ = loaded
 }
+
+func TestGetConfigDir(t *testing.T) {
+	// Test with HOME set
+	home := os.Getenv("HOME")
+	dir := getConfigDir()
+
+	if home != "" {
+		expected := filepath.Join(home, ".swarm-editor")
+		if dir != expected {
+			t.Errorf("Expected %s, got %s", expected, dir)
+		}
+	}
+}
+
+func TestGetConfigDirFallback(t *testing.T) {
+	// Save original HOME
+	originalHome := os.Getenv("HOME")
+
+	// Clear HOME to test fallback
+	os.Unsetenv("HOME")
+
+	dir := getConfigDir()
+
+	// Should fallback to current directory + .swarm-editor
+	// or just ".swarm-editor" if Getwd fails
+	if dir == "" {
+		t.Error("getConfigDir should return a non-empty string")
+	}
+
+	// Restore HOME
+	if originalHome != "" {
+		os.Setenv("HOME", originalHome)
+	}
+}
