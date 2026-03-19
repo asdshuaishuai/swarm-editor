@@ -749,7 +749,11 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 				Urgency: 3, // Medium urgency
 			})
 
-		go c.router.Send(msg)
+		go func(m *a2a.Message) {
+			if err := c.router.Send(m); err != nil {
+				log.Printf("AgentToAgentCoordination: failed to send help request to %s: %v", m.To, err)
+			}
+		}(msg)
 	}
 
 	return nil
@@ -779,7 +783,11 @@ func (c *AgentToAgentCoordination) StartCollaboration(collaborationType, taskID 
 				State:     nil, // Would contain collaboration details
 			})
 
-		go c.router.Send(msg)
+		go func(m *a2a.Message) {
+			if err := c.router.Send(m); err != nil {
+				log.Printf("AgentToAgentCoordination: failed to send collaboration sync to %s: %v", m.To, err)
+			}
+		}(msg)
 	}
 
 	return collab

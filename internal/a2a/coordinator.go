@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"sync"
@@ -590,7 +591,11 @@ func (c *Coordinator) initiateTaskAssignment(task *CoordinationTask, agents []st
 		// Set callback for task assigned
 		msg.WithCorrelation(task.ID)
 
-		go c.router.Send(msg)
+		go func(m *Message) {
+			if err := c.router.Send(m); err != nil {
+				log.Printf("Coordinator: failed to send task request to %s: %v", m.To, err)
+			}
+		}(msg)
 
 		// Update agent state
 		if agent, ok := c.agents[agentID]; ok {
@@ -863,7 +868,11 @@ func (c *Coordinator) handleHelpRequest(msg *Message) error {
 				Available: true,
 			})
 
-		go c.router.Send(offer)
+		go func(m *Message) {
+			if err := c.router.Send(m); err != nil {
+				log.Printf("Coordinator: failed to send help offer to %s: %v", m.To, err)
+			}
+		}(offer)
 	}
 
 	return nil
