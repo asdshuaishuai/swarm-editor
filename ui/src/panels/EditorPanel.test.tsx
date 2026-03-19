@@ -59,6 +59,7 @@ describe('EditorPanel', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -197,6 +198,7 @@ describe('EditorPanel with swarms', () => {
         }],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -250,7 +252,7 @@ describe('EditorPanel with swarms', () => {
       expect(screen.getByText('Select Execution Mode')).toBeInTheDocument()
     })
     // Click X button
-    const closeButton = screen.getByRole('button', { name: '' })
+    const closeButton = screen.getByRole('button', { name: 'Close modal' })
     fireEvent.click(closeButton)
     await waitFor(() => {
       expect(screen.queryByText('Select Execution Mode')).not.toBeInTheDocument()
@@ -300,6 +302,7 @@ describe('EditorPanel file operations', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -369,6 +372,7 @@ describe('EditorPanel file operations', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -403,6 +407,7 @@ describe('EditorPanel file operations', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -461,6 +466,7 @@ describe('EditorPanel directory operations', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -599,6 +605,7 @@ describe('EditorPanel execution scenarios', () => {
         }],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -662,6 +669,7 @@ describe('EditorPanel file type detection', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -811,6 +819,7 @@ describe('EditorPanel error handling', () => {
         }],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -904,6 +913,7 @@ describe('EditorPanel error and edge cases', () => {
         swarms: [],
         agents: [],
         selectedAgent: null,
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })

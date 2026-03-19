@@ -193,6 +193,7 @@ export default function SwarmPanel() {
           <button
             onClick={handleBackToList}
             className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-card-hover rounded-mac text-sm transition-colors text-text-secondary hover:text-text-primary"
+            aria-label="Back to swarms list"
           >
             <ChevronLeft size={16} />
             <span>Back to Swarms</span>
@@ -223,6 +224,7 @@ export default function SwarmPanel() {
             onClick={loadSwarms}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Refresh"
+            aria-label="Refresh swarms"
           >
             <RefreshCw size={16} className={`text-text-secondary ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -265,6 +267,7 @@ export default function SwarmPanel() {
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="p-1.5 hover:bg-card-hover rounded-mac transition-colors"
+                aria-label="Close modal"
               >
                 <X size={18} className="text-text-secondary" />
               </button>

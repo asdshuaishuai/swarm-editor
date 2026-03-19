@@ -7,7 +7,7 @@ import TerminalPanel, { TerminalEntry } from './TerminalPanel'
 import { logger } from '../utils'
 
 export default function EditorPanel() {
-  const { swarms } = useAppStore()
+  const { swarms, addToast } = useAppStore()
   const [code, setCode] = useState(`// Welcome to Swarm Editor
 // A multi-agent collaborative development environment
 
@@ -59,6 +59,7 @@ main()
       setFileTree(entries)
     } catch (err) {
       logger.error('Editor', 'Failed to load workspace:', err)
+      addToast('error', 'Failed to load workspace', err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -78,6 +79,7 @@ main()
       setLanguage(getLanguageFromPath(entry.path))
     } catch (err) {
       logger.error('Editor', 'Failed to load file:', err)
+      addToast('error', 'Failed to load file', err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -249,6 +251,7 @@ main()
             onClick={() => setShowFileTree(!showFileTree)}
             className="p-1.5 hover:bg-card-hover rounded-mac transition-colors duration-200"
             title="Toggle File Tree"
+            aria-label="Toggle file tree"
           >
             <PanelLeft size={16} className="text-text-secondary" />
           </button>
@@ -357,6 +360,7 @@ main()
               <button
                 onClick={() => setShowAgentSelector(false)}
                 className="p-1 hover:bg-card-hover rounded-mac transition-colors"
+                aria-label="Close modal"
               >
                 <X size={18} className="text-text-secondary" />
               </button>
