@@ -1300,7 +1300,7 @@ func TestSwarmGetTask(t *testing.T) {
 	// Test getting existing task
 	retrieved := swarm.GetTask("task-1")
 	if retrieved == nil {
-		t.Error("Expected to retrieve task-1")
+		t.Fatal("Expected to retrieve task-1")
 	}
 	if retrieved.Title != "Test Task" {
 		t.Errorf("Expected title 'Test Task', got '%s'", retrieved.Title)
