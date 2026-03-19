@@ -212,6 +212,109 @@ describe('useSettings', () => {
       expect(result.current.settings.fontSize).toBe(18)
     })
   })
+
+  describe('MCP server management', () => {
+    it('should add an MCP server', () => {
+      const { result } = renderHook(() => useSettings())
+
+      const newServer = {
+        id: 'mcp-test',
+        name: 'Test Server',
+        command: '/usr/bin/test',
+        args: ['--port', '8080'],
+        env: { API_KEY: 'test' },
+        enabled: true,
+        autoStart: false,
+        status: 'disconnected' as const,
+      }
+
+      act(() => {
+        result.current.addMCPServer(newServer)
+      })
+
+      expect(result.current.settings.mcpServers).toHaveLength(1)
+      expect(result.current.settings.mcpServers[0].name).toBe('Test Server')
+    })
+
+    it('should remove an MCP server by name', () => {
+      const { result } = renderHook(() => useSettings())
+
+      const server = {
+        id: 'mcp-test',
+        name: 'Test Server',
+        command: '/usr/bin/test',
+        args: [],
+        env: {},
+        enabled: true,
+        autoStart: false,
+        status: 'disconnected' as const,
+      }
+
+      act(() => {
+        result.current.addMCPServer(server)
+      })
+
+      expect(result.current.settings.mcpServers).toHaveLength(1)
+
+      act(() => {
+        result.current.removeMCPServer('Test Server')
+      })
+
+      expect(result.current.settings.mcpServers).toHaveLength(0)
+    })
+
+    it('should update an MCP server by name', () => {
+      const { result } = renderHook(() => useSettings())
+
+      const server = {
+        id: 'mcp-test',
+        name: 'Test Server',
+        command: '/usr/bin/test',
+        args: [],
+        env: {},
+        enabled: true,
+        autoStart: false,
+        status: 'disconnected' as const,
+      }
+
+      act(() => {
+        result.current.addMCPServer(server)
+      })
+
+      act(() => {
+        result.current.updateMCPServer('Test Server', { enabled: false, status: 'connected' })
+      })
+
+      expect(result.current.settings.mcpServers[0].enabled).toBe(false)
+      expect(result.current.settings.mcpServers[0].status).toBe('connected')
+    })
+
+    it('should persist MCP server changes to localStorage', () => {
+      const { result } = renderHook(() => useSettings())
+
+      const server = {
+        id: 'mcp-test',
+        name: 'Test Server',
+        command: '/usr/bin/test',
+        args: [],
+        env: {},
+        enabled: true,
+        autoStart: false,
+        status: 'disconnected' as const,
+      }
+
+      act(() => {
+        result.current.addMCPServer(server)
+      })
+
+      const savedCalls = localStorageMock.setItem.mock.calls
+      const lastCall = savedCalls[savedCalls.length - 1]
+      const savedData = JSON.parse(lastCall[1] as string)
+
+      expect(savedData.mcpServers).toHaveLength(1)
+      expect(savedData.mcpServers[0].name).toBe('Test Server')
+    })
+  })
 })
 
 // Test SSR edge cases
