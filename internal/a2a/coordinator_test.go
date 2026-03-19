@@ -749,3 +749,88 @@ func TestCoordinatorHasRequiredRole(t *testing.T) {
 		t.Error("Empty required role should match any agent")
 	}
 }
+
+func TestCoordinatorScheduleNext(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, router)
+
+	// Register an agent with receive function
+	received := make(chan *Message, 1)
+	router.RegisterAgent("agent1", func(m *Message) error {
+		received <- m
+		return nil
+	}, []string{"coding"})
+
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.agents["agent1"].Status = "idle"
+
+	// Add a pending task
+	task := &CoordinationTask{
+		ID:          "task1",
+		Title:       "Test Task",
+		Description: "Test Description",
+		Priority:    1,
+	}
+	coordinator.pendingTasks["task1"] = task
+
+	// Call scheduleNext
+	coordinator.scheduleNext()
+
+	// Verify task moved to running
+	if coordinator.runningTasks["task1"] == nil {
+		t.Error("Task should be moved to running tasks")
+	}
+
+	// Verify task removed from pending
+	if coordinator.pendingTasks["task1"] != nil {
+		t.Error("Task should be removed from pending")
+	}
+}
+
+func TestCoordinatorScheduleNextMaxConcurrent(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{MaxConcurrent: 1}, router)
+
+	// Register agents
+	router.RegisterAgent("agent1", func(m *Message) error { return nil }, []string{"coding"})
+	router.RegisterAgent("agent2", func(m *Message) error { return nil }, []string{"coding"})
+
+	coordinator.RegisterAgent("agent1", []string{"coding"})
+	coordinator.RegisterAgent("agent2", []string{"coding"})
+	coordinator.agents["agent1"].Status = "idle"
+	coordinator.agents["agent2"].Status = "idle"
+
+	// Add a running task
+	coordinator.runningTasks["running1"] = &CoordinationTask{ID: "running1"}
+
+	// Add a pending task
+	coordinator.pendingTasks["task1"] = &CoordinationTask{ID: "task1", Priority: 1}
+
+	// Call scheduleNext - should not schedule because at max concurrent
+	coordinator.scheduleNext()
+
+	// Task should still be pending
+	if coordinator.pendingTasks["task1"] == nil {
+		t.Error("Task should still be pending when at max concurrent")
+	}
+}
+
+func TestCoordinatorHandleHelpOffer(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Create help offer message
+	msg := NewMessage(MessageTypeHelpOffer, "agent1", "coordinator").
+		WithPayload(&HelpOfferPayload{
+			RequestID: "req1",
+			AgentID:   "agent2",
+			Skills:    []string{"testing"},
+			Available: true,
+		})
+
+	// handleHelpOffer currently returns nil (no-op)
+	err := coordinator.handleHelpOffer(msg)
+	if err != nil {
+		t.Errorf("handleHelpOffer should not return error: %v", err)
+	}
+}
