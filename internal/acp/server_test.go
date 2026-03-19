@@ -1668,3 +1668,55 @@ func TestClientReadLoopWithNotification(t *testing.T) {
 		t.Error("Update handler should have been called")
 	}
 }
+
+// TestServerHandleNotificationNil tests handleNotification with nil message
+func TestServerHandleNotificationNil(t *testing.T) {
+	transport := &MockTransport{}
+	server := NewServer(&MockHandler{}, transport)
+
+	// Should handle nil gracefully (won't panic because function is empty)
+	server.handleNotification(nil)
+}
+
+// TestServerHandleNotificationVariousTypes tests different notification types
+func TestServerHandleNotificationVariousTypes(t *testing.T) {
+	transport := &MockTransport{}
+	server := NewServer(&MockHandler{}, transport)
+
+	tests := []struct {
+		name string
+		msg  *Message
+	}{
+		{
+			name: "update notification",
+			msg: &Message{
+				JSONRPC: "2.0",
+				Method:  "notifications/update",
+				Params:  json.RawMessage(`{"sessionUpdate": "plan"}`),
+			},
+		},
+		{
+			name: "progress notification",
+			msg: &Message{
+				JSONRPC: "2.0",
+				Method:  "notifications/progress",
+				Params:  json.RawMessage(`{"progress": 0.5}`),
+			},
+		},
+		{
+			name: "cancelled notification",
+			msg: &Message{
+				JSONRPC: "2.0",
+				Method:  "notifications/cancelled",
+				Params:  json.RawMessage(`{"reason": "user cancelled"}`),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Should not panic
+			server.handleNotification(tt.msg)
+		})
+	}
+}
