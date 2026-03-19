@@ -8,6 +8,9 @@ import {
   Shield,
   Info,
   RotateCcw,
+  Plug,
+  Network,
+  Users,
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { useTheme } from '../hooks/useTheme'
@@ -16,6 +19,9 @@ const settingsSections = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'api', label: 'API Keys', icon: Key },
+  { id: 'mcp', label: 'MCP Plugins', icon: Plug },
+  { id: 'swarm', label: 'Swarm', icon: Network },
+  { id: 'team', label: 'Team', icon: Users },
   { id: 'network', label: 'Network', icon: Globe },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'security', label: 'Security', icon: Shield },
@@ -24,7 +30,7 @@ const settingsSections = [
 
 export default function SettingsPanel() {
   const [activeSection, setActiveSection] = useState('general')
-  const { settings, updateSetting, resetSettings } = useSettings()
+  const { settings, updateSetting, resetSettings, isLoading, syncError } = useSettings()
   const { setTheme } = useTheme()
 
   const handleThemeChange = (theme: 'dark' | 'light' | 'system') => {
@@ -73,6 +79,19 @@ export default function SettingsPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
+        {isLoading && (
+          <div className="mb-4 p-3 bg-info/10 border border-info/20 rounded-mac text-sm text-info flex items-center gap-2">
+            <RotateCcw size={16} className="animate-spin" />
+            Syncing settings with backend...
+          </div>
+        )}
+        
+        {syncError && (
+          <div className="mb-4 p-3 bg-error/10 border border-error/20 rounded-mac text-sm text-error">
+            Failed to sync settings: {syncError}
+          </div>
+        )}
+
         {activeSection === 'general' && (
           <SettingsSection title="General Settings">
             <SettingRow label="Theme">
@@ -219,6 +238,122 @@ export default function SettingsPanel() {
           </SettingsSection>
         )}
 
+        {activeSection === 'mcp' && (
+          <SettingsSection title="MCP Plugin Settings">
+            <SettingRow label="Enable MCP">
+              <Toggle
+                checked={settings.mcpEnabled}
+                onChange={(v) => updateSetting('mcpEnabled', v)}
+              />
+            </SettingRow>
+
+            <SettingRow label="Auto-connect MCP Servers">
+              <Toggle
+                checked={settings.mcpAutoConnect}
+                onChange={(v) => updateSetting('mcpAutoConnect', v)}
+              />
+            </SettingRow>
+
+            <div className="mt-4 p-4 bg-glass border border-glass-border rounded-mac text-sm text-text-secondary">
+              <p className="mb-2">Configured MCP Servers: {settings.mcpServers.length}</p>
+              <p className="text-xs text-text-tertiary">
+                Manage individual MCP servers from the MCP Plugins panel.
+              </p>
+            </div>
+          </SettingsSection>
+        )}
+
+        {activeSection === 'swarm' && (
+          <SettingsSection title="Swarm Configuration">
+            <SettingRow label="Default Topology">
+              <select
+                value={settings.swarmDefaultTopology}
+                onChange={(e) => updateSetting('swarmDefaultTopology', e.target.value as any)}
+                className="input-mac min-w-40"
+              >
+                <option value="star">Star</option>
+                <option value="mesh">Mesh</option>
+                <option value="tree">Tree</option>
+                <option value="ring">Ring</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </SettingRow>
+
+            <SettingRow label="Default Strategy">
+              <select
+                value={settings.swarmDefaultStrategy}
+                onChange={(e) => updateSetting('swarmDefaultStrategy', e.target.value as any)}
+                className="input-mac min-w-40"
+              >
+                <option value="parallel">Parallel</option>
+                <option value="sequential">Sequential</option>
+                <option value="pipeline">Pipeline</option>
+                <option value="mapreduce">Map-Reduce</option>
+              </select>
+            </SettingRow>
+
+            <SettingRow label="Max Agents per Swarm">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={settings.swarmMaxAgents}
+                  onChange={(e) =>
+                    updateSetting('swarmMaxAgents', parseInt(e.target.value) || 10)
+                  }
+                  className="input-mac w-20"
+                  min={1}
+                  max={100}
+                />
+                <span className="text-sm text-text-secondary">agents</span>
+              </div>
+            </SettingRow>
+
+            <SettingRow label="Consensus Algorithm">
+              <select
+                value={settings.swarmConsensusAlgorithm}
+                onChange={(e) => updateSetting('swarmConsensusAlgorithm', e.target.value as any)}
+                className="input-mac min-w-40"
+              >
+                <option value="simple_majority">Simple Majority (&gt;50%)</option>
+                <option value="supermajority">Supermajority (2/3)</option>
+                <option value="unanimity">Unanimity (100%)</option>
+                <option value="weighted">Weighted Voting</option>
+                <option value="byzantine">Byzantine Fault Tolerance</option>
+              </select>
+            </SettingRow>
+
+            <SettingRow label="Consensus Timeout">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={settings.swarmConsensusTimeout}
+                  onChange={(e) =>
+                    updateSetting('swarmConsensusTimeout', parseInt(e.target.value) || 30)
+                  }
+                  className="input-mac w-20"
+                  min={5}
+                  max={300}
+                />
+                <span className="text-sm text-text-secondary">seconds</span>
+              </div>
+            </SettingRow>
+          </SettingsSection>
+        )}
+
+        {activeSection === 'team' && (
+          <SettingsSection title="Team Collaboration Settings">
+            <div className="p-4 bg-glass border border-glass-border rounded-mac text-sm text-text-secondary">
+              <p className="mb-2 flex items-center gap-2">
+                <Users size={16} className="text-accent" />
+                Team settings are configured per-team
+              </p>
+              <p className="text-xs text-text-tertiary">
+                Visit the Teams panel to manage team-specific settings including member roles, workspace permissions, and notification preferences.
+              </p>
+            </div>
+          </SettingsSection>
+        )}
+
         {activeSection === 'notifications' && (
           <SettingsSection title="Notifications">
             <SettingRow label="Enable Notifications">
@@ -275,6 +410,9 @@ export default function SettingsPanel() {
           <SettingsSection title="Network Settings">
             <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
               <p>Network configuration options will be available here.</p>
+              <p className="mt-2 text-xs text-text-tertiary">
+                Future features: Proxy settings, connection timeouts, SSL certificates.
+              </p>
             </div>
           </SettingsSection>
         )}
@@ -283,6 +421,9 @@ export default function SettingsPanel() {
           <SettingsSection title="Security Settings">
             <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
               <p>Security configuration options will be available here.</p>
+              <p className="mt-2 text-xs text-text-tertiary">
+                Future features: Permission management, audit logs, encryption settings.
+              </p>
             </div>
           </SettingsSection>
         )}
