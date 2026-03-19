@@ -746,3 +746,39 @@ func TestPairStoreRestoreNilBoth(t *testing.T) {
 		t.Error("Restore should return error for nil driver and navigator")
 	}
 }
+
+func TestValidateSessionID(t *testing.T) {
+	// Create a valid max-length ID
+	maxLenID := ""
+	for i := 0; i < 128; i++ {
+		maxLenID += "a"
+	}
+	tooLongID := maxLenID + "b"
+
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"valid simple", "session-123", false},
+		{"valid with underscore", "session_123", false},
+		{"valid with dot", "session.123", false},
+		{"valid alphanumeric", "abc123DEF", false},
+		{"empty string", "", true},
+		{"path traversal", "../etc/passwd", true},
+		{"with slash", "session/123", true},
+		{"with backslash", "session\\123", true},
+		{"with space", "session 123", true},
+		{"too long", tooLongID, true},
+		{"max length", maxLenID, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSessionID(tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSessionID(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+		})
+	}
+}

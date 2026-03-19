@@ -1312,3 +1312,92 @@ func TestTaskJSONRoundTrip(t *testing.T) {
 		t.Errorf("Priority mismatch: got %s, want %s", recovered.Priority, original.Priority)
 	}
 }
+
+// Test executeTask function
+func TestCoordinatorExecuteTask(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	// Track callback
+	var callbackTask *CoordinationTask
+	coord.OnTaskStart(func(task *CoordinationTask) {
+		callbackTask = task
+	})
+
+	// Create a task
+	task := &CoordinationTask{
+		ID:          "test-task-1",
+		Description: "Test task",
+		Status:      TaskStatusPending,
+		AssignedTo:  []string{"worker-1"},
+	}
+
+	// Execute the task
+	coord.executeTask(task)
+
+	// Verify status changed
+	if task.Status != TaskStatusRunning {
+		t.Errorf("Expected status Running, got %s", task.Status)
+	}
+
+	// Verify StartedAt is set
+	if task.StartedAt.IsZero() {
+		t.Error("Expected StartedAt to be set")
+	}
+
+	// Verify callback was called
+	if callbackTask == nil {
+		t.Error("Expected onTaskStart callback to be called")
+	}
+}
+
+// Test executeTask without callback
+func TestCoordinatorExecuteTaskNoCallback(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	// No callback registered
+
+	task := &CoordinationTask{
+		ID:          "test-task-1",
+		Description: "Test task",
+		Status:      TaskStatusPending,
+		AssignedTo:  []string{"worker-1"},
+	}
+
+	// Should not panic
+	coord.executeTask(task)
+
+	if task.Status != TaskStatusRunning {
+		t.Errorf("Expected status Running, got %s", task.Status)
+	}
+}
+
+// Test executeTask with multiple assigned workers (but no real connections)
+// This tests the task status change, not the actual worker execution
+func TestCoordinatorExecuteTaskWithAssignedWorkers(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	// Initialize context
+	ctx, cancel := context.WithCancel(context.Background())
+	coord.ctx, coord.cancel = ctx, cancel
+	defer cancel()
+
+	// Note: We don't add actual workers here because executeOnWorker
+	// requires real ACP connections. This test verifies the task
+	// status transition when workers are in AssignedTo list but
+	// not registered in the coordinator.
+	task := &CoordinationTask{
+		ID:          "test-task-1",
+		Description: "Test task",
+		Status:      TaskStatusPending,
+		AssignedTo:  []string{"worker-1", "worker-2"}, // Workers not in coordinator
+	}
+
+	coord.executeTask(task)
+
+	// Task should still be running even if workers aren't registered
+	if task.Status != TaskStatusRunning {
+		t.Errorf("Expected status Running, got %s", task.Status)
+	}
+}
