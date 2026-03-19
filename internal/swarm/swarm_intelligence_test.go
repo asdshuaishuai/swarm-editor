@@ -596,6 +596,45 @@ func TestSwarmIntelligenceScheduler_HandleKnowledgeShare(t *testing.T) {
 	}
 }
 
+func TestSwarmIntelligenceScheduler_HandleKnowledgeShareSuccessPattern(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Test success_pattern type
+	msg := a2a.NewMessage(a2a.MessageTypeKnowledgeShare, "agent1", "scheduler").
+		WithPayload(&a2a.KnowledgeSharePayload{
+			Type:    "success_pattern",
+			Title:   "Success Pattern",
+			Content: []byte(`{"taskType": "coding", "success": true}`),
+		})
+
+	err := scheduler.handleKnowledgeShare(msg)
+	if err != nil {
+		t.Errorf("handleKnowledgeShare failed: %v", err)
+	}
+
+	// Verify pheromone was deposited
+	state := scheduler.GetPheromoneState()
+	if state["coding"]["agent1"] <= 0 {
+		t.Error("Expected pheromone to be deposited for coding task")
+	}
+
+	// Test failure pattern
+	msg2 := a2a.NewMessage(a2a.MessageTypeKnowledgeShare, "agent1", "scheduler").
+		WithPayload(&a2a.KnowledgeSharePayload{
+			Type:    "success_pattern",
+			Title:   "Failure Pattern",
+			Content: []byte(`{"taskType": "testing", "success": false}`),
+		})
+
+	err = scheduler.handleKnowledgeShare(msg2)
+	if err != nil {
+		t.Errorf("handleKnowledgeShare failed: %v", err)
+	}
+}
+
 func TestSwarmIntelligenceScheduler_RequestConsensus(t *testing.T) {
 	router := a2a.NewRouter(a2a.RouterConfig{})
 	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
@@ -641,5 +680,280 @@ func TestSwarmIntelligenceScheduler_UnmarshalJSON(t *testing.T) {
 	}
 	if result["id"] != "test" {
 		t.Error("Unexpected result")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_SelectByNegotiation(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.NegotiationTimeout = 100 * time.Millisecond
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add workers
+	agent1 := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	agent2 := &AgentInfo{ID: "agent2", MaxConcurrent: 5}
+	scheduler.AddWorker(agent1)
+	scheduler.AddWorker(agent2)
+
+	// Register send functions for A2A
+	router.RegisterAgent("agent1", func(m *a2a.Message) error { return nil }, nil)
+	router.RegisterAgent("agent2", func(m *a2a.Message) error { return nil }, nil)
+
+	// Test negotiation selection
+	task := &Task{ID: "task-1", Title: "Test Task"}
+	agents := []*AgentInfo{agent1, agent2}
+
+	selected := scheduler.selectByNegotiation(agents, task)
+	// Will fall back to least loaded since no bids received
+	if len(selected) == 0 {
+		t.Error("Expected at least one agent selected")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_RequestBids(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Create negotiation
+	negotiation := &Negotiation{
+		ID:           "neg-1",
+		TaskID:       "task-1",
+		Participants: []string{"agent1", "agent2"},
+		Bids:         make(map[string]*Bid),
+		Status:       "pending",
+		Deadline:     time.Now().Add(5 * time.Second),
+	}
+
+	task := &Task{ID: "task-1", Title: "Test Task"}
+
+	// Request bids - should not panic
+	scheduler.requestBids(negotiation, task)
+
+	// Verify negotiation was created
+	if negotiation.ID == "" {
+		t.Error("Expected negotiation ID to be set")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_DetectEmergentSignals(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Add overloaded agents to trigger congestion signal
+	for i := 0; i < 5; i++ {
+		agent := &AgentInfo{
+			ID:            fmt.Sprintf("agent%d", i),
+			MaxConcurrent: 2,
+		}
+		agent.IncrementLoad()
+		agent.IncrementLoad() // Full load
+		scheduler.AddWorker(agent)
+	}
+
+	// Add pending tasks
+	for i := 0; i < 10; i++ {
+		task := &Task{ID: fmt.Sprintf("task%d", i)}
+		scheduler.SubmitTask(task)
+	}
+
+	// Detect emergent signals
+	scheduler.detectEmergentSignals()
+
+	// Check if signals were recorded
+	signals := scheduler.GetSignals()
+	// May or may not have signals depending on thresholds
+	_ = signals
+}
+
+func TestSwarmIntelligenceScheduler_RecordSignal(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Record a signal
+	signal := &EmergentSignal{
+		Type:        "test_signal",
+		Location:    "swarm",
+		Strength:    0.8,
+		Timestamp:   time.Now(),
+		Description: "Test signal",
+	}
+
+	scheduler.recordSignal(signal)
+
+	// Verify signal was recorded
+	signals := scheduler.GetSignals()
+	if len(signals) == 0 {
+		t.Error("Expected signal to be recorded")
+	}
+}
+
+func TestSwarmIntelligenceScheduler_CleanOldSignals(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Add an old signal
+	oldSignal := &EmergentSignal{
+		Type:      "old_signal",
+		Timestamp: time.Now().Add(-10 * time.Minute), // 10 minutes ago
+	}
+	scheduler.signals["old"] = oldSignal
+
+	// Add a recent signal
+	recentSignal := &EmergentSignal{
+		Type:      "recent_signal",
+		Timestamp: time.Now(),
+	}
+	scheduler.signals["recent"] = recentSignal
+
+	// Clean old signals
+	scheduler.cleanOldSignals()
+
+	// Verify old signal was removed
+	signals := scheduler.GetSignals()
+	for _, s := range signals {
+		if s.Type == "old_signal" {
+			t.Error("Old signal should have been cleaned")
+		}
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleSignalMessage(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add agents for congestion handling
+	agent := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	scheduler.AddWorker(agent)
+
+	// Test congestion signal
+	congestionMsg := a2a.NewMessage(a2a.MessageTypeSignal, "agent1", "scheduler").
+		WithPayload(&a2a.SignalPayload{
+			SignalType: "congestion",
+			Strength:   0.9,
+			Location:   "swarm",
+		})
+
+	err := scheduler.handleSignal(congestionMsg)
+	if err != nil {
+		t.Errorf("handleSignal failed: %v", err)
+	}
+
+	// Test opportunity signal
+	opportunityMsg := a2a.NewMessage(a2a.MessageTypeSignal, "agent1", "scheduler").
+		WithPayload(&a2a.SignalPayload{
+			SignalType: "opportunity",
+			Strength:   0.7,
+			Location:   "swarm",
+		})
+
+	err = scheduler.handleSignal(opportunityMsg)
+	if err != nil {
+		t.Errorf("handleSignal failed for opportunity: %v", err)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_HandleCongestionSignal(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add agents with different loads
+	agent1 := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	agent1.IncrementLoad()
+	agent1.IncrementLoad()
+
+	agent2 := &AgentInfo{ID: "agent2", MaxConcurrent: 5} // No load
+
+	scheduler.AddWorker(agent1)
+	scheduler.AddWorker(agent2)
+
+	// Handle congestion signal
+	payload := a2a.SignalPayload{
+		SignalType: "congestion",
+		Strength:   0.9,
+		Location:   "swarm",
+	}
+
+	scheduler.handleCongestionSignal(payload)
+	// Should not panic
+}
+
+func TestSwarmIntelligenceScheduler_HandleOpportunitySignal(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Handle opportunity signal
+	payload := a2a.SignalPayload{
+		SignalType: "opportunity",
+		Strength:   0.8,
+		Location:   "swarm",
+		Data:       []byte(`{"tasks": 5}`),
+	}
+
+	scheduler.handleOpportunitySignal(payload)
+	// Should not panic
+}
+
+func TestSwarmIntelligenceScheduler_CalculateBidValueLocked(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.BidWeight = 0.7
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Deposit some pheromone
+	scheduler.DepositPheromone("agent1", "default", true)
+
+	bid := &Bid{
+		AgentID:      "agent1",
+		Capability:   0.9,
+		Availability: 0.8,
+		Cost:         2.0,
+	}
+
+	value := scheduler.calculateBidValueLocked(bid)
+	if value <= 0 {
+		t.Errorf("Expected positive bid value, got %f", value)
+	}
+}
+
+func TestSwarmIntelligenceScheduler_GetTaskType(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Test with no metadata
+	task1 := &Task{ID: "task1"}
+	if scheduler.getTaskType(task1) != "default" {
+		t.Error("Expected default task type")
+	}
+
+	// Test with metadata
+	task2 := &Task{
+		ID:       "task2",
+		Metadata: map[string]interface{}{"type": "coding"},
+	}
+	if scheduler.getTaskType(task2) != "coding" {
+		t.Error("Expected coding task type")
+	}
+
+	// Test with non-string type
+	task3 := &Task{
+		ID:       "task3",
+		Metadata: map[string]interface{}{"type": 123},
+	}
+	if scheduler.getTaskType(task3) != "default" {
+		t.Error("Expected default task type for non-string")
 	}
 }

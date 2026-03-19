@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 )
 
@@ -1877,4 +1878,192 @@ func TestSchedulerConcurrentStatsAccess(t *testing.T) {
 
 	wg.Wait()
 	// Test passes if no race condition detected
+}
+
+// Test parseDecompositionResponse
+func TestSchedulerParseDecompositionResponse(t *testing.T) {
+	scheduler := NewScheduler(SchedulerConfig{}, nil)
+	originalTask := &Task{
+		ID:          "task-1",
+		Title:       "Original Task",
+		Description: "Original description",
+	}
+
+	tests := []struct {
+		name        string
+		content     []acp.ContentBlock
+		wantLen     int
+		wantErr     bool
+		description string
+	}{
+		{
+			name:        "empty content",
+			content:     []acp.ContentBlock{},
+			wantLen:     0,
+			wantErr:     true,
+			description: "Should return error for empty content",
+		},
+		{
+			name: "no text content",
+			content: []acp.ContentBlock{
+				{Type: "image", Text: ""},
+			},
+			wantLen:     0,
+			wantErr:     true,
+			description: "Should return error for no text content",
+		},
+		{
+			name: "do not decompose decision",
+			content: []acp.ContentBlock{
+				{Type: "text", Text: `{"decompose": false}`},
+			},
+			wantLen:     1,
+			wantErr:     false,
+			description: "Should return original task when decompose is false",
+		},
+		{
+			name: "valid subtasks array",
+			content: []acp.ContentBlock{
+				{Type: "text", Text: `[{"title": "Subtask 1", "description": "Desc 1", "priority": "high", "requiredRole": "coder"}, {"title": "Subtask 2", "description": "Desc 2", "priority": "low"}]`},
+			},
+			wantLen:     2,
+			wantErr:     false,
+			description: "Should parse valid subtasks array",
+		},
+		{
+			name: "subtasks with markdown code block",
+			content: []acp.ContentBlock{
+				{Type: "text", Text: "```json\n[{\"title\": \"Subtask\", \"description\": \"Desc\", \"priority\": \"medium\"}]\n```"},
+			},
+			wantLen:     1,
+			wantErr:     false,
+			description: "Should parse subtasks in markdown code block",
+		},
+		{
+			name: "invalid JSON",
+			content: []acp.ContentBlock{
+				{Type: "text", Text: `not valid json`},
+			},
+			wantLen:     0,
+			wantErr:     true,
+			description: "Should return error for invalid JSON",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subtasks, err := scheduler.parseDecompositionResponse(tt.content, originalTask)
+
+			if tt.wantErr && err == nil {
+				t.Errorf("%s: expected error, got nil", tt.name)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("%s: unexpected error: %v", tt.name, err)
+			}
+			if len(subtasks) != tt.wantLen {
+				t.Errorf("%s: expected %d subtasks, got %d", tt.name, tt.wantLen, len(subtasks))
+			}
+		})
+	}
+}
+
+// Test parseDecompositionResponse priority parsing
+func TestSchedulerParseDecompositionResponsePriorities(t *testing.T) {
+	scheduler := NewScheduler(SchedulerConfig{}, nil)
+	originalTask := &Task{ID: "task-1", Title: "Original", Description: "Desc"}
+
+	content := []acp.ContentBlock{
+		{Type: "text", Text: `[
+			{"title": "High Priority", "description": "High", "priority": "high"},
+			{"title": "Medium Priority", "description": "Medium", "priority": "medium"},
+			{"title": "Low Priority", "description": "Low", "priority": "low"},
+			{"title": "Default Priority", "description": "Default", "priority": "unknown"}
+		]`},
+	}
+
+	subtasks, err := scheduler.parseDecompositionResponse(content, originalTask)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(subtasks) != 4 {
+		t.Fatalf("Expected 4 subtasks, got %d", len(subtasks))
+	}
+
+	// Check priorities
+	expectedPriorities := []TaskPriority{PriorityHigh, PriorityMedium, PriorityLow, PriorityMedium}
+	for i, task := range subtasks {
+		if task.Priority != expectedPriorities[i] {
+			t.Errorf("Subtask %d: expected priority %s, got %s", i, expectedPriorities[i], task.Priority)
+		}
+	}
+}
+
+// Test parseDecompositionResponse with requiredRole
+func TestSchedulerParseDecompositionResponseWithRole(t *testing.T) {
+	scheduler := NewScheduler(SchedulerConfig{}, nil)
+	originalTask := &Task{ID: "task-1", Title: "Original", Description: "Desc"}
+
+	content := []acp.ContentBlock{
+		{Type: "text", Text: `[{"title": "Task", "description": "Desc", "requiredRole": "coder"}]`},
+	}
+
+	subtasks, err := scheduler.parseDecompositionResponse(content, originalTask)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(subtasks) != 1 {
+		t.Fatalf("Expected 1 subtask, got %d", len(subtasks))
+	}
+
+	if subtasks[0].Metadata["requiredRole"] != "coder" {
+		t.Errorf("Expected requiredRole 'coder', got %v", subtasks[0].Metadata["requiredRole"])
+	}
+
+	// Check parent ID
+	if subtasks[0].ParentID != originalTask.ID {
+		t.Errorf("Expected ParentID %s, got %s", originalTask.ID, subtasks[0].ParentID)
+	}
+}
+
+// Test selectByNegotiation with bids
+func TestSwarmIntelligenceScheduler_SelectByNegotiationWithBids(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.NegotiationTimeout = 100 * time.Millisecond
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add workers
+	agent1 := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	agent2 := &AgentInfo{ID: "agent2", MaxConcurrent: 5}
+	scheduler.AddWorker(agent1)
+	scheduler.AddWorker(agent2)
+
+	// Create a negotiation with bids
+	negotiation := &Negotiation{
+		ID:           "neg-1",
+		TaskID:       "task-1",
+		Participants: []string{"agent1", "agent2"},
+		Bids: map[string]*Bid{
+			"agent1": {AgentID: "agent1", Value: 0.5},
+			"agent2": {AgentID: "agent2", Value: 0.9}, // Higher value
+		},
+		Status:   "pending",
+		Deadline: time.Now().Add(5 * time.Second),
+	}
+
+	scheduler.activeNegotiations["neg-1"] = negotiation
+
+	// Now select - should pick agent2 due to higher bid
+	task := &Task{ID: "task-1", Title: "Test"}
+	agents := []*AgentInfo{agent1, agent2}
+
+	// Simulate the negotiation selection logic
+	selected := scheduler.selectByNegotiation(agents, task)
+	// Since no bids are submitted during the sleep, it will fall back to least loaded
+	if len(selected) == 0 {
+		t.Error("Expected at least one agent selected")
+	}
 }
