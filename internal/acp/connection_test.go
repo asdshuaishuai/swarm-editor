@@ -1227,3 +1227,207 @@ func TestImplementationInfoInConnection(t *testing.T) {
 // Note: Tests for CreateSession, SendPrompt, and CancelPrompt success paths
 // would require a more sophisticated mock setup with proper message correlation.
 // The error path tests (not connected state) are already covered above.
+
+// Tests for AgentSession content capture functions
+
+func TestAgentSessionStartContentCapture(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Start content capture
+	session.StartContentCapture()
+
+	// Verify content was initialized
+	session.mu.Lock()
+	content := session.content
+	done := session.done
+	session.mu.Unlock()
+
+	if content != nil {
+		t.Error("Content should be nil after StartContentCapture")
+	}
+
+	if done == nil {
+		t.Error("Done channel should be initialized")
+	}
+}
+
+func TestAgentSessionAddContent(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Add content blocks
+	block1 := ContentBlock{Type: "text", Text: "Hello"}
+	block2 := ContentBlock{Type: "text", Text: "World"}
+
+	session.AddContent(block1)
+	session.AddContent(block2)
+
+	// Verify content was added
+	content := session.GetContent()
+	if len(content) != 2 {
+		t.Errorf("Expected 2 content blocks, got %d", len(content))
+	}
+
+	if content[0].Text != "Hello" {
+		t.Errorf("Expected 'Hello', got '%s'", content[0].Text)
+	}
+
+	if content[1].Text != "World" {
+		t.Errorf("Expected 'World', got '%s'", content[1].Text)
+	}
+}
+
+func TestAgentSessionFinishContentCapture(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Start content capture
+	session.StartContentCapture()
+
+	// Add content
+	session.AddContent(ContentBlock{Type: "text", Text: "Test"})
+
+	// Finish content capture
+	session.FinishContentCapture()
+
+	// Verify done channel is closed
+	session.mu.Lock()
+	done := session.done
+	session.mu.Unlock()
+
+	select {
+	case <-done:
+		// Good - channel is closed
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Done channel should be closed after FinishContentCapture")
+	}
+
+	// Calling again should be safe (uses sync.Once)
+	session.FinishContentCapture()
+}
+
+func TestAgentSessionWaitForContent(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Test with no capture started
+	content := session.WaitForContent(100 * time.Millisecond)
+	if content != nil {
+		t.Error("WaitForContent should return nil when no capture started")
+	}
+
+	// Start content capture
+	session.StartContentCapture()
+
+	// Add content in a goroutine
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		session.AddContent(ContentBlock{Type: "text", Text: "Async content"})
+		session.FinishContentCapture()
+	}()
+
+	// Wait for content
+	content = session.WaitForContent(1 * time.Second)
+	if content == nil {
+		t.Error("WaitForContent should return content")
+	}
+
+	if len(content) != 1 {
+		t.Errorf("Expected 1 content block, got %d", len(content))
+	}
+
+	if content[0].Text != "Async content" {
+		t.Errorf("Expected 'Async content', got '%s'", content[0].Text)
+	}
+}
+
+func TestAgentSessionWaitForContentTimeout(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Start content capture but don't finish
+	session.StartContentCapture()
+
+	// Wait with very short timeout
+	content := session.WaitForContent(10 * time.Millisecond)
+	if content != nil {
+		t.Error("WaitForContent should return nil on timeout")
+	}
+}
+
+func TestAgentSessionGetContentEmpty(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Get content without any additions
+	content := session.GetContent()
+	if content != nil {
+		t.Error("GetContent should return nil when no content added")
+	}
+}
+
+func TestAgentSessionContentCaptureFullFlow(t *testing.T) {
+	session := &AgentSession{
+		ID:         "session-1",
+		Mode:       ModeDefault,
+		CreatedAt:  time.Now(),
+		LastActive: time.Now(),
+	}
+
+	// Full flow
+	session.StartContentCapture()
+
+	blocks := []ContentBlock{
+		{Type: "text", Text: "First block"},
+		{Type: "text", Text: "Second block"},
+		{Type: "resource", Resource: &Resource{URI: "file://test.txt"}},
+	}
+
+	for _, block := range blocks {
+		session.AddContent(block)
+	}
+
+	session.FinishContentCapture()
+
+	// Wait and verify
+	content := session.WaitForContent(1 * time.Second)
+	if content == nil {
+		t.Fatal("Content should not be nil")
+	}
+
+	if len(content) != 3 {
+		t.Errorf("Expected 3 content blocks, got %d", len(content))
+	}
+
+	// Verify each block
+	for i, block := range content {
+		if block.Type != blocks[i].Type {
+			t.Errorf("Block %d: expected type '%s', got '%s'", i, blocks[i].Type, block.Type)
+		}
+	}
+}
