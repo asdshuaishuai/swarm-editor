@@ -428,3 +428,239 @@ func TestTeamSchedulerCallbacks(t *testing.T) {
 		t.Error("OnTaskComplete callback should have been called")
 	}
 }
+
+func TestTeamSchedulerScheduleNext(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+	team.Members["agent2"] = &Member{ID: "agent2", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{
+		MaxParallel: 5,
+	}, team, router, coordinator)
+
+	// Register agents
+	scheduler.RegisterTeamAgent("agent1", nil)
+	scheduler.RegisterTeamAgent("agent2", nil)
+
+	// Submit task
+	task := &ScheduledTask{
+		ID:          "task1",
+		Title:       "Test Task",
+		Description: "Test",
+		Priority:    1,
+	}
+	scheduler.SubmitTask(task)
+
+	// Schedule next
+	scheduler.scheduleNext()
+
+	// Verify task was scheduled
+	scheduler.mu.RLock()
+	_, running := scheduler.runningTasks["task1"]
+	scheduler.mu.RUnlock()
+
+	if !running {
+		t.Error("Task should be running after scheduleNext")
+	}
+}
+
+func TestTeamSchedulerScheduleNextWithMaxParallel(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{
+		MaxParallel: 1, // Only 1 parallel task
+	}, team, router, coordinator)
+
+	scheduler.RegisterTeamAgent("agent1", nil)
+
+	// Submit two tasks
+	scheduler.SubmitTask(&ScheduledTask{ID: "task1", Priority: 1})
+	scheduler.SubmitTask(&ScheduledTask{ID: "task2", Priority: 1})
+
+	// Schedule next - only first should run
+	scheduler.scheduleNext()
+
+	scheduler.mu.RLock()
+	runningCount := len(scheduler.runningTasks)
+	scheduler.mu.RUnlock()
+
+	if runningCount != 1 {
+		t.Errorf("Expected 1 running task, got %d", runningCount)
+	}
+}
+
+func TestTeamSchedulerRegisterTeamAgent(t *testing.T) {
+	team := &Team{Members: make(map[string]*Member)}
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{}, team, router, coordinator)
+
+	// Register agent
+	scheduler.RegisterTeamAgent("agent1", nil)
+
+	// Verify agent is registered
+	scheduler.mu.RLock()
+	load, ok := scheduler.agentLoad["agent1"]
+	success := scheduler.agentSuccess["agent1"]
+	peers := scheduler.peerScores["agent1"]
+	scheduler.mu.RUnlock()
+
+	if !ok {
+		t.Error("Agent should be registered in agentLoad")
+	}
+	if load != 0 {
+		t.Errorf("Expected initial load 0, got %d", load)
+	}
+	if success != 1.0 {
+		t.Errorf("Expected initial success 1.0, got %f", success)
+	}
+	if peers == nil {
+		t.Error("peerScores should be initialized")
+	}
+}
+
+func TestNewAgentToAgentCoordination(t *testing.T) {
+	team := &Team{Members: make(map[string]*Member)}
+	router := a2a.NewRouter(a2a.RouterConfig{})
+
+	coord := NewAgentToAgentCoordination(router, team)
+
+	if coord == nil {
+		t.Fatal("Expected coordination to be created")
+	}
+
+	if coord.router != router {
+		t.Error("Router should be set")
+	}
+
+	if coord.team != team {
+		t.Error("Team should be set")
+	}
+
+	if coord.collaborations == nil {
+		t.Error("Collaborations map should be initialized")
+	}
+}
+
+func TestAgentToAgentCoordinationRequestHelp(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+	team.Members["agent2"] = &Member{ID: "agent2", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	router.RegisterAgent("agent2", func(m *a2a.Message) error { return nil }, nil)
+
+	coord := NewAgentToAgentCoordination(router, team)
+
+	ctx := context.Background()
+	err := coord.RequestHelp(ctx, "agent1", "task1", "Need help with testing", []string{})
+
+	if err != nil {
+		t.Errorf("RequestHelp failed: %v", err)
+	}
+}
+
+func TestAgentToAgentCoordinationRequestHelpNoHelpers(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coord := NewAgentToAgentCoordination(router, team)
+
+	ctx := context.Background()
+	err := coord.RequestHelp(ctx, "agent1", "task1", "Need help", []string{})
+
+	if err == nil {
+		t.Error("Expected error when no helpers available")
+	}
+}
+
+func TestAgentToAgentCoordinationStartCollaboration(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+	team.Members["agent2"] = &Member{ID: "agent2", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	router.RegisterAgent("agent1", func(m *a2a.Message) error { return nil }, nil)
+	router.RegisterAgent("agent2", func(m *a2a.Message) error { return nil }, nil)
+
+	coord := NewAgentToAgentCoordination(router, team)
+
+	collab := coord.StartCollaboration("pair_programming", "task1", []string{"agent1", "agent2"})
+
+	if collab == nil {
+		t.Fatal("Expected collaboration to be created")
+	}
+
+	if collab.TaskID != "task1" {
+		t.Errorf("Expected TaskID 'task1', got %s", collab.TaskID)
+	}
+
+	if collab.Type != "pair_programming" {
+		t.Errorf("Expected type 'pair_programming', got %s", collab.Type)
+	}
+
+	if collab.Status != "active" {
+		t.Errorf("Expected status 'active', got %s", collab.Status)
+	}
+
+	if len(collab.Agents) != 2 {
+		t.Errorf("Expected 2 agents, got %d", len(collab.Agents))
+	}
+
+	// Verify collaboration is stored
+	coord.mu.RLock()
+	_, exists := coord.collaborations[collab.ID]
+	coord.mu.RUnlock()
+
+	if !exists {
+		t.Error("Collaboration should be stored")
+	}
+}
+
+func TestAgentToAgentCoordinationEndCollaboration(t *testing.T) {
+	team := &Team{
+		Members: make(map[string]*Member),
+	}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+	team.Members["agent2"] = &Member{ID: "agent2", Role: RoleDeveloper}
+
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	router.RegisterAgent("agent1", func(m *a2a.Message) error { return nil }, nil)
+	router.RegisterAgent("agent2", func(m *a2a.Message) error { return nil }, nil)
+
+	coord := NewAgentToAgentCoordination(router, team)
+
+	// Start collaboration
+	collab := coord.StartCollaboration("review", "task1", []string{"agent1", "agent2"})
+
+	// End collaboration
+	coord.EndCollaboration(collab.ID)
+
+	// Verify collaboration is removed from map
+	coord.mu.RLock()
+	_, exists := coord.collaborations[collab.ID]
+	coord.mu.RUnlock()
+
+	if exists {
+		t.Error("Collaboration should be removed after ending")
+	}
+}
