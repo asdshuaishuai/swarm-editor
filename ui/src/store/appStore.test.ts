@@ -262,7 +262,7 @@ describe('appStore', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       await act(async () => {
-        await useAppStore.getState().initialize(true)
+        await useAppStore.getState().initialize({ simulateError: true })
       })
 
       const state = useAppStore.getState()
@@ -277,12 +277,12 @@ describe('appStore', () => {
 
       // Use the simulateError parameter with a non-Error string value
       await act(async () => {
-        await useAppStore.getState().initialize('non-error-string')
+        await useAppStore.getState().initialize({ simulateError: 'non-error-string' })
       })
 
       const state = useAppStore.getState()
       expect(state.connected).toBe(false)
-      expect(state.connectionError).toBe('Failed to connect') // Should use fallback message
+      expect(state.connectionError).toBe('non-error-string') // Should extract string error
 
       consoleSpy.mockRestore()
     })

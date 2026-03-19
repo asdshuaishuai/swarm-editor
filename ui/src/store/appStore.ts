@@ -193,14 +193,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
   activePanel: 'editor',
   loading: false,
 
-  initialize: async (simulateError?: boolean | string) => {
+  initialize: async (options?: { simulateError?: boolean | string }) => {
     set({ connecting: true, connectionError: null })
     try {
       // For testing: simulate initialization error
-      if (simulateError) {
+      if (options?.simulateError) {
         // If simulateError is a string that's not 'true', throw it as a non-Error
-        if (typeof simulateError === 'string' && simulateError !== 'true') {
-          throw simulateError // Throw non-Error value for testing
+        if (typeof options.simulateError === 'string' && options.simulateError !== 'true') {
+          throw options.simulateError // Throw non-Error value for testing
         }
         throw new Error('Simulated initialization error')
       }
@@ -231,10 +231,16 @@ export const useAppStore = create<AppState>()((set, get) => ({
       }
     } catch (error) {
       logger.error('Init', 'Failed to initialize:', error)
+      // Robust error message extraction
+      const errorMessage = error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'Failed to connect'
       set({
         connected: false,
         connecting: false,
-        connectionError: error instanceof Error ? error.message : 'Failed to connect'
+        connectionError: errorMessage
       })
     }
   },
