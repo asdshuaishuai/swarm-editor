@@ -51,7 +51,7 @@ describe('TerminalPanel', () => {
         onClear={mockOnClear}
       />
     )
-    expect(screen.queryByText('Terminal Output')).not.toBeInTheDocument()
+    expect(screen.queryByText('Terminal')).not.toBeInTheDocument()
   })
 
   it('renders terminal header with entry count', () => {
@@ -61,8 +61,8 @@ describe('TerminalPanel', () => {
         onClear={mockOnClear}
       />
     )
-    expect(screen.getByText('Terminal Output')).toBeInTheDocument()
-    expect(screen.getByText('(5 entries)')).toBeInTheDocument()
+    expect(screen.getByText('Terminal')).toBeInTheDocument()
+    expect(screen.getByText('(5)')).toBeInTheDocument()
   })
 
   it('renders all entry messages', () => {
@@ -191,7 +191,7 @@ describe('TerminalPanel', () => {
         onClear={mockOnClear}
       />
     )
-    expect(screen.getByText('>')).toBeInTheDocument()
+    expect(screen.getByText('›')).toBeInTheDocument()
   })
 
   it('renders info icon', () => {
@@ -241,7 +241,7 @@ describe('TerminalPanel resizing', () => {
         defaultHeight={250}
       />
     )
-    const panel = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panel = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect(panel).toHaveStyle({ height: '250px' })
   })
 
@@ -255,7 +255,7 @@ describe('TerminalPanel resizing', () => {
         maxHeight={300}
       />
     )
-    const panel = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panel = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect(panel).toHaveStyle({ height: '150px' })
   })
 
@@ -283,7 +283,7 @@ describe('TerminalPanel resizing', () => {
     fireEvent.mouseUp(document)
 
     // Panel should have been resized
-    const panel = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panel = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect(panel).toHaveStyle({ height: '250px' })
   })
 
@@ -307,7 +307,7 @@ describe('TerminalPanel resizing', () => {
     fireEvent.mouseMove(document, { clientY: -100 })
 
     // Should be constrained to maxHeight
-    const panel = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panel = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect(panel).toHaveStyle({ height: '250px' })
   })
 
@@ -331,7 +331,7 @@ describe('TerminalPanel resizing', () => {
     fireEvent.mouseMove(document, { clientY: 500 })
 
     // Should be constrained to minHeight
-    const panel = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panel = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect(panel).toHaveStyle({ height: '100px' })
   })
 
@@ -350,12 +350,12 @@ describe('TerminalPanel resizing', () => {
     fireEvent.mouseUp(document)
 
     // Move after mouseup should not affect height
-    const panelBefore = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panelBefore = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     const heightBefore = (panelBefore as HTMLElement).style.height
 
     fireEvent.mouseMove(document, { clientY: 100 })
 
-    const panelAfter = screen.getByText('Terminal Output').closest('div[class*="flex-col"]')
+    const panelAfter = screen.getByText('Terminal').closest('div[class*="flex-col"]')
     expect((panelAfter as HTMLElement).style.height).toBe(heightBefore)
   })
 })

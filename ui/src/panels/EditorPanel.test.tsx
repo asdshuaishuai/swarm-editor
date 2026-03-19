@@ -81,7 +81,7 @@ describe('EditorPanel', () => {
 
   it('shows file tree by default', () => {
     render(<EditorPanel />)
-    expect(screen.getByText('EXPLORER')).toBeInTheDocument()
+    expect(screen.getByText('Explorer')).toBeInTheDocument()
   })
 
   it('shows file tree items', async () => {
@@ -96,9 +96,9 @@ describe('EditorPanel', () => {
     render(<EditorPanel />)
     const toggleButton = screen.getByTitle('Toggle File Tree')
     fireEvent.click(toggleButton)
-    expect(screen.queryByText('EXPLORER')).not.toBeInTheDocument()
+    expect(screen.queryByText('Explorer')).not.toBeInTheDocument()
     fireEvent.click(toggleButton)
-    expect(screen.getByText('EXPLORER')).toBeInTheDocument()
+    expect(screen.getByText('Explorer')).toBeInTheDocument()
   })
 
   it('changes language selection', () => {
@@ -619,7 +619,7 @@ describe('EditorPanel execution scenarios', () => {
     })
     fireEvent.click(screen.getByText('Execute Directly'))
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
   })
 
@@ -839,7 +839,7 @@ describe('EditorPanel error handling', () => {
     })
     // Terminal output should appear (with error message)
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
   })
 
@@ -880,7 +880,7 @@ describe('EditorPanel error handling', () => {
     })
     fireEvent.click(screen.getByText('Test Swarm'))
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
   })
 })
@@ -924,7 +924,7 @@ describe('EditorPanel error and edge cases', () => {
     })
     fireEvent.click(screen.getByText('Execute Directly'))
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
 
     // Click clear button
@@ -933,7 +933,7 @@ describe('EditorPanel error and edge cases', () => {
 
     // Terminal should be cleared
     await waitFor(() => {
-      expect(screen.queryByText('Terminal Output')).not.toBeInTheDocument()
+      expect(screen.queryByText('Terminal')).not.toBeInTheDocument()
     })
   })
 
@@ -980,7 +980,7 @@ describe('EditorPanel error and edge cases', () => {
 
     // Should show error in terminal
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
   })
 
@@ -1008,7 +1008,7 @@ describe('EditorPanel error and edge cases', () => {
     fireEvent.click(screen.getByText('Execute Directly'))
     // Should show terminal output with fallback message
     await waitFor(() => {
-      expect(screen.getByText('Terminal Output')).toBeInTheDocument()
+      expect(screen.getByText('Terminal')).toBeInTheDocument()
     })
     // Should have used output as fallback since error was empty
     await waitFor(() => {

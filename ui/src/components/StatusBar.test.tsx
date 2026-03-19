@@ -34,17 +34,17 @@ describe('StatusBar', () => {
 
   it('renders agent count', () => {
     render(<StatusBar />)
-    expect(screen.getByText('Agents: 0')).toBeInTheDocument()
+    expect(screen.getByText('0 agents')).toBeInTheDocument()
   })
 
   it('does not show swarm info when no active swarm', () => {
     render(<StatusBar />)
-    expect(screen.queryByText('Swarm:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Test Swarm')).not.toBeInTheDocument()
   })
 
   it('does not show team info when no active team', () => {
     render(<StatusBar />)
-    expect(screen.queryByText('Team:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Test Team')).not.toBeInTheDocument()
   })
 })
 
@@ -93,7 +93,6 @@ describe('StatusBar with active sessions', () => {
       return selector ? selector(state) : state
     })
     render(<StatusBar />)
-    expect(screen.getByText('Swarm:')).toBeInTheDocument()
     expect(screen.getByText('Test Swarm')).toBeInTheDocument()
   })
 
@@ -109,7 +108,6 @@ describe('StatusBar with active sessions', () => {
       return selector ? selector(state) : state
     })
     render(<StatusBar />)
-    expect(screen.getByText('Team:')).toBeInTheDocument()
     expect(screen.getByText('Test Team')).toBeInTheDocument()
   })
 
@@ -125,6 +123,6 @@ describe('StatusBar with active sessions', () => {
       return selector ? selector(state) : state
     })
     render(<StatusBar />)
-    expect(screen.getByText('Agents: 2')).toBeInTheDocument()
+    expect(screen.getByText('2 agents')).toBeInTheDocument()
   })
 })

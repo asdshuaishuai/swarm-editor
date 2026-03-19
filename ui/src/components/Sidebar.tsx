@@ -6,6 +6,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react'
 
 const navItems = [
@@ -16,50 +17,54 @@ const navItems = [
 ]
 
 export default function Sidebar() {
-  const { sidebarCollapsed, activePanel, toggleSidebar, setActivePanel } = useAppStore()
+  const { sidebarCollapsed, activePanel, toggleSidebar, setActivePanel, connected, agents } = useAppStore()
 
   return (
     <div
-      className={`flex flex-col bg-panel-bg border-r border-panel-border transition-all duration-300 ${
-        sidebarCollapsed ? 'w-12' : 'w-48'
+      className={`flex flex-col bg-mac-sidebar border-r border-glass-border transition-all duration-300 ease-out ${
+        sidebarCollapsed ? 'w-14' : 'w-56'
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-2 border-b border-panel-border">
+      <div className="flex items-center justify-between px-3 py-3 border-b border-glass-border">
         {!sidebarCollapsed && (
-          <span className="text-sm font-semibold text-accent">Swarm Editor</span>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-accent" />
+            <span className="text-sm font-semibold text-text-primary tracking-tight">Swarm Editor</span>
+          </div>
         )}
         <button
           onClick={toggleSidebar}
-          className="p-1 hover:bg-panel-border rounded"
+          className={`p-1.5 hover:bg-card-hover rounded-mac transition-colors duration-200 ${sidebarCollapsed ? 'mx-auto' : ''}`}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {sidebarCollapsed ? (
-            <ChevronRight size={16} />
+            <ChevronRight size={16} className="text-text-secondary" />
           ) : (
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} className="text-text-secondary" />
           )}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-2">
-        {navItems.map((item) => {
+      <nav className="flex-1 py-3">
+        {navItems.map((item, index) => {
           const Icon = item.icon
           const isActive = activePanel === item.id
           return (
             <button
               key={item.id}
               onClick={() => setActivePanel(item.id)}
-              className={`flex items-center w-full px-3 py-2 text-left transition-colors ${
+              className={`w-full flex items-center px-3 py-2.5 my-0.5 mx-2 rounded-mac text-left transition-all duration-200 ${
                 isActive
-                  ? 'bg-accent/20 text-accent border-r-2 border-accent'
-                  : 'hover:bg-panel-border text-text-secondary hover:text-text-primary'
+                  ? 'bg-accent-muted text-accent'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'
               }`}
-              title={item.label}
+              style={{ animationDelay: `${index * 50}ms` }}
             >
-              <Icon size={18} />
+              <Icon size={18} className={isActive ? 'text-accent' : ''} />
               {!sidebarCollapsed && (
-                <span className="ml-3 text-sm">{item.label}</span>
+                <span className="ml-3 text-sm font-medium">{item.label}</span>
               )}
             </button>
           )
@@ -67,14 +72,25 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      {!sidebarCollapsed && (
-        <div className="p-2 border-t border-panel-border text-xs text-text-secondary">
+      <div className="px-3 py-3 border-t border-glass-border">
+        {!sidebarCollapsed ? (
           <div className="flex items-center justify-between">
-            <span>Agents: 0</span>
-            <span className="w-2 h-2 rounded-full bg-success" />
+            <div className="flex items-center gap-2">
+              <div className={`status-dot ${connected ? 'online' : 'offline'}`} />
+              <span className="text-xs text-text-secondary">
+                {connected ? 'Connected' : 'Offline'}
+              </span>
+            </div>
+            <span className="text-xs text-text-tertiary">
+              {agents.length} agents
+            </span>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex justify-center">
+            <div className={`status-dot ${connected ? 'online' : 'offline'}`} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

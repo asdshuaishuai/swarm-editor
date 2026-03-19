@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.4;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -17,6 +17,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow: hidden;
+  background: #1c1c1e;
 }
 
 #root {
@@ -24,27 +25,138 @@ body {
   height: 100vh;
 }
 
-/* Scrollbar styling */
+/* macOS Window Chrome Styling */
+.mac-title-bar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* Custom Scrollbar - macOS Style */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #424242;
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a4a;
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Monaco editor container */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Glass Morphism Utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Smooth Transitions */
+.transition-mac {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Card Hover Effect */
+.card-hover {
+  transition: all 0.2s ease;
+}
+
+.card-hover:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+/* Button Styles */
+.btn-primary {
+  @apply px-4 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-mac font-medium text-sm transition-all duration-200;
+}
+
+.btn-secondary {
+  @apply px-4 py-1.5 bg-glass hover:bg-card-hover text-text-primary rounded-mac font-medium text-sm border border-glass-border transition-all duration-200;
+}
+
+.btn-ghost {
+  @apply px-3 py-1.5 hover:bg-card-hover text-text-secondary hover:text-text-primary rounded-mac text-sm transition-all duration-200;
+}
+
+/* Sidebar Item */
+.sidebar-item {
+  @apply flex items-center px-3 py-2 mx-2 rounded-mac text-sm transition-all duration-200 cursor-pointer;
+}
+
+.sidebar-item:hover {
+  @apply bg-card-hover;
+}
+
+.sidebar-item.active {
+  @apply bg-accent-muted text-accent;
+}
+
+/* Input Styles */
+.input-mac {
+  @apply bg-glass border border-glass-border rounded-mac px-3 py-1.5 text-text-primary text-sm;
+  @apply focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent;
+  @apply placeholder:text-text-tertiary;
+}
+
+/* Monaco Editor Container */
 .monaco-container {
   width: 100%;
   height: 100%;
+}
+
+/* Animation Classes */
+.animate-in {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Status Indicator */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot.online {
+  @apply bg-success;
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.5);
+}
+
+.status-dot.offline {
+  @apply bg-error;
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.5);
+}
+
+.status-dot.connecting {
+  @apply bg-warning animate-pulse;
+}
+
+/* Panel Header */
+.panel-header {
+  @apply px-4 py-2 text-xs font-semibold text-text-secondary uppercase tracking-wider border-b border-glass-border;
+}
+
+/* Divider */
+.divider {
+  @apply border-t border-glass-border;
+}
+
+/* Code Font */
+.font-mono {
+  font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Menlo', monospace;
 }

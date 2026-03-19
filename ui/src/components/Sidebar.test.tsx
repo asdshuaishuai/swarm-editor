@@ -20,6 +20,8 @@ describe('Sidebar', () => {
         activePanel: 'editor',
         toggleSidebar: mockToggleSidebar,
         setActivePanel: mockSetActivePanel,
+        connected: true,
+        agents: [],
       }
       return selector ? selector(state) : state
     })
@@ -40,7 +42,7 @@ describe('Sidebar', () => {
 
   it('calls toggleSidebar when collapse button is clicked', () => {
     render(<Sidebar />)
-    const button = screen.getByRole('button', { name: '' })
+    const button = screen.getByRole('button', { name: 'Collapse sidebar' })
     fireEvent.click(button)
     expect(mockToggleSidebar).toHaveBeenCalled()
   })
@@ -56,13 +58,13 @@ describe('Sidebar', () => {
 
   it('renders agent count in footer', () => {
     render(<Sidebar />)
-    expect(screen.getByText('Agents: 0')).toBeInTheDocument()
+    expect(screen.getByText('0 agents')).toBeInTheDocument()
   })
 
   it('applies active styling to active panel', () => {
     render(<Sidebar />)
     const editorButton = screen.getByText('Editor').closest('button')
-    expect(editorButton).toHaveClass('bg-accent/20')
+    expect(editorButton).toHaveClass('bg-accent-muted')
   })
 })
 
@@ -78,6 +80,8 @@ describe('Sidebar collapsed state', () => {
         activePanel: 'editor',
         toggleSidebar: mockToggleSidebar,
         setActivePanel: mockSetActivePanel,
+        connected: true,
+        agents: [],
       }
       return selector ? selector(state) : state
     })
@@ -96,12 +100,12 @@ describe('Sidebar collapsed state', () => {
 
   it('hides footer when collapsed', () => {
     render(<Sidebar />)
-    expect(screen.queryByText('Agents: 0')).not.toBeInTheDocument()
+    expect(screen.queryByText('0 agents')).not.toBeInTheDocument()
   })
 
   it('has correct width class when collapsed', () => {
     const { container } = render(<Sidebar />)
     const sidebar = container.firstChild as HTMLElement
-    expect(sidebar).toHaveClass('w-12')
+    expect(sidebar).toHaveClass('w-14')
   })
 })

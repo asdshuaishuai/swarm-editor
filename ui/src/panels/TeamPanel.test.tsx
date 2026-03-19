@@ -115,7 +115,7 @@ describe('TeamPanel with teams', () => {
     expect(screen.getByText('5 members')).toBeInTheDocument()
     expect(screen.getByText('3 agents')).toBeInTheDocument()
     expect(screen.getByText('2 online')).toBeInTheDocument()
-    expect(screen.getByText('1 idle agents')).toBeInTheDocument()
+    expect(screen.getByText('1 idle')).toBeInTheDocument()
     expect(screen.getByText('4 workspaces')).toBeInTheDocument()
   })
 
@@ -128,7 +128,7 @@ describe('TeamPanel with teams', () => {
   it('expands team card to show members', () => {
     render(<TeamPanel />)
     fireEvent.click(screen.getByText('Test Team'))
-    expect(screen.getByText('MEMBERS')).toBeInTheDocument()
+    expect(screen.getByText('Members')).toBeInTheDocument()
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
   })
@@ -224,10 +224,10 @@ describe('TeamCard with active state', () => {
     })
 
     render(<TeamPanel />)
-    // Find the card container (has rounded-lg class)
-    const teamCard = screen.getByText('Active Team').closest('.rounded-lg')
+    // Find the card container (has rounded-mac-xl class)
+    const teamCard = screen.getByText('Active Team').closest('.rounded-mac-xl')
     expect(teamCard).toHaveClass('border-accent')
-    expect(teamCard).toHaveClass('bg-accent/10')
+    expect(teamCard).toHaveClass('bg-accent-muted')
   })
 })
 

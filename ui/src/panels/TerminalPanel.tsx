@@ -77,15 +77,15 @@ export default function TerminalPanel({
   const getEntryColor = (type: TerminalEntry['type']) => {
     switch (type) {
       case 'success':
-        return 'text-green-400'
+        return 'text-success'
       case 'error':
-        return 'text-red-400'
+        return 'text-error'
       case 'warning':
-        return 'text-yellow-400'
+        return 'text-warning'
       case 'command':
-        return 'text-cyan-400'
+        return 'text-info'
       default:
-        return 'text-gray-300'
+        return 'text-text-secondary'
     }
   }
 
@@ -98,7 +98,7 @@ export default function TerminalPanel({
       case 'warning':
         return '⚠'
       case 'command':
-        return '>'
+        return '›'
       default:
         return '●'
     }
@@ -119,36 +119,36 @@ export default function TerminalPanel({
 
   return (
     <div
-      className={`flex flex-col bg-gray-900 border-t border-gray-700 ${isResizing ? 'select-none' : ''}`}
+      className={`flex flex-col bg-mac-panel border-t border-glass-border ${isResizing ? 'select-none' : ''}`}
       style={{ height: isCollapsed ? 'auto' : height }}
     >
       {/* Resize Handle */}
       {!isCollapsed && (
         <div
-          className="h-1 bg-gray-700 hover:bg-accent cursor-ns-resize transition-colors"
+          className="h-1 bg-glass-border hover:bg-accent cursor-ns-resize transition-colors"
           onMouseDown={handleResizeStart}
         />
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1 bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center space-x-2">
+      <div className="flex items-center justify-between px-3 py-2 bg-glass/50 border-b border-glass-border">
+        <div className="flex items-center gap-2">
           <Terminal size={14} className="text-accent" />
-          <span className="text-xs font-semibold text-gray-300">Terminal Output</span>
-          <span className="text-xs text-gray-500">({entries.length} entries)</span>
+          <span className="text-xs font-semibold text-text-primary">Terminal</span>
+          <span className="text-xs text-text-tertiary px-1.5 py-0.5 bg-glass rounded-mac">({entries.length})</span>
         </div>
 
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1">
           <button
             onClick={onClear}
-            className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+            className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
             title="Clear Output"
           >
             <Trash2 size={14} />
           </button>
           <button
             onClick={toggleCollapse}
-            className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+            className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
             title={isCollapsed ? 'Expand' : 'Collapse'}
           >
             {isCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -156,7 +156,7 @@ export default function TerminalPanel({
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+              className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
               title="Close"
             >
               <X size={14} />
@@ -169,20 +169,20 @@ export default function TerminalPanel({
       {!isCollapsed && (
         <div
           ref={outputRef}
-          className="flex-1 overflow-y-auto font-mono text-xs p-2 space-y-1"
+          className="flex-1 overflow-y-auto font-mono text-xs p-3 space-y-1.5 bg-mac-bg/50"
         >
           {entries.map((entry) => (
-            <div key={entry.id} className="flex items-start">
-              <span className="text-gray-500 mr-2 shrink-0">
+            <div key={entry.id} className="flex items-start gap-2">
+              <span className="text-text-tertiary shrink-0 tabular-nums">
                 [{formatTime(entry.timestamp)}]
               </span>
-              <span className={`mr-2 shrink-0 ${getEntryColor(entry.type)}`}>
+              <span className={`shrink-0 font-bold ${getEntryColor(entry.type)}`}>
                 {getEntryIcon(entry.type)}
               </span>
-              <div className="flex-1">
-                <span className={getEntryColor(entry.type)}>{entry.message}</span>
+              <div className="flex-1 min-w-0">
+                <span className={`${getEntryColor(entry.type)} leading-relaxed`}>{entry.message}</span>
                 {entry.details && (
-                  <pre className="mt-1 p-2 bg-gray-800 rounded text-gray-400 whitespace-pre-wrap overflow-x-auto">
+                  <pre className="mt-1.5 p-3 bg-glass/50 rounded-mac text-text-secondary whitespace-pre-wrap overflow-x-auto text-xs border border-glass-border">
                     {entry.details}
                   </pre>
                 )}

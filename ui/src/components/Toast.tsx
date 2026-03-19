@@ -69,9 +69,9 @@ function ToastItem({ toast, onDismiss }: ToastProps) {
   return (
     <div
       className={cn(
-        'flex items-start gap-3 p-4 rounded-lg border shadow-lg',
+        'flex items-start gap-3 p-4 rounded-mac-xl border shadow-mac',
         'animate-in slide-in-from-right-full fade-in',
-        'bg-panel-bg',
+        'bg-mac-panel/95 backdrop-blur-xl',
         colors.bg,
         colors.border
       )}
@@ -81,12 +81,12 @@ function ToastItem({ toast, onDismiss }: ToastProps) {
       <div className="flex-1 min-w-0">
         <p className={cn('font-medium text-sm', colors.title)}>{toast.title}</p>
         {toast.message && (
-          <p className="mt-1 text-sm text-text-secondary">{toast.message}</p>
+          <p className="mt-1 text-sm text-text-secondary leading-relaxed">{toast.message}</p>
         )}
       </div>
       <button
         onClick={() => onDismiss(toast.id)}
-        className="flex-shrink-0 p-1 rounded hover:bg-panel-border transition-colors"
+        className="flex-shrink-0 p-1 rounded-mac hover:bg-card-hover transition-colors"
         aria-label="Dismiss"
       >
         <X className="w-4 h-4 text-text-secondary" />

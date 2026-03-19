@@ -40,11 +40,13 @@ export default function SettingsPanel() {
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <div className="w-48 bg-panel-bg border-r border-panel-border">
-        <div className="p-4 border-b border-panel-border">
-          <div className="flex items-center space-x-2">
-            <SettingsIcon size={18} className="text-accent" />
-            <h2 className="text-lg font-semibold">Settings</h2>
+      <div className="w-52 bg-mac-panel/50 border-r border-glass-border">
+        <div className="p-4 border-b border-glass-border">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-accent/10 rounded-mac">
+              <SettingsIcon size={18} className="text-accent" />
+            </div>
+            <h2 className="text-lg font-semibold text-text-primary">Settings</h2>
           </div>
         </div>
         <nav className="p-2">
@@ -55,13 +57,13 @@ export default function SettingsPanel() {
               <button
                 key={section.id}
                 onClick={() => setActiveSection(section.id)}
-                className={`flex items-center w-full px-3 py-2 text-left text-sm rounded transition-colors ${
+                className={`w-full flex items-center px-3 py-2.5 my-0.5 text-left text-sm rounded-mac transition-all duration-200 ${
                   isActive
-                    ? 'bg-accent/20 text-accent'
-                    : 'text-text-secondary hover:bg-panel-border hover:text-text-primary'
+                    ? 'bg-accent-muted text-accent'
+                    : 'text-text-secondary hover:bg-card-hover hover:text-text-primary'
                 }`}
               >
-                <Icon size={16} className="mr-2" />
+                <Icon size={16} className={`mr-2.5 ${isActive ? 'text-accent' : ''}`} />
                 {section.label}
               </button>
             )
@@ -77,7 +79,7 @@ export default function SettingsPanel() {
               <select
                 value={settings.theme}
                 onChange={(e) => handleThemeChange(e.target.value as 'dark' | 'light' | 'system')}
-                className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                className="input-mac min-w-32"
               >
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
@@ -92,21 +94,24 @@ export default function SettingsPanel() {
               />
             </SettingRow>
 
-            <SettingRow label="Auto Save Delay (ms)">
-              <input
-                type="number"
-                value={settings.autoSaveDelay}
-                onChange={(e) =>
-                  updateSetting('autoSaveDelay', parseInt(e.target.value) || 1000)
-                }
-                className="w-32 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
-              />
+            <SettingRow label="Auto Save Delay">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={settings.autoSaveDelay}
+                  onChange={(e) =>
+                    updateSetting('autoSaveDelay', parseInt(e.target.value) || 1000)
+                  }
+                  className="input-mac w-24"
+                />
+                <span className="text-sm text-text-secondary">ms</span>
+              </div>
             </SettingRow>
 
-            <div className="mt-6 pt-4 border-t border-panel-border">
+            <div className="mt-8 pt-6 border-t border-glass-border">
               <button
                 onClick={handleResetSettings}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-text-primary border border-panel-border rounded hover:bg-panel-border transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-text-primary bg-glass hover:bg-card-hover border border-glass-border rounded-mac transition-colors"
               >
                 <RotateCcw size={14} />
                 Reset to Defaults
@@ -118,21 +123,24 @@ export default function SettingsPanel() {
         {activeSection === 'appearance' && (
           <SettingsSection title="Appearance">
             <SettingRow label="Font Size">
-              <input
-                type="number"
-                value={settings.fontSize}
-                onChange={(e) =>
-                  updateSetting('fontSize', parseInt(e.target.value) || 14)
-                }
-                className="w-20 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={settings.fontSize}
+                  onChange={(e) =>
+                    updateSetting('fontSize', parseInt(e.target.value) || 14)
+                  }
+                  className="input-mac w-20"
+                />
+                <span className="text-sm text-text-secondary">px</span>
+              </div>
             </SettingRow>
 
             <SettingRow label="Font Family">
               <select
                 value={settings.fontFamily}
                 onChange={(e) => updateSetting('fontFamily', e.target.value)}
-                className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                className="input-mac min-w-40"
               >
                 <option value="JetBrains Mono">JetBrains Mono</option>
                 <option value="Fira Code">Fira Code</option>
@@ -148,7 +156,7 @@ export default function SettingsPanel() {
                 onChange={(e) =>
                   updateSetting('tabSize', parseInt(e.target.value))
                 }
-                className="bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                className="input-mac"
               >
                 <option value={2}>2 spaces</option>
                 <option value={4}>4 spaces</option>
@@ -188,7 +196,7 @@ export default function SettingsPanel() {
                 onChange={(e) =>
                   updateSetting('apiEndpoint', e.target.value)
                 }
-                className="w-80 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                className="input-mac w-80"
               />
             </SettingRow>
 
@@ -198,12 +206,15 @@ export default function SettingsPanel() {
                 value={settings.apiKey}
                 onChange={(e) => updateSetting('apiKey', e.target.value)}
                 placeholder="Enter your API key"
-                className="w-80 bg-editor-bg border border-panel-border rounded px-3 py-2 text-sm"
+                className="input-mac w-80"
               />
             </SettingRow>
 
-            <div className="mt-4 p-3 bg-editor-bg border border-panel-border rounded text-sm text-text-secondary">
-              <p>Your API key is stored locally and never sent to our servers.</p>
+            <div className="mt-5 p-4 bg-glass border border-glass-border rounded-mac text-sm text-text-secondary">
+              <p className="flex items-start gap-2">
+                <Shield size={16} className="text-info mt-0.5 flex-shrink-0" />
+                Your API key is stored locally and never sent to our servers.
+              </p>
             </div>
           </SettingsSection>
         )}
@@ -228,15 +239,15 @@ export default function SettingsPanel() {
 
         {activeSection === 'about' && (
           <SettingsSection title="About Swarm Editor">
-            <div className="space-y-4">
-              <div className="text-center py-8">
-                <div className="text-4xl mb-2">🐝</div>
-                <h3 className="text-xl font-semibold">Swarm Editor</h3>
-                <p className="text-text-secondary">Version 0.1.0</p>
+            <div className="space-y-6">
+              <div className="text-center py-8 bg-glass/50 rounded-mac-xl">
+                <div className="text-5xl mb-3">🐝</div>
+                <h3 className="text-xl font-semibold text-text-primary">Swarm Editor</h3>
+                <p className="text-text-secondary text-sm mt-1">Version 0.1.0</p>
               </div>
 
-              <div className="bg-editor-bg border border-panel-border rounded p-4 text-sm text-text-secondary">
-                <p className="mb-2">
+              <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary leading-relaxed">
+                <p className="mb-3">
                   A multi-agent collaborative development environment with support
                   for ACP protocol, pair programming, and swarm orchestration.
                 </p>
@@ -250,7 +261,7 @@ export default function SettingsPanel() {
                 <p className="mt-2">
                   <a
                     href="https://github.com/swarm-editor/swarm-editor"
-                    className="text-accent hover:text-accent-hover"
+                    className="text-accent hover:text-accent-hover transition-colors"
                   >
                     GitHub Repository
                   </a>
@@ -262,16 +273,16 @@ export default function SettingsPanel() {
 
         {activeSection === 'network' && (
           <SettingsSection title="Network Settings">
-            <div className="text-sm text-text-secondary">
-              Network configuration options will be available here.
+            <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
+              <p>Network configuration options will be available here.</p>
             </div>
           </SettingsSection>
         )}
 
         {activeSection === 'security' && (
           <SettingsSection title="Security Settings">
-            <div className="text-sm text-text-secondary">
-              Security configuration options will be available here.
+            <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
+              <p>Security configuration options will be available here.</p>
             </div>
           </SettingsSection>
         )}
@@ -288,8 +299,8 @@ function SettingsSection({
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <h3 className="text-lg font-semibold mb-6">{title}</h3>
+    <div className="max-w-2xl">
+      <h3 className="text-lg font-semibold text-text-primary mb-6">{title}</h3>
       <div className="space-y-4">{children}</div>
     </div>
   )
@@ -303,8 +314,8 @@ function SettingRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between py-2">
-      <label className="text-sm">{label}</label>
+    <div className="flex items-center justify-between py-3 px-4 bg-glass/30 rounded-mac">
+      <label className="text-sm text-text-primary font-medium">{label}</label>
       {children}
     </div>
   )
@@ -320,14 +331,15 @@ function Toggle({
   return (
     <button
       onClick={() => onChange(!checked)}
-      className={`relative w-10 h-5 rounded-full transition-colors ${
-        checked ? 'bg-accent' : 'bg-panel-border'
+      className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+        checked ? 'bg-accent' : 'bg-glass border border-glass-border'
       }`}
     >
       <div
-        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-5' : 'translate-x-0.5'
+        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+          checked ? 'translate-x-5.5' : 'translate-x-0.5'
         }`}
+        style={{ transform: checked ? 'translateX(22px)' : 'translateX(2px)' }}
       />
     </button>
   )

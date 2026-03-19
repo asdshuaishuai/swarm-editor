@@ -612,9 +612,9 @@ describe('SwarmCard active styling', () => {
 
     render(<SwarmPanel />)
     // Find the card container
-    const swarmCard = screen.getByText('Active Card Swarm').closest('.rounded-lg')
+    const swarmCard = screen.getByText('Active Card Swarm').closest('.rounded-mac-xl')
     expect(swarmCard).not.toHaveClass('border-accent')
-    expect(swarmCard).toHaveClass('border-panel-border')
+    expect(swarmCard).toHaveClass('border-glass-border')
   })
 })
 
@@ -649,9 +649,9 @@ describe('SwarmCard component', () => {
       />
     )
 
-    const card = screen.getByText('Direct Test Swarm').closest('.rounded-lg')
+    const card = screen.getByText('Direct Test Swarm').closest('.rounded-mac-xl')
     expect(card).toHaveClass('border-accent')
-    expect(card).toHaveClass('bg-accent/10')
+    expect(card).toHaveClass('bg-accent-muted')
   })
 
   it('shows non-active styling when isActive is false', () => {
@@ -665,9 +665,9 @@ describe('SwarmCard component', () => {
       />
     )
 
-    const card = screen.getByText('Direct Test Swarm').closest('.rounded-lg')
+    const card = screen.getByText('Direct Test Swarm').closest('.rounded-mac-xl')
     expect(card).not.toHaveClass('border-accent')
-    expect(card).toHaveClass('border-panel-border')
+    expect(card).toHaveClass('border-glass-border')
   })
 
   it('calls onSelect when clicked', () => {

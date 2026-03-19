@@ -326,10 +326,9 @@ describe('AgentPanel with selected agent', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    // Check that capabilities text contains both capabilities
-    const capabilitiesText = screen.getByText(/Pair Programming/)
-    expect(capabilitiesText).toBeInTheDocument()
-    expect(capabilitiesText.textContent).toContain('Team Collaboration')
+    // Check that capabilities are displayed as separate badges
+    expect(screen.getByText('Pair Programming')).toBeInTheDocument()
+    expect(screen.getByText('Team Collaboration')).toBeInTheDocument()
   })
 })
 

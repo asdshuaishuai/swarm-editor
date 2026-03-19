@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
 import { useAppStore } from '../store/appStore'
-import { PanelLeft, Play, Save, ChevronRight, ChevronDown, Folder, FileText, X } from 'lucide-react'
+import { PanelLeft, Play, Save, ChevronRight, ChevronDown, Folder, FileText, X, Zap } from 'lucide-react'
 import { api, FileEntry } from '../services'
 import TerminalPanel, { TerminalEntry } from './TerminalPanel'
 import { logger } from '../utils'
@@ -27,7 +27,6 @@ main()
   const [showAgentSelector, setShowAgentSelector] = useState(false)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
 
-  // Helper function to add terminal entry
   const addTerminalEntry = useCallback((
     type: TerminalEntry['type'],
     message: string,
@@ -43,12 +42,10 @@ main()
     setTerminalEntries(prev => [...prev, entry])
   }, [])
 
-  // Helper function to clear terminal
   const clearTerminal = useCallback(() => {
     setTerminalEntries([])
   }, [])
 
-  // 加载工作区
   useEffect(() => {
     loadWorkspace()
   }, [])
@@ -67,7 +64,6 @@ main()
     }
   }
 
-  // 加载文件内容
   const loadFile = async (entry: FileEntry) => {
     if (entry.isDirectory) {
       toggleDir(entry)
@@ -87,7 +83,6 @@ main()
     }
   }
 
-  // 保存文件
   const handleSave = async () => {
     if (!currentFile) return
 
@@ -103,13 +98,11 @@ main()
     }
   }
 
-  // 运行代码
   const handleRun = () => {
     if (!currentFile) return
     setShowAgentSelector(true)
   }
 
-  // 执行代码（通过 Agent 或直接）
   const executeWithAgent = async (swarmId?: string) => {
     if (!currentFile) return
 
@@ -141,7 +134,6 @@ main()
     setShowAgentSelector(false)
   }
 
-  // 根据文件扩展名获取语言
   const getLanguageFromPath = (path: string): string => {
     const ext = path.split('.').pop()?.toLowerCase() || ''
     const langMap: Record<string, string> = {
@@ -166,7 +158,6 @@ main()
     }
   }
 
-  // 切换目录展开
   const toggleDir = async (entry: FileEntry) => {
     if (!entry.isDirectory) return
 
@@ -175,11 +166,9 @@ main()
       newExpanded.delete(entry.path)
     } else {
       newExpanded.add(entry.path)
-      // 如果目录还没有加载子节点，加载它们
       if (!entry.children || entry.children.length === 0) {
         try {
           const children = await api.fs.listDir(entry.path)
-          // 更新 fileTree
           const updateChildren = (entries: FileEntry[], path: string): FileEntry[] => {
             return entries.map(e => {
               if (e.path === path && e.isDirectory) {
@@ -200,7 +189,6 @@ main()
     setExpandedDirs(newExpanded)
   }
 
-  // 获取图标颜色
   const getIconColor = (filename: string): string => {
     const ext = filename.split('.').pop()?.toLowerCase() || ''
     const colorMap: Record<string, string> = {
@@ -214,40 +202,34 @@ main()
       'json': 'text-yellow-500',
       'md': 'text-blue-300',
     }
-    return colorMap[ext] || 'text-gray-500'
+    return colorMap[ext] || 'text-text-tertiary'
   }
 
-  // 渲染文件树
   const renderFileTree = (entries: FileEntry[], level: number = 0) => {
     return entries.map((entry) => {
       const isExpanded = expandedDirs.has(entry.path)
       const isActive = currentFile === entry.path
 
       const Icon = entry.isDirectory ? Folder : FileText
-      const iconColor = entry.isDirectory
-        ? 'text-yellow-500'
-        : getIconColor(entry.name)
-      const nameColor = entry.isDirectory
-        ? 'text-white'
-        : isActive
-          ? 'text-blue-400'
-          : 'text-gray-400'
+      const iconColor = entry.isDirectory ? 'text-accent' : getIconColor(entry.name)
 
       return (
         <div key={entry.path}>
-          <div
-            className={`flex items-center px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-700 rounded ${isActive ? 'bg-blue-900/50' : ''}`}
-            style={{ paddingLeft: `${level * 12 + 4}px` }}
+          <button
             onClick={() => loadFile(entry)}
+            className={`w-full flex items-center px-2 py-1.5 text-left text-sm transition-all duration-150 rounded-mac ${
+              isActive ? 'bg-accent-muted text-text-primary' : 'text-text-secondary hover:bg-card-hover hover:text-text-primary'
+            }`}
+            style={{ paddingLeft: `${level * 12 + 8}px` }}
           >
             {entry.isDirectory && (
               <span className="mr-1" onClick={(e) => { e.stopPropagation(); toggleDir(entry); }}>
                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </span>
             )}
-            <Icon size={14} className={`mr-1 ${iconColor}`} />
-            <span className={nameColor}>{entry.name}</span>
-          </div>
+            <Icon size={14} className={`mr-2 ${iconColor}`} />
+            <span className="truncate">{entry.name}</span>
+          </button>
           {entry.isDirectory && isExpanded && entry.children && entry.children.length > 0 && (
             <div>
               {renderFileTree(entry.children, level + 1)}
@@ -261,24 +243,24 @@ main()
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-2 py-1 bg-gray-900 border-b border-gray-700">
-        <div className="flex items-center space-x-2">
+      <div className="flex items-center justify-between px-4 py-2 bg-panel-bg/50 border-b border-glass-border">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setShowFileTree(!showFileTree)}
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1.5 hover:bg-card-hover rounded-mac transition-colors duration-200"
             title="Toggle File Tree"
           >
-            <PanelLeft size={16} />
+            <PanelLeft size={16} className="text-text-secondary" />
           </button>
 
-          <div className="flex items-center space-x-2 ml-2">
-            <span className="text-xs text-gray-400 truncate max-w-48">
+          <div className="flex items-center gap-3 ml-2">
+            <span className="text-sm text-text-primary font-medium truncate max-w-48">
               {currentFile ? currentFile.split('/').pop() : workspace.split('/').pop()}
             </span>
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-xs"
+              className="input-mac py-0.5 min-w-0"
             >
               <option value="typescript">TypeScript</option>
               <option value="javascript">JavaScript</option>
@@ -290,11 +272,11 @@ main()
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
             disabled={!currentFile || loading}
-            className="flex items-center space-x-1 px-2 py-1 hover:bg-gray-700 rounded text-xs disabled:opacity-50"
+            className="btn-secondary"
           >
             <Save size={14} />
             <span>Save</span>
@@ -303,7 +285,7 @@ main()
           <button
             onClick={handleRun}
             disabled={!currentFile || loading}
-            className="flex items-center space-x-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white"
+            className="btn-primary"
           >
             <Play size={14} />
             <span>Run</span>
@@ -315,13 +297,13 @@ main()
       <div className="flex flex-1 overflow-hidden">
         {/* File Tree */}
         {showFileTree && (
-          <div className="w-48 bg-gray-900 border-r border-gray-700 overflow-y-auto">
-            <div className="p-2 text-xs text-gray-400 font-semibold border-b border-gray-700">
-              EXPLORER
+          <div className="w-52 bg-panel-bg/30 border-r border-glass-border overflow-y-auto">
+            <div className="panel-header">
+              Explorer
             </div>
-            <div className="p-1">
+            <div className="p-2 space-y-0.5">
               {loading && fileTree.length === 0 ? (
-                <div className="text-xs text-gray-500 p-2">Loading...</div>
+                <div className="text-xs text-text-tertiary p-2">Loading...</div>
               ) : (
                 renderFileTree(fileTree, 0)
               )}
@@ -341,7 +323,7 @@ main()
               theme="vs-dark"
               options={{
                 fontSize: 14,
-                fontFamily: 'JetBrains Mono',
+                fontFamily: "'SF Mono', 'JetBrains Mono', Monaco, Menlo, monospace",
                 minimap: { enabled: true },
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
@@ -350,6 +332,7 @@ main()
                 lineNumbers: 'on',
                 renderWhitespace: 'selection',
                 bracketPairColorization: { enabled: true },
+                padding: { top: 16 },
               }}
             />
           </div>
@@ -364,40 +347,49 @@ main()
 
       {/* Agent Selector Modal */}
       {showAgentSelector && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-4 w-96 max-w-md">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-panel-bg border border-glass-border rounded-mac-xl p-4 w-96 max-w-md shadow-mac">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Select Execution Mode</h3>
+              <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                <Zap size={18} className="text-accent" />
+                Select Execution Mode
+              </h3>
               <button
                 onClick={() => setShowAgentSelector(false)}
-                className="text-gray-400 hover:text-white"
+                className="p-1 hover:bg-card-hover rounded-mac transition-colors"
               >
-                <X size={18} />
+                <X size={18} className="text-text-secondary" />
               </button>
             </div>
 
             <div className="space-y-2 mb-4">
-              {swarms.map((swarm) => (
-                <button
-                  key={swarm.id}
-                  onClick={() => executeWithAgent(swarm.id)}
-                  className="w-full text-left px-3 py-2 rounded hover:bg-gray-700 text-sm"
-                >
-                  <div className="font-medium">{swarm.name}</div>
-                  <div className="text-xs text-gray-400">
-                    {swarm.agents.length} agents • {swarm.topology}
-                  </div>
-                </button>
-              ))}
+              {swarms.length > 0 ? (
+                swarms.map((swarm) => (
+                  <button
+                    key={swarm.id}
+                    onClick={() => executeWithAgent(swarm.id)}
+                    className="w-full text-left px-4 py-3 rounded-mac hover:bg-card-hover transition-colors group"
+                  >
+                    <div className="font-medium text-text-primary">{swarm.name}</div>
+                    <div className="text-xs text-text-secondary mt-0.5">
+                      {swarm.agents.length} agents • {swarm.topology}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="text-sm text-text-tertiary py-2">
+                  No swarms available. Create one in the Swarm panel.
+                </div>
+              )}
             </div>
 
-            <div className="border-t border-gray-700 pt-2 mt-2">
+            <div className="border-t border-glass-border pt-3">
               <button
                 onClick={() => executeWithAgent(undefined)}
-                className="w-full text-left px-3 py-2 rounded hover:bg-gray-700 text-sm"
+                className="w-full text-left px-4 py-3 rounded-mac hover:bg-card-hover transition-colors"
               >
-                <div className="font-medium">Execute Directly</div>
-                <div className="text-xs text-gray-400">
+                <div className="font-medium text-text-primary">Execute Directly</div>
+                <div className="text-xs text-text-secondary mt-0.5">
                   Run without agent coordination
                 </div>
               </button>

@@ -1,15 +1,15 @@
 import { useAppStore } from '../store/appStore'
-import { Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { Wifi, WifiOff, Loader2, Zap } from 'lucide-react'
 
 export default function StatusBar() {
   const { connected, connecting, agents, activeSwarm, activeTeam } = useAppStore()
 
   return (
-    <div className="flex items-center justify-between px-4 py-1 bg-panel-bg border-t border-panel-border text-xs text-text-secondary">
+    <div className="flex items-center justify-between px-4 py-1.5 bg-mac-bg border-t border-glass-border text-xs">
       {/* Left Section */}
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center gap-4">
         {/* Connection Status */}
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1.5">
           {connecting ? (
             <Loader2 size={12} className="animate-spin text-warning" />
           ) : connected ? (
@@ -17,34 +17,38 @@ export default function StatusBar() {
           ) : (
             <WifiOff size={12} className="text-error" />
           )}
-          <span>{connecting ? 'Connecting...' : connected ? 'Connected' : 'Disconnected'}</span>
+          <span className="text-text-secondary">
+            {connecting ? 'Connecting...' : connected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
 
-        {/* Active Session */}
+        {/* Active Context */}
         {activeSwarm && (
-          <div className="flex items-center space-x-1">
-            <span className="text-info">Swarm:</span>
-            <span>{activeSwarm.name}</span>
+          <div className="flex items-center gap-1.5">
+            <Zap size={10} className="text-accent" />
+            <span className="text-text-secondary">
+              <span className="text-accent font-medium">{activeSwarm.name}</span>
+            </span>
           </div>
         )}
 
-        {activeTeam && (
-          <div className="flex items-center space-x-1">
-            <span className="text-info">Team:</span>
-            <span>{activeTeam.name}</span>
+        {activeTeam && !activeSwarm && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-text-secondary">
+              Team: <span className="text-text-primary">{activeTeam.name}</span>
+            </span>
           </div>
         )}
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center space-x-4">
-        {/* Agent Count */}
-        <div className="flex items-center space-x-1">
-          <span>Agents: {agents.length}</span>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1.5 text-text-secondary">
+          <span>{agents.length} agents</span>
         </div>
-
-        {/* Version */}
-        <div>v0.1.0</div>
+        <div className="text-text-tertiary">
+          v0.1.0
+        </div>
       </div>
     </div>
   )
