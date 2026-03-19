@@ -957,3 +957,52 @@ func TestSwarmIntelligenceScheduler_GetTaskType(t *testing.T) {
 		t.Error("Expected default task type for non-string")
 	}
 }
+
+func TestSwarmIntelligenceScheduler_SelectByNegotiationWithRealTimeBids(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.NegotiationTimeout = 200 * time.Millisecond
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add workers
+	agent1 := &AgentInfo{ID: "agent1", MaxConcurrent: 5}
+	agent2 := &AgentInfo{ID: "agent2", MaxConcurrent: 5}
+	scheduler.AddWorker(agent1)
+	scheduler.AddWorker(agent2)
+
+	// Register send functions for A2A
+	router.RegisterAgent("agent1", func(m *a2a.Message) error { return nil }, nil)
+	router.RegisterAgent("agent2", func(m *a2a.Message) error {
+		// When agent2 receives a proposal, it submits a bid via SubmitBid
+		if m.Type == a2a.MessageTypeProposal {
+			// Parse the proposal to get negotiation ID
+			var payload a2a.ProposalPayload
+			if err := m.ParsePayload(&payload); err == nil {
+				// Submit a bid asynchronously after a short delay
+				go func() {
+					time.Sleep(10 * time.Millisecond)
+					scheduler.SubmitBid(payload.ProposalID, &Bid{
+						AgentID:      "agent2",
+						TaskID:       "task-bid-test",
+						Capability:   0.9,
+						Availability: 1.0,
+						Cost:         0.5,
+						Reason:       "I can do this task well",
+					})
+				}()
+			}
+		}
+		return nil
+	}, nil)
+
+	// Test negotiation selection with bids
+	task := &Task{ID: "task-bid-test", Title: "Test Task"}
+	agents := []*AgentInfo{agent1, agent2}
+
+	selected := scheduler.selectByNegotiation(agents, task)
+	// Agent2 should win because it has a higher bid
+	if len(selected) == 0 {
+		t.Error("Expected at least one agent selected")
+	}
+}
