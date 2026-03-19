@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -105,7 +106,12 @@ func NewMessage(msgType MessageType, from, to string) *Message {
 
 // WithPayload sets the message payload
 func (m *Message) WithPayload(payload interface{}) *Message {
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		// Log the error but don't fail - store error info for debugging
+		m.Payload = json.RawMessage(fmt.Sprintf(`{"error": "failed to marshal payload: %s"}`, err.Error()))
+		return m
+	}
 	m.Payload = data
 	return m
 }
@@ -374,7 +380,8 @@ type SwarmCommandPayload struct {
 // ============================================================================
 
 func generateMessageID() string {
-	return fmt.Sprintf("msg_%d", time.Now().UnixNano())
+	// Add random suffix to avoid collisions in high-concurrency scenarios
+	return fmt.Sprintf("msg_%d_%08x", time.Now().UnixNano(), rand.Int63())
 }
 
 // ============================================================================

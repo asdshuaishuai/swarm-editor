@@ -76,9 +76,10 @@ type CoordinationTask struct {
 	Dependencies []string
 
 	// State
-	Status    string // "pending", "assigned", "running", "completed", "failed"
-	Progress  float64
-	StartedAt time.Time
+	Status      string // "pending", "assigned", "running", "completed", "failed"
+	Progress    float64
+	StartedAt   time.Time
+	CompletedAt time.Time // Time when task was completed or failed
 
 	// Results
 	Results map[string]*TaskResult
@@ -127,6 +128,7 @@ type CoordinatorConfig struct {
 	NegotiationTimeout time.Duration
 	PheromoneDecay     float64 // Decay rate per second
 	Strategy           SchedulingStrategy
+	MaxCompletedTasks  int // Maximum number of completed tasks to retain (0 = unlimited)
 }
 
 // NewCoordinator creates a new A2A coordinator
@@ -145,6 +147,9 @@ func NewCoordinator(config CoordinatorConfig, router *Router) *Coordinator {
 	}
 	if config.Strategy == "" {
 		config.Strategy = StrategyCollaborative
+	}
+	if config.MaxCompletedTasks <= 0 {
+		config.MaxCompletedTasks = 1000 // Default: retain last 1000 completed tasks
 	}
 
 	return &Coordinator{
@@ -739,8 +744,14 @@ func (c *Coordinator) handleTaskComplete(msg *Message) error {
 	if len(task.Results) >= len(task.AssignedTo) {
 		task.Status = "completed"
 		task.Progress = 1.0
+		task.CompletedAt = time.Now()
 		delete(c.runningTasks, task.ID)
 		c.completedTasks[task.ID] = task
+
+		// Clean up old completed tasks if limit is set
+		if c.config.MaxCompletedTasks > 0 && len(c.completedTasks) > c.config.MaxCompletedTasks {
+			c.cleanupOldCompletedTasks()
+		}
 
 		// Leave strong pheromone trail on success
 		c.leavePheromone(task.RequiredRole, task.ID)
@@ -1000,6 +1011,36 @@ func (c *Coordinator) decayPheromones() {
 		if trail.Strength <= 0 {
 			delete(c.pheromones, key)
 		}
+	}
+}
+
+// cleanupOldCompletedTasks removes old completed tasks to prevent memory leaks
+// Must be called with lock already held
+func (c *Coordinator) cleanupOldCompletedTasks() {
+	if c.config.MaxCompletedTasks <= 0 || len(c.completedTasks) <= c.config.MaxCompletedTasks {
+		return
+	}
+
+	// Find the oldest tasks to remove
+	type taskWithTime struct {
+		id   string
+		time time.Time
+	}
+
+	var tasks []taskWithTime
+	for id, task := range c.completedTasks {
+		tasks = append(tasks, taskWithTime{id: id, time: task.CompletedAt})
+	}
+
+	// Sort by completion time (oldest first)
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].time.Before(tasks[j].time)
+	})
+
+	// Remove oldest tasks until we're under the limit
+	toRemove := len(c.completedTasks) - c.config.MaxCompletedTasks
+	for i := 0; i < toRemove && i < len(tasks); i++ {
+		delete(c.completedTasks, tasks[i].id)
 	}
 }
 

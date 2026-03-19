@@ -4,6 +4,7 @@ package team
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -603,17 +604,18 @@ func (m *Manager) GetAllStats() []*TeamStats {
 }
 
 func generateTeamID() string {
-	return "team_" + time.Now().Format("20060102_150405.999999999")
+	// Use UnixNano for better precision and add random suffix to avoid collisions
+	return fmt.Sprintf("team_%d_%08x", time.Now().UnixNano(), rand.Int63())
 }
 
 func generateWorkspaceID() string {
-	return "ws_" + time.Now().Format("150405.999999999")
+	return fmt.Sprintf("ws_%d_%08x", time.Now().UnixNano(), rand.Int63())
 }
 
 func generateReviewID() string {
-	return "review_" + time.Now().Format("150405.999999999")
+	return fmt.Sprintf("review_%d_%08x", time.Now().UnixNano(), rand.Int63())
 }
 
 func generateCommentID() string {
-	return "comment_" + time.Now().Format("150405.999999999")
+	return fmt.Sprintf("comment_%d_%08x", time.Now().UnixNano(), rand.Int63())
 }
