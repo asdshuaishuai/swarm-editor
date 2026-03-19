@@ -282,8 +282,8 @@ pub struct SwarmTaskResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTaskResult {
     pub agent_id: String,
-    pub content: String,
-    pub success: bool,
+    pub status: String,
+    pub output: String,
     pub duration_ms: u64,
 }
 
@@ -1347,8 +1347,8 @@ async fn execute_swarm_task(
                     agent.id.clone(),
                     AgentTaskResult {
                         agent_id: agent.id.clone(),
-                        content: format!("Task processed by {}", agent.name),
-                        success: true,
+                        status: "completed".to_string(),
+                        output: format!("Task processed by {}", agent.name),
                         duration_ms: 100,
                     },
                 );
