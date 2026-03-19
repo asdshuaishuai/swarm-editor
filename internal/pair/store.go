@@ -4,6 +4,7 @@ package pair
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,7 +85,7 @@ func NewStore(basePath string) (*Store, error) {
 	// Load existing sessions
 	if err := store.loadAll(); err != nil {
 		// Non-fatal: just start with empty store
-		fmt.Printf("Warning: failed to load existing sessions: %v\n", err)
+		log.Printf("Warning: failed to load existing sessions: %v", err)
 	}
 
 	return store, nil
