@@ -4,6 +4,7 @@ package team
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -144,6 +145,8 @@ func (s *TeamScheduler) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.running = true
 
+	log.Printf("[TeamScheduler] Starting scheduler with mode: %s, max parallel: %d", s.config.Mode, s.config.MaxParallel)
+
 	s.wg.Add(1)
 	go s.schedulingLoop()
 
@@ -157,6 +160,7 @@ func (s *TeamScheduler) Stop() {
 		s.mu.Unlock()
 		return
 	}
+	log.Printf("[TeamScheduler] Stopping scheduler...")
 	s.running = false
 	if s.cancel != nil {
 		s.cancel()
@@ -164,6 +168,7 @@ func (s *TeamScheduler) Stop() {
 	s.mu.Unlock()
 
 	s.wg.Wait()
+	log.Printf("[TeamScheduler] Scheduler stopped")
 }
 
 // SubmitTask submits a task for scheduling
@@ -173,6 +178,7 @@ func (s *TeamScheduler) SubmitTask(task *ScheduledTask) error {
 
 	task.Status = "pending"
 	s.pendingTasks[task.ID] = task
+	log.Printf("[TeamScheduler] Task %s submitted, priority: %d", task.ID, task.Priority)
 
 	return nil
 }
