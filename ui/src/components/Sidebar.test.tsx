@@ -109,3 +109,60 @@ describe('Sidebar collapsed state', () => {
     expect(sidebar).toHaveClass('w-14')
   })
 })
+
+describe('Sidebar connection status', () => {
+  const mockToggleSidebar = vi.fn()
+  const mockSetActivePanel = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        sidebarCollapsed: false,
+        activePanel: 'editor',
+        toggleSidebar: mockToggleSidebar,
+        setActivePanel: mockSetActivePanel,
+        connected: false,
+        agents: [{ id: '1', name: 'Agent 1' }, { id: '2', name: 'Agent 2' }],
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows offline status when not connected', () => {
+    render(<Sidebar />)
+    expect(screen.getByText('Offline')).toBeInTheDocument()
+  })
+
+  it('shows correct agent count', () => {
+    render(<Sidebar />)
+    expect(screen.getByText('2 agents')).toBeInTheDocument()
+  })
+})
+
+describe('Sidebar collapsed with offline status', () => {
+  const mockToggleSidebar = vi.fn()
+  const mockSetActivePanel = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        sidebarCollapsed: true,
+        activePanel: 'editor',
+        toggleSidebar: mockToggleSidebar,
+        setActivePanel: mockSetActivePanel,
+        connected: false,
+        agents: [],
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows status dot in collapsed footer', () => {
+    const { container } = render(<Sidebar />)
+    // Check for the status-dot element
+    const statusDot = container.querySelector('.status-dot.offline')
+    expect(statusDot).toBeInTheDocument()
+  })
+})

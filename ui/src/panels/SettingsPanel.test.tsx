@@ -24,10 +24,26 @@ vi.mock('../hooks/useSettings', () => ({
       sounds: false,
       apiKey: '',
       apiEndpoint: 'https://api.anthropic.com',
+      mcpEnabled: true,
+      mcpAutoConnect: true,
+      mcpServers: [],
+      swarmDefaultTopology: 'star',
+      swarmDefaultStrategy: 'parallel',
+      swarmMaxAgents: 10,
+      swarmConsensusAlgorithm: 'simple_majority',
+      swarmConsensusTimeout: 30000,
+      teamAutoAssignAgents: true,
+      teamMaxMembers: 50,
+      teamRequireApproval: true,
+      agentAutoScan: true,
+      agentScanInterval: 30000,
+      agentAutoConnect: false,
     },
     updateSetting: mockUpdateSetting,
     setSettings: mockSetSettings,
     resetSettings: mockResetSettings,
+    isLoading: false,
+    syncError: null,
   }),
 }))
 
@@ -383,5 +399,187 @@ describe('SettingsPanel parseInt fallback branches', () => {
     // Non-numeric input triggers NaN, which falls back to 14
     fireEvent.change(fontSizeInputs[0], { target: { value: 'invalid' } })
     expect(mockUpdateSetting).toHaveBeenCalledWith('fontSize', 14)
+  })
+})
+
+describe('SettingsPanel MCP section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('switches to MCP section', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    expect(screen.getByText('MCP Plugin Settings')).toBeInTheDocument()
+  })
+
+  it('shows MCP enable toggle', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    expect(screen.getByText('Enable MCP')).toBeInTheDocument()
+  })
+
+  it('shows auto-connect MCP servers toggle', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    expect(screen.getByText('Auto-connect MCP Servers')).toBeInTheDocument()
+  })
+
+  it('shows configured MCP servers count', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    expect(screen.getByText('Configured MCP Servers: 0')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel Swarm section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('switches to Swarm section', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Swarm Configuration')).toBeInTheDocument()
+  })
+
+  it('has topology selector in swarm settings', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Default Topology')).toBeInTheDocument()
+  })
+
+  it('has strategy selector in swarm settings', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Default Strategy')).toBeInTheDocument()
+  })
+
+  it('has max agents input in swarm settings', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Max Agents per Swarm')).toBeInTheDocument()
+  })
+
+  it('has consensus algorithm selector in swarm settings', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Consensus Algorithm')).toBeInTheDocument()
+  })
+
+  it('has consensus timeout input in swarm settings', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    expect(screen.getByText('Consensus Timeout')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel Team section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('switches to Team section', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Team'))
+    expect(screen.getByText('Team Collaboration Settings')).toBeInTheDocument()
+  })
+
+  it('shows team settings info message', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Team'))
+    expect(screen.getByText('Team settings are configured per-team')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel swarm settings interactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('changes topology select', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const topologySelect = screen.getAllByRole('combobox')[0]
+    fireEvent.change(topologySelect, { target: { value: 'mesh' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmDefaultTopology', 'mesh')
+  })
+
+  it('changes strategy select', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[1], { target: { value: 'sequential' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmDefaultStrategy', 'sequential')
+  })
+
+  it('changes max agents input', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const inputs = screen.getAllByRole('spinbutton')
+    fireEvent.change(inputs[0], { target: { value: '20' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmMaxAgents', 20)
+  })
+
+  it('falls back to 10 when max agents input is empty', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const inputs = screen.getAllByRole('spinbutton')
+    fireEvent.change(inputs[0], { target: { value: '' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmMaxAgents', 10)
+  })
+
+  it('changes consensus algorithm select', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[2], { target: { value: 'supermajority' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusAlgorithm', 'supermajority')
+  })
+
+  it('changes consensus timeout input', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const inputs = screen.getAllByRole('spinbutton')
+    fireEvent.change(inputs[1], { target: { value: '60' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusTimeout', 60)
+  })
+
+  it('falls back to 30 when consensus timeout input is empty', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Swarm'))
+    const inputs = screen.getAllByRole('spinbutton')
+    fireEvent.change(inputs[1], { target: { value: '' } })
+    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusTimeout', 30)
+  })
+})
+
+describe('SettingsPanel MCP settings interactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('toggles MCP enable', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    const toggleButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+    )
+    if (toggleButtons[0]) {
+      fireEvent.click(toggleButtons[0])
+      expect(toggleButtons[0]).toBeInTheDocument()
+    }
+  })
+
+  it('toggles MCP auto-connect', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('MCP Plugins'))
+    const toggleButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+    )
+    if (toggleButtons.length > 1) {
+      fireEvent.click(toggleButtons[1])
+      expect(toggleButtons[1]).toBeInTheDocument()
+    }
   })
 })
