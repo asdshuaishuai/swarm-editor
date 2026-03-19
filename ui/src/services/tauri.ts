@@ -46,8 +46,8 @@ export interface ExecuteResult {
 /** Agent result data in task update */
 export interface AgentResultData {
   agent_id: string
-  content: string
-  success: boolean
+  status: string
+  output: string
   duration_ms: number
 }
 

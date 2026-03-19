@@ -604,8 +604,11 @@ pub struct SwarmSubmitTaskParams {
     #[serde(rename = "swarmId")]
     pub swarm_id: String,
     pub title: String,
-    pub prompt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Prompt content blocks - can be a simple text or complex content
+    pub prompt: Vec<ContentBlock>,
+    #[serde(default)]
     pub priority: Option<i32>,
 }
 
@@ -644,8 +647,8 @@ pub struct SwarmTaskResult {
 pub struct AgentTaskResult {
     #[serde(rename = "agentId")]
     pub agent_id: String,
-    pub content: String,
-    pub success: bool,
+    pub status: String,
+    pub output: String,
     #[serde(rename = "durationMs")]
     pub duration_ms: u64,
 }
@@ -663,13 +666,6 @@ pub struct SwarmStatusResult {
     #[serde(rename = "swarmId")]
     pub swarm_id: String,
     pub state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stats: Option<SwarmStatsData>,
-}
-
-/// Swarm stats data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SwarmStatsData {
     #[serde(rename = "agentCount")]
     pub agent_count: usize,
     #[serde(rename = "idleAgents")]
@@ -680,6 +676,8 @@ pub struct SwarmStatsData {
     pub pending_tasks: usize,
     #[serde(rename = "completedTasks")]
     pub completed_tasks: usize,
+    pub topology: String,
+    pub strategy: String,
 }
 
 #[cfg(test)]

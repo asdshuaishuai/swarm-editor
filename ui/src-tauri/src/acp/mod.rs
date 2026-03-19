@@ -4,7 +4,7 @@
 //! corresponding to the Go implementation in internal/acp/
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -47,6 +47,9 @@ pub type PendingRequest = oneshot::Sender<Result<Value, RpcError>>;
 pub type NotificationHandler = Box<dyn Fn(&str, Option<&Value>) + Send + Sync>;
 
 /// ACP Client for agent communication
+/// This struct is designed to be used behind an Arc since it manages
+/// async state. Clone is implemented to allow sharing across tasks.
+#[derive(Clone)]
 pub struct Client {
     /// Child process handle
     process: Arc<Mutex<Child>>,
@@ -472,8 +475,6 @@ impl ClientBuilder {
         Client::connect(&self.binary_path, &self.args, &self.envs).await
     }
 }
-
-use std::sync::atomic::AtomicBool;
 
 #[cfg(test)]
 mod tests {

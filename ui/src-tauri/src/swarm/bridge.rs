@@ -12,9 +12,9 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::acp::types::{
-    SwarmCreateParams, SwarmCreateResult, SwarmExecuteTaskParams, SwarmGetStatusParams,
-    SwarmStartParams, SwarmStatusResult, SwarmStopParams, SwarmSubmitTaskParams,
-    SwarmSubmitTaskResult, SwarmTaskResult,
+    ContentBlock, SwarmCreateParams, SwarmCreateResult, SwarmExecuteTaskParams,
+    SwarmGetStatusParams, SwarmStartParams, SwarmStatusResult, SwarmStopParams,
+    SwarmSubmitTaskParams, SwarmSubmitTaskResult, SwarmTaskResult,
 };
 use crate::acp::{Client, ClientBuilder, ClientError};
 
@@ -343,7 +343,15 @@ impl SwarmBridge {
         let params = SwarmSubmitTaskParams {
             swarm_id: swarm_id.to_string(),
             title: config.title.clone(),
-            prompt: config.prompt.clone(),
+            description: None,
+            prompt: vec![ContentBlock {
+                content_type: "text".to_string(),
+                text: Some(config.prompt.clone()),
+                image: None,
+                audio: None,
+                resource: None,
+                resource_link: None,
+            }],
             priority: config.priority,
         };
 
