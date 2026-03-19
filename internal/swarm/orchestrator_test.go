@@ -1280,3 +1280,62 @@ func TestSwarmCalculateConsensusNilProposal(t *testing.T) {
 		t.Errorf("Expected status 'disagreed' for nil proposal, got '%s'", result.Status)
 	}
 }
+
+func TestSwarmGetTask(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	// Add a task
+	task := &Task{
+		ID:    "task-1",
+		Title: "Test Task",
+		State: TaskStatePending,
+	}
+	swarm.tasks["task-1"] = task
+
+	// Test getting existing task
+	retrieved := swarm.GetTask("task-1")
+	if retrieved == nil {
+		t.Error("Expected to retrieve task-1")
+	}
+	if retrieved.Title != "Test Task" {
+		t.Errorf("Expected title 'Test Task', got '%s'", retrieved.Title)
+	}
+
+	// Test getting non-existent task
+	notFound := swarm.GetTask("non-existent")
+	if notFound != nil {
+		t.Error("Expected nil for non-existent task")
+	}
+}
+
+func TestSwarmGetTaskConcurrent(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	// Add tasks
+	for i := 0; i < 100; i++ {
+		swarm.tasks[string(rune(i))] = &Task{ID: string(rune(i))}
+	}
+
+	// Concurrent reads
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = swarm.GetTask(string(rune(j)))
+			}
+		}()
+	}
+	wg.Wait()
+}
