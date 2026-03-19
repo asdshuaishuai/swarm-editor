@@ -514,6 +514,42 @@ func TestCoordinatorCompleteTaskWithConsensus(t *testing.T) {
 	}
 }
 
+func TestCoordinatorCompleteTaskWithCallback(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	var callbackTask *CoordinationTask
+	var callbackResult *TaskResult
+	coord.OnTaskComplete(func(task *CoordinationTask, result *TaskResult) {
+		callbackTask = task
+		callbackResult = result
+	})
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"worker-1"},
+		Results: map[string]*TaskResult{
+			"worker-1": {AgentID: "worker-1", Content: "Done"},
+		},
+	}
+	coord.activeTasks["task-1"] = task
+
+	coord.completeTask(task)
+
+	// Verify callback was called
+	if callbackTask == nil {
+		t.Error("Expected callback to be called with task")
+	}
+
+	if callbackResult == nil {
+		t.Error("Expected callback to receive result")
+	}
+
+	if callbackResult.Content != "Done" {
+		t.Errorf("Expected result content 'Done', got '%s'", callbackResult.Content)
+	}
+}
+
 func TestCoordinatorRunConsensus(t *testing.T) {
 	config := CoordinatorConfig{
 		MaxConcurrent:    5,

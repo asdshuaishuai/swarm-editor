@@ -281,6 +281,32 @@ func TestCoordinatorPheromones(t *testing.T) {
 	}
 }
 
+func TestCoordinatorPheromoneExisting(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Deposit pheromone twice at same location
+	coordinator.leavePheromone("coding", "agent1")
+	initialStrength := coordinator.pheromones["coding:agent1"].Strength
+
+	// Deposit again - should increase strength
+	coordinator.leavePheromone("coding", "agent1")
+	newStrength := coordinator.pheromones["coding:agent1"].Strength
+
+	if newStrength <= initialStrength {
+		t.Errorf("Expected strength to increase, got %f -> %f", initialStrength, newStrength)
+	}
+
+	// Test strength cap at 1.0
+	for i := 0; i < 10; i++ {
+		coordinator.leavePheromone("coding", "agent1")
+	}
+
+	if coordinator.pheromones["coding:agent1"].Strength > 1.0 {
+		t.Errorf("Strength should be capped at 1.0, got %f", coordinator.pheromones["coding:agent1"].Strength)
+	}
+}
+
 func TestCoordinatorCallbacks(t *testing.T) {
 	router := NewRouter(RouterConfig{})
 	coordinator := NewCoordinator(CoordinatorConfig{}, router)
