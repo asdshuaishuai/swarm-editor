@@ -38,6 +38,7 @@ type Coordinator struct {
 	running bool
 	ctx     context.Context
 	cancel  context.CancelFunc
+	wg      sync.WaitGroup // WaitGroup for background goroutines
 }
 
 // CoordinatorConfig configures the coordinator
@@ -172,6 +173,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	c.running = true
 
 	// Start message handling loops
+	c.wg.Add(2)
 	go c.coordinatorLoop()
 	go c.resultProcessingLoop()
 
@@ -190,6 +192,9 @@ func (c *Coordinator) Stop() {
 		c.cancel()
 	}
 	c.mu.Unlock()
+
+	// Wait for all background goroutines to finish
+	c.wg.Wait()
 }
 
 // SubmitTask submits a task for coordination
@@ -239,6 +244,7 @@ func (c *Coordinator) SubmitTask(ctx context.Context, task *CoordinationTask) er
 
 // coordinatorLoop is the main coordination loop
 func (c *Coordinator) coordinatorLoop() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -256,6 +262,7 @@ func (c *Coordinator) coordinatorLoop() {
 
 // resultProcessingLoop processes task results
 func (c *Coordinator) resultProcessingLoop() {
+	defer c.wg.Done()
 	for {
 		select {
 		case <-c.ctx.Done():

@@ -457,8 +457,12 @@ impl SwarmManager {
 
 /// 获取 Agent 配置目录
 fn get_config_dir() -> PathBuf {
-    let home = dirs::home_dir().expect("Failed to get home directory");
-    home.join(".swarm-editor")
+    // Try home directory first, fall back to current directory
+    dirs::home_dir()
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        })
+        .join(".swarm-editor")
 }
 
 /// 获取 Agent 配置文件路径

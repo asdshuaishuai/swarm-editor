@@ -46,6 +46,9 @@ type ConsensusEngine struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// WaitGroup for tracking cleanup goroutines
+	cleanupWg sync.WaitGroup
 }
 
 // ConsensusConfig configures the consensus engine
@@ -118,6 +121,9 @@ func (e *ConsensusEngine) Stop() {
 		e.cancel()
 	}
 	e.mu.Unlock()
+
+	// Wait for all cleanup goroutines to finish
+	e.cleanupWg.Wait()
 }
 
 // CreateProposal creates a new proposal for voting
@@ -547,7 +553,9 @@ func (e *ConsensusEngine) checkTimeouts() {
 			// Clean up completed proposals after a delay
 			// Capture ctx while holding the lock
 			ctx := e.ctx
+			e.cleanupWg.Add(1)
 			go func(proposalID string, engineCtx context.Context) {
+				defer e.cleanupWg.Done()
 				// Use a timer for cleanup
 				timer := time.NewTimer(5 * time.Minute)
 				defer timer.Stop()

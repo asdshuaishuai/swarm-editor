@@ -63,9 +63,10 @@ type AgentSession struct {
 	LastActive time.Time
 
 	// Content capture for prompt responses
-	mu      sync.Mutex
-	content []ContentBlock
-	done    chan struct{}
+	mu           sync.Mutex
+	content      []ContentBlock
+	done         chan struct{}
+	closeOnce    sync.Once // Ensures done channel is only closed once
 }
 
 // StartContentCapture initializes content capture for a prompt turn
@@ -86,10 +87,14 @@ func (s *AgentSession) AddContent(block ContentBlock) {
 // FinishContentCapture signals that content capture is complete
 func (s *AgentSession) FinishContentCapture() {
 	s.mu.Lock()
-	if s.done != nil {
-		close(s.done)
-	}
+	done := s.done
 	s.mu.Unlock()
+
+	if done != nil {
+		s.closeOnce.Do(func() {
+			close(done)
+		})
+	}
 }
 
 // WaitForContent waits for content capture to complete with timeout
