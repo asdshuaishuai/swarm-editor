@@ -472,6 +472,8 @@ function Toggle({
   return (
     <button
       onClick={() => onChange(!checked)}
+      role="switch"
+      aria-checked={checked}
       className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
         checked ? 'bg-accent' : 'bg-glass border border-glass-border'
       }`}
@@ -481,6 +483,7 @@ function Toggle({
           checked ? 'translate-x-5.5' : 'translate-x-0.5'
         }`}
         style={{ transform: checked ? 'translateX(22px)' : 'translateX(2px)' }}
+        aria-hidden="true"
       />
     </button>
   )
