@@ -11,6 +11,9 @@ import {
   calculateLoadBalanceEfficiency,
   getSchedulingStats,
   defaultSchedulingConfig,
+  getPriorityAdjustments,
+  resetSchedulingState,
+  recordTaskScheduled,
 } from './scheduling'
 import type { CoordinationTask } from '../types'
 
@@ -251,6 +254,186 @@ describe('scheduling service', () => {
       const load = updateAgentLoad('agent-1', 3, 5, 3600000) // 1 hour
       // First call uses the provided value directly (no previous average)
       expect(load.avgTaskDuration).toBeGreaterThan(0)
+    })
+  })
+
+  describe('priority adjustments history', () => {
+    it('returns empty array initially', () => {
+      resetSchedulingState()
+      const adjustments = getPriorityAdjustments()
+      expect(adjustments).toHaveLength(0)
+    })
+
+    it('returns priority adjustments after tasks are adjusted', () => {
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      adjustTaskPriority(task)
+      const adjustments = getPriorityAdjustments()
+      expect(adjustments.length).toBeGreaterThan(0)
+      expect(adjustments[0].taskId).toBe('task-1')
+    })
+
+    it('limits the number of returned adjustments', () => {
+      resetSchedulingState()
+      for (let i = 0; i < 50; i++) {
+        const task: CoordinationTask = {
+          id: `task-${i}`,
+          title: `Task ${i}`,
+          description: 'A test task',
+          prompt: 'Test',
+          priority: i,
+          status: 'pending',
+          assignedTo: [],
+          progress: 0,
+          results: {},
+          createdAt: new Date().toISOString(),
+        }
+        adjustTaskPriority(task)
+      }
+      const adjustments = getPriorityAdjustments(10)
+      expect(adjustments.length).toBeLessThanOrEqual(10)
+    })
+  })
+
+  describe('reset state', () => {
+    it('clears all agent loads', () => {
+      updateAgentLoad('agent-1', 3, 5)
+      resetSchedulingState()
+      const load = getAgentLoad('agent-1')
+      expect(load).toBeUndefined()
+    })
+
+    it('resets scheduling stats', () => {
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date(Date.now() - 100000).toISOString(),
+      }
+      updateSchedulingConfig({ starvationThreshold: 1000 })
+      adjustTaskPriority(task)
+
+      resetSchedulingState()
+
+      const stats = getSchedulingStats()
+      expect(stats.totalTasksScheduled).toBe(0)
+      expect(stats.avgWaitTime).toBe(0)
+      expect(stats.starvationPreventions).toBe(0)
+    })
+
+    it('clears priority adjustments', () => {
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      adjustTaskPriority(task)
+      resetSchedulingState()
+      const adjustments = getPriorityAdjustments()
+      expect(adjustments).toHaveLength(0)
+    })
+  })
+
+  describe('record task scheduled', () => {
+    it('increments total tasks scheduled', () => {
+      resetSchedulingState()
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      recordTaskScheduled(task, 'agent-1')
+      const stats = getSchedulingStats()
+      expect(stats.totalTasksScheduled).toBe(1)
+    })
+
+    it('updates average execution time', () => {
+      resetSchedulingState()
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      recordTaskScheduled(task, 'agent-1', 1000)
+      const stats = getSchedulingStats()
+      expect(stats.avgExecutionTime).toBeGreaterThan(0)
+    })
+
+    it('updates agent load when agent exists', () => {
+      resetSchedulingState()
+      updateAgentLoad('agent-1', 2, 5)
+
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      recordTaskScheduled(task, 'agent-1')
+
+      const load = getAgentLoad('agent-1')
+      expect(load?.currentTasks).toBe(3)
+    })
+
+    it('handles non-existent agent gracefully', () => {
+      resetSchedulingState()
+      const task: CoordinationTask = {
+        id: 'task-1',
+        title: 'Test Task',
+        description: 'A test task',
+        prompt: 'Test',
+        priority: 5,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date().toISOString(),
+      }
+      // Should not throw
+      expect(() => recordTaskScheduled(task, 'unknown-agent')).not.toThrow()
     })
   })
 })
