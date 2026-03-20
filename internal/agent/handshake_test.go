@@ -40,7 +40,7 @@ func TestHandshakeManagerGetConnection(t *testing.T) {
 
 	conn = hm.GetConnection("test-id")
 	if conn == nil {
-		t.Error("expected connection for test-id")
+		t.Fatal("expected connection for test-id")
 	}
 	if conn.Name != "Test Agent" {
 		t.Errorf("expected name 'Test Agent', got %q", conn.Name)
