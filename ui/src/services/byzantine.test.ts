@@ -205,6 +205,62 @@ describe('byzantine service', () => {
       const consensus = runConsensus('task-1', results, 3)
       expect(consensus).toBeDefined()
     })
+
+    it('handles Byzantine consensus with faulty nodes detected', () => {
+      updateByzantineConfig({ enabled: true })
+
+      // Initialize nodes and mark one as faulty
+      initializeNode('node-1')
+      initializeNode('node-2')
+      const state = getNodeState('node-2')
+      if (state) {
+        state.faultyNodesDetected = ['node-2']
+      }
+
+      const now = new Date().toISOString()
+      const results: Record<string, CoordinationTaskResult> = {
+        'node-1': { agentId: 'node-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'node-2': { agentId: 'node-2', content: 'result B', startedAt: now, completedAt: now, duration: 1000 },
+        'node-3': { agentId: 'node-3', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+      }
+
+      const consensus = runConsensus('task-2', results, 3)
+      expect(consensus).toBeDefined()
+    })
+
+    it('handles consensus with no agreement', () => {
+      updateByzantineConfig({ enabled: true })
+      const now = new Date().toISOString()
+      const results: Record<string, CoordinationTaskResult> = {
+        'agent-1': { agentId: 'agent-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-2': { agentId: 'agent-2', content: 'result B', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-3': { agentId: 'agent-3', content: 'result C', startedAt: now, completedAt: now, duration: 1000 },
+      }
+      const consensus = runConsensus('task-3', results, 3)
+      expect(consensus).toBeDefined()
+    })
+
+    it('handles Byzantine consensus with fault detection fallback', () => {
+      updateByzantineConfig({ enabled: true, maxFaultyNodes: 1 })
+
+      // Pre-initialize a node and mark it as faulty
+      initializeNode('agent-2')
+      const state = getNodeState('agent-2')
+      if (state) {
+        state.faultyNodesDetected = ['agent-2']
+        state.consecutiveFailures = 3
+      }
+
+      const now = new Date().toISOString()
+      const results: Record<string, CoordinationTaskResult> = {
+        'agent-1': { agentId: 'agent-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-2': { agentId: 'agent-2', content: 'malicious result', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-3': { agentId: 'agent-3', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+      }
+
+      const consensus = runConsensus('task-4', results, 3)
+      expect(consensus).toBeDefined()
+    })
   })
 
   describe('fault detection', () => {
