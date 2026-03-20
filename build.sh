@@ -93,9 +93,9 @@ if [ "$HAS_RUST" = true ]; then
         else
             echo "构建 Tauri 应用..."
             cd "$SCRIPT_DIR/ui"
-            npm run tauri build -- --bundles appimage
+            npm run tauri build -- --no-bundle
             echo -e "${GREEN}✓ Tauri 应用构建完成${NC}"
-            ls -la src-tauri/target/release/bundle/
+            ls -la src-tauri/target/release/swarm-editor
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::process::Command as TokioCommand;
 
 // ============================================================================
@@ -55,14 +55,17 @@ pub struct AgentSwarmConfig {
     pub priority: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentConfig {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -270,6 +273,8 @@ pub struct SwarmTaskRequest {
     pub priority: Option<i32>,
 }
 
+use acp::types::AgentTaskResult;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmTaskResult {
     pub task_id: String,
@@ -277,14 +282,6 @@ pub struct SwarmTaskResult {
     pub output: Option<String>,
     pub error: Option<String>,
     pub agent_results: std::collections::HashMap<String, AgentTaskResult>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTaskResult {
-    pub agent_id: String,
-    pub status: String,
-    pub output: String,
-    pub duration_ms: u64,
 }
 
 // ============================================================================
@@ -743,7 +740,10 @@ fn list_directory(path: &str) -> Result<Vec<FileEntry>, String> {
         Ok(dir_entries) => {
             for entry in dir_entries.flatten() {
                 let entry_path = entry.path();
-                let name = entry_path.file_name().to_string_lossy().to_string();
+                let name = entry_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 let is_dir = entry_path.is_dir();
 
                 let file_entry = FileEntry {

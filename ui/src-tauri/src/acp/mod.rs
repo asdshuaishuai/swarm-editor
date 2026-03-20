@@ -3,6 +3,10 @@
 //! This module implements the ACP client for communication with Go backend,
 //! corresponding to the Go implementation in internal/acp/
 
+// 子模块声明
+pub mod transport;
+pub mod types;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -224,7 +228,7 @@ impl Client {
     }
 
     /// Make a request and wait for response
-    async fn request<T, R>(&self, method: &str, params: T) -> Result<R, ClientError>
+    pub async fn request<T, R>(&self, method: &str, params: T) -> Result<R, ClientError>
     where
         T: Serialize,
         R: DeserializeOwned,

@@ -4,4 +4,7 @@
 
 mod bridge;
 
-pub use bridge::{SwarmBridge, SwarmBridgeError, SwarmInfo, TaskInfo};
+pub use bridge::{
+    SwarmBridge, SwarmBridgeError, SwarmConfig, SwarmInfo, SwarmTopology, TaskConfig,
+    TaskInfo, TaskStrategy,
+};
