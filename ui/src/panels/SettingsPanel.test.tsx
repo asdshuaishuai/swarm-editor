@@ -589,6 +589,17 @@ describe('SettingsPanel', () => {
   })
 
   describe('Network settings with proxy enabled', () => {
+    it('toggles Enable Proxy setting', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      // Find the Enable Proxy toggle
+      const enableProxyLabel = screen.getByText('Enable Proxy')
+      const toggle = enableProxyLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkProxyEnabled', true)
+    })
+
     it('shows proxy URL input when proxy is enabled', async () => {
       vi.mocked(useSettingsModule.useSettings).mockReturnValue({
         ...mockUseSettings,
@@ -597,6 +608,33 @@ describe('SettingsPanel', () => {
       render(<SettingsPanel />)
       await userEvent.click(screen.getByText('Network'))
       expect(screen.getByPlaceholderText('http://proxy.example.com:8080')).toBeInTheDocument()
+    })
+
+    it('types in proxy URL field', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      const proxyUrlInput = screen.getByPlaceholderText('http://proxy.example.com:8080')
+      await userEvent.type(proxyUrlInput, 'http://newproxy:8080')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles Proxy Authentication setting', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true, networkProxyAuth: false },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      // Find the Proxy Authentication toggle
+      const authLabel = screen.getByText('Proxy Authentication')
+      const toggle = authLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkProxyAuth', true)
     })
 
     it('shows proxy auth fields when auth is enabled', async () => {
@@ -609,6 +647,36 @@ describe('SettingsPanel', () => {
       // Check for username and password inputs by their container context
       const inputs = screen.getAllByRole('textbox')
       expect(inputs.length).toBeGreaterThan(0)
+    })
+
+    it('types in proxy username field', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true, networkProxyAuth: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      // Find username input by its label
+      const usernameLabel = screen.getByText('Username')
+      const usernameInput = usernameLabel.parentElement?.querySelector('input')
+      expect(usernameInput).toBeTruthy()
+      await userEvent.type(usernameInput!, 'testuser')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('types in proxy password field', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true, networkProxyAuth: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+
+      // Find the password input
+      const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
+      expect(passwordInput).toBeTruthy()
+      await userEvent.type(passwordInput, 'testpass')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
     })
 
     it('toggles proxy password visibility', async () => {
@@ -637,27 +705,39 @@ describe('SettingsPanel', () => {
     it('changes network timeout inputs', async () => {
       render(<SettingsPanel />)
       await userEvent.click(screen.getByText('Network'))
+      // Order of inputs: connection timeout, request timeout, retry attempts, retry delay
       const inputs = screen.getAllByRole('spinbutton')
-      await userEvent.clear(inputs[0])
-      await userEvent.type(inputs[0], '45')
-      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+      // Change connection timeout (inputs[0])
+      await userEvent.type(inputs[0], '0')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkConnectTimeout', expect.any(Number))
+
+      // Change request timeout (inputs[1])
+      await userEvent.type(inputs[1], '0') // Appends 0 to value
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkRequestTimeout', expect.any(Number))
     })
 
     it('changes network retry inputs', async () => {
       render(<SettingsPanel />)
       await userEvent.click(screen.getByText('Network'))
       const inputs = screen.getAllByRole('spinbutton')
-      await userEvent.clear(inputs[2])
-      await userEvent.type(inputs[2], '5')
-      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+      // Change retry attempts (inputs[2])
+      await userEvent.type(inputs[2], '0')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkRetryAttempts', expect.any(Number))
+
+      // Change retry delay (inputs[3])
+      await userEvent.type(inputs[3], '0') // Appends 0 to value
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkRetryDelay', expect.any(Number))
     })
 
     it('toggles SSL verify setting', async () => {
       render(<SettingsPanel />)
       await userEvent.click(screen.getByText('Network'))
-      const toggles = screen.getAllByRole('switch')
-      await userEvent.click(toggles[0])
-      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+      // Find the SSL verify toggle by its label
+      const sslLabel = screen.getByText('Verify SSL Certificates')
+      const toggle = sslLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('networkSslVerify', false)
     })
 
     it('changes SSL cert path input', async () => {
@@ -694,6 +774,18 @@ describe('SettingsPanel', () => {
       render(<SettingsPanel />)
       await userEvent.click(screen.getByText('Security'))
       expect(screen.getByPlaceholderText('~/.swarm-editor/key.pem')).toBeInTheDocument()
+    })
+
+    it('changes encryption key path input', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, securityEncryptLocalData: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+      const keyInput = screen.getByPlaceholderText('~/.swarm-editor/key.pem')
+      await userEvent.type(keyInput, '/custom/key.pem')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
     })
   })
 
