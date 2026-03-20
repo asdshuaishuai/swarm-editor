@@ -449,6 +449,36 @@ describe('useSettings', () => {
       expect(result.current.settings.fontSize).toBe(14)
     })
   })
+
+  describe('Tauri environment sync', () => {
+    it('should sync with backend when in Tauri environment', async () => {
+      // Mock Tauri environment
+      const { api } = await import('../services')
+      vi.mocked(api.isTauriEnv).mockReturnValue(true)
+
+      const { result } = renderHook(() => useSettings())
+
+      // Trigger a critical setting update that calls syncWithBackend
+      await act(async () => {
+        result.current.updateSetting('apiKey', 'test-key')
+      })
+
+      expect(result.current.settings.apiKey).toBe('test-key')
+    })
+
+    it('should set loading state during sync', async () => {
+      const { api } = await import('../services')
+      vi.mocked(api.isTauriEnv).mockReturnValue(true)
+
+      const { result } = renderHook(() => useSettings())
+
+      await act(async () => {
+        result.current.updateSetting('apiEndpoint', 'https://test.api.com')
+      })
+
+      expect(result.current.settings.apiEndpoint).toBe('https://test.api.com')
+    })
+  })
 })
 
 // Test SSR edge cases
