@@ -213,6 +213,37 @@ describe('useSettings', () => {
     })
   })
 
+  describe('security settings', () => {
+    it('should add an allowed IP range', () => {
+      const { result } = renderHook(() => useSettings())
+
+      expect(result.current.settings.securityAllowedIpRanges).toContain('127.0.0.1')
+
+      act(() => {
+        result.current.addAllowedIpRange('192.168.1.0/24')
+      })
+
+      expect(result.current.settings.securityAllowedIpRanges).toContain('192.168.1.0/24')
+      expect(result.current.settings.securityAllowedIpRanges).toHaveLength(3)
+    })
+
+    it('should remove an allowed IP range', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.addAllowedIpRange('192.168.1.0/24')
+      })
+
+      expect(result.current.settings.securityAllowedIpRanges).toContain('192.168.1.0/24')
+
+      act(() => {
+        result.current.removeAllowedIpRange('192.168.1.0/24')
+      })
+
+      expect(result.current.settings.securityAllowedIpRanges).not.toContain('192.168.1.0/24')
+    })
+  })
+
   describe('MCP server management', () => {
     it('should add an MCP server', () => {
       const { result } = renderHook(() => useSettings())
