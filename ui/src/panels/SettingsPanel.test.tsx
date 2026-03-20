@@ -818,4 +818,40 @@ describe('SettingsPanel', () => {
       expect(screen.queryByPlaceholderText('~/.swarm-editor/key.pem')).not.toBeInTheDocument()
     })
   })
+
+  describe('Security agent settings', () => {
+    it('toggles block unknown agents setting', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, securityBlockUnknownAgents: false },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+
+      // Find the toggle by its role
+      const toggles = screen.getAllByRole('switch')
+      // Find the one that corresponds to Block Unknown Agents by checking nearby text
+      const blockLabel = screen.getByText('Block Unknown Agents')
+      const toggle = blockLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('securityBlockUnknownAgents', true)
+    })
+
+    it('toggles agent sandboxing setting', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, securityAgentSandboxing: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+
+      // Find the toggle for Enable Agent Sandboxing
+      const sandboxLabel = screen.getByText('Enable Agent Sandboxing')
+      const toggle = sandboxLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('securityAgentSandboxing', false)
+    })
+  })
 })
