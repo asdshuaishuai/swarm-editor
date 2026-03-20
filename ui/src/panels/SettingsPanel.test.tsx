@@ -439,4 +439,289 @@ describe('SettingsPanel', () => {
       expect(mockUseSettings.updateSetting).toHaveBeenCalled()
     })
   })
+
+  describe('General settings interactions', () => {
+    it('changes theme selection', async () => {
+      render(<SettingsPanel />)
+      const themeSelect = screen.getByRole('combobox')
+      await userEvent.selectOptions(themeSelect, 'light')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('theme', 'light')
+      expect(mockUseTheme.setTheme).toHaveBeenCalledWith('light')
+    })
+
+    it('changes auto save delay input', async () => {
+      render(<SettingsPanel />)
+      const delayInput = screen.getByRole('spinbutton')
+      await userEvent.clear(delayInput)
+      await userEvent.type(delayInput, '2000')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('Appearance settings interactions', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Appearance'))
+    })
+
+    it('changes font size input', async () => {
+      const inputs = screen.getAllByRole('spinbutton')
+      const fontSizeInput = inputs[0]
+      await userEvent.clear(fontSizeInput)
+      await userEvent.type(fontSizeInput, '16')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes font family selection', async () => {
+      const selects = screen.getAllByRole('combobox')
+      const fontFamilySelect = selects[0]
+      await userEvent.selectOptions(fontFamilySelect, 'Fira Code')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('fontFamily', 'Fira Code')
+    })
+
+    it('changes tab size selection', async () => {
+      const selects = screen.getAllByRole('combobox')
+      const tabSizeSelect = selects[1]
+      await userEvent.selectOptions(tabSizeSelect, '4')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('tabSize', 4)
+    })
+
+    it('toggles minimap setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[0])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles line numbers setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[1])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles word wrap setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[2])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('API settings interactions', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('API Keys'))
+    })
+
+    it('changes API endpoint input', async () => {
+      const endpointInput = screen.getByDisplayValue('https://api.anthropic.com')
+      await userEvent.clear(endpointInput)
+      await userEvent.type(endpointInput, 'https://custom.api.com')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes API key input', async () => {
+      const keyInput = screen.getByPlaceholderText('Enter your API key')
+      await userEvent.type(keyInput, 'test-api-key')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('MCP settings interactions', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('MCP Plugins'))
+    })
+
+    it('toggles MCP enabled setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[0])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles MCP auto-connect setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[1])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('shows MCP servers count', () => {
+      expect(screen.getByText(/Configured MCP Servers:/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Swarm settings interactions', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Swarm'))
+    })
+
+    it('changes topology selection', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[0], 'mesh')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes strategy selection', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[1], 'sequential')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes max agents input', async () => {
+      const inputs = screen.getAllByRole('spinbutton')
+      await userEvent.clear(inputs[0])
+      await userEvent.type(inputs[0], '20')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes consensus algorithm selection', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[2], 'byzantine')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes consensus timeout input', async () => {
+      const inputs = screen.getAllByRole('spinbutton')
+      const timeoutInput = inputs[1]
+      await userEvent.clear(timeoutInput)
+      await userEvent.type(timeoutInput, '60')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('Network settings with proxy enabled', () => {
+    it('shows proxy URL input when proxy is enabled', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      expect(screen.getByPlaceholderText('http://proxy.example.com:8080')).toBeInTheDocument()
+    })
+
+    it('shows proxy auth fields when auth is enabled', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true, networkProxyAuth: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      // Check for username and password inputs by their container context
+      const inputs = screen.getAllByRole('textbox')
+      expect(inputs.length).toBeGreaterThan(0)
+    })
+
+    it('toggles proxy password visibility', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, networkProxyEnabled: true, networkProxyAuth: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+
+      // Find password input by type
+      const passwordInputs = document.querySelectorAll('input[type="password"]')
+      expect(passwordInputs.length).toBeGreaterThan(0)
+
+      // Find and click the visibility toggle button (the one with eye icon)
+      const buttons = screen.getAllByRole('button')
+      for (const btn of buttons) {
+        const svg = btn.querySelector('svg')
+        if (svg && btn.className.includes('absolute')) {
+          await userEvent.click(btn)
+          break
+        }
+      }
+    })
+
+    it('changes network timeout inputs', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      const inputs = screen.getAllByRole('spinbutton')
+      await userEvent.clear(inputs[0])
+      await userEvent.type(inputs[0], '45')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes network retry inputs', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      const inputs = screen.getAllByRole('spinbutton')
+      await userEvent.clear(inputs[2])
+      await userEvent.type(inputs[2], '5')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles SSL verify setting', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[0])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('changes SSL cert path input', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      const certInput = screen.getByPlaceholderText('/path/to/ca-bundle.crt')
+      await userEvent.type(certInput, '/path/to/cert')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('Security settings with audit log enabled', () => {
+    it('shows audit log path when enabled', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+      expect(screen.getByPlaceholderText('~/.swarm-editor/audit.log')).toBeInTheDocument()
+    })
+
+    it('changes audit log path input', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+      const pathInput = screen.getByPlaceholderText('~/.swarm-editor/audit.log')
+      await userEvent.type(pathInput, '/var/log/audit.log')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
+
+  describe('Security settings with encryption enabled', () => {
+    it('shows encryption key path when enabled', async () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        settings: { ...mockSettings, securityEncryptLocalData: true },
+      })
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+      expect(screen.getByPlaceholderText('~/.swarm-editor/key.pem')).toBeInTheDocument()
+    })
+  })
+
+  describe('Team section', () => {
+    it('shows team collaboration info', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Team'))
+      expect(screen.getByText('Team Collaboration Settings')).toBeInTheDocument()
+      expect(screen.getByText(/Team settings are configured per-team/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Notifications settings interactions', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Notifications'))
+    })
+
+    it('toggles notifications setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[0])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+
+    it('toggles sound effects setting', async () => {
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[1])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
+  })
 })
