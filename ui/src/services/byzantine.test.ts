@@ -159,7 +159,7 @@ describe('byzantine service', () => {
     })
 
     it('rejects message without signature in strict mode', () => {
-      updateByzantineConfig({ verificationMethod: 'cryptographic' })
+      updateByzantineConfig({ verificationMethod: 'signature' })
       const message: ByzantineMessage = {
         round: 1,
         senderId: 'node-1',
@@ -183,10 +183,11 @@ describe('byzantine service', () => {
 
   describe('consensus', () => {
     it('runs simple majority consensus when disabled', () => {
+      const now = new Date().toISOString()
       const results: Record<string, CoordinationTaskResult> = {
-        'agent-1': { content: 'result A', success: true },
-        'agent-2': { content: 'result A', success: true },
-        'agent-3': { content: 'result B', success: true },
+        'agent-1': { agentId: 'agent-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-2': { agentId: 'agent-2', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-3': { agentId: 'agent-3', content: 'result B', startedAt: now, completedAt: now, duration: 1000 },
       }
       const consensus = runConsensus('task-1', results, 3)
       expect(consensus).toBeDefined()
@@ -195,10 +196,11 @@ describe('byzantine service', () => {
 
     it('runs Byzantine consensus when enabled', () => {
       updateByzantineConfig({ enabled: true })
+      const now = new Date().toISOString()
       const results: Record<string, CoordinationTaskResult> = {
-        'agent-1': { content: 'result A', success: true },
-        'agent-2': { content: 'result A', success: true },
-        'agent-3': { content: 'result A', success: true },
+        'agent-1': { agentId: 'agent-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-2': { agentId: 'agent-2', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-3': { agentId: 'agent-3', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
       }
       const consensus = runConsensus('task-1', results, 3)
       expect(consensus).toBeDefined()

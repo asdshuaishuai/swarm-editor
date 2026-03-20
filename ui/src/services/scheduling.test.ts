@@ -116,9 +116,13 @@ describe('scheduling service', () => {
       const task: CoordinationTask = {
         id: 'task-1',
         title: 'Test Task',
+        description: 'A test task',
         prompt: 'Test',
         priority: 5,
         status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
         createdAt: new Date().toISOString(),
       }
       const adjustment = adjustTaskPriority(task)
@@ -131,9 +135,13 @@ describe('scheduling service', () => {
       const oldTask: CoordinationTask = {
         id: 'task-old',
         title: 'Old Task',
+        description: 'An old task',
         prompt: 'Test',
         priority: 10,
         status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
         createdAt: new Date(Date.now() - 60000).toISOString(), // 1 minute ago
       }
       const adjustment = adjustTaskPriority(oldTask)
@@ -146,9 +154,13 @@ describe('scheduling service', () => {
       const starvingTask: CoordinationTask = {
         id: 'task-starving',
         title: 'Starving Task',
+        description: 'A starving task',
         prompt: 'Test',
         priority: 5,
         status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
         createdAt: new Date(Date.now() - 100000).toISOString(), // 100 seconds ago
       }
       const adjustment = adjustTaskPriority(starvingTask)
@@ -158,10 +170,11 @@ describe('scheduling service', () => {
 
   describe('task sorting', () => {
     it('sorts tasks by priority', () => {
+      const now = new Date().toISOString()
       const tasks: CoordinationTask[] = [
-        { id: 'task-1', title: 'Low', prompt: 'Test', priority: 1, status: 'pending', createdAt: new Date().toISOString() },
-        { id: 'task-2', title: 'High', prompt: 'Test', priority: 10, status: 'pending', createdAt: new Date().toISOString() },
-        { id: 'task-3', title: 'Medium', prompt: 'Test', priority: 5, status: 'pending', createdAt: new Date().toISOString() },
+        { id: 'task-1', title: 'Low', description: 'Low priority task', prompt: 'Test', priority: 1, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
+        { id: 'task-2', title: 'High', description: 'High priority task', prompt: 'Test', priority: 10, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
+        { id: 'task-3', title: 'Medium', description: 'Medium priority task', prompt: 'Test', priority: 5, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
       ]
       const sorted = sortTasksByPriority(tasks)
       expect(sorted[0].id).toBe('task-2') // Highest priority first
@@ -207,9 +220,13 @@ describe('scheduling service', () => {
       const starvingTask: CoordinationTask = {
         id: 'task-starving',
         title: 'Starving Task',
+        description: 'A starving task',
         prompt: 'Test',
         priority: 5,
         status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
         createdAt: new Date(Date.now() - 100000).toISOString(),
       }
       adjustTaskPriority(starvingTask)
