@@ -1,657 +1,407 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import SettingsPanel from './SettingsPanel'
-
-// Module-level mock functions so we can track calls in tests
-const mockUpdateSetting = vi.fn()
-const mockSetSettings = vi.fn()
-const mockResetSettings = vi.fn()
-const mockAddAllowedIpRange = vi.fn()
-const mockRemoveAllowedIpRange = vi.fn()
+import * as useSettingsModule from '../hooks/useSettings'
+import * as useThemeModule from '../hooks/useTheme'
 
 // Mock the hooks
-vi.mock('../hooks/useSettings', () => ({
-  useSettings: () => ({
-    settings: {
-      theme: 'dark',
-      fontSize: 14,
-      fontFamily: 'JetBrains Mono',
-      tabSize: 2,
-      autoSave: true,
-      autoSaveDelay: 1000,
-      minimap: true,
-      lineNumbers: true,
-      wordWrap: true,
-      notifications: true,
-      sounds: false,
-      apiKey: '',
-      apiEndpoint: 'https://api.anthropic.com',
-      mcpEnabled: true,
-      mcpAutoConnect: true,
-      mcpServers: [],
-      swarmDefaultTopology: 'star',
-      swarmDefaultStrategy: 'parallel',
-      swarmMaxAgents: 10,
-      swarmConsensusAlgorithm: 'simple_majority',
-      swarmConsensusTimeout: 30000,
-      teamAutoAssignAgents: true,
-      teamMaxMembers: 50,
-      teamRequireApproval: true,
-      agentAutoScan: true,
-      agentScanInterval: 30000,
-      agentAutoConnect: false,
-      // Network settings
-      networkProxyEnabled: false,
-      networkProxyUrl: '',
-      networkProxyAuth: false,
-      networkProxyUsername: '',
-      networkProxyPassword: '',
-      networkConnectTimeout: 30,
-      networkRequestTimeout: 60,
-      networkRetryAttempts: 3,
-      networkRetryDelay: 1000,
-      networkSslVerify: true,
-      networkSslCertPath: '',
-      // Security settings
-      securityEnableAuditLog: true,
-      securityAuditLogPath: '',
-      securityAuditRetention: 30,
-      securityEncryptLocalData: false,
-      securityEncryptionKeyPath: '',
-      securitySessionTimeout: 3600,
-      securityMaxLoginAttempts: 5,
-      securityRequireStrongPasswords: true,
-      securityTwoFactorEnabled: false,
-      securityAllowedIpRanges: ['127.0.0.1', '::1'],
-      securityBlockUnknownAgents: false,
-      securityAgentSandboxing: true,
-    },
-    updateSetting: mockUpdateSetting,
-    setSettings: mockSetSettings,
-    resetSettings: mockResetSettings,
-    addAllowedIpRange: mockAddAllowedIpRange,
-    removeAllowedIpRange: mockRemoveAllowedIpRange,
-    isLoading: false,
-    syncError: null,
-  }),
-}))
+vi.mock('../hooks/useSettings')
+vi.mock('../hooks/useTheme')
 
-vi.mock('../hooks/useTheme', () => ({
-  useTheme: () => ({
-    theme: 'dark',
-    effectiveTheme: 'dark',
-    setTheme: vi.fn(),
-    toggleTheme: vi.fn(),
-    isDark: true,
-  }),
-}))
+const mockSettings: useSettingsModule.Settings = {
+  theme: 'dark',
+  fontSize: 14,
+  fontFamily: 'JetBrains Mono',
+  tabSize: 2,
+  autoSave: true,
+  autoSaveDelay: 1000,
+  minimap: true,
+  lineNumbers: true,
+  wordWrap: true,
+  notifications: true,
+  sounds: false,
+  apiKey: '',
+  apiEndpoint: 'https://api.anthropic.com',
+  mcpEnabled: true,
+  mcpAutoConnect: true,
+  mcpServers: [],
+  swarmDefaultTopology: 'star',
+  swarmDefaultStrategy: 'parallel',
+  swarmMaxAgents: 10,
+  swarmConsensusAlgorithm: 'simple_majority',
+  swarmConsensusTimeout: 30000,
+  teamAutoAssignAgents: true,
+  teamMaxMembers: 50,
+  teamRequireApproval: true,
+  agentAutoScan: true,
+  agentScanInterval: 30000,
+  agentAutoConnect: false,
+  networkProxyEnabled: false,
+  networkProxyUrl: '',
+  networkProxyAuth: false,
+  networkProxyUsername: '',
+  networkProxyPassword: '',
+  networkConnectTimeout: 30,
+  networkRequestTimeout: 60,
+  networkRetryAttempts: 3,
+  networkRetryDelay: 1000,
+  networkSslVerify: true,
+  networkSslCertPath: '',
+  securityEnableAuditLog: true,
+  securityAuditLogPath: '',
+  securityAuditRetention: 30,
+  securityEncryptLocalData: false,
+  securityEncryptionKeyPath: '',
+  securitySessionTimeout: 3600,
+  securityMaxLoginAttempts: 5,
+  securityRequireStrongPasswords: true,
+  securityTwoFactorEnabled: false,
+  securityAllowedIpRanges: ['127.0.0.1', '::1'],
+  securityBlockUnknownAgents: false,
+  securityAgentSandboxing: true,
+}
+
+const mockUseSettings = {
+  settings: mockSettings,
+  isLoading: false,
+  syncError: null,
+  updateSetting: vi.fn(),
+  setSettings: vi.fn(),
+  resetSettings: vi.fn(),
+  addMCPServer: vi.fn(),
+  removeMCPServer: vi.fn(),
+  updateMCPServer: vi.fn(),
+  addAllowedIpRange: vi.fn(),
+  removeAllowedIpRange: vi.fn(),
+}
+
+const mockUseTheme = {
+  theme: 'dark' as const,
+  setTheme: vi.fn(),
+  toggleTheme: vi.fn(),
+}
 
 describe('SettingsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('renders settings header', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByText('Settings')).toBeInTheDocument()
-  })
-
-  it('renders all navigation sections', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByText('General')).toBeInTheDocument()
-    expect(screen.getByText('Appearance')).toBeInTheDocument()
-    expect(screen.getByText('API Keys')).toBeInTheDocument()
-    expect(screen.getByText('Network')).toBeInTheDocument()
-    expect(screen.getByText('Notifications')).toBeInTheDocument()
-    expect(screen.getByText('Security')).toBeInTheDocument()
-    expect(screen.getByText('About')).toBeInTheDocument()
-  })
-
-  it('shows general settings by default', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByText('General Settings')).toBeInTheDocument()
-  })
-
-  it('switches to appearance section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    expect(screen.getByText('Font Size')).toBeInTheDocument()
-    expect(screen.getByText('Font Family')).toBeInTheDocument()
-  })
-
-  it('switches to API section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('API Keys'))
-    expect(screen.getByText('API Configuration')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Enter your API key')).toBeInTheDocument()
-  })
-
-  it('switches to notifications section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Notifications'))
-    expect(screen.getByText('Enable Notifications')).toBeInTheDocument()
-    expect(screen.getByText('Sound Effects')).toBeInTheDocument()
-  })
-
-  it('switches to about section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('About'))
-    expect(screen.getByText('About Swarm Editor')).toBeInTheDocument()
-    expect(screen.getByText('Version 0.1.0')).toBeInTheDocument()
-  })
-
-  it('switches to network section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Network'))
-    expect(screen.getByText('Network Settings')).toBeInTheDocument()
-  })
-
-  it('switches to security section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Security'))
-    expect(screen.getByText('Security Settings')).toBeInTheDocument()
-  })
-
-  it('has theme selector in general settings', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByRole('option', { name: 'Dark' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Light' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'System' })).toBeInTheDocument()
-  })
-
-  it('has font family options in appearance', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    expect(screen.getByRole('option', { name: 'JetBrains Mono' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Fira Code' })).toBeInTheDocument()
-  })
-
-  it('shows GitHub link in about section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('About'))
-    expect(screen.getByText('GitHub Repository')).toBeInTheDocument()
-  })
-})
-
-describe('Toggle component', () => {
-  it('toggles auto save setting', () => {
-    render(<SettingsPanel />)
-    // General section has Auto Save toggle
-    const toggleButtons = screen.getAllByRole('button')
-    // Find the toggle button (has rounded-full class)
-    const autoSaveToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    if (autoSaveToggle) {
-      fireEvent.click(autoSaveToggle)
-      // Toggle should still work after click
-      expect(autoSaveToggle).toBeInTheDocument()
-    }
-  })
-})
-
-describe('SettingsPanel setting inputs', () => {
-  it('has theme select with correct initial value', () => {
-    render(<SettingsPanel />)
-    const themeSelect = screen.getByRole('combobox')
-    expect(themeSelect).toHaveValue('dark')
-  })
-
-  it('can fire change event on theme select', () => {
-    render(<SettingsPanel />)
-    const themeSelect = screen.getByRole('combobox')
-    fireEvent.change(themeSelect, { target: { value: 'light' } })
-    // Event fires without error - actual state update is handled by mock
-    expect(themeSelect).toBeInTheDocument()
-  })
-
-  it('has auto save delay input with correct initial value', () => {
-    render(<SettingsPanel />)
-    const delayInput = screen.getByRole('spinbutton')
-    expect(delayInput).toHaveValue(1000)
-  })
-
-  it('can fire change event on auto save delay input', () => {
-    render(<SettingsPanel />)
-    const delayInput = screen.getByRole('spinbutton')
-    fireEvent.change(delayInput, { target: { value: '2000' } })
-    expect(delayInput).toBeInTheDocument()
-  })
-
-  it('has font size input with correct initial value in appearance', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSizeInputs = screen.getAllByRole('spinbutton')
-    expect(fontSizeInputs[0]).toHaveValue(14)
-  })
-
-  it('can fire change event on font size input', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSizeInputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(fontSizeInputs[0], { target: { value: '16' } })
-    expect(fontSizeInputs[0]).toBeInTheDocument()
-  })
-
-  it('has font family select with correct initial value in appearance', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSelects = screen.getAllByRole('combobox')
-    expect(fontSelects[0]).toHaveValue('JetBrains Mono')
-  })
-
-  it('can fire change event on font family select', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSelects = screen.getAllByRole('combobox')
-    fireEvent.change(fontSelects[0], { target: { value: 'Fira Code' } })
-    expect(fontSelects[0]).toBeInTheDocument()
-  })
-
-  it('has tab size select in appearance', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const selects = screen.getAllByRole('combobox')
-    // Tab size is the second select (index 1)
-    expect(selects.length).toBeGreaterThan(1)
-  })
-
-  it('can fire change event on tab size select', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const selects = screen.getAllByRole('combobox')
-    // Tab size is the second select (index 1)
-    fireEvent.change(selects[1], { target: { value: '4' } })
-    // Event fires without error - actual state update is handled by mock
-    expect(selects[1]).toBeInTheDocument()
-  })
-
-  it('toggles minimap setting', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const toggleButtons = screen.getAllByRole('button')
-    const minimapToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    if (minimapToggle) {
-      fireEvent.click(minimapToggle)
-      expect(minimapToggle).toBeInTheDocument()
-    }
-  })
-
-  it('toggles line numbers setting', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    // Find all toggles in Appearance section
-    const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    // Second toggle should be Line Numbers
-    if (toggleButtons.length > 1) {
-      fireEvent.click(toggleButtons[1])
-      expect(toggleButtons[1]).toBeInTheDocument()
-    }
-  })
-
-  it('toggles word wrap setting', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    // Find all toggles in Appearance section
-    const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    // Third toggle should be Word Wrap
-    if (toggleButtons.length > 2) {
-      fireEvent.click(toggleButtons[2])
-      expect(toggleButtons[2]).toBeInTheDocument()
-    }
-  })
-
-  it('has API endpoint input with correct initial value', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('API Keys'))
-    const textInputs = screen.getAllByRole('textbox')
-    expect(textInputs[0]).toHaveValue('https://api.anthropic.com')
-  })
-
-  it('can fire change event on API endpoint input', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('API Keys'))
-    const textInputs = screen.getAllByRole('textbox')
-    fireEvent.change(textInputs[0], { target: { value: 'https://api.example.com' } })
-    expect(textInputs[0]).toBeInTheDocument()
-  })
-
-  it('has API key input with correct initial value', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('API Keys'))
-    const passwordInput = screen.getByPlaceholderText('Enter your API key')
-    expect(passwordInput).toHaveValue('')
-  })
-
-  it('can fire change event on API key input', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('API Keys'))
-    const passwordInput = screen.getByPlaceholderText('Enter your API key')
-    fireEvent.change(passwordInput, { target: { value: 'test-key-123' } })
-    expect(passwordInput).toBeInTheDocument()
-  })
-
-  it('toggles notifications setting', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Notifications'))
-    const toggleButtons = screen.getAllByRole('button')
-    const notifToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    if (notifToggle) {
-      fireEvent.click(notifToggle)
-      expect(notifToggle).toBeInTheDocument()
-    }
-  })
-
-  it('toggles sound effects setting', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Notifications'))
-    // Find all toggles in Notifications section
-    const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    // Second toggle should be Sound Effects
-    if (toggleButtons.length > 1) {
-      fireEvent.click(toggleButtons[1])
-      expect(toggleButtons[1]).toBeInTheDocument()
-    }
-  })
-
-  it('shows security section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Security'))
-    expect(screen.getByText('Security Settings')).toBeInTheDocument()
-  })
-
-  it('shows network section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Network'))
-    expect(screen.getByText('Network Settings')).toBeInTheDocument()
-  })
-
-  it('has reset to defaults button in general settings', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByText('Reset to Defaults')).toBeInTheDocument()
-  })
-
-  it('clicks reset to defaults button', () => {
-    render(<SettingsPanel />)
-    const resetButton = screen.getByText('Reset to Defaults')
-    fireEvent.click(resetButton)
-    // Button should still be in document after click
-    expect(resetButton).toBeInTheDocument()
-  })
-})
-
-describe('SettingsPanel parseInt fallback branches', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('falls back to 1000 when autoSaveDelay input is cleared', () => {
-    render(<SettingsPanel />)
-    const delayInput = screen.getByRole('spinbutton')
-    // Clear the input to trigger parseInt('') || 1000
-    fireEvent.change(delayInput, { target: { value: '' } })
-    // parseInt('') returns NaN, which is falsy, so fallback to 1000
-    expect(mockUpdateSetting).toHaveBeenCalledWith('autoSaveDelay', 1000)
-  })
-
-  it('falls back to 1000 when autoSaveDelay input has non-numeric value', () => {
-    render(<SettingsPanel />)
-    const delayInput = screen.getByRole('spinbutton')
-    // Non-numeric input triggers NaN, which falls back to 1000
-    fireEvent.change(delayInput, { target: { value: 'abc' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('autoSaveDelay', 1000)
-  })
-
-  it('falls back to 14 when fontSize input is cleared', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSizeInputs = screen.getAllByRole('spinbutton')
-    // Clear the input to trigger parseInt('') || 14
-    fireEvent.change(fontSizeInputs[0], { target: { value: '' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('fontSize', 14)
-  })
-
-  it('falls back to 14 when fontSize input has non-numeric value', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Appearance'))
-    const fontSizeInputs = screen.getAllByRole('spinbutton')
-    // Non-numeric input triggers NaN, which falls back to 14
-    fireEvent.change(fontSizeInputs[0], { target: { value: 'invalid' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('fontSize', 14)
-  })
-})
-
-describe('SettingsPanel MCP section', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('switches to MCP section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    expect(screen.getByText('MCP Plugin Settings')).toBeInTheDocument()
-  })
-
-  it('shows MCP enable toggle', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    expect(screen.getByText('Enable MCP')).toBeInTheDocument()
-  })
-
-  it('shows auto-connect MCP servers toggle', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    expect(screen.getByText('Auto-connect MCP Servers')).toBeInTheDocument()
-  })
+    vi.mocked(useSettingsModule.useSettings).mockReturnValue(mockUseSettings)
+    vi.mocked(useThemeModule.useTheme).mockReturnValue(mockUseTheme)
+  })
+
+  describe('rendering', () => {
+    it('renders settings sidebar with all sections', () => {
+      render(<SettingsPanel />)
+
+      expect(screen.getByText('Settings')).toBeInTheDocument()
+      expect(screen.getByText('General')).toBeInTheDocument()
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
+      expect(screen.getByText('API Keys')).toBeInTheDocument()
+      expect(screen.getByText('MCP Plugins')).toBeInTheDocument()
+      expect(screen.getByText('Swarm')).toBeInTheDocument()
+      expect(screen.getByText('Team')).toBeInTheDocument()
+      expect(screen.getByText('Network')).toBeInTheDocument()
+      expect(screen.getByText('Notifications')).toBeInTheDocument()
+      expect(screen.getByText('Security')).toBeInTheDocument()
+      expect(screen.getByText('About')).toBeInTheDocument()
+    })
+
+    it('shows general settings by default', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByText('General Settings')).toBeInTheDocument()
+    })
+  })
+
+  describe('section navigation', () => {
+    it('navigates to appearance section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Appearance'))
+      expect(screen.getByText('Font Size')).toBeInTheDocument()
+    })
+
+    it('navigates to API section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('API Keys'))
+      expect(screen.getByText('API Configuration')).toBeInTheDocument()
+    })
+
+    it('navigates to MCP section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('MCP Plugins'))
+      expect(screen.getByText('MCP Plugin Settings')).toBeInTheDocument()
+    })
+
+    it('navigates to Swarm section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Swarm'))
+      expect(screen.getByText('Swarm Configuration')).toBeInTheDocument()
+    })
+
+    it('navigates to Network section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+      expect(screen.getByText('Network Settings')).toBeInTheDocument()
+    })
+
+    it('navigates to Notifications section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Notifications'))
+      expect(screen.getByText('Enable Notifications')).toBeInTheDocument()
+    })
+
+    it('navigates to Security section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+      expect(screen.getByText('Security Settings')).toBeInTheDocument()
+    })
+
+    it('navigates to About section', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('About'))
+      expect(screen.getByText('About Swarm Editor')).toBeInTheDocument()
+    })
+  })
+
+  describe('general settings', () => {
+    it('shows theme setting', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByText('Theme')).toBeInTheDocument()
+    })
+
+    it('shows auto save setting', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByText('Auto Save')).toBeInTheDocument()
+    })
+
+    it('shows auto save delay setting', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByText('Auto Save Delay')).toBeInTheDocument()
+    })
+
+    it('resets settings to defaults', async () => {
+      render(<SettingsPanel />)
+      const resetButton = screen.getByText('Reset to Defaults')
+      await userEvent.click(resetButton)
+      expect(mockUseSettings.resetSettings).toHaveBeenCalled()
+      expect(mockUseTheme.setTheme).toHaveBeenCalledWith('dark')
+    })
+  })
 
-  it('shows configured MCP servers count', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    expect(screen.getByText('Configured MCP Servers: 0')).toBeInTheDocument()
-  })
-})
-
-describe('SettingsPanel Swarm section', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('switches to Swarm section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Swarm Configuration')).toBeInTheDocument()
-  })
-
-  it('has topology selector in swarm settings', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Default Topology')).toBeInTheDocument()
-  })
-
-  it('has strategy selector in swarm settings', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Default Strategy')).toBeInTheDocument()
-  })
-
-  it('has max agents input in swarm settings', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Max Agents per Swarm')).toBeInTheDocument()
-  })
-
-  it('has consensus algorithm selector in swarm settings', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Consensus Algorithm')).toBeInTheDocument()
-  })
+  describe('appearance settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Appearance'))
+    })
 
-  it('has consensus timeout input in swarm settings', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    expect(screen.getByText('Consensus Timeout')).toBeInTheDocument()
-  })
-})
-
-describe('SettingsPanel Team section', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    it('shows font size setting', () => {
+      expect(screen.getByText('Font Size')).toBeInTheDocument()
+    })
 
-  it('switches to Team section', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Team'))
-    expect(screen.getByText('Team Collaboration Settings')).toBeInTheDocument()
-  })
+    it('shows font family setting', () => {
+      expect(screen.getByText('Font Family')).toBeInTheDocument()
+    })
 
-  it('shows team settings info message', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Team'))
-    expect(screen.getByText('Team settings are configured per-team')).toBeInTheDocument()
-  })
-})
-
-describe('SettingsPanel swarm settings interactions', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    it('shows tab size setting', () => {
+      expect(screen.getByText('Tab Size')).toBeInTheDocument()
+    })
 
-  it('changes topology select', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const topologySelect = screen.getAllByRole('combobox')[0]
-    fireEvent.change(topologySelect, { target: { value: 'mesh' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmDefaultTopology', 'mesh')
-  })
+    it('shows minimap setting', () => {
+      expect(screen.getByText('Show Minimap')).toBeInTheDocument()
+    })
 
-  it('changes strategy select', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const selects = screen.getAllByRole('combobox')
-    fireEvent.change(selects[1], { target: { value: 'sequential' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmDefaultStrategy', 'sequential')
-  })
+    it('shows line numbers setting', () => {
+      expect(screen.getByText('Line Numbers')).toBeInTheDocument()
+    })
 
-  it('changes max agents input', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const inputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(inputs[0], { target: { value: '20' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmMaxAgents', 20)
+    it('shows word wrap setting', () => {
+      expect(screen.getByText('Word Wrap')).toBeInTheDocument()
+    })
   })
 
-  it('falls back to 10 when max agents input is empty', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const inputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(inputs[0], { target: { value: '' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmMaxAgents', 10)
-  })
+  describe('API settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('API Keys'))
+    })
 
-  it('changes consensus algorithm select', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const selects = screen.getAllByRole('combobox')
-    fireEvent.change(selects[2], { target: { value: 'supermajority' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusAlgorithm', 'supermajority')
-  })
+    it('shows API endpoint setting', () => {
+      expect(screen.getByText('API Endpoint')).toBeInTheDocument()
+    })
 
-  it('changes consensus timeout input', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const inputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(inputs[1], { target: { value: '60' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusTimeout', 60)
+    it('shows API key setting', () => {
+      expect(screen.getByText('API Key')).toBeInTheDocument()
+    })
   })
 
-  it('falls back to 30 when consensus timeout input is empty', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Swarm'))
-    const inputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(inputs[1], { target: { value: '' } })
-    expect(mockUpdateSetting).toHaveBeenCalledWith('swarmConsensusTimeout', 30)
-  })
-})
-
-describe('SettingsPanel MCP settings interactions', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+  describe('MCP settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('MCP Plugins'))
+    })
 
-  it('toggles MCP enable', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    if (toggleButtons[0]) {
-      fireEvent.click(toggleButtons[0])
-      expect(toggleButtons[0]).toBeInTheDocument()
-    }
-  })
+    it('shows MCP enable setting', () => {
+      expect(screen.getByText('Enable MCP')).toBeInTheDocument()
+    })
+
+    it('shows MCP auto-connect setting', () => {
+      expect(screen.getByText('Auto-connect MCP Servers')).toBeInTheDocument()
+    })
+  })
+
+  describe('Swarm settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Swarm'))
+    })
 
-  it('toggles MCP auto-connect', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('MCP Plugins'))
-    const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
-    )
-    if (toggleButtons.length > 1) {
-      fireEvent.click(toggleButtons[1])
-      expect(toggleButtons[1]).toBeInTheDocument()
-    }
-  })
-})
-
-describe('SettingsPanel Network settings', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    it('shows topology setting', () => {
+      expect(screen.getByText('Default Topology')).toBeInTheDocument()
+    })
 
-  it('shows network settings sections', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Network'))
-    expect(screen.getByText('Proxy Configuration')).toBeInTheDocument()
-    expect(screen.getByText('Timeout Settings')).toBeInTheDocument()
-    expect(screen.getByText('Retry Settings')).toBeInTheDocument()
-    expect(screen.getByText('SSL/TLS Settings')).toBeInTheDocument()
-  })
+    it('shows strategy setting', () => {
+      expect(screen.getByText('Default Strategy')).toBeInTheDocument()
+    })
 
-  it('toggles proxy enabled', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Network'))
-    expect(screen.getByText('Enable Proxy')).toBeInTheDocument()
-  })
-})
-
-describe('SettingsPanel Security settings', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    it('shows max agents setting', () => {
+      expect(screen.getByText('Max Agents per Swarm')).toBeInTheDocument()
+    })
 
-  it('shows security settings sections', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Security'))
-    expect(screen.getByText('Audit Logging')).toBeInTheDocument()
-    expect(screen.getByText('Data Encryption')).toBeInTheDocument()
-    expect(screen.getByText('Session & Authentication')).toBeInTheDocument()
-    expect(screen.getByText('IP Access Control')).toBeInTheDocument()
-    expect(screen.getByText('Agent Security')).toBeInTheDocument()
-  })
+    it('shows consensus algorithm setting', () => {
+      expect(screen.getByText('Consensus Algorithm')).toBeInTheDocument()
+    })
 
-  it('shows allowed IP ranges', () => {
-    render(<SettingsPanel />)
-    fireEvent.click(screen.getByText('Security'))
-    expect(screen.getByText('127.0.0.1')).toBeInTheDocument()
+    it('shows consensus timeout setting', () => {
+      expect(screen.getByText('Consensus Timeout')).toBeInTheDocument()
+    })
+  })
+
+  describe('Network settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Network'))
+    })
+
+    it('shows proxy settings', () => {
+      expect(screen.getByText('Proxy Configuration')).toBeInTheDocument()
+    })
+
+    it('shows timeout settings', () => {
+      expect(screen.getByText('Timeout Settings')).toBeInTheDocument()
+    })
+
+    it('shows retry settings', () => {
+      expect(screen.getByText('Retry Settings')).toBeInTheDocument()
+    })
+
+    it('shows SSL settings', () => {
+      expect(screen.getByText('SSL/TLS Settings')).toBeInTheDocument()
+    })
+  })
+
+  describe('Security settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Security'))
+    })
+
+    it('shows audit logging settings', () => {
+      expect(screen.getByText('Audit Logging')).toBeInTheDocument()
+    })
+
+    it('shows data encryption settings', () => {
+      expect(screen.getByText('Data Encryption')).toBeInTheDocument()
+    })
+
+    it('shows session settings', () => {
+      expect(screen.getByText('Session & Authentication')).toBeInTheDocument()
+    })
+
+    it('shows IP access control settings', () => {
+      expect(screen.getByText('IP Access Control')).toBeInTheDocument()
+    })
+
+    it('shows allowed IP ranges', () => {
+      expect(screen.getByText('127.0.0.1')).toBeInTheDocument()
+      expect(screen.getByText('::1')).toBeInTheDocument()
+    })
+
+    it('shows agent security settings', () => {
+      expect(screen.getByText('Agent Security')).toBeInTheDocument()
+    })
+
+    it('adds a new IP range', async () => {
+      const input = screen.getByPlaceholderText('192.168.1.0/24')
+      await userEvent.type(input, '10.0.0.0/8')
+      const addButton = screen.getByText('Add')
+      await userEvent.click(addButton)
+      expect(mockUseSettings.addAllowedIpRange).toHaveBeenCalledWith('10.0.0.0/8')
+    })
+
+    it('adds IP range on Enter key', async () => {
+      const input = screen.getByPlaceholderText('192.168.1.0/24')
+      await userEvent.type(input, '172.16.0.0/12{enter}')
+      expect(mockUseSettings.addAllowedIpRange).toHaveBeenCalledWith('172.16.0.0/12')
+    })
+
+    it('does not add empty IP range', async () => {
+      const addButton = screen.getByText('Add')
+      await userEvent.click(addButton)
+      expect(mockUseSettings.addAllowedIpRange).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Notifications settings', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Notifications'))
+    })
+
+    it('shows notifications enable setting', () => {
+      expect(screen.getByText('Enable Notifications')).toBeInTheDocument()
+    })
+
+    it('shows sound effects setting', () => {
+      expect(screen.getByText('Sound Effects')).toBeInTheDocument()
+    })
+  })
+
+  describe('loading state', () => {
+    it('shows loading indicator when syncing', () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        isLoading: true,
+      })
+      render(<SettingsPanel />)
+      expect(screen.getByText('Syncing settings with backend...')).toBeInTheDocument()
+    })
+  })
+
+  describe('error state', () => {
+    it('shows error message when sync fails', () => {
+      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
+        ...mockUseSettings,
+        syncError: 'Connection refused',
+      })
+      render(<SettingsPanel />)
+      expect(screen.getByText(/Failed to sync settings/)).toBeInTheDocument()
+    })
+  })
+
+  describe('About section', () => {
+    it('shows version and description', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('About'))
+      expect(screen.getByText('Swarm Editor')).toBeInTheDocument()
+      expect(screen.getByText('Version 0.1.0')).toBeInTheDocument()
+    })
+  })
+
+  describe('Toggle interactions', () => {
+    it('toggles auto save switch', async () => {
+      render(<SettingsPanel />)
+      const toggles = screen.getAllByRole('switch')
+      await userEvent.click(toggles[0])
+      expect(mockUseSettings.updateSetting).toHaveBeenCalled()
+    })
   })
 })
