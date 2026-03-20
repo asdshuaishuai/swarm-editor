@@ -270,6 +270,39 @@ describe('AgentConfigPanel form inputs', () => {
     expect(screen.getByText('Priority (1-10)')).toBeInTheDocument()
   })
 
+  it('closes modal when X button clicked', () => {
+    render(<AgentConfigPanel />)
+    fireEvent.click(screen.getByText('Add Agent'))
+    // Find the X button by its SVG icon container
+    const closeButton = document.querySelector('.hover\\:bg-card-hover.rounded-mac.transition-colors')
+    expect(closeButton).toBeInTheDocument()
+    fireEvent.click(closeButton!)
+    expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+  })
+
+  it('updates Max Concurrent Tasks input', () => {
+    render(<AgentConfigPanel />)
+    fireEvent.click(screen.getByText('Add Agent'))
+    // The number inputs in the modal
+    const numberInputs = screen.getAllByRole('spinbutton')
+    // First number input is Max Concurrent Tasks
+    expect(numberInputs.length).toBeGreaterThan(0)
+    const maxConcurrentInput = numberInputs[0]
+    fireEvent.change(maxConcurrentInput, { target: { value: '5' } })
+    expect(maxConcurrentInput).toHaveValue(5)
+  })
+
+  it('updates Priority input', () => {
+    render(<AgentConfigPanel />)
+    fireEvent.click(screen.getByText('Add Agent'))
+    const numberInputs = screen.getAllByRole('spinbutton')
+    // Second number input is Priority
+    expect(numberInputs.length).toBeGreaterThan(1)
+    const priorityInput = numberInputs[1]
+    fireEvent.change(priorityInput, { target: { value: '8' } })
+    expect(priorityInput).toHaveValue(8)
+  })
+
   it('shows all preferred role options', () => {
     render(<AgentConfigPanel />)
     fireEvent.click(screen.getByText('Add Agent'))
