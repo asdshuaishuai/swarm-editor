@@ -284,7 +284,6 @@ describe('byzantine service', () => {
       const state = getNodeState('agent-2')
       if (state) {
         state.faultyNodesDetected = ['agent-2']
-        state.consecutiveFailures = 3
       }
 
       const now = new Date().toISOString()
