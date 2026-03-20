@@ -9,6 +9,7 @@ bin/
 # Test coverage
 coverage.out
 coverage.html
+coverage/
 
 # Go workspace
 go.work
