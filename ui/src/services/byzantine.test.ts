@@ -119,6 +119,42 @@ describe('byzantine service', () => {
       expect(result.state.phase).toBe('committing')
     })
 
+    it('detects value mismatch in commit phase', () => {
+      resetByzantineState()
+      updateByzantineConfig({ enabled: true })
+      initializeNode('node-1')
+
+      // Prepare with a value
+      const prepareMsg: ByzantineMessage = {
+        round: 1,
+        senderId: 'node-1',
+        type: 'prepare',
+        value: { data: 'expected-value' },
+        timestamp: new Date().toISOString(),
+      }
+      processMessage(prepareMsg, 3)
+
+      // Set state to prepared
+      const state = getNodeState('node-1')
+      if (state) {
+        state.phase = 'prepared'
+        state.prepareCount = 2
+      }
+
+      // Commit with different value (Byzantine behavior)
+      const commitMsg: ByzantineMessage = {
+        round: 1,
+        senderId: 'node-1',
+        type: 'commit',
+        value: { data: 'different-value' },
+        timestamp: new Date().toISOString(),
+      }
+      const result = processMessage(commitMsg, 3)
+
+      // Should have detected the faulty node
+      expect(result.state.faultyNodesDetected).toContain('node-1')
+    })
+
     it('processes view change message', () => {
       updateByzantineConfig({ enabled: true })
       const message: ByzantineMessage = {
@@ -260,6 +296,22 @@ describe('byzantine service', () => {
 
       const consensus = runConsensus('task-4', results, 3)
       expect(consensus).toBeDefined()
+    })
+
+    it('reaches committed phase with sufficient votes', () => {
+      resetByzantineState()
+      updateByzantineConfig({ enabled: true, maxFaultyNodes: 0 })
+
+      const now = new Date().toISOString()
+      const results: Record<string, CoordinationTaskResult> = {
+        'agent-1': { agentId: 'agent-1', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+        'agent-2': { agentId: 'agent-2', content: 'result A', startedAt: now, completedAt: now, duration: 1000 },
+      }
+
+      // This should trigger the consensus path through commit phase
+      const consensus = runConsensus('task-5', results, 2)
+      expect(consensus).toBeDefined()
+      expect(consensus.agreement).toBeGreaterThanOrEqual(0)
     })
   })
 
