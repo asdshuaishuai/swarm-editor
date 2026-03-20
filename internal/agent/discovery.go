@@ -213,8 +213,16 @@ func (d *DiscoveryService) scanLoop() {
 	d.Scan()
 
 	for {
+		d.mu.RLock()
+		ctx := d.ctx
+		d.mu.RUnlock()
+
+		if ctx == nil {
+			return
+		}
+
 		select {
-		case <-d.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			d.Scan()
@@ -489,10 +497,18 @@ func (d *DiscoveryService) verifyAgent(agent *DiscoveredAgent) bool {
 		return agent.Status == DiscoveryStatusAvailable
 	}
 
-	ctx, cancel := context.WithTimeout(d.ctx, d.config.ScanTimeout)
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	verifyCtx, cancel := context.WithTimeout(ctx, d.config.ScanTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, agent.Command, "--help")
+	cmd := exec.CommandContext(verifyCtx, agent.Command, "--help")
 	return cmd.Run() == nil
 }
 
@@ -701,6 +717,14 @@ func (d *DiscoveryService) GetPending() []*RegistrationRequest {
 func (d *DiscoveryService) networkListener() {
 	defer d.wg.Done()
 
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+
+	if ctx == nil {
+		return
+	}
+
 	addr := fmt.Sprintf(":%d", d.config.BroadcastPort)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -712,7 +736,7 @@ func (d *DiscoveryService) networkListener() {
 	log.Printf("[Discovery] Network listener started on %s", addr)
 
 	go func() {
-		<-d.ctx.Done()
+		<-ctx.Done()
 		listener.Close()
 	}()
 
@@ -720,7 +744,7 @@ func (d *DiscoveryService) networkListener() {
 		conn, err := listener.Accept()
 		if err != nil {
 			select {
-			case <-d.ctx.Done():
+			case <-ctx.Done():
 				return
 			default:
 				continue
