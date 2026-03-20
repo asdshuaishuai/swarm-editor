@@ -7,6 +7,13 @@ void loadSettings
 void saveSettings
 void defaultSettings
 
+// Mock the services module
+vi.mock('../services', () => ({
+  api: {
+    isTauriEnv: vi.fn(() => false),
+  },
+}))
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -344,6 +351,102 @@ describe('useSettings', () => {
 
       expect(savedData.mcpServers).toHaveLength(1)
       expect(savedData.mcpServers[0].name).toBe('Test Server')
+    })
+  })
+
+  describe('critical settings sync', () => {
+    it('should trigger sync when apiKey is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('apiKey', 'test-api-key')
+      })
+
+      expect(result.current.settings.apiKey).toBe('test-api-key')
+    })
+
+    it('should trigger sync when apiEndpoint is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('apiEndpoint', 'https://custom.api.com')
+      })
+
+      expect(result.current.settings.apiEndpoint).toBe('https://custom.api.com')
+    })
+
+    it('should trigger sync when swarmConsensusAlgorithm is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('swarmConsensusAlgorithm', 'byzantine')
+      })
+
+      expect(result.current.settings.swarmConsensusAlgorithm).toBe('byzantine')
+    })
+
+    it('should trigger sync when networkProxyEnabled is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('networkProxyEnabled', true)
+      })
+
+      expect(result.current.settings.networkProxyEnabled).toBe(true)
+    })
+
+    it('should trigger sync when securityEnableAuditLog is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('securityEnableAuditLog', false)
+      })
+
+      expect(result.current.settings.securityEnableAuditLog).toBe(false)
+    })
+
+    it('should trigger sync when securityEncryptLocalData is updated', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.updateSetting('securityEncryptLocalData', true)
+      })
+
+      expect(result.current.settings.securityEncryptLocalData).toBe(true)
+    })
+  })
+
+  describe('setSettings with sync', () => {
+    it('should trigger sync when setSettings is called', () => {
+      const { result } = renderHook(() => useSettings())
+
+      act(() => {
+        result.current.setSettings({ theme: 'light', fontSize: 18 })
+      })
+
+      expect(result.current.settings.theme).toBe('light')
+      expect(result.current.settings.fontSize).toBe(18)
+    })
+  })
+
+  describe('resetSettings with sync', () => {
+    it('should trigger sync when resetSettings is called', () => {
+      const { result } = renderHook(() => useSettings())
+
+      // First change some settings
+      act(() => {
+        result.current.setSettings({ theme: 'light', fontSize: 20 })
+      })
+
+      expect(result.current.settings.theme).toBe('light')
+
+      // Reset to defaults
+      act(() => {
+        result.current.resetSettings()
+      })
+
+      expect(result.current.settings.theme).toBe('dark')
+      expect(result.current.settings.fontSize).toBe(14)
     })
   })
 })

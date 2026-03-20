@@ -87,6 +87,24 @@ describe('scheduling service', () => {
       const load = getAgentLoad('agent-1')
       expect(load?.avgTaskDuration).toBeGreaterThan(0)
     })
+
+    it('uses ml prediction model', () => {
+      updateSchedulingConfig({ predictionModel: 'ml' })
+      updateAgentLoad('agent-1', 3, 5)
+      updateAgentLoad('agent-1', 4, 5)
+      updateAgentLoad('agent-1', 2, 5)
+      const load = getAgentLoad('agent-1')
+      expect(load?.predictedLoad).toBeGreaterThanOrEqual(0)
+    })
+
+    it('uses linear prediction model', () => {
+      updateSchedulingConfig({ predictionModel: 'linear' })
+      updateAgentLoad('agent-1', 3, 5)
+      updateAgentLoad('agent-1', 4, 5)
+      updateAgentLoad('agent-1', 2, 5)
+      const load = getAgentLoad('agent-1')
+      expect(load?.predictedLoad).toBeGreaterThanOrEqual(0)
+    })
   })
 
   describe('agent selection', () => {
@@ -132,6 +150,25 @@ describe('scheduling service', () => {
       expect(adjustment.taskId).toBe('task-1')
       expect(adjustment.originalPriority).toBe(5)
       expect(adjustment.adjustedPriority).toBeGreaterThanOrEqual(1)
+    })
+
+    it('returns original priority when dynamic priority is disabled', () => {
+      updateSchedulingConfig({ dynamicPriority: false })
+      const task: CoordinationTask = {
+        id: 'task-static',
+        title: 'Static Task',
+        description: 'A task with static priority',
+        prompt: 'Test',
+        priority: 7,
+        status: 'pending',
+        assignedTo: [],
+        progress: 0,
+        results: {},
+        createdAt: new Date(Date.now() - 100000).toISOString(),
+      }
+      const adjustment = adjustTaskPriority(task)
+      expect(adjustment.adjustedPriority).toBe(7)
+      expect(adjustment.reason).toBe('load_balancing')
     })
 
     it('applies priority decay', () => {
@@ -302,6 +339,27 @@ describe('scheduling service', () => {
       }
       const adjustments = getPriorityAdjustments(10)
       expect(adjustments.length).toBeLessThanOrEqual(10)
+    })
+
+    it('trims priority adjustments when exceeding 100 items', () => {
+      resetSchedulingState()
+      for (let i = 0; i < 110; i++) {
+        const task: CoordinationTask = {
+          id: `task-${i}`,
+          title: `Task ${i}`,
+          description: 'A test task',
+          prompt: 'Test',
+          priority: i % 10,
+          status: 'pending',
+          assignedTo: [],
+          progress: 0,
+          results: {},
+          createdAt: new Date().toISOString(),
+        }
+        adjustTaskPriority(task)
+      }
+      const adjustments = getPriorityAdjustments()
+      expect(adjustments.length).toBeLessThanOrEqual(100)
     })
   })
 
