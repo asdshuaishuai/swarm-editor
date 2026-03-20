@@ -405,3 +405,72 @@ export interface CoordinatorStats {
   completedTasks: number
   maxConcurrent: number
 }
+// Scheduling Algorithm types
+export interface SchedulingConfig {
+  dynamicPriority: boolean
+  loadPrediction: boolean
+  priorityDecayFactor: number
+  starvationThreshold: number
+  loadHistoryWindow: number
+  predictionModel: 'linear' | 'exponential' | 'ml'
+}
+
+export interface AgentLoadInfo {
+  agentId: string
+  currentTasks: number
+  maxCapacity: number
+  utilization: number
+  avgTaskDuration: number
+  predictedLoad: number
+  loadHistory: LoadHistoryEntry[]
+}
+
+export interface LoadHistoryEntry {
+  timestamp: string
+  utilization: number
+  taskCount: number
+}
+
+export interface PriorityAdjustment {
+  taskId: string
+  originalPriority: number
+  adjustedPriority: number
+  reason: 'starvation_prevention' | 'dependency_boost' | 'load_balancing' | 'deadline_critical'
+  timestamp: string
+}
+
+export interface SchedulingStats {
+  totalTasksScheduled: number
+  avgWaitTime: number
+  avgExecutionTime: number
+  starvationPreventions: number
+  loadBalanceEfficiency: number
+  predictionAccuracy: number
+}
+
+// Byzantine Fault Tolerance types
+export interface ByzantineConfig {
+  enabled: boolean
+  maxFaultyNodes: number
+  consensusRounds: number
+  timeoutMs: number
+  verificationMethod: 'hash' | 'signature' | 'majority_vote'
+}
+
+export interface ByzantineMessage {
+  round: number
+  senderId: string
+  type: 'prepare' | 'commit' | 'view_change' | 'new_view'
+  value?: unknown
+  signature?: string
+  timestamp: string
+}
+
+export interface ByzantineState {
+  phase: 'idle' | 'preparing' | 'prepared' | 'committing' | 'committed' | 'view_change'
+  currentRound: number
+  preparedValue?: unknown
+  commitCount: number
+  prepareCount: number
+  faultyNodesDetected: string[]
+}

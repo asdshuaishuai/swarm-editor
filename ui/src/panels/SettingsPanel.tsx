@@ -11,6 +11,13 @@ import {
   Plug,
   Network,
   Users,
+  Lock,
+  FileText,
+  AlertTriangle,
+  Plus,
+  X,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { useTheme } from '../hooks/useTheme'
@@ -30,8 +37,10 @@ const settingsSections = [
 
 export default function SettingsPanel() {
   const [activeSection, setActiveSection] = useState('general')
-  const { settings, updateSetting, resetSettings, isLoading, syncError } = useSettings()
+  const { settings, updateSetting, resetSettings, isLoading, syncError, addAllowedIpRange, removeAllowedIpRange } = useSettings()
   const { setTheme } = useTheme()
+  const [newIpRange, setNewIpRange] = useState('')
+  const [showProxyPassword, setShowProxyPassword] = useState(false)
 
   const handleThemeChange = (theme: 'dark' | 'light' | 'system') => {
     updateSetting('theme', theme)
@@ -41,6 +50,13 @@ export default function SettingsPanel() {
   const handleResetSettings = () => {
     resetSettings()
     setTheme('dark')
+  }
+
+  const handleAddIpRange = () => {
+    if (newIpRange.trim()) {
+      addAllowedIpRange(newIpRange.trim())
+      setNewIpRange('')
+    }
   }
 
   return (
@@ -408,22 +424,375 @@ export default function SettingsPanel() {
 
         {activeSection === 'network' && (
           <SettingsSection title="Network Settings">
-            <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
-              <p>Network configuration options will be available here.</p>
-              <p className="mt-2 text-xs text-text-tertiary">
-                Future features: Proxy settings, connection timeouts, SSL certificates.
-              </p>
+            {/* Proxy Settings */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Globe size={14} className="text-accent" />
+                Proxy Configuration
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Enable Proxy">
+                  <Toggle
+                    checked={settings.networkProxyEnabled}
+                    onChange={(v) => updateSetting('networkProxyEnabled', v)}
+                  />
+                </SettingRow>
+
+                {settings.networkProxyEnabled && (
+                  <>
+                    <SettingRow label="Proxy URL">
+                      <input
+                        type="text"
+                        value={settings.networkProxyUrl}
+                        onChange={(e) => updateSetting('networkProxyUrl', e.target.value)}
+                        placeholder="http://proxy.example.com:8080"
+                        className="input-mac w-64"
+                      />
+                    </SettingRow>
+
+                    <SettingRow label="Proxy Authentication">
+                      <Toggle
+                        checked={settings.networkProxyAuth}
+                        onChange={(v) => updateSetting('networkProxyAuth', v)}
+                      />
+                    </SettingRow>
+
+                    {settings.networkProxyAuth && (
+                      <>
+                        <SettingRow label="Username">
+                          <input
+                            type="text"
+                            value={settings.networkProxyUsername}
+                            onChange={(e) => updateSetting('networkProxyUsername', e.target.value)}
+                            className="input-mac w-40"
+                          />
+                        </SettingRow>
+                        <SettingRow label="Password">
+                          <div className="relative">
+                            <input
+                              type={showProxyPassword ? 'text' : 'password'}
+                              value={settings.networkProxyPassword}
+                              onChange={(e) => updateSetting('networkProxyPassword', e.target.value)}
+                              className="input-mac w-40 pr-8"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowProxyPassword(!showProxyPassword)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
+                            >
+                              {showProxyPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                          </div>
+                        </SettingRow>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Timeout Settings */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <AlertTriangle size={14} className="text-warning" />
+                Timeout Settings
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Connection Timeout">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.networkConnectTimeout}
+                      onChange={(e) => updateSetting('networkConnectTimeout', parseInt(e.target.value) || 30)}
+                      className="input-mac w-20"
+                      min={5}
+                      max={120}
+                    />
+                    <span className="text-sm text-text-secondary">seconds</span>
+                  </div>
+                </SettingRow>
+
+                <SettingRow label="Request Timeout">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.networkRequestTimeout}
+                      onChange={(e) => updateSetting('networkRequestTimeout', parseInt(e.target.value) || 60)}
+                      className="input-mac w-20"
+                      min={10}
+                      max={300}
+                    />
+                    <span className="text-sm text-text-secondary">seconds</span>
+                  </div>
+                </SettingRow>
+              </div>
+            </div>
+
+            {/* Retry Settings */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <RotateCcw size={14} className="text-info" />
+                Retry Settings
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Retry Attempts">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.networkRetryAttempts}
+                      onChange={(e) => updateSetting('networkRetryAttempts', parseInt(e.target.value) || 3)}
+                      className="input-mac w-20"
+                      min={0}
+                      max={10}
+                    />
+                    <span className="text-sm text-text-secondary">attempts</span>
+                  </div>
+                </SettingRow>
+
+                <SettingRow label="Retry Delay">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.networkRetryDelay}
+                      onChange={(e) => updateSetting('networkRetryDelay', parseInt(e.target.value) || 1000)}
+                      className="input-mac w-20"
+                      min={100}
+                      max={10000}
+                    />
+                    <span className="text-sm text-text-secondary">ms</span>
+                  </div>
+                </SettingRow>
+              </div>
+            </div>
+
+            {/* SSL Settings */}
+            <div>
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Lock size={14} className="text-success" />
+                SSL/TLS Settings
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Verify SSL Certificates">
+                  <Toggle
+                    checked={settings.networkSslVerify}
+                    onChange={(v) => updateSetting('networkSslVerify', v)}
+                  />
+                </SettingRow>
+
+                <SettingRow label="Custom CA Certificate">
+                  <input
+                    type="text"
+                    value={settings.networkSslCertPath}
+                    onChange={(e) => updateSetting('networkSslCertPath', e.target.value)}
+                    placeholder="/path/to/ca-bundle.crt"
+                    className="input-mac w-64"
+                  />
+                </SettingRow>
+              </div>
             </div>
           </SettingsSection>
         )}
 
         {activeSection === 'security' && (
           <SettingsSection title="Security Settings">
-            <div className="bg-glass border border-glass-border rounded-mac-xl p-5 text-sm text-text-secondary">
-              <p>Security configuration options will be available here.</p>
-              <p className="mt-2 text-xs text-text-tertiary">
-                Future features: Permission management, audit logs, encryption settings.
-              </p>
+            {/* Audit Log Settings */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <FileText size={14} className="text-info" />
+                Audit Logging
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Enable Audit Log">
+                  <Toggle
+                    checked={settings.securityEnableAuditLog}
+                    onChange={(v) => updateSetting('securityEnableAuditLog', v)}
+                  />
+                </SettingRow>
+
+                {settings.securityEnableAuditLog && (
+                  <>
+                    <SettingRow label="Audit Log Path">
+                      <input
+                        type="text"
+                        value={settings.securityAuditLogPath}
+                        onChange={(e) => updateSetting('securityAuditLogPath', e.target.value)}
+                        placeholder="~/.swarm-editor/audit.log"
+                        className="input-mac w-64"
+                      />
+                    </SettingRow>
+
+                    <SettingRow label="Log Retention">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={settings.securityAuditRetention}
+                          onChange={(e) => updateSetting('securityAuditRetention', parseInt(e.target.value) || 30)}
+                          className="input-mac w-20"
+                          min={1}
+                          max={365}
+                        />
+                        <span className="text-sm text-text-secondary">days</span>
+                      </div>
+                    </SettingRow>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Data Encryption */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Lock size={14} className="text-success" />
+                Data Encryption
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Encrypt Local Data">
+                  <Toggle
+                    checked={settings.securityEncryptLocalData}
+                    onChange={(v) => updateSetting('securityEncryptLocalData', v)}
+                  />
+                </SettingRow>
+
+                {settings.securityEncryptLocalData && (
+                  <SettingRow label="Encryption Key Path">
+                    <input
+                      type="text"
+                      value={settings.securityEncryptionKeyPath}
+                      onChange={(e) => updateSetting('securityEncryptionKeyPath', e.target.value)}
+                      placeholder="~/.swarm-editor/key.pem"
+                      className="input-mac w-64"
+                    />
+                  </SettingRow>
+                )}
+              </div>
+            </div>
+
+            {/* Session & Authentication */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Shield size={14} className="text-warning" />
+                Session & Authentication
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Session Timeout">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.securitySessionTimeout}
+                      onChange={(e) => updateSetting('securitySessionTimeout', parseInt(e.target.value) || 3600)}
+                      className="input-mac w-20"
+                      min={300}
+                      max={86400}
+                    />
+                    <span className="text-sm text-text-secondary">seconds</span>
+                  </div>
+                </SettingRow>
+
+                <SettingRow label="Max Login Attempts">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.securityMaxLoginAttempts}
+                      onChange={(e) => updateSetting('securityMaxLoginAttempts', parseInt(e.target.value) || 5)}
+                      className="input-mac w-20"
+                      min={1}
+                      max={10}
+                    />
+                    <span className="text-sm text-text-secondary">attempts</span>
+                  </div>
+                </SettingRow>
+
+                <SettingRow label="Require Strong Passwords">
+                  <Toggle
+                    checked={settings.securityRequireStrongPasswords}
+                    onChange={(v) => updateSetting('securityRequireStrongPasswords', v)}
+                  />
+                </SettingRow>
+
+                <SettingRow label="Two-Factor Authentication">
+                  <Toggle
+                    checked={settings.securityTwoFactorEnabled}
+                    onChange={(v) => updateSetting('securityTwoFactorEnabled', v)}
+                  />
+                </SettingRow>
+              </div>
+            </div>
+
+            {/* IP Access Control */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Globe size={14} className="text-accent" />
+                IP Access Control
+              </h4>
+              <div className="space-y-3">
+                <div className="p-3 bg-glass/50 rounded-mac">
+                  <label className="block text-xs text-text-secondary mb-2">Allowed IP Ranges</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {settings.securityAllowedIpRanges.map((ip) => (
+                      <div
+                        key={ip}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-accent/10 border border-accent/20 rounded-mac text-xs text-accent"
+                      >
+                        <span>{ip}</span>
+                        <button
+                          onClick={() => removeAllowedIpRange(ip)}
+                          className="hover:text-error transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newIpRange}
+                      onChange={(e) => setNewIpRange(e.target.value)}
+                      placeholder="192.168.1.0/24"
+                      className="input-mac flex-1"
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddIpRange()}
+                    />
+                    <button
+                      onClick={handleAddIpRange}
+                      disabled={!newIpRange.trim()}
+                      className="btn-secondary flex items-center gap-1"
+                    >
+                      <Plus size={14} />
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Agent Security */}
+            <div>
+              <h4 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Shield size={14} className="text-error" />
+                Agent Security
+              </h4>
+              <div className="space-y-3">
+                <SettingRow label="Block Unknown Agents">
+                  <Toggle
+                    checked={settings.securityBlockUnknownAgents}
+                    onChange={(v) => updateSetting('securityBlockUnknownAgents', v)}
+                  />
+                </SettingRow>
+
+                <SettingRow label="Enable Agent Sandboxing">
+                  <Toggle
+                    checked={settings.securityAgentSandboxing}
+                    onChange={(v) => updateSetting('securityAgentSandboxing', v)}
+                  />
+                </SettingRow>
+              </div>
+
+              <div className="mt-4 p-3 bg-warning/10 border border-warning/20 rounded-mac text-sm text-warning">
+                <p className="flex items-start gap-2">
+                  <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+                  <span>Agent sandboxing provides an additional security layer by isolating agent processes from the host system.</span>
+                </p>
+              </div>
             </div>
           </SettingsSection>
         )}

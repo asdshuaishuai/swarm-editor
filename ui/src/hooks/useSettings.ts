@@ -44,6 +44,33 @@ export interface Settings {
   agentAutoScan: boolean
   agentScanInterval: number
   agentAutoConnect: boolean
+  
+  // Network settings
+  networkProxyEnabled: boolean
+  networkProxyUrl: string
+  networkProxyAuth: boolean
+  networkProxyUsername: string
+  networkProxyPassword: string
+  networkConnectTimeout: number
+  networkRequestTimeout: number
+  networkRetryAttempts: number
+  networkRetryDelay: number
+  networkSslVerify: boolean
+  networkSslCertPath: string
+  
+  // Security settings
+  securityEnableAuditLog: boolean
+  securityAuditLogPath: string
+  securityAuditRetention: number
+  securityEncryptLocalData: boolean
+  securityEncryptionKeyPath: string
+  securitySessionTimeout: number
+  securityMaxLoginAttempts: number
+  securityRequireStrongPasswords: boolean
+  securityTwoFactorEnabled: boolean
+  securityAllowedIpRanges: string[]
+  securityBlockUnknownAgents: boolean
+  securityAgentSandboxing: boolean
 }
 
 export interface MCPServerSetting {
@@ -100,6 +127,33 @@ export const defaultSettings: Settings = {
   agentAutoScan: true,
   agentScanInterval: 30000,
   agentAutoConnect: false,
+  
+  // Network
+  networkProxyEnabled: false,
+  networkProxyUrl: '',
+  networkProxyAuth: false,
+  networkProxyUsername: '',
+  networkProxyPassword: '',
+  networkConnectTimeout: 30,
+  networkRequestTimeout: 60,
+  networkRetryAttempts: 3,
+  networkRetryDelay: 1000,
+  networkSslVerify: true,
+  networkSslCertPath: '',
+  
+  // Security
+  securityEnableAuditLog: true,
+  securityAuditLogPath: '',
+  securityAuditRetention: 30,
+  securityEncryptLocalData: false,
+  securityEncryptionKeyPath: '',
+  securitySessionTimeout: 3600,
+  securityMaxLoginAttempts: 5,
+  securityRequireStrongPasswords: true,
+  securityTwoFactorEnabled: false,
+  securityAllowedIpRanges: ['127.0.0.1', '::1'],
+  securityBlockUnknownAgents: false,
+  securityAgentSandboxing: true,
 }
 
 export function loadSettings(): Settings {
@@ -161,7 +215,8 @@ export function useSettings() {
     setSettingsState(prev => {
       const newSettings = { ...prev, [key]: value }
       // Sync with backend for critical settings
-      if (['apiKey', 'apiEndpoint', 'mcpServers', 'swarmConsensusAlgorithm'].includes(key)) {
+      if (['apiKey', 'apiEndpoint', 'mcpServers', 'swarmConsensusAlgorithm', 
+           'networkProxyEnabled', 'securityEnableAuditLog', 'securityEncryptLocalData'].includes(key)) {
         syncWithBackend({ [key]: value })
       }
       return newSettings
@@ -207,6 +262,22 @@ export function useSettings() {
     }))
   }, [])
 
+  // Add allowed IP range
+  const addAllowedIpRange = useCallback((ipRange: string) => {
+    setSettingsState(prev => ({
+      ...prev,
+      securityAllowedIpRanges: [...prev.securityAllowedIpRanges, ipRange],
+    }))
+  }, [])
+
+  // Remove allowed IP range
+  const removeAllowedIpRange = useCallback((ipRange: string) => {
+    setSettingsState(prev => ({
+      ...prev,
+      securityAllowedIpRanges: prev.securityAllowedIpRanges.filter(ip => ip !== ipRange),
+    }))
+  }, [])
+
   return {
     settings,
     isLoading,
@@ -217,6 +288,8 @@ export function useSettings() {
     addMCPServer,
     removeMCPServer,
     updateMCPServer,
+    addAllowedIpRange,
+    removeAllowedIpRange,
   }
 }
 

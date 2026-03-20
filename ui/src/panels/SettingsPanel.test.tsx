@@ -6,6 +6,8 @@ import SettingsPanel from './SettingsPanel'
 const mockUpdateSetting = vi.fn()
 const mockSetSettings = vi.fn()
 const mockResetSettings = vi.fn()
+const mockAddAllowedIpRange = vi.fn()
+const mockRemoveAllowedIpRange = vi.fn()
 
 // Mock the hooks
 vi.mock('../hooks/useSettings', () => ({
@@ -38,10 +40,37 @@ vi.mock('../hooks/useSettings', () => ({
       agentAutoScan: true,
       agentScanInterval: 30000,
       agentAutoConnect: false,
+      // Network settings
+      networkProxyEnabled: false,
+      networkProxyUrl: '',
+      networkProxyAuth: false,
+      networkProxyUsername: '',
+      networkProxyPassword: '',
+      networkConnectTimeout: 30,
+      networkRequestTimeout: 60,
+      networkRetryAttempts: 3,
+      networkRetryDelay: 1000,
+      networkSslVerify: true,
+      networkSslCertPath: '',
+      // Security settings
+      securityEnableAuditLog: true,
+      securityAuditLogPath: '',
+      securityAuditRetention: 30,
+      securityEncryptLocalData: false,
+      securityEncryptionKeyPath: '',
+      securitySessionTimeout: 3600,
+      securityMaxLoginAttempts: 5,
+      securityRequireStrongPasswords: true,
+      securityTwoFactorEnabled: false,
+      securityAllowedIpRanges: ['127.0.0.1', '::1'],
+      securityBlockUnknownAgents: false,
+      securityAgentSandboxing: true,
     },
     updateSetting: mockUpdateSetting,
     setSettings: mockSetSettings,
     resetSettings: mockResetSettings,
+    addAllowedIpRange: mockAddAllowedIpRange,
+    removeAllowedIpRange: mockRemoveAllowedIpRange,
     isLoading: false,
     syncError: null,
   }),
@@ -151,7 +180,7 @@ describe('Toggle component', () => {
     const toggleButtons = screen.getAllByRole('button')
     // Find the toggle button (has rounded-full class)
     const autoSaveToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     if (autoSaveToggle) {
       fireEvent.click(autoSaveToggle)
@@ -242,7 +271,7 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(screen.getByText('Appearance'))
     const toggleButtons = screen.getAllByRole('button')
     const minimapToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     if (minimapToggle) {
       fireEvent.click(minimapToggle)
@@ -255,7 +284,7 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(screen.getByText('Appearance'))
     // Find all toggles in Appearance section
     const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     // Second toggle should be Line Numbers
     if (toggleButtons.length > 1) {
@@ -269,7 +298,7 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(screen.getByText('Appearance'))
     // Find all toggles in Appearance section
     const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     // Third toggle should be Word Wrap
     if (toggleButtons.length > 2) {
@@ -313,7 +342,7 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(screen.getByText('Notifications'))
     const toggleButtons = screen.getAllByRole('button')
     const notifToggle = toggleButtons.find(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     if (notifToggle) {
       fireEvent.click(notifToggle)
@@ -326,7 +355,7 @@ describe('SettingsPanel setting inputs', () => {
     fireEvent.click(screen.getByText('Notifications'))
     // Find all toggles in Notifications section
     const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     // Second toggle should be Sound Effects
     if (toggleButtons.length > 1) {
@@ -563,7 +592,7 @@ describe('SettingsPanel MCP settings interactions', () => {
     render(<SettingsPanel />)
     fireEvent.click(screen.getByText('MCP Plugins'))
     const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     if (toggleButtons[0]) {
       fireEvent.click(toggleButtons[0])
@@ -575,11 +604,54 @@ describe('SettingsPanel MCP settings interactions', () => {
     render(<SettingsPanel />)
     fireEvent.click(screen.getByText('MCP Plugins'))
     const toggleButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-10')
+      (btn) => btn.className.includes('rounded-full') && btn.className.includes('w-11')
     )
     if (toggleButtons.length > 1) {
       fireEvent.click(toggleButtons[1])
       expect(toggleButtons[1]).toBeInTheDocument()
     }
+  })
+})
+
+describe('SettingsPanel Network settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows network settings sections', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Network'))
+    expect(screen.getByText('Proxy Configuration')).toBeInTheDocument()
+    expect(screen.getByText('Timeout Settings')).toBeInTheDocument()
+    expect(screen.getByText('Retry Settings')).toBeInTheDocument()
+    expect(screen.getByText('SSL/TLS Settings')).toBeInTheDocument()
+  })
+
+  it('toggles proxy enabled', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Network'))
+    expect(screen.getByText('Enable Proxy')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel Security settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows security settings sections', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Security'))
+    expect(screen.getByText('Audit Logging')).toBeInTheDocument()
+    expect(screen.getByText('Data Encryption')).toBeInTheDocument()
+    expect(screen.getByText('Session & Authentication')).toBeInTheDocument()
+    expect(screen.getByText('IP Access Control')).toBeInTheDocument()
+    expect(screen.getByText('Agent Security')).toBeInTheDocument()
+  })
+
+  it('shows allowed IP ranges', () => {
+    render(<SettingsPanel />)
+    fireEvent.click(screen.getByText('Security'))
+    expect(screen.getByText('127.0.0.1')).toBeInTheDocument()
   })
 })
