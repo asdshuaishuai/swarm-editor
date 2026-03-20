@@ -78,8 +78,10 @@ const mockUseSettings = {
 
 const mockUseTheme = {
   theme: 'dark' as const,
+  effectiveTheme: 'dark' as const,
   setTheme: vi.fn(),
   toggleTheme: vi.fn(),
+  isDark: true,
 }
 
 describe('SettingsPanel', () => {
