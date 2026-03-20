@@ -53,6 +53,16 @@ describe('TeamPanel', () => {
     expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
   })
 
+  it('closes modal when X button clicked', () => {
+    render(<TeamPanel />)
+    fireEvent.click(screen.getByText('New Team'))
+    // Find the X button in the modal header
+    const closeButton = document.querySelector('.hover\\:bg-card-hover.rounded-mac.transition-colors')
+    expect(closeButton).toBeTruthy()
+    fireEvent.click(closeButton!)
+    expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
+  })
+
   it('has team name input in create modal', () => {
     render(<TeamPanel />)
     fireEvent.click(screen.getByText('New Team'))
@@ -67,6 +77,15 @@ describe('TeamPanel', () => {
     fireEvent.change(input, { target: { value: 'Test Team' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Team' }))
     expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
+  })
+
+  it('does not create team with empty name', () => {
+    render(<TeamPanel />)
+    fireEvent.click(screen.getByText('New Team'))
+    // Try to create without entering a name
+    fireEvent.click(screen.getByRole('button', { name: 'Create Team' }))
+    // Modal should still be open (team not created)
+    expect(screen.getByText('Create New Team')).toBeInTheDocument()
   })
 
   it('updates team name input', () => {
