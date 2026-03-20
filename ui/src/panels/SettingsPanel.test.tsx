@@ -350,6 +350,39 @@ describe('SettingsPanel', () => {
       await userEvent.click(addButton)
       expect(mockUseSettings.addAllowedIpRange).not.toHaveBeenCalled()
     })
+
+    it('removes an IP range when X button is clicked', async () => {
+      // Find the X button for 127.0.0.1
+      const ipRangeText = screen.getByText('127.0.0.1')
+      const ipRangeContainer = ipRangeText.closest('div')
+      if (ipRangeContainer) {
+        const xButton = ipRangeContainer.querySelector('button')
+        if (xButton) {
+          await userEvent.click(xButton)
+          expect(mockUseSettings.removeAllowedIpRange).toHaveBeenCalledWith('127.0.0.1')
+        }
+      }
+    })
+
+    it('shows Block Unknown Agents toggle', () => {
+      expect(screen.getByText('Block Unknown Agents')).toBeInTheDocument()
+    })
+
+    it('shows Enable Agent Sandboxing toggle', () => {
+      expect(screen.getByText('Enable Agent Sandboxing')).toBeInTheDocument()
+    })
+
+    it('shows Two-Factor Authentication toggle', () => {
+      expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument()
+    })
+
+    it('shows Max Login Attempts setting', () => {
+      expect(screen.getByText('Max Login Attempts')).toBeInTheDocument()
+    })
+
+    it('shows Session Timeout setting', () => {
+      expect(screen.getByText('Session Timeout')).toBeInTheDocument()
+    })
   })
 
   describe('Notifications settings', () => {
