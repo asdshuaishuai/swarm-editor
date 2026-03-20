@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -666,4 +669,321 @@ func TestRejectRegistrationNotPending(t *testing.T) {
 	err := service.RejectRegistration("test-reject-approved", "testing")
 	// This should fail because the status is now "approved", not "pending"
 	_ = err // The behavior depends on implementation
+}
+
+func TestScanNetwork(t *testing.T) {
+	// Start a simple TCP listener
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to start listener: %v", err)
+	}
+	defer listener.Close()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// Accept connections in background
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	config := DiscoveryConfig{
+		AutoScan:      false,
+		EnableNetwork: true,
+		ScanTimeout:   1 * time.Second,
+		NetworkPorts:  []int{port},
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	// Give listener time to be ready
+	time.Sleep(50 * time.Millisecond)
+
+	agents := service.Scan()
+	if len(agents) == 0 {
+		t.Error("Expected to find at least one network agent")
+	}
+}
+
+func TestScanNetworkNoListener(t *testing.T) {
+	config := DiscoveryConfig{
+		AutoScan:      false,
+		EnableNetwork: true,
+		ScanTimeout:   100 * time.Millisecond,
+		NetworkPorts:  []int{59999}, // Unlikely to have listener
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	agents := service.Scan()
+	// Should not find any agents on this port
+	for _, a := range agents {
+		if a.Type == "remote" {
+			t.Error("Should not find remote agents when no listener")
+		}
+	}
+}
+
+func TestConnectFailure(t *testing.T) {
+	config := DiscoveryConfig{
+		AutoScan:      false,
+		EnableNetwork: false,
+		MaxRetries:    1,
+		RetryDelay:    10 * time.Millisecond,
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	agent := &DiscoveredAgent{
+		ID:       "test-connect-fail",
+		Name:     "Test Connect Fail",
+		Endpoint: "nonexistent-agent-id",
+	}
+
+	_, err := service.Connect(agent)
+	if err == nil {
+		t.Error("Connect should fail for non-existent agent")
+	}
+}
+
+func TestOnFailedCallbackWithConnect(t *testing.T) {
+	config := DiscoveryConfig{
+		AutoScan:      false,
+		EnableNetwork: false,
+		MaxRetries:    1,
+		RetryDelay:    10 * time.Millisecond,
+	}
+
+	var mu sync.Mutex
+	failedCalled := false
+
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+	service.OnFailed(func(agent *DiscoveredAgent, err error) {
+		mu.Lock()
+		failedCalled = true
+		mu.Unlock()
+	})
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	agent := &DiscoveredAgent{
+		ID:       "test-callback-fail",
+		Name:     "Test Callback Fail",
+		Endpoint: "nonexistent-agent-id",
+	}
+
+	service.Connect(agent)
+
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	called := failedCalled
+	mu.Unlock()
+
+	if !called {
+		t.Error("OnFailed callback should have been called")
+	}
+}
+
+func TestProbeNetworkAgentTimeout(t *testing.T) {
+	config := DiscoveryConfig{
+		ScanTimeout: 100 * time.Millisecond,
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	// Probe non-existent address
+	agent := service.probeNetworkAgent("127.0.0.1:59998")
+	if agent != nil {
+		t.Error("probeNetworkAgent should return nil for non-existent address")
+	}
+}
+
+func TestDiscoveryServiceWithLifecycle(t *testing.T) {
+	config := DiscoveryConfig{
+		AutoScan:        false,
+		EnableNetwork:   false,
+		AllowSelfRegister: true,
+		RequireApproval: false,
+	}
+	registry := NewRegistry()
+	lifecycle := NewLifecycle(registry)
+	service := NewDiscoveryService(config, registry, lifecycle, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+
+	req := &RegistrationRequest{
+		AgentID:  "lifecycle-test",
+		Name:     "Lifecycle Test",
+		Endpoint: "localhost:8080",
+	}
+
+	service.RegisterSelf(req)
+
+	// Get discovered and connect (this will trigger lifecycle.Spawn)
+	agents := service.GetDiscovered()
+	if len(agents) > 0 {
+		// Try to connect - will fail but lifecycle interaction is tested
+		service.Connect(agents[0])
+	}
+
+	service.Stop()
+}
+
+func TestNetworkListener(t *testing.T) {
+	// Find an available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	config := DiscoveryConfig{
+		AutoScan:         false,
+		EnableNetwork:    true,
+		AllowSelfRegister: true,
+		RequireApproval:   false,
+		BroadcastPort:     port,
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer service.Stop()
+
+	// Give listener time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Connect and send registration request
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	req := RegistrationRequest{
+		AgentID:  "network-test-agent",
+		Name:     "Network Test Agent",
+		Endpoint: "localhost:9999",
+	}
+
+	encoder := json.NewEncoder(conn)
+	if err := encoder.Encode(&req); err != nil {
+		t.Fatalf("Failed to send registration: %v", err)
+	}
+
+	// Read response
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var resp map[string]string
+	decoder := json.NewDecoder(conn)
+	if err := decoder.Decode(&resp); err != nil {
+		t.Fatalf("Failed to read response: %v", err)
+	}
+
+	if resp["status"] != "success" {
+		t.Errorf("Expected success status, got: %v", resp)
+	}
+
+	// Verify agent was discovered
+	time.Sleep(100 * time.Millisecond)
+	agents := service.GetDiscovered()
+	found := false
+	for _, a := range agents {
+		if a.ID == "network-test-agent" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Agent should have been registered via network")
+	}
+}
+
+func TestNetworkListenerInvalidRequest(t *testing.T) {
+	// Find an available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	config := DiscoveryConfig{
+		AutoScan:         false,
+		EnableNetwork:    true,
+		AllowSelfRegister: true,
+		BroadcastPort:     port,
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Send invalid JSON
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("invalid json"))
+
+	// Connection should be closed without response
+	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	var resp map[string]string
+	decoder := json.NewDecoder(conn)
+	err = decoder.Decode(&resp)
+	if err == nil {
+		t.Error("Expected error for invalid JSON, got response")
+	}
+}
+
+func TestNetworkListenerSelfRegisterDisabled(t *testing.T) {
+	// When AllowSelfRegister is false, network listener doesn't start
+	// This tests that RegisterSelf returns an error when called directly
+
+	config := DiscoveryConfig{
+		AutoScan:         false,
+		EnableNetwork:    true,
+		AllowSelfRegister: false, // Disabled
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	ctx := context.Background()
+	service.Start(ctx)
+	defer service.Stop()
+
+	// Try to register directly - should fail
+	req := &RegistrationRequest{
+		AgentID:  "disabled-test",
+		Name:     "Disabled Test",
+		Endpoint: "localhost:9999",
+	}
+
+	err := service.RegisterSelf(req)
+	if err == nil {
+		t.Error("RegisterSelf should fail when self-registration is disabled")
+	}
 }
