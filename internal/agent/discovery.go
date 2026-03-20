@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // DiscoveryConfig configures the agent discovery service
@@ -317,7 +319,7 @@ func (d *DiscoveryService) scanCommands() []*DiscoveredAgent {
 
 		agent := &DiscoveredAgent{
 			ID:           fmt.Sprintf("cmd-%s", cmd),
-			Name:         fmt.Sprintf("%s (CLI)", strings.Title(cmd)),
+			Name:         fmt.Sprintf("%s (CLI)", cases.Title(language.English).String(cmd)),
 			Type:         "coder",
 			Endpoint:     path,
 			Command:      cmd,
