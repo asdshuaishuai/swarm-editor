@@ -577,7 +577,7 @@ export interface WorkflowInfo {
 // WorkflowChainLink defines a downstream workflow to trigger on completion.
 export interface WorkflowChainLink {
   workflowId: string
-  input?: Record<string, any>
+  input?: Record<string, unknown>
   condition?: 'always' | 'on_success' | 'on_failure'
 }
 
@@ -688,7 +688,7 @@ export interface AutomationTrigger {
 
 export interface AutomationAction {
   type: string
-  params?: Record<string, any>
+  params?: Record<string, unknown>
 }
 
 export interface Automation {
@@ -710,7 +710,7 @@ export interface WorkflowArtifact {
   nodeId?: string
   key: string
   type: 'json' | 'markdown' | 'table' | 'link' | 'text' | 'progress'
-  data: any
+  data: unknown
   description?: string
   version: number
   createdAt: string
@@ -723,8 +723,8 @@ export interface WorkflowVariable {
   name: string
   key: string
   type: 'string' | 'number' | 'boolean' | 'json' | 'array'
-  value?: any
-  default?: any
+  value?: unknown
+  default?: unknown
   description?: string
   required: boolean
 }
@@ -921,7 +921,7 @@ const variableApi = {
     return getClient().invoke('remove_variable', { workflowId, variableId })
   },
 
-  async setValue(workflowId: string, key: string, value: any): Promise<void> {
+  async setValue(workflowId: string, key: string, value: unknown): Promise<void> {
     return getClient().invoke('set_variable_value', { workflowId, key, value })
   },
 
