@@ -1621,3 +1621,38 @@ func TestCommandHandler_HandleClearAllCaches_Success(t *testing.T) {
 		t.Errorf("status = %v, want 'ok'", info["status"])
 	}
 }
+
+// ==================== Execute Workflow Tests ====================
+
+func TestCommandHandler_HandleExecuteWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{}`)},
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("execute_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleExecuteWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+	// No orchestrator set
+
+	params := json.RawMessage(`{"id": "test-workflow"}`)
+	_, err := handler.HandleCommand("execute_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
