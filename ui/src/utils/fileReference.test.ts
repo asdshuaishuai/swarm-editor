@@ -7,6 +7,8 @@ import {
   getFileCompletions,
   getLanguageFromExtension,
   highlightFileReferences,
+  matchGlob,
+  expandGlob,
 } from './fileReference'
 
 describe('parseFileReferences', () => {
@@ -193,5 +195,81 @@ describe('highlightFileReferences', () => {
     expect(result[0]).toEqual({ type: 'text', content: 'Check ' })
     expect(result[1]).toEqual({ type: 'reference', content: '@File a.ts' })
     expect(result[2]).toEqual({ type: 'text', content: ' for details' })
+  })
+})
+
+describe('matchGlob', () => {
+  it('should match single asterisk', () => {
+    expect(matchGlob('*.ts', 'file.ts')).toBe(true)
+    expect(matchGlob('*.ts', 'file.go')).toBe(false)
+    expect(matchGlob('src/*.ts', 'src/file.ts')).toBe(true)
+    expect(matchGlob('src/*.ts', 'lib/file.ts')).toBe(false)
+  })
+
+  it('should match double asterisk', () => {
+    expect(matchGlob('**/*.ts', 'file.ts')).toBe(true)
+    expect(matchGlob('**/*.ts', 'src/file.ts')).toBe(true)
+    expect(matchGlob('**/*.ts', 'src/lib/file.ts')).toBe(true)
+    expect(matchGlob('**/*.ts', 'src/file.go')).toBe(false)
+  })
+
+  it('should match question mark', () => {
+    expect(matchGlob('file?.ts', 'file1.ts')).toBe(true)
+    expect(matchGlob('file?.ts', 'file12.ts')).toBe(false)
+    expect(matchGlob('file?.ts', 'file.ts')).toBe(false)
+  })
+
+  it('should be case insensitive', () => {
+    expect(matchGlob('*.TS', 'file.ts')).toBe(true)
+    expect(matchGlob('**/*.TS', 'src/file.TS')).toBe(true)
+  })
+
+  it('should handle complex patterns', () => {
+    expect(matchGlob('src/**/*.test.ts', 'src/utils/helper.test.ts')).toBe(true)
+    expect(matchGlob('src/**/*.test.ts', 'src/helper.test.ts')).toBe(true)
+    expect(matchGlob('src/**/*.test.ts', 'lib/helper.test.ts')).toBe(false)
+  })
+})
+
+describe('expandGlob', () => {
+  const files = [
+    'src/App.tsx',
+    'src/components/Button.tsx',
+    'src/components/Input.tsx',
+    'src/utils/helpers.ts',
+    'internal/api/handler.go',
+    'internal/api/workspace.go',
+    'README.md',
+  ]
+
+  it('should expand *.tsx pattern', () => {
+    const result = expandGlob('*.tsx', files)
+    expect(result).toHaveLength(0) // No files in root with .tsx
+  })
+
+  it('should expand **/*.tsx pattern', () => {
+    const result = expandGlob('**/*.tsx', files)
+    expect(result.length).toBe(3)
+    expect(result).toContain('src/App.tsx')
+    expect(result).toContain('src/components/Button.tsx')
+    expect(result).toContain('src/components/Input.tsx')
+  })
+
+  it('should expand **/*.go pattern', () => {
+    const result = expandGlob('**/*.go', files)
+    expect(result.length).toBe(2)
+    expect(result).toContain('internal/api/handler.go')
+    expect(result).toContain('internal/api/workspace.go')
+  })
+
+  it('should expand src/**/*.ts pattern', () => {
+    const result = expandGlob('src/**/*.ts', files)
+    expect(result.length).toBe(1)
+    expect(result).toContain('src/utils/helpers.ts')
+  })
+
+  it('should return empty array for no matches', () => {
+    const result = expandGlob('**/*.xyz', files)
+    expect(result).toHaveLength(0)
   })
 })
