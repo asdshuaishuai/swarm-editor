@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // LoopDetector detects when an agent produces identical or near-identical
@@ -17,6 +18,8 @@ import (
 // should_terminate(msg) composes multiple conditions with AND/OR logic,
 // including a "no progress" detector that hashes recent messages.
 type LoopDetector struct {
+	mu sync.Mutex
+
 	// history stores hashes of recent outputs for deduplication
 	history []string
 
@@ -53,6 +56,9 @@ func (ld *LoopDetector) CheckOutput(content string) (bool, string) {
 	if content == "" {
 		return false, ""
 	}
+
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 
 	hash := hashContent(content)
 
@@ -95,27 +101,37 @@ func (ld *LoopDetector) CheckOutput(content string) (bool, string) {
 
 // Reset clears the output history
 func (ld *LoopDetector) Reset() {
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 	ld.history = ld.history[:0]
 	ld.contentHistory = ld.contentHistory[:0]
 }
 
 // SetMaxConsecutiveDuplicates configures the duplicate threshold
 func (ld *LoopDetector) SetMaxConsecutiveDuplicates(n int) {
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 	ld.maxConsecutiveDuplicates = n
 }
 
 // SetMaxHistory configures how many outputs to track
 func (ld *LoopDetector) SetMaxHistory(n int) {
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 	ld.maxHistory = n
 }
 
 // SetSimilarityThreshold configures the Jaccard similarity threshold for near-duplicate detection
 func (ld *LoopDetector) SetSimilarityThreshold(t float64) {
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 	ld.similarityThreshold = t
 }
 
 // ConsecutiveCount returns the current count of consecutive duplicate outputs
 func (ld *LoopDetector) ConsecutiveCount() int {
+	ld.mu.Lock()
+	defer ld.mu.Unlock()
 	if len(ld.history) == 0 {
 		return 0
 	}
