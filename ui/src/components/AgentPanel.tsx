@@ -6,6 +6,8 @@ import { api, events, fsApi } from '../services'
 import { isCursorInFileReference, parseFileReferences, getLanguageFromExtension, expandGlob } from '../utils/fileReference'
 import { FileAutocompleteWrapper, FileItem } from './FileAutocomplete'
 
+// Directories to exclude from file scanning (module-level constant)
+const EXCLUDE_DIRS = ['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'vendor', 'target', 'bin']
 interface ChatSession {
   agentId: string
   sessionId: string
@@ -35,9 +37,6 @@ export default function AgentPanel() {
   const [showFileAutocomplete, setShowFileAutocomplete] = useState(false)
   const [fileQuery, setFileQuery] = useState('')
   const [availableFiles, setAvailableFiles] = useState<FileItem[]>([])
-
-  // Directories to exclude from file scanning
-  const EXCLUDE_DIRS = ['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'vendor', 'target', 'bin']
 
   // Load available files for autocomplete from backend
   const loadFilesFromBackend = useCallback(async (dirPath: string = '.'): Promise<FileItem[]> => {

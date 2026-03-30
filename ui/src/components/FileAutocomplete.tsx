@@ -39,20 +39,18 @@ export function FileAutocomplete({
     })
     .slice(0, maxResults)
 
-  // Reset selection when filtered files change
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query, files.length])
+  // Ensure selection is within bounds (derived state)
+  const safeSelectedIndex = Math.min(selectedIndex, Math.max(0, filteredFiles.length - 1))
 
   // Scroll selected item into view
   useEffect(() => {
-    if (listRef.current) {
-      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement
+    if (listRef.current && safeSelectedIndex >= 0) {
+      const selectedElement = listRef.current.children[safeSelectedIndex + 1] as HTMLElement // +1 for header
       if (selectedElement) {
         selectedElement.scrollIntoView({ block: 'nearest' })
       }
     }
-  }, [selectedIndex])
+  }, [safeSelectedIndex])
 
   const handleSelect = useCallback((index: number) => {
     const file = filteredFiles[index]
@@ -74,14 +72,14 @@ export function FileAutocomplete({
         break
       case 'Enter':
         e.preventDefault()
-        handleSelect(selectedIndex)
+        handleSelect(safeSelectedIndex)
         break
       case 'Escape':
         e.preventDefault()
         onClose()
         break
     }
-  }, [filteredFiles.length, selectedIndex, handleSelect, onClose])
+  }, [filteredFiles.length, safeSelectedIndex, handleSelect, onClose])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -115,7 +113,7 @@ export function FileAutocomplete({
         <div
           key={file.path}
           className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${
-            index === selectedIndex
+            index === safeSelectedIndex
               ? 'bg-accent/20 text-accent'
               : 'hover:bg-card-hover'
           }`}
@@ -171,6 +169,7 @@ export function FileAutocompleteWrapper({
 
   return (
     <FileAutocomplete
+      key={query} // Reset component state when query changes
       query={query}
       files={files}
       onSelect={onSelect}
