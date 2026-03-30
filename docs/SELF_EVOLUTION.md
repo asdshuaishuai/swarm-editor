@@ -118,6 +118,7 @@ const parseFileReferences = (text: string) => {
 | 未使用的 mock 类型 | ✅ 已删除 |
 | 未使用的 `context` 导入 | ✅ 已删除 |
 | 工作流导入/导出代码 | ✅ 已移除（过度设计）|
+| staticcheck S1039 (unnecessary fmt.Sprintf) | ✅ 已修复 |
 
 ---
 

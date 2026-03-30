@@ -183,7 +183,7 @@ func (cm *ContextManager) FormatForPrompt(ctx *AgentContext) string {
 	sb.WriteString("# Codebase Context\n\n")
 
 	// Project overview
-	sb.WriteString(fmt.Sprintf("## Project Overview\n"))
+	sb.WriteString("## Project Overview\n")
 	sb.WriteString(fmt.Sprintf("- Root: %s\n", ctx.ProjectRoot))
 	sb.WriteString(fmt.Sprintf("- Files: %d indexed\n", ctx.TotalFiles))
 	sb.WriteString(fmt.Sprintf("- Symbols: %d found\n\n", ctx.TotalSymbols))
