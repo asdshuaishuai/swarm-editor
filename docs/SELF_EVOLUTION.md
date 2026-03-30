@@ -41,28 +41,24 @@
 
 ## 二、改进方向
 
-### P1 - 代码库上下文（高优先级）
+### P1 - 代码库索引 ✅ 已完成 (2026-03-31)
 
-**问题**: Agent 缺少对整个代码库的理解
-
-**竞品方案**:
-- Cursor: `@Codebase` 语法 + 向量索引
-- Windsurf: Cascade 深度索引项目结构
-
-**建议实现**:
-```
-internal/
-├── context/              # 新模块
-│   ├── indexer.go        # 文件索引器
-│   ├── embeddings.go     # 向量嵌入（可选）
-│   └── context.go        # 上下文管理
-```
+**实现**: `internal/context/`
+- `indexer.go` - 文件索引器
+- `symbols.go` - 符号提取 (Go/TS/JS/Python/Rust)
+- `context.go` - 上下文管理器
+- `indexer_test.go` - 14 个测试用例
 
 **核心能力**:
-- 递归扫描项目目录
-- 提取符号定义（函数、类、接口）
-- 构建文件依赖图
-- 提供给 Agent 作为上下文
+- ✅ 递归扫描项目目录
+- ✅ 提取符号定义（函数、类、接口）
+- ✅ 构建文件依赖图
+- ✅ 提供给 Agent 作为上下文
+- ✅ 排除 node_modules/vendor/.git 等
+
+**待完善**:
+- [ ] 向量嵌入（可选）
+- [ ] 符号搜索优化
 
 ### P2 - @Files 语法（中优先级）
 

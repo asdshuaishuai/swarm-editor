@@ -18,11 +18,11 @@ Swarm Editor 是一个基于 ACP (Agent Client Protocol) 协议的**多Agent协�
 - 可靠性 - 熔断器 + DLQ + 重试策略
 
 ### 竞品 GAP (待开发)
-| 优先级 | GAP | 竞品方案 |
-|--------|-----|----------|
-| P1 | 代码库索引 | Cursor @Codebase, Windsurf 深度索引 |
-| P2 | @Files 语法 | Cursor `@Files path` 引用文件 |
-| P3 | 内联补全 | Cursor Tab 补全 |
+| 优先级 | GAP | 竞品方案 | 状态 |
+|--------|-----|----------|------|
+| P1 | 代码库索引 | Cursor @Codebase | ✅ 已实现 |
+| P2 | @Files 语法 | Cursor `@Files path` | 待开发 |
+| P3 | 内联补全 | Cursor Tab 补全 | 待开发 |
 
 详细文档: `docs/SELF_EVOLUTION.md`, `internal/swarm/FEATURE_CLASSIFICATION.md`
 
