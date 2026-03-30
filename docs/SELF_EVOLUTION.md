@@ -185,6 +185,7 @@ const parseFileReferences = (text: string) => {
 52. ✅ internal/mcp 测试覆盖率 81.1% (up from 71.9%) — mock_server_test.go 17 tests (NewTestClientPair/mockServerCore/MockMCPServer/CreateMockServerScript)
 53. ✅ internal/api 测试覆盖率 41.6% (up from 34.6%) — 13 command handler validation tests (90+ sub-tests: create_session/send_message/close_session/permission_response/get_swarm/execute_task/MCP/agent CRUD)
 54. ✅ internal/swarm 测试覆盖率 71.4% (up from 70.7%) — 31 setter/getter/utility tests (Orchestrator/HandoffManager/Coordinator)
+55. ✅ internal/swarm interrupt_test.go — InterruptError + GojaExecutor 11 tests (71.4% → 71.7%)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
