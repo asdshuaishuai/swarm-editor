@@ -1117,6 +1117,7 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 	}
 
 	// Build agent nodes from all swarms
+	agentIndex := 0 // Track agent count separately for positioning
 	for swarmID, sw := range swarms {
 		stats := sw.GetStats()
 
@@ -1137,9 +1138,10 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 				Name: ag.Name,
 				Type: string(ag.Type),
 				Load: 0.5, // Default load
-				X:    0.3 + float64(len(data.Agents))*0.1,
-				Y:    0.3 + float64(len(data.Agents))*0.1,
+				X:    0.3 + float64(agentIndex)*0.1,
+				Y:    0.3 + float64(agentIndex)*0.1,
 			})
+			agentIndex++
 
 			// Add flow from coordinator to agent
 			data.Flows = append(data.Flows, TaskFlow{
@@ -1904,7 +1906,8 @@ func (h *CommandHandler) handleRestoreWorkflow(ctx context.Context, params json.
 		return nil, safeUnmarshalError(err)
 	}
 
-	if strings.TrimSpace(req.ID) == "" {
+	req.ID = strings.TrimSpace(req.ID)
+	if req.ID == "" {
 		return nil, errValidation("workflow id is required")
 	}
 	if strings.TrimSpace(req.CheckpointID) == "" {
@@ -1919,6 +1922,12 @@ func (h *CommandHandler) handleRestoreWorkflow(ctx context.Context, params json.
 	w, err := orch.RestoreFromCheckpoint(req.CheckpointID)
 	if err != nil {
 		return nil, safeError("failed to restore from checkpoint", err)
+	}
+
+	// Validate that the restored workflow matches the requested workflow ID
+	// This prevents restoring a checkpoint from a different workflow
+	if w.ID != req.ID {
+		return nil, errValidation("checkpoint does not belong to the specified workflow")
 	}
 
 	return workflowToMap(w), nil

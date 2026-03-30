@@ -141,6 +141,9 @@ const parseFileReferences = (text: string) => {
 11. ✅ internal/api 测试覆盖率 28.0% (up from 21.9%)
 12. ✅ Workflow API 边界测试 + deepCopy 测试 (21 sub-tests)
 13. ✅ internal/api 测试覆盖率 30.2% (up from 28.0%)
+14. ✅ 深度审计 - 4 Agent 并行审计 (handler.go, websocket_server.go, emergence.go, React 前端)
+15. ✅ Bug 修复 - handleRestoreWorkflow 忽略 workflow ID (MEDIUM)
+16. ✅ Bug 修复 - Agent 节点位置 off-by-one (LOW)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
