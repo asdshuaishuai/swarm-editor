@@ -2217,8 +2217,10 @@ func TestWorkflow_Snapshot(t *testing.T) {
 	// Add edge
 	w.AddEdge(&WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
 
-	// Set status
-	w.SetStatus("running")
+	// Set status directly
+	w.mu.Lock()
+	w.Status = "running"
+	w.mu.Unlock()
 
 	snapshot := w.Snapshot()
 
@@ -2268,7 +2270,7 @@ func TestWorkflow_Snapshot_OnComplete(t *testing.T) {
 
 	// Set OnComplete
 	w.OnComplete = []WorkflowChainLink{
-		{WorkflowID: "next-wf", InputMapping: map[string]string{"a": "b"}},
+		{WorkflowID: "next-wf", Input: map[string]any{"a": "b"}},
 	}
 
 	snapshot := w.Snapshot()
