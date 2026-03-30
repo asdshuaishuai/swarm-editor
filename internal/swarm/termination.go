@@ -227,15 +227,13 @@ func (p *CompositeTerminationPolicy) Check(turnCount int, lastOutput string) Ter
 
 	if mode == TerminationAND {
 		// AND: all conditions must terminate
+		names := make([]string, 0, len(conditions))
 		for _, c := range conditions {
 			result := c.Check(turnCount, lastOutput)
 			if !result.Terminated {
 				return TerminationResult{}
 			}
-		}
-		names := make([]string, 0, len(conditions))
-		for _, c := range conditions {
-			names = append(names, c.Check(turnCount, lastOutput).Condition)
+			names = append(names, result.Condition)
 		}
 		return TerminationResult{
 			Terminated: true,
