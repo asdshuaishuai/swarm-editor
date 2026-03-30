@@ -1,0 +1,197 @@
+import { describe, it, expect } from 'vitest'
+import {
+  parseFileReferences,
+  extractFilePaths,
+  stripFileReferences,
+  isCursorInFileReference,
+  getFileCompletions,
+  getLanguageFromExtension,
+  highlightFileReferences,
+} from './fileReference'
+
+describe('parseFileReferences', () => {
+  it('should parse @File syntax', () => {
+    const text = '@File path/to/file.ts'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0].path).toBe('path/to/file.ts')
+    expect(refs[0].type).toBe('file')
+    expect(refs[0].raw).toBe('@File path/to/file.ts')
+  })
+
+  it('should parse @Files syntax', () => {
+    const text = '@Files path/to/file.ts'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0].path).toBe('path/to/file.ts')
+  })
+
+  it('should parse quoted paths', () => {
+    const text = '@File "path with spaces/file.ts"'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0].path).toBe('path with spaces/file.ts')
+  })
+
+  it('should parse folder references', () => {
+    const text = '@Files folder/'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0].type).toBe('folder')
+  })
+
+  it('should parse glob patterns', () => {
+    const text = '@Files **/*.ts'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0].type).toBe('glob')
+  })
+
+  it('should parse multiple references', () => {
+    const text = 'Check @File a.ts and @File b.ts'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(2)
+    expect(refs[0].path).toBe('a.ts')
+    expect(refs[1].path).toBe('b.ts')
+  })
+
+  it('should be case insensitive', () => {
+    const text = '@file path/to/file.ts @FILES other.ts'
+    const refs = parseFileReferences(text)
+
+    expect(refs).toHaveLength(2)
+  })
+})
+
+describe('extractFilePaths', () => {
+  it('should extract unique paths', () => {
+    const refs = parseFileReferences('@File a.ts @File b.ts @File a.ts')
+    const paths = extractFilePaths(refs)
+
+    expect(paths).toHaveLength(2)
+    expect(paths).toContain('a.ts')
+    expect(paths).toContain('b.ts')
+  })
+})
+
+describe('stripFileReferences', () => {
+  it('should remove @File syntax', () => {
+    const text = 'Check @File a.ts and @File b.ts'
+    const stripped = stripFileReferences(text)
+
+    expect(stripped).toBe('Check  and')
+  })
+})
+
+describe('isCursorInFileReference', () => {
+  it('should detect cursor after @File', () => {
+    const text = '@File '
+    const result = isCursorInFileReference(text, 6)
+
+    expect(result.inReference).toBe(true)
+    expect(result.query).toBe('')
+  })
+
+  it('should detect cursor in path', () => {
+    const text = '@File src/comp'
+    const result = isCursorInFileReference(text, text.length)
+
+    expect(result.inReference).toBe(true)
+    expect(result.query).toBe('src/comp')
+  })
+
+  it('should detect cursor inside reference', () => {
+    const text = '@File src/component.ts more text'
+    const result = isCursorInFileReference(text, 10)
+
+    expect(result.inReference).toBe(true)
+  })
+
+  it('should return false when not in reference', () => {
+    const text = 'Hello world'
+    const result = isCursorInFileReference(text, 5)
+
+    expect(result.inReference).toBe(false)
+  })
+})
+
+describe('getFileCompletions', () => {
+  const files = [
+    'src/components/Button.tsx',
+    'src/components/Input.tsx',
+    'src/utils/helpers.ts',
+    'src/App.tsx',
+  ]
+
+  it('should filter files by query', () => {
+    const completions = getFileCompletions('Button', files)
+
+    expect(completions).toHaveLength(1)
+    expect(completions[0]).toBe('src/components/Button.tsx')
+  })
+
+  it('should match partial paths', () => {
+    const completions = getFileCompletions('src/comp', files)
+
+    expect(completions.length).toBeGreaterThan(0)
+    expect(completions.every((f) => f.includes('comp'))).toBe(true)
+  })
+
+  it('should limit results', () => {
+    const completions = getFileCompletions('src', files, 2)
+
+    expect(completions.length).toBeLessThanOrEqual(2)
+  })
+
+  it('should prioritize exact matches', () => {
+    const filesWithExact = ['App.tsx', 'src/App.tsx', 'src/components/App.tsx']
+    const completions = getFileCompletions('App.tsx', filesWithExact)
+
+    expect(completions[0]).toBe('App.tsx')
+  })
+})
+
+describe('getLanguageFromExtension', () => {
+  it('should map TypeScript extensions', () => {
+    expect(getLanguageFromExtension('ts')).toBe('typescript')
+    expect(getLanguageFromExtension('tsx')).toBe('typescript')
+  })
+
+  it('should map JavaScript extensions', () => {
+    expect(getLanguageFromExtension('js')).toBe('javascript')
+    expect(getLanguageFromExtension('jsx')).toBe('javascript')
+  })
+
+  it('should map common languages', () => {
+    expect(getLanguageFromExtension('go')).toBe('go')
+    expect(getLanguageFromExtension('py')).toBe('python')
+    expect(getLanguageFromExtension('rs')).toBe('rust')
+    expect(getLanguageFromExtension('java')).toBe('java')
+  })
+
+  it('should return extension for unknown languages', () => {
+    expect(getLanguageFromExtension('xyz')).toBe('xyz')
+  })
+})
+
+describe('highlightFileReferences', () => {
+  it('should return single text segment when no references', () => {
+    const result = highlightFileReferences('Hello world')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({ type: 'text', content: 'Hello world' })
+  })
+
+  it('should split text into segments', () => {
+    const result = highlightFileReferences('Check @File a.ts for details')
+    expect(result).toHaveLength(3)
+    expect(result[0]).toEqual({ type: 'text', content: 'Check ' })
+    expect(result[1]).toEqual({ type: 'reference', content: '@File a.ts' })
+    expect(result[2]).toEqual({ type: 'text', content: ' for details' })
+  })
+})
