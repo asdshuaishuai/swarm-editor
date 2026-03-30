@@ -2479,3 +2479,103 @@ func TestCommandHandler_HandleAddWorkflowEdge_NoOrchestrator(t *testing.T) {
 		t.Error("expected error for missing orchestrator")
 	}
 }
+
+// ==================== Restore Workflow Tests ====================
+
+func TestCommandHandler_HandleRestoreWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{"checkpointId": "cp-1"}`)},
+		{"empty id", json.RawMessage(`{"id": "", "checkpointId": "cp-1"}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   ", "checkpointId": "cp-1"}`)},
+		{"missing checkpointId", json.RawMessage(`{"id": "wf-1"}`)},
+		{"empty checkpointId", json.RawMessage(`{"id": "wf-1", "checkpointId": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("restore_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleRestoreWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "wf-1", "checkpointId": "cp-1"}`)
+	_, err := handler.HandleCommand("restore_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleRestoreWorkflow_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-wf", "checkpointId": "cp-1"}`)
+	_, err := handler.HandleCommand("restore_workflow", params)
+	if err == nil {
+		t.Error("expected error for non-existent workflow/checkpoint")
+	}
+}
+
+// ==================== Get Workflow Report Tests ====================
+
+func TestCommandHandler_HandleGetWorkflowReport_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{}`)},
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("get_workflow_report", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowReport_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "wf-1"}`)
+	_, err := handler.HandleCommand("get_workflow_report", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowReport_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-wf"}`)
+	_, err := handler.HandleCommand("get_workflow_report", params)
+	if err == nil {
+		t.Error("expected error for non-existent workflow")
+	}
+}

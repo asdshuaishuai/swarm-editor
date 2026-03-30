@@ -190,6 +190,7 @@ const parseFileReferences = (text: string) => {
 57. ✅ internal/swarm 测试覆盖率 72.0% (up from 71.7%) — executeCodeNodeJavaScript tests (5 sub-tests) + deepCopyAny tests (10 sub-tests)
 58. ✅ internal/api 测试覆盖率 50.5% (up from 47.8%) — emergence service tests (23 sub-tests) + execute workflow validation tests
 59. ✅ internal/api 测试覆盖率 62.7% (up from 50.5%) — 50+ sub-tests for 0% coverage handlers (automation/artifact/variable/audit/schedule handlers)
+60. ✅ internal/api 测试覆盖率 64.1% (up from 62.7%) — restore_workflow + get_workflow_report + session/send_message/permission/add/update/delete agent/MCP server tests
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
