@@ -162,6 +162,10 @@ const parseFileReferences = (text: string) => {
 32. ✅ checkpoint.go pruneOld 删除失败日志 (LOW)
 33. ✅ 3 automation nil params/missing message tests
 34. ✅ config_parser_test.go — JSON/TOML parser 21 sub-tests (agent 60.9% → 66.1%)
+35. ✅ variables.go ValidateAll TOCTOU 修复 — slice 深拷贝防止并发 append 竞争 (MEDIUM)
+36. ✅ orchestration.go executeHierarchical coordinator 失败状态未设置修复 (MEDIUM)
+37. ✅ orchestration.go RestoreFromCheckpoint sagaLog nil 清理 (LOW)
+38. ✅ supervisor.go addAlert/handleUnrecoverableAgent 锁要求文档化
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
