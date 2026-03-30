@@ -121,6 +121,9 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 			level = "info"
 		}
 		message, _ := event["message"].(string)
+		if message == "" {
+			return fmt.Errorf("notification message is required")
+		}
 		log.Printf("[Automation] Notification (%s): %s", level, message)
 		return nil
 	}
@@ -141,16 +144,19 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 			return fmt.Errorf("webhook url must use http or https scheme")
 		}
-		allowPrivate, _ := event["allowPrivateNetworks"].(bool)
+		allowPrivate := false
+		if v, ok := event["allowPrivateNetworks"].(bool); ok {
+			allowPrivate = v
+		}
 		if !allowPrivate {
 			if err := validateURLHost(parsedURL.Host); err != nil {
 				return fmt.Errorf("webhook url blocked: %w", err)
 			}
 		}
 
-		method, _ := event["method"].(string)
-		if method == "" {
-			method = "POST"
+		method := "POST"
+		if v, ok := event["method"].(string); ok && v != "" {
+			method = v
 		}
 
 		// Build request body (support simple string or JSON template)

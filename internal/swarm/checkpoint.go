@@ -177,7 +177,9 @@ func (s *CheckpointStore) pruneOld() {
 
 	// Delete oldest if over limit
 	for i := range len(files) - s.maxKeep {
-		os.Remove(filepath.Join(s.dataDir, files[i].name))
+		if err := os.Remove(filepath.Join(s.dataDir, files[i].name)); err != nil {
+			log.Printf("[Checkpoint] failed to prune %s: %v", files[i].name, err)
+		}
 	}
 }
 

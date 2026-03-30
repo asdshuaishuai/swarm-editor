@@ -549,3 +549,72 @@ func TestAutomationEngine_WebhookAction_MissingURL(t *testing.T) {
 		t.Fatalf("expected 1 triggered (action still fires, just fails), got %d", triggered)
 	}
 }
+
+func TestAutomationEngine_NotificationAction_MissingMessage(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "notify-no-msg",
+		Name: "No Message",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "send_notification", Params: map[string]any{}},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	// Should not panic — message is required but event data is nil/empty
+	triggered := engine.EvaluateEvent(context.Background(), "test.event", nil)
+	if triggered != 1 {
+		t.Fatalf("expected 1 triggered, got %d", triggered)
+	}
+}
+
+func TestAutomationEngine_NotificationAction_NilEventMap(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "notify-nil-map",
+		Name: "Nil Map",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "send_notification", Params: nil},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	// Params is nil — must not panic on nil map access
+	triggered := engine.EvaluateEvent(context.Background(), "test.event", nil)
+	if triggered != 1 {
+		t.Fatalf("expected 1 triggered, got %d", triggered)
+	}
+}
+
+func TestAutomationEngine_WebhookAction_NilParams(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "webhook-nil-params",
+		Name: "Nil Params",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "call_webhook", Params: nil},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	// Params is nil — must not panic
+	triggered := engine.EvaluateEvent(context.Background(), "test.event", nil)
+	if triggered != 1 {
+		t.Fatalf("expected 1 triggered, got %d", triggered)
+	}
+}

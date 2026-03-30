@@ -157,10 +157,12 @@ func ExecuteHTTPRequestNode(ctx context.Context, config map[string]any) (*HTTPRe
 			// Exponential backoff with jitter
 			backoff := time.Duration(math.Pow(2, float64(attempt-1))*1000) * time.Millisecond
 			jitter := time.Duration(rand.Intn(500)) * time.Millisecond
+			timer := time.NewTimer(backoff + jitter)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return nil, ctx.Err()
-			case <-time.After(backoff + jitter):
+			case <-timer.C:
 			}
 		}
 
