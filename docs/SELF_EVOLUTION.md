@@ -161,6 +161,7 @@ const parseFileReferences = (text: string) => {
 31. ✅ http_node.go time.After → time.NewTimer 修复 timer leak (LOW)
 32. ✅ checkpoint.go pruneOld 删除失败日志 (LOW)
 33. ✅ 3 automation nil params/missing message tests
+34. ✅ config_parser_test.go — JSON/TOML parser 21 sub-tests (agent 60.9% → 66.1%)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
