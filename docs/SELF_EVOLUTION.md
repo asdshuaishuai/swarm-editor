@@ -192,6 +192,7 @@ const parseFileReferences = (text: string) => {
 59. ✅ internal/api 测试覆盖率 62.7% (up from 50.5%) — 50+ sub-tests for 0% coverage handlers (automation/artifact/variable/audit/schedule handlers)
 60. ✅ internal/api 测试覆盖率 64.1% (up from 62.7%) — restore_workflow + get_workflow_report + session/send_message/permission/add/update/delete agent/MCP server tests
 61. ✅ internal/api 测试覆盖率 64.9% (up from 64.1%) — APIError + WebSocketServer setters (AddSupervisor/RemoveSupervisor/AddMCPClient) + session/agent/MCP handler validation tests
+62. ✅ internal/api 测试覆盖率 66.2% (up from 64.9%) — workflowToMap comprehensive tests (nil/basic/nodes/edges/interrupt fields/interrupted state)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
@@ -215,7 +216,7 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 64.9% (up from 15.7%), internal/swarm: 72.3% (up from 70.7%)
+- [x] 测试覆盖率趋势 - internal/api: 66.2% (up from 15.7%), internal/swarm: 72.3% (up from 70.7%)
 - [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
