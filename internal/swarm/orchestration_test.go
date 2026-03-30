@@ -2203,3 +2203,159 @@ func TestOrchestrator_Close(t *testing.T) {
 type mockEventBroadcaster2 struct{}
 
 func (m mockEventBroadcaster2) Broadcast(eventType string, payload any) {}
+
+// ==================== Workflow Snapshot Tests ====================
+
+func TestWorkflow_Snapshot(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("snapshot-test", ModeSequential)
+
+	// Add nodes
+	w.AddNode(&WorkflowNode{ID: "n1", Name: "Node 1", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "n2", Name: "Node 2", Type: "agent"})
+
+	// Add edge
+	w.AddEdge(&WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
+
+	// Set status
+	w.SetStatus("running")
+
+	snapshot := w.Snapshot()
+
+	// Verify snapshot fields
+	if snapshot.ID != w.ID {
+		t.Error("snapshot ID mismatch")
+	}
+	if snapshot.Name != "snapshot-test" {
+		t.Errorf("snapshot Name = %q, want 'snapshot-test'", snapshot.Name)
+	}
+	if snapshot.Status != "running" {
+		t.Errorf("snapshot Status = %q, want 'running'", snapshot.Status)
+	}
+	if len(snapshot.Nodes) != 2 {
+		t.Errorf("snapshot Nodes count = %d, want 2", len(snapshot.Nodes))
+	}
+	if len(snapshot.Edges) != 1 {
+		t.Errorf("snapshot Edges count = %d, want 1", len(snapshot.Edges))
+	}
+}
+
+func TestWorkflow_Snapshot_Isolation(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("isolation-test", ModeSequential)
+	w.AddNode(&WorkflowNode{ID: "n1", Name: "Original", Type: "agent"})
+
+	snapshot := w.Snapshot()
+
+	// Modify original workflow
+	w.SetStatus("modified")
+	w.Nodes[0].Name = "Modified"
+
+	// Snapshot should not be affected
+	if snapshot.Status == "modified" {
+		t.Error("snapshot should not reflect status changes")
+	}
+	if snapshot.Nodes[0].Name == "Modified" {
+		t.Error("snapshot nodes should be independent")
+	}
+}
+
+func TestWorkflow_Snapshot_OnComplete(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("oncomplete-test", ModeSequential)
+
+	// Set OnComplete
+	w.OnComplete = []WorkflowChainLink{
+		{WorkflowID: "next-wf", InputMapping: map[string]string{"a": "b"}},
+	}
+
+	snapshot := w.Snapshot()
+
+	if len(snapshot.OnComplete) != 1 {
+		t.Fatalf("snapshot OnComplete count = %d, want 1", len(snapshot.OnComplete))
+	}
+
+	// Modify original
+	w.OnComplete[0].WorkflowID = "modified-wf"
+
+	// Snapshot should not be affected
+	if snapshot.OnComplete[0].WorkflowID == "modified-wf" {
+		t.Error("snapshot OnComplete should be independent")
+	}
+}
+
+// ==================== Orchestrator GetPreviousNodes Tests ====================
+
+func TestWorkflow_GetPreviousNodes(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("prev-test", ModeSequential)
+
+	// Create nodes
+	w.AddNode(&WorkflowNode{ID: "start", Name: "Start", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "middle", Name: "Middle", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "end", Name: "End", Type: "agent"})
+
+	// Create edges: start -> middle -> end
+	w.AddEdge(&WorkflowEdge{ID: "e1", From: "start", To: "middle"})
+	w.AddEdge(&WorkflowEdge{ID: "e2", From: "middle", To: "end"})
+
+	// Get previous nodes for "end"
+	prev := w.GetPreviousNodes("end")
+	if len(prev) != 1 {
+		t.Fatalf("GetPreviousNodes('end') = %d nodes, want 1", len(prev))
+	}
+	if prev[0].ID != "middle" {
+		t.Errorf("GetPreviousNodes('end')[0].ID = %q, want 'middle'", prev[0].ID)
+	}
+
+	// Get previous nodes for "middle"
+	prev = w.GetPreviousNodes("middle")
+	if len(prev) != 1 {
+		t.Fatalf("GetPreviousNodes('middle') = %d nodes, want 1", len(prev))
+	}
+	if prev[0].ID != "start" {
+		t.Errorf("GetPreviousNodes('middle')[0].ID = %q, want 'start'", prev[0].ID)
+	}
+
+	// Get previous nodes for "start" (no predecessors)
+	prev = w.GetPreviousNodes("start")
+	if len(prev) != 0 {
+		t.Errorf("GetPreviousNodes('start') = %d nodes, want 0", len(prev))
+	}
+
+	// Get previous nodes for non-existent node
+	prev = w.GetPreviousNodes("nonexistent")
+	if len(prev) != 0 {
+		t.Errorf("GetPreviousNodes('nonexistent') = %d nodes, want 0", len(prev))
+	}
+}
+
+func TestWorkflow_GetPreviousNodes_MultiplePredecessors(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("multi-prev-test", ModeSequential)
+
+	// Create diamond shape: A -> B, A -> C, B -> D, C -> D
+	w.AddNode(&WorkflowNode{ID: "A", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "B", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "C", Type: "agent"})
+	w.AddNode(&WorkflowNode{ID: "D", Type: "agent"})
+
+	w.AddEdge(&WorkflowEdge{ID: "e1", From: "A", To: "B"})
+	w.AddEdge(&WorkflowEdge{ID: "e2", From: "A", To: "C"})
+	w.AddEdge(&WorkflowEdge{ID: "e3", From: "B", To: "D"})
+	w.AddEdge(&WorkflowEdge{ID: "e4", From: "C", To: "D"})
+
+	// D should have B and C as predecessors
+	prev := w.GetPreviousNodes("D")
+	if len(prev) != 2 {
+		t.Fatalf("GetPreviousNodes('D') = %d nodes, want 2", len(prev))
+	}
+
+	prevIDs := make(map[string]bool)
+	for _, n := range prev {
+		prevIDs[n.ID] = true
+	}
+	if !prevIDs["B"] || !prevIDs["C"] {
+		t.Error("GetPreviousNodes('D') should return B and C")
+	}
+}
