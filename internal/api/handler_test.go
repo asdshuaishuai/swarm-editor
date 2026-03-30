@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
@@ -2750,5 +2751,190 @@ func TestWebSocketServer_AddMCPClient(t *testing.T) {
 	clients := server.ListMCPClients()
 	if len(clients) != 1 {
 		t.Errorf("expected 1 MCP client, got %d", len(clients))
+	}
+}
+
+// ==================== workflowToMap Tests ====================
+
+func TestWorkflowToMap_Nil(t *testing.T) {
+	result := workflowToMap(nil)
+	if result != nil {
+		t.Error("workflowToMap(nil) should return nil")
+	}
+}
+
+func TestWorkflowToMap_Basic(t *testing.T) {
+	orch := swarm.NewOrchestrator(nil)
+	w := orch.CreateWorkflow("test-wf", swarm.ModeSequential)
+	w.SetDescription("test description")
+
+	result := workflowToMap(w)
+
+	if result == nil {
+		t.Fatal("workflowToMap should return non-nil")
+	}
+	if result["name"] != "test-wf" {
+		t.Errorf("name = %v, want 'test-wf'", result["name"])
+	}
+	if result["description"] != "test description" {
+		t.Errorf("description = %v, want 'test description'", result["description"])
+	}
+	if result["mode"] != "sequential" {
+		t.Errorf("mode = %v, want 'sequential'", result["mode"])
+	}
+	if result["status"] != "draft" {
+		t.Errorf("status = %v, want 'draft'", result["status"])
+	}
+}
+
+func TestWorkflowToMap_WithNodes(t *testing.T) {
+	orch := swarm.NewOrchestrator(nil)
+	w := orch.CreateWorkflow("test-wf", swarm.ModeParallel)
+
+	// Add node with optional fields
+	now := time.Now()
+	w.AddNode(&swarm.WorkflowNode{
+		ID:          "node-1",
+		Name:        "Agent 1",
+		AgentID:     "agent-1",
+		Type:        "agent",
+		Status:      swarm.TaskStatusRunning,
+		Position:    swarm.Position{X: 100, Y: 200},
+		SubgraphID:  "subgraph-1",
+		Config:      map[string]any{"key": "value"},
+		Result:      map[string]any{"output": "data"},
+		StartedAt:   &now,
+		CompletedAt: &now,
+		DependsOn:   []string{"node-0"},
+	})
+
+	result := workflowToMap(w)
+
+	nodes, ok := result["nodes"].([]map[string]any)
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %v", result["nodes"])
+	}
+
+	node := nodes[0]
+	if node["id"] != "node-1" {
+		t.Errorf("node id = %v, want 'node-1'", node["id"])
+	}
+	if node["subgraphId"] != "subgraph-1" {
+		t.Error("subgraphId should be set")
+	}
+	if node["config"] == nil {
+		t.Error("config should be set")
+	}
+	if node["result"] == nil {
+		t.Error("result should be set")
+	}
+	if node["startedAt"] == nil {
+		t.Error("startedAt should be set")
+	}
+	if node["completedAt"] == nil {
+		t.Error("completedAt should be set")
+	}
+	if node["dependsOn"] == nil {
+		t.Error("dependsOn should be set")
+	}
+}
+
+func TestWorkflowToMap_WithInterruptFields(t *testing.T) {
+	orch := swarm.NewOrchestrator(nil)
+	w := orch.CreateWorkflow("interrupt-wf", swarm.ModeSequential)
+
+	w.AddNode(&swarm.WorkflowNode{
+		ID:              "interrupt-node",
+		Type:            "agent",
+		Interrupt:       true,
+		InterruptBefore: true,
+		InterruptAfter:  true,
+		ResumeInput:     map[string]any{"input": "value"},
+		InterruptActions: []swarm.InterruptAction{
+			{ID: "approve", Label: "Approve"},
+			{ID: "reject", Label: "Reject"},
+		},
+		ChosenAction: "approve",
+	})
+
+	result := workflowToMap(w)
+
+	nodes := result["nodes"].([]map[string]any)
+	node := nodes[0]
+
+	if node["interrupt"] != true {
+		t.Error("interrupt should be true")
+	}
+	if node["interruptBefore"] != true {
+		t.Error("interruptBefore should be true")
+	}
+	if node["interruptAfter"] != true {
+		t.Error("interruptAfter should be true")
+	}
+	if node["resumeInput"] == nil {
+		t.Error("resumeInput should be set")
+	}
+	if node["interruptActions"] == nil {
+		t.Error("interruptActions should be set")
+	}
+	if node["chosenAction"] != "approve" {
+		t.Error("chosenAction should be 'approve'")
+	}
+}
+
+func TestWorkflowToMap_WithEdges(t *testing.T) {
+	orch := swarm.NewOrchestrator(nil)
+	w := orch.CreateWorkflow("edge-wf", swarm.ModeSequential)
+
+	w.AddNode(&swarm.WorkflowNode{ID: "n1", Type: "agent"})
+	w.AddNode(&swarm.WorkflowNode{ID: "n2", Type: "agent"})
+	w.AddEdge(&swarm.WorkflowEdge{
+		ID:        "e1",
+		From:      "n1",
+		To:        "n2",
+		Condition: "success",
+		Label:     "on success",
+	})
+
+	result := workflowToMap(w)
+
+	edges, ok := result["edges"].([]map[string]any)
+	if !ok || len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %v", result["edges"])
+	}
+
+	edge := edges[0]
+	if edge["id"] != "e1" {
+		t.Errorf("edge id = %v, want 'e1'", edge["id"])
+	}
+	if edge["from"] != "n1" {
+		t.Errorf("edge from = %v, want 'n1'", edge["from"])
+	}
+	if edge["to"] != "n2" {
+		t.Errorf("edge to = %v, want 'n2'", edge["to"])
+	}
+	if edge["condition"] != "success" {
+		t.Errorf("edge condition = %v, want 'success'", edge["condition"])
+	}
+	if edge["label"] != "on success" {
+		t.Errorf("edge label = %v, want 'on success'", edge["label"])
+	}
+}
+
+func TestWorkflowToMap_InterruptedState(t *testing.T) {
+	orch := swarm.NewOrchestrator(nil)
+	w := orch.CreateWorkflow("interrupted-wf", swarm.ModeSequential)
+
+	// Set interrupted state directly
+	w.InterruptedNodeID = "node-2"
+	w.InterruptPhase = "before"
+
+	result := workflowToMap(w)
+
+	if result["interruptedNodeId"] != "node-2" {
+		t.Errorf("interruptedNodeId = %v, want 'node-2'", result["interruptedNodeId"])
+	}
+	if result["interruptPhase"] != "before" {
+		t.Errorf("interruptPhase = %v, want 'before'", result["interruptPhase"])
 	}
 }
