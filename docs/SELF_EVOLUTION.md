@@ -143,10 +143,13 @@ const parseFileReferences = (text: string) => {
 ## 五、自怀疑检查清单
 
 ### 每周
-- [ ] 新增代码是否有并发安全问题？
-- [ ] 是否有硬编码的超时/重试值？
-- [ ] 错误处理是否完整？
-- [ ] 是否有未追踪的 goroutine？
+- [x] 新增代码是否有并发安全问题？ ✅ race detection PASS
+- [x] 是否有硬编码的超时/重试值？ ✅ 检查通过
+- [x] 错误处理是否完整？ ✅ 检查通过
+- [x] 是否有未追踪的 goroutine？ ✅ 检查通过
+- [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
+- [x] go vet ✅ CLEAN (2026-03-31)
+- [x] TypeScript 严格模式 ✅ PASS (2026-03-31)
 
 ### 每月
 - [ ] 竞品版本更新检查
