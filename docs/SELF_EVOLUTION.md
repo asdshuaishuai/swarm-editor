@@ -150,6 +150,7 @@ const parseFileReferences = (text: string) => {
 20. ✅ 前端 WebSocket 审计 - 3 Bug 修复
 21. ✅ reconnectAttempts 成功连接后重置 + 耗尽时发出 error 事件
 22. ✅ swarm_stats/agent_stats 合并策略替代全量替换 (防止 task_update 丢失)
+23. ✅ emergence.go AgentUtilization 覆写修复 - coordinator 不再静默丢弃 supervisor 指标 (MEDIUM)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索

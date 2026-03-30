@@ -107,7 +107,7 @@ func (s *EmergenceService) collectHealthMetrics() SwarmHealth {
 			healthyRatio := float64(stats.HealthyAgents) / float64(totalAgents)
 			health.OverallScore = healthyRatio
 
-			// Agent utilization: busy = total - healthy (healthy agents are idle)
+			// Agent utilization: busy = total - healthy (unhealthy agents are likely busy or stuck)
 			busyAgents := max(0, totalAgents-stats.HealthyAgents)
 			health.AgentUtilization = float64(busyAgents) / float64(totalAgents)
 
@@ -147,10 +147,14 @@ func (s *EmergenceService) collectHealthMetrics() SwarmHealth {
 	// Get coordinator stats
 	if s.coordinator != nil {
 		stats := s.coordinator.GetStats()
-		// Additional metrics from coordinator
+		// Merge coordinator utilization (active tasks / workers) with
+		// supervisor utilization (busy agents / total). Take the max so
+		// neither perspective is silently discarded.
 		if stats.WorkerCount > 0 {
 			activeRatio := float64(stats.ActiveTasks) / float64(stats.WorkerCount)
-			health.AgentUtilization = activeRatio
+			if activeRatio > health.AgentUtilization {
+				health.AgentUtilization = activeRatio
+			}
 		}
 	}
 
