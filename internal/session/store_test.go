@@ -713,4 +713,290 @@ func BenchmarkGetStats(b *testing.B) {
 	}
 }
 
+func TestClose_Idempotent(t *testing.T) {
+	store, _ := NewStore("")
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	// Second close should be no-op
+	if err := store.Close(); err != nil {
+		t.Fatalf("second Close should not error, got: %v", err)
+	}
+}
+
+func TestClose_AfterCreate(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestWaitForWrites(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+	store.AddMessage("s1", Message{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hello"}}})
+	// WaitForWrites should not block indefinitely
+	store.WaitForWrites()
+}
+
+func TestWaitForWrites_Empty(t *testing.T) {
+	store, _ := NewStore("")
+	store.WaitForWrites()
+}
+
+func TestCreate_InvalidSessionID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{"empty", ""},
+		{"path traversal", "../etc/passwd"},
+		{"forward slash", "foo/bar"},
+		{"backslash", "foo\\bar"},
+		{"too long", strings.Repeat("a", 257)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, _ := NewStore("")
+			session := store.Create(tt.id, "a1")
+			if session != nil {
+				t.Errorf("Create(%q) should return nil for invalid ID", tt.id)
+			}
+		})
+	}
+}
+
+func TestAddMessage_StoreClosed(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+	store.Close()
+	err := store.AddMessage("s1", Message{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hi"}}})
+	if err == nil {
+		t.Error("AddMessage on closed store should error")
+	}
+}
+
+func TestUpdateStatus_StoreClosed(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+	store.Close()
+	err := store.UpdateStatus("s1", "closed")
+	if err == nil {
+		t.Error("UpdateStatus on closed store should error")
+	}
+}
+
+func TestLoadFromDisk_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "bad-session.json")
+	if err := os.WriteFile(path, []byte("not json{{{"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if store.Get("bad-session") != nil {
+		t.Error("invalid JSON session should not be loaded")
+	}
+}
+
+func TestLoadFromDisk_InvalidSessionID(t *testing.T) {
+	tmpDir := t.TempDir()
+	session := &Session{
+		ID:        "../etc/passwd",
+		AgentID:   "evil",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Messages:  []Message{},
+		Status:    "active",
+		Metadata:  map[string]any{},
+	}
+	data, _ := json.Marshal(session)
+	path := filepath.Join(tmpDir, "evil.json")
+	os.WriteFile(path, data, 0644)
+
+	store, _ := NewStore(tmpDir)
+	if store.Get("../etc/passwd") != nil {
+		t.Error("session with path traversal ID should be skipped")
+	}
+}
+
+func TestLoadFromDisk_NonJSONFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("hello"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "data.csv"), []byte("a,b"), 0644)
+
+	store, _ := NewStore(tmpDir)
+	if len(store.List()) != 0 {
+		t.Error("non-JSON files should be skipped")
+	}
+}
+
+func TestLoadFromDisk_Subdirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0755)
+
+	store, _ := NewStore(tmpDir)
+	if len(store.List()) != 0 {
+		t.Error("subdirectories should be skipped")
+	}
+}
+
+func TestDeleteFromDisk_Nonexistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, _ := NewStore(tmpDir)
+	// deleteFromDisk on a nonexistent file should not error
+	// We can't call it directly, but Delete on nonexistent session is already tested
+	store.Delete("nonexistent-session")
+}
+
+func TestDeleteFromDisk_WithDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, _ := NewStore(tmpDir)
+	store.Create("s1", "a1")
+	store.WaitForWrites()
+
+	// Verify file exists
+	path := filepath.Join(tmpDir, "s1.json")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected s1.json to exist: %v", err)
+	}
+
+	store.Delete("s1")
+
+	// File should be removed
+	if _, err := os.Stat(path); err == nil {
+		t.Error("s1.json should be deleted after Delete")
+	}
+}
+
+func TestWriteFileSync_EmptyDataDir(t *testing.T) {
+	store, _ := NewStore("")
+	// With empty dataDir, writes should be silently skipped
+	store.Create("s1", "a1")
+	store.WaitForWrites()
+}
+
+func TestEnqueueWrite_EmptyDataDir(t *testing.T) {
+	store, _ := NewStore("")
+	// enqueueWrite with empty dataDir is a no-op
+	store.WaitForWrites()
+}
+
+func TestValidateSessionID(t *testing.T) {
+	tests := []struct {
+		id    string
+		valid bool
+	}{
+		{"session-1", true},
+		{"abc_123", true},
+		{"", false},
+		{strings.Repeat("a", 256), true},      // exactly at limit
+		{strings.Repeat("a", 257), false},     // over limit
+		{"../etc/passwd", false},              // path traversal
+		{"foo/bar", false},                    // forward slash
+		{"foo\\bar", false},                   // backslash
+		{"normal-session-id", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			err := validateSessionID(tt.id)
+			if tt.valid && err != nil {
+				t.Errorf("validateSessionID(%q) unexpected error: %v", tt.id, err)
+			}
+			if !tt.valid && err == nil {
+				t.Errorf("validateSessionID(%q) expected error, got nil", tt.id)
+			}
+		})
+	}
+}
+
+func TestCopySession(t *testing.T) {
+	original := &Session{
+		ID:        "copy-test",
+		AgentID:   "agent-1",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Status:    "active",
+		Messages: []Message{
+			{ID: "m1", Role: "user", Content: []ContentBlock{{Type: "text", Text: "hello"}}},
+		},
+		Metadata: map[string]any{"key": "value"},
+	}
+
+	copy := copySession(original)
+	if copy == nil {
+		t.Fatal("copySession returned nil")
+	}
+	if copy.ID != original.ID {
+		t.Errorf("copy.ID = %q, want %q", copy.ID, original.ID)
+	}
+	if copy.Status != original.Status {
+		t.Errorf("copy.Status = %q, want %q", copy.Status, original.Status)
+	}
+	if len(copy.Messages) != len(original.Messages) {
+		t.Errorf("copy.Messages len = %d, want %d", len(copy.Messages), len(original.Messages))
+	}
+
+	// Verify deep copy — mutating original should not affect copy
+	original.Messages[0].Content[0].Text = "modified"
+	if copy.Messages[0].Content[0].Text == "modified" {
+		t.Error("copy should be independent of original")
+	}
+}
+
+func TestMessageStruct(t *testing.T) {
+	msg := Message{
+		ID:        "msg-1",
+		Role:      "user",
+		CreatedAt: time.Now(),
+		Metadata:  map[string]any{"source": "test"},
+		Content: []ContentBlock{
+			{Type: "text", Text: "hello"},
+			{Type: "resource", Resource: &Resource{URI: "file:///test.go", MimeType: "text/x-go"}},
+			{Type: "image", Image: &ImageData{URL: "http://example.com/img.png", Format: "png"}},
+		},
+	}
+	if msg.ID != "msg-1" {
+		t.Errorf("expected msg-1, got %s", msg.ID)
+	}
+	if len(msg.Content) != 3 {
+		t.Errorf("expected 3 content blocks, got %d", len(msg.Content))
+	}
+}
+
+func TestStoreStats_Struct(t *testing.T) {
+	stats := StoreStats{
+		TotalSessions:  10,
+		ActiveSessions: 5,
+		TotalMessages:  100,
+		AgentCount:     3,
+	}
+	if stats.TotalSessions != 10 || stats.ActiveSessions != 5 {
+		t.Error("StoreStats fields mismatch")
+	}
+}
+
+func TestAddMessage_MetadataInitialized(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+
+	// Message with nil metadata should get auto-initialized
+	err := store.AddMessage("s1", Message{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hi"}}})
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	session := store.Get("s1")
+	if session == nil {
+		t.Fatal("Get returned nil")
+	}
+	if session.Messages[0].Metadata == nil {
+		t.Error("message Metadata should be auto-initialized")
+	}
+}
+
 var _ = sort.IsSorted // Ensure sort is used

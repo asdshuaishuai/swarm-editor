@@ -254,6 +254,278 @@ func TestValidate_AllDurationsParsed(t *testing.T) {
 	}
 }
 
+func TestValidate_PortTooHigh(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Port = 70000
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for port > 65535")
+	}
+	if !contains(err.Error(), "server port") {
+		t.Errorf("expected error about server port, got: %v", err)
+	}
+}
+
+func TestValidate_NegativePort(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Port = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative port")
+	}
+}
+
+func TestValidate_GRPCPortTooHigh(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.GRPCPort = 99999
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for grpc port > 65535")
+	}
+	if !contains(err.Error(), "grpc port") {
+		t.Errorf("expected error about grpc port, got: %v", err)
+	}
+}
+
+func TestValidate_NegativeGRPCPort(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.GRPCPort = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative grpc port")
+	}
+}
+
+func TestValidate_NegativeMaxMessageSize(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ACP.MaxMessageSize = -100
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative max message size")
+	}
+	if !contains(err.Error(), "max message size") {
+		t.Errorf("expected error about max message size, got: %v", err)
+	}
+}
+
+func TestValidate_NegativeMaxConcurrentSessions(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agent.MaxConcurrentSessions = -5
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative max concurrent sessions")
+	}
+	if !contains(err.Error(), "max concurrent sessions") {
+		t.Errorf("expected error about max concurrent sessions, got: %v", err)
+	}
+}
+
+func TestValidate_NegativeMaxAgents(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Swarm.MaxAgents = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative max agents")
+	}
+	if !contains(err.Error(), "max agents") {
+		t.Errorf("expected error about max agents, got: %v", err)
+	}
+}
+
+func TestValidate_MinAgreementOutOfRange(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Test negative
+	cfg.Swarm.Consensus.MinAgreement = -0.5
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative min agreement")
+	}
+	if !contains(err.Error(), "min agreement") {
+		t.Errorf("expected error about min agreement, got: %v", err)
+	}
+
+	// Test > 1
+	cfg.Swarm.Consensus.MinAgreement = 1.5
+	err = cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for min agreement > 1")
+	}
+}
+
+func TestValidate_NegativeMaxTeams(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Team.MaxTeams = -10
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative max teams")
+	}
+	if !contains(err.Error(), "max teams") {
+		t.Errorf("expected error about max teams, got: %v", err)
+	}
+}
+
+func TestValidate_NegativeMaxMembersPerTeam(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Team.MaxMembersPerTeam = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for negative max members per team")
+	}
+	if !contains(err.Error(), "max members per team") {
+		t.Errorf("expected error about max members per team, got: %v", err)
+	}
+}
+
+func TestValidate_FontSizeTooSmall(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.UI.EditorFontSize = 4
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for font size < 8")
+	}
+	if !contains(err.Error(), "editor font size") {
+		t.Errorf("expected error about editor font size, got: %v", err)
+	}
+}
+
+func TestValidate_FontSizeTooLarge(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.UI.EditorFontSize = 100
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for font size > 72")
+	}
+}
+
+func TestValidate_FontSizeBoundary(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// 8 is the minimum allowed
+	cfg.UI.EditorFontSize = 8
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("font size 8 should be valid, got: %v", err)
+	}
+
+	// 72 is the maximum allowed
+	cfg.UI.EditorFontSize = 72
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("font size 72 should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_PortZero(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Port = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("port 0 should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_PortMax(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Port = 65535
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("port 65535 should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_InvalidConsensusTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Swarm.Consensus.Timeout = "not-a-time"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid consensus timeout")
+	}
+	if !contains(err.Error(), "consensus.timeout") {
+		t.Errorf("expected error about consensus.timeout, got: %v", err)
+	}
+}
+
+func TestValidate_InvalidSessionTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agent.SessionTimeout = "xyz"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid session timeout")
+	}
+	if !contains(err.Error(), "session_timeout") {
+		t.Errorf("expected error about session_timeout, got: %v", err)
+	}
+}
+
+func TestValidate_InvalidPairTimeouts(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Pair.DefaultSessionTimeout = "bad"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid pair timeout")
+	}
+	if !contains(err.Error(), "default_session_timeout") {
+		t.Errorf("expected error about pair timeout, got: %v", err)
+	}
+
+	cfg.Pair.DefaultSessionTimeout = "30m"
+	cfg.Pair.RoleSwitchCooldown = "also-bad"
+	err = cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid role switch cooldown")
+	}
+	if !contains(err.Error(), "role_switch_cooldown") {
+		t.Errorf("expected error about role_switch_cooldown, got: %v", err)
+	}
+}
+
+func TestValidate_InvalidTeamSyncInterval(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Team.WorkspaceSyncInterval = "nope"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid workspace sync interval")
+	}
+	if !contains(err.Error(), "workspace_sync_interval") {
+		t.Errorf("expected error about workspace_sync_interval, got: %v", err)
+	}
+}
+
+func TestValidate_ZeroValues(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ACP.MaxMessageSize = 0
+	cfg.Agent.MaxConcurrentSessions = 0
+	cfg.Swarm.MaxAgents = 0
+	cfg.Team.MaxTeams = 0
+	cfg.Team.MaxMembersPerTeam = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("zero values should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_MinAgreementBoundary(t *testing.T) {
+	cfg := DefaultConfig()
+
+	cfg.Swarm.Consensus.MinAgreement = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("min agreement 0 should be valid, got: %v", err)
+	}
+
+	cfg.Swarm.Consensus.MinAgreement = 1
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("min agreement 1 should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_InvalidTaskTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Swarm.TaskTimeout = "forever"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid task timeout")
+	}
+	if !contains(err.Error(), "task_timeout") {
+		t.Errorf("expected error about task_timeout, got: %v", err)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
