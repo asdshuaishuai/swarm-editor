@@ -185,3 +185,64 @@ func TestHealthStatusStruct(t *testing.T) {
 		t.Errorf("expected ToolsCount 5, got %d", status.Details.ToolsCount)
 	}
 }
+
+func TestHealthChecker_CheckAll(t *testing.T) {
+	hc := NewHealthChecker(&HealthCheckerConfig{
+		Interval: 50 * time.Millisecond,
+	})
+	hc.RegisterServer("server-a")
+	hc.RegisterServer("server-b")
+
+	// checkAll updates LastChecked for each registered server
+	hc.checkAll()
+
+	statusA := hc.GetStatus("server-a")
+	if statusA == nil {
+		t.Fatal("expected status for server-a")
+	}
+	if statusA.LastChecked.IsZero() {
+		t.Error("expected LastChecked to be updated after checkAll")
+	}
+
+	statusB := hc.GetStatus("server-b")
+	if statusB == nil {
+		t.Fatal("expected status for server-b")
+	}
+}
+
+func TestHealthChecker_CheckAll_Empty(t *testing.T) {
+	hc := NewHealthChecker(nil)
+	// checkAll with no registered servers should not panic
+	hc.checkAll()
+}
+
+func TestHealthChecker_UpdateStatus_NoCallback(t *testing.T) {
+	hc := NewHealthChecker(nil) // no OnChange callback
+	hc.RegisterServer("test-server")
+
+	newStatus := &HealthStatus{Healthy: true, LastChecked: time.Now()}
+	hc.UpdateStatus("test-server", newStatus)
+
+	status := hc.GetStatus("test-server")
+	if !status.Healthy {
+		t.Error("expected status to be healthy")
+	}
+}
+
+func TestHealthChecker_UpdateStatus_SameHealth(t *testing.T) {
+	called := false
+	hc := NewHealthChecker(&HealthCheckerConfig{
+		OnChange: func(serverName string, status *HealthStatus) {
+			called = true
+		},
+	})
+	hc.RegisterServer("test-server")
+	// Initial status: Healthy=false
+	hc.statuses["test-server"] = &HealthStatus{Healthy: false}
+
+	// Update to same health state
+	hc.UpdateStatus("test-server", &HealthStatus{Healthy: false})
+	if called {
+		t.Error("OnChange should NOT be called when health state doesn't change")
+	}
+}

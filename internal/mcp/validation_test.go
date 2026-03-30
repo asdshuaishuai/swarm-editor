@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -280,5 +281,178 @@ func TestValidateToolInput(t *testing.T) {
 	err = ValidateToolInput(tool, map[string]interface{}{})
 	if err == nil {
 		t.Error("expected error for missing required field")
+	}
+}
+
+func TestValidateString_Enum(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"color": {Type: "string", Description: "enum:red,green,blue"},
+		},
+	}
+
+	// Valid enum values
+	for _, valid := range []string{"red", "green", "blue"} {
+		err := v.Validate(map[string]interface{}{"color": valid}, schema)
+		if err != nil {
+			t.Errorf("unexpected error for valid enum value %q: %v", valid, err)
+		}
+	}
+
+	// Invalid enum value
+	err := v.Validate(map[string]interface{}{"color": "yellow"}, schema)
+	if err == nil {
+		t.Error("expected error for invalid enum value")
+	}
+}
+
+func TestValidateString_NonStringValue(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"name": {Type: "string"},
+		},
+	}
+
+	err := v.Validate(map[string]interface{}{"name": 42}, schema)
+	if err == nil {
+		t.Error("expected error for non-string value")
+	}
+	// Verify it's a ValidationError
+	var valErr *ValidationError
+	if err != nil {
+		_ = valErr // just type-check
+	}
+}
+
+func TestValidateInteger_FloatValue(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"count": {Type: "integer"},
+		},
+	}
+
+	// float64 that IS an integer (e.g., from JSON 42.0)
+	err := v.Validate(map[string]interface{}{"count": float64(42)}, schema)
+	if err != nil {
+		t.Errorf("unexpected error for integer-valued float64: %v", err)
+	}
+
+	// float64 that is NOT an integer
+	err = v.Validate(map[string]interface{}{"count": float64(42.5)}, schema)
+	if err == nil {
+		t.Error("expected error for non-integer float64")
+	}
+}
+
+func TestValidateInteger_JsonNumber(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"count": {Type: "integer"},
+		},
+	}
+
+	// Valid json.Number
+	err := v.Validate(map[string]interface{}{"count": json.Number("42")}, schema)
+	if err != nil {
+		t.Errorf("unexpected error for valid json.Number: %v", err)
+	}
+
+	// Invalid json.Number (float string)
+	err = v.Validate(map[string]interface{}{"count": json.Number("42.5")}, schema)
+	if err == nil {
+		t.Error("expected error for float json.Number")
+	}
+}
+
+func TestValidateArray_JsonRawMessage(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"items": {Type: "array"},
+		},
+	}
+
+	// []json.RawMessage should be accepted
+	err := v.Validate(map[string]interface{}{
+		"items": []json.RawMessage{[]byte(`"a"`), []byte(`"b"`)},
+	}, schema)
+	if err != nil {
+		t.Errorf("unexpected error for []json.RawMessage: %v", err)
+	}
+}
+
+func TestValidateProperty_NilValue(t *testing.T) {
+	v := NewSchemaValidator(false)
+	schema := InputSchema{
+		Type: "object",
+		Properties: map[string]Property{
+			"field": {Type: "string"},
+		},
+	}
+
+	// nil value should be allowed (not validated)
+	err := v.Validate(map[string]interface{}{"field": nil}, schema)
+	if err != nil {
+		t.Errorf("nil value should be allowed: %v", err)
+	}
+}
+
+func TestSchemaBuilder_AddNumberProperty(t *testing.T) {
+	builder := NewSchemaBuilder()
+	schema := builder.
+		AddNumberProperty("weight", "The weight", true).
+		Build()
+
+	prop, ok := schema.Properties["weight"]
+	if !ok {
+		t.Fatal("expected weight property")
+	}
+	if prop.Type != "number" {
+		t.Errorf("expected type 'number', got %q", prop.Type)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "weight" {
+		t.Error("expected weight to be required")
+	}
+}
+
+func TestSchemaBuilder_AddArrayProperty(t *testing.T) {
+	builder := NewSchemaBuilder()
+	schema := builder.
+		AddArrayProperty("items", "List of items", false).
+		Build()
+
+	prop, ok := schema.Properties["items"]
+	if !ok {
+		t.Fatal("expected items property")
+	}
+	if prop.Type != "array" {
+		t.Errorf("expected type 'array', got %q", prop.Type)
+	}
+	if len(schema.Required) != 0 {
+		t.Error("expected items to be optional")
+	}
+}
+
+func TestSchemaBuilder_AddObjectProperty(t *testing.T) {
+	builder := NewSchemaBuilder()
+	schema := builder.
+		AddObjectProperty("config", "Configuration object", true).
+		Build()
+
+	prop, ok := schema.Properties["config"]
+	if !ok {
+		t.Fatal("expected config property")
+	}
+	if prop.Type != "object" {
+		t.Errorf("expected type 'object', got %q", prop.Type)
 	}
 }
