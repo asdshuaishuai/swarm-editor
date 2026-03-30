@@ -2247,9 +2247,11 @@ func TestWorkflow_Snapshot_Isolation(t *testing.T) {
 
 	snapshot := w.Snapshot()
 
-	// Modify original workflow
-	w.SetStatus("modified")
+	// Modify original workflow - use direct field access
+	w.mu.Lock()
+	w.Status = "modified"
 	w.Nodes[0].Name = "Modified"
+	w.mu.Unlock()
 
 	// Snapshot should not be affected
 	if snapshot.Status == "modified" {
