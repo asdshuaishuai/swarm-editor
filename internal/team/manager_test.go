@@ -1404,3 +1404,149 @@ func TestHandleRemoveAgent(t *testing.T) {
 		}
 	})
 }
+
+func TestSnapshot(t *testing.T) {
+	m := newTestManager(t)
+	team := newTestTeamWithOwner(t, m, "test-team", "desc", "owner-1")
+
+	snap := team.Snapshot()
+	if snap.ID != team.ID {
+		t.Errorf("Snapshot.ID = %q, want %q", snap.ID, team.ID)
+	}
+	if snap.Name != "test-team" {
+		t.Errorf("Snapshot.Name = %q, want 'test-team'", snap.Name)
+	}
+	if snap.Description != "desc" {
+		t.Errorf("Snapshot.Description = %q, want 'desc'", snap.Description)
+	}
+	if snap.Owner != "owner-1" {
+		t.Errorf("Snapshot.Owner = %q, want 'owner-1'", snap.Owner)
+	}
+	if len(snap.Members) != 1 {
+		t.Errorf("Snapshot.Members len = %d, want 1", len(snap.Members))
+	}
+}
+
+func TestSetBroadcaster(t *testing.T) {
+	m := newTestManager(t)
+
+	var called bool
+	m.SetBroadcaster(&mockBroadcaster{
+		broadcastFn: func(eventType string, payload any) {
+			called = true
+		},
+	})
+
+	// Verify it was set (no panic)
+	_ = m
+	_ = called
+}
+
+type mockBroadcaster struct {
+	broadcastFn func(eventType string, payload any)
+}
+
+func (mb *mockBroadcaster) Broadcast(eventType string, payload any) {
+	if mb.broadcastFn != nil {
+		mb.broadcastFn(eventType, payload)
+	}
+}
+
+func TestHasPermission(t *testing.T) {
+	m := newTestManager(t)
+	team := newTestTeamWithOwner(t, m, "test-team", "desc", "owner-1")
+
+	// Owner has invite permission
+	if !m.HasPermission(team.ID, "owner-1", PermInviteMember) {
+		t.Error("owner should have invite_member permission")
+	}
+	if !m.HasPermission(team.ID, "owner-1", PermManageSettings) {
+		t.Error("owner should have manage_settings permission")
+	}
+
+	// Nonexistent user
+	if m.HasPermission(team.ID, "nonexistent", PermInviteMember) {
+		t.Error("nonexistent user should not have permission")
+	}
+
+	// Nonexistent team
+	if m.HasPermission("nonexistent-team", "owner-1", PermInviteMember) {
+		t.Error("nonexistent team should return false")
+	}
+}
+
+func TestIsValidTeamID(t *testing.T) {
+	tests := []struct {
+		id    string
+		valid bool
+	}{
+		{"team-abc", true},
+		{"Team_123", true},
+		{"a", true},
+		{"", false},
+		{strings.Repeat("a", 129), false},
+		{"123invalid", false},       // starts with digit
+		{"team/../evil", false},     // path traversal
+		{"team with spaces", false}, // spaces
+		{"team\tevil", false},       // tab
+		{"team.func()", false},      // special chars
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			got := isValidTeamID(tt.id)
+			if got != tt.valid {
+				t.Errorf("isValidTeamID(%q) = %v, want %v", tt.id, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestRemoveStringFromSlice(t *testing.T) {
+	tests := []struct {
+		name  string
+		slice []string
+		item  string
+		want  []string
+	}{
+		{"found", []string{"a", "b", "c"}, "b", []string{"a", "c"}},
+		{"not found", []string{"a", "b"}, "z", []string{"a", "b"}},
+		{"first", []string{"x", "y"}, "x", []string{"y"}},
+		{"last", []string{"x", "y"}, "y", []string{"x"}},
+		{"single found", []string{"only"}, "only", []string{}},
+		{"empty", []string{}, "a", []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := removeStringFromSlice(tt.slice, tt.item)
+			if len(got) != len(tt.want) {
+				t.Errorf("removeStringFromSlice len = %d, want %d", len(got), len(tt.want))
+			}
+			for i, v := range got {
+				if i < len(tt.want) && v != tt.want[i] {
+					t.Errorf("removeStringFromSlice[%d] = %q, want %q", i, v, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateRandomID(t *testing.T) {
+	id := generateRandomID()
+	if id == "" {
+		t.Error("generateRandomID returned empty")
+	}
+	if len(id) != 8 {
+		t.Errorf("expected 8 chars, got %d", len(id))
+	}
+}
+
+func TestGetAllStats(t *testing.T) {
+	m := newTestManager(t)
+	newTestTeamWithOwner(t, m, "t1", "desc1", "owner-1")
+	newTestTeamWithOwner(t, m, "t2", "desc2", "owner-2")
+
+	stats := m.GetAllStats()
+	if len(stats) != 2 {
+		t.Errorf("expected 2 stats, got %d", len(stats))
+	}
+}

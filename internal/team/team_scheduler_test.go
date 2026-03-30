@@ -812,3 +812,33 @@ func TestTeamSchedulerMaxCompletedTasks(t *testing.T) {
 		t.Errorf("maxCompletedTasks = %d, expected 1000", maxCompletedTasks)
 	}
 }
+
+func TestHasRequiredSkills(t *testing.T) {
+	tests := []struct {
+		name           string
+		memberSkills   []string
+		requiredSkills []string
+		want           bool
+	}{
+		{"no requirements", []string{"go", "python"}, nil, true},
+		{"empty requirements", []string{"go"}, []string{}, true},
+		{"no member skills", []string{}, []string{"go"}, false},
+		{"exact match", []string{"go", "python"}, []string{"go"}, true},
+		{"all required", []string{"go", "python", "rust"}, []string{"go", "rust"}, true},
+		{"missing skill", []string{"go"}, []string{"go", "python"}, false},
+		{"both empty", []string{}, []string{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasRequiredSkills(tt.memberSkills, tt.requiredSkills)
+			if got != tt.want {
+				t.Errorf("hasRequiredSkills() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentToAgentCoordination_Close(t *testing.T) {
+	coord := NewAgentToAgentCoordination(nil, nil)
+	coord.Close()
+}

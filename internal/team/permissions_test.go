@@ -374,3 +374,57 @@ func TestAllPermissions(t *testing.T) {
 		t.Error("AllPermissions should include PermInviteMember")
 	}
 }
+
+func TestOnResponse(t *testing.T) {
+	pm := NewPermissionManager(30 * time.Second)
+
+	var called bool
+	pm.OnResponse(func(req *PermissionRequest) {
+		called = true
+	})
+	_ = called // Just verify no panic
+}
+
+func TestPendingChannel(t *testing.T) {
+	pm := NewPermissionManager(30 * time.Second)
+	ch := pm.PendingChannel()
+	if ch == nil {
+		t.Error("PendingChannel should return non-nil channel")
+	}
+}
+
+func TestDeepCopyMapAny(t *testing.T) {
+	// Nil map
+	if deepCopyMapAny(nil) != nil {
+		t.Error("nil map should return nil")
+	}
+
+	// Simple map
+	orig := map[string]any{"key": "value", "num": 42}
+	cp := deepCopyMapAny(orig)
+	if cp["key"] != "value" || cp["num"] != 42 {
+		t.Error("simple copy mismatch")
+	}
+
+	// Nested map
+	orig2 := map[string]any{"nested": map[string]any{"inner": "data"}}
+	cp2 := deepCopyMapAny(orig2)
+	inner := cp2["nested"].(map[string]any)
+	if inner["inner"] != "data" {
+		t.Error("nested copy mismatch")
+	}
+
+	// Verify independence
+	orig2["nested"].(map[string]any)["inner"] = "modified"
+	if inner["inner"] == "modified" {
+		t.Error("deep copy should be independent")
+	}
+
+	// Slice with nested maps
+	orig3 := map[string]any{"items": []any{map[string]any{"a": 1}, "string_val"}}
+	cp3 := deepCopyMapAny(orig3)
+	items := cp3["items"].([]any)
+	if len(items) != 2 {
+		t.Errorf("expected 2 items, got %d", len(items))
+	}
+}
