@@ -465,3 +465,125 @@ func TestWorkflowArtifactStore_PruneOldestFirst(t *testing.T) {
 		t.Error("newer artifacts should survive pruning")
 	}
 }
+
+// Tests for deepCopyAny function
+
+func TestDeepCopyAny_Nil(t *testing.T) {
+	result := deepCopyAny(nil)
+	if result != nil {
+		t.Errorf("expected nil, got %v", result)
+	}
+}
+
+func TestDeepCopyAny_MapStringAny(t *testing.T) {
+	original := map[string]any{
+		"a": 1,
+		"b": "string",
+		"c": map[string]any{"nested": true},
+	}
+	cp := deepCopyAny(original).(map[string]any)
+
+	// Modify original - copy should not be affected
+	original["a"] = 999
+	original["c"].(map[string]any)["nested"] = false
+
+	if cp["a"] == 999 {
+		t.Error("deep copy should not reflect changes to original")
+	}
+	if cp["c"].(map[string]any)["nested"] == false {
+		t.Error("nested map should be independent")
+	}
+}
+
+func TestDeepCopyAny_MapStringString(t *testing.T) {
+	original := map[string]string{"a": "1", "b": "2"}
+	cp := deepCopyAny(original).(map[string]string)
+
+	original["a"] = "modified"
+	if cp["a"] != "1" {
+		t.Error("string map copy should be independent")
+	}
+}
+
+func TestDeepCopyAny_SliceAny(t *testing.T) {
+	original := []any{"a", "b", map[string]any{"key": "val"}}
+	cp := deepCopyAny(original).([]any)
+
+	original[0] = "modified"
+	original[2].(map[string]any)["key"] = "modified"
+
+	if cp[0] == "modified" {
+		t.Error("slice copy should be independent")
+	}
+	if cp[2].(map[string]any)["key"] == "modified" {
+		t.Error("nested map in slice should be independent")
+	}
+}
+
+func TestDeepCopyAny_SliceString(t *testing.T) {
+	original := []string{"a", "b", "c"}
+	cp := deepCopyAny(original).([]string)
+
+	original[0] = "modified"
+	if cp[0] != "a" {
+		t.Error("string slice should be independent")
+	}
+}
+
+func TestDeepCopyAny_SliceInt(t *testing.T) {
+	original := []int{1, 2, 3}
+	cp := deepCopyAny(original).([]int)
+
+	original[0] = 999
+	if cp[0] != 1 {
+		t.Error("int slice should be independent")
+	}
+}
+
+func TestDeepCopyAny_SliceFloat64(t *testing.T) {
+	original := []float64{1.1, 2.2}
+	cp := deepCopyAny(original).([]float64)
+
+	original[0] = 9.9
+	if cp[0] != 1.1 {
+		t.Error("float64 slice should be independent")
+	}
+}
+
+func TestDeepCopyAny_Primitives(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+	}{
+		{"string", "hello"},
+		{"int", 42},
+		{"float64", 3.14},
+		{"bool", true},
+		{"bool false", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deepCopyAny(tt.value)
+			if result != tt.value {
+				t.Errorf("primitives should pass through, got %v", result)
+			}
+		})
+	}
+}
+
+func TestDeepCopyAny_NestedStructures(t *testing.T) {
+	original := map[string]any{
+		"slice": []any{
+			map[string]any{"inner": []int{1, 2, 3}},
+		},
+	}
+	cp := deepCopyAny(original).(map[string]any)
+
+	// Deep modification
+	original["slice"].([]any)[0].(map[string]any)["inner"].([]int)[0] = 999
+
+	if cp["slice"].([]any)[0].(map[string]any)["inner"].([]int)[0] == 999 {
+		t.Error("deeply nested structure should be independent")
+	}
+}
