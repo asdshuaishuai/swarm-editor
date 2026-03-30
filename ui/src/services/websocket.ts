@@ -158,6 +158,7 @@ class WebSocketClient {
           logger.info('WS', 'Connected to', this.url)
           this.connected = true
           this.connecting = false
+          this.reconnectAttempts = 0
           this.flushMessageQueue()
           this.onConnect?.()
           resolve()
@@ -238,6 +239,7 @@ class WebSocketClient {
       }, delay)
     } else {
       logger.error('WS', 'Max reconnect attempts reached')
+      this.handleEvent('error', { code: 'RECONNECT_EXHAUSTED', message: `Failed to reconnect after ${this.maxReconnectAttempts} attempts` })
     }
   }
 

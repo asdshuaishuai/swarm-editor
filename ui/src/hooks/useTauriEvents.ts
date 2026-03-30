@@ -110,35 +110,93 @@ export function useACPEvents() {
     unsubscribers.current.push(unsubPermission)
 
     // Subscribe to agent stats updates
+    // Merge into existing agents to avoid overwriting incremental updates from status events
     const unsubAgentStats = events.onAgentStats((agentInfos) => {
       logger.debug('WS Event', 'agent_stats:', agentInfos.length, 'agents')
-      // Map AgentInfo[] from API to Agent[] using proper type conversion
-      getStore().setAgents((agentInfos as AgentInfo[]).map(agentInfoToAgent))
+      const incoming = (agentInfos as AgentInfo[]).map(agentInfoToAgent)
+      const existingAgents = getStore().agents
+      const incomingIds = new Set(incoming.map(a => a.id))
+
+      const merged = existingAgents.map(existing => {
+        const updated = incoming.find(a => a.id === existing.id)
+        if (!updated) return existing
+        // Preserve status from incremental status_change events, use server state as fallback
+        return { ...existing, ...updated, status: updated.status }
+      })
+
+      // Add new agents, remove ones no longer on server
+      const agents = [...merged, ...incoming.filter(a => !existingAgents.some(e => e.id === a.id))]
+        .filter(a => incomingIds.has(a.id))
+      getStore().setAgents(agents)
     })
     unsubscribers.current.push(unsubAgentStats)
 
     // Subscribe to swarm stats updates
+    // Merge into existing swarms to avoid overwriting incremental updates from task/status events
     const unsubSwarmStats = events.onSwarmStats((swarmInfos) => {
       logger.debug('WS Event', 'swarm_stats:', swarmInfos.length, 'swarms')
-      // Map SwarmInfo[] from API to Swarm[] expected by store
-      const swarms = (swarmInfos as Array<{ id: string; name: string; topology: string; strategy: string; status?: string; state?: string; agentCount?: number; taskCount?: number; stats?: { pendingTasks?: number; completedTasks?: number; agentCount?: number; idleAgents?: number; executingAgents?: number } }>).map((info) => ({
-        id: info.id,
-        name: info.name,
-        topology: (info.topology || 'star') as Swarm['topology'],
-        strategy: (info.strategy || 'parallel') as Swarm['strategy'],
-        state: ((info.state || info.status || 'stopped') as Swarm['state']),
-        agents: [],
-        stats: {
-          agentCount: info.stats?.agentCount ?? info.agentCount ?? 0,
-          idleAgents: info.stats?.idleAgents ?? 0,
-          executingAgents: info.stats?.executingAgents ?? 0,
-          pendingTasks: info.stats?.pendingTasks ?? info.taskCount ?? 0,
-          completedTasks: info.stats?.completedTasks ?? 0,
-          topology: info.topology || 'star',
-          strategy: info.strategy || 'parallel',
-          state: info.state || info.status || 'stopped',
-        },
-      }))
+      const existingSwarms = getStore().swarms
+      const incoming = swarmInfos as Array<{ id: string; name: string; topology: string; strategy: string; status?: string; state?: string; agentCount?: number; taskCount?: number; stats?: { pendingTasks?: number; completedTasks?: number; agentCount?: number; idleAgents?: number; executingAgents?: number } }>
+
+      const existingIds = new Set(existingSwarms.map(s => s.id))
+      const incomingIds = new Set(incoming.map(s => s.id))
+
+      // Update existing swarms with new stats, preserving any locally-updated fields
+      const updated = existingSwarms.map(existing => {
+        const info = incoming.find(s => s.id === existing.id)
+        if (!info) return existing
+        const topology = info.topology || 'star'
+        const strategy = info.strategy || 'parallel'
+        const state = info.state || info.status || 'stopped'
+        return {
+          ...existing,
+          name: info.name,
+          topology: topology as Swarm['topology'],
+          strategy: strategy as Swarm['strategy'],
+          state: state as Swarm['state'],
+          stats: {
+            agentCount: info.stats?.agentCount ?? info.agentCount ?? 0,
+            idleAgents: info.stats?.idleAgents ?? 0,
+            executingAgents: info.stats?.executingAgents ?? 0,
+            // Preserve higher task counts from incremental updates
+            pendingTasks: Math.max(existing.stats?.pendingTasks ?? 0, info.stats?.pendingTasks ?? info.taskCount ?? 0),
+            completedTasks: Math.max(existing.stats?.completedTasks ?? 0, info.stats?.completedTasks ?? 0),
+            topology,
+            strategy,
+            state,
+          },
+        }
+      })
+
+      // Add new swarms not yet in the store
+      const newSwarms = incoming
+        .filter(s => !existingIds.has(s.id))
+        .map(info => {
+          const topology = info.topology || 'star'
+          const strategy = info.strategy || 'parallel'
+          const state = info.state || info.status || 'stopped'
+          return {
+            id: info.id,
+            name: info.name,
+            topology: topology as Swarm['topology'],
+            strategy: strategy as Swarm['strategy'],
+            state: state as Swarm['state'],
+            agents: [],
+            stats: {
+              agentCount: info.stats?.agentCount ?? info.agentCount ?? 0,
+              idleAgents: info.stats?.idleAgents ?? 0,
+              executingAgents: info.stats?.executingAgents ?? 0,
+              pendingTasks: info.stats?.pendingTasks ?? info.taskCount ?? 0,
+              completedTasks: info.stats?.completedTasks ?? 0,
+              topology,
+              strategy,
+              state,
+            },
+          }
+        })
+
+      // Remove swarms that no longer exist on the server
+      const swarms = [...updated, ...newSwarms].filter(s => incomingIds.has(s.id))
       getStore().setSwarms(swarms)
     })
     unsubscribers.current.push(unsubSwarmStats)
