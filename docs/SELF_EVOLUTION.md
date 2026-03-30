@@ -169,6 +169,7 @@ const parseFileReferences = (text: string) => {
 39. ✅ context_test.go — ContextManager 全覆盖测试 (nil-indexer 7 方法 + indexer 集成 + recentFiles limit)
 40. ✅ idgen_test.go — GenerateID/GenerateShortID 格式/唯一性/前缀/长度测试
 41. ✅ internal/mcp 测试覆盖率 71.9% (up from 59.0%) — resource/validation/health 全覆盖
+42. ✅ internal/agent 测试覆盖率 81.7% (up from 66.1%) — scanner/mcp_discovery/memory 全覆盖
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
