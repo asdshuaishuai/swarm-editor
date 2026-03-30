@@ -900,3 +900,61 @@ func TestPoolNewPoolZeroSize(t *testing.T) {
 		t.Errorf("Expected maxSize 0, got %d", pool.maxSize)
 	}
 }
+
+func TestAgentMemory_ShortLong(t *testing.T) {
+	agent := NewAgent("test", AgentTypeCoder)
+
+	if agent.ShortMemory() == nil {
+		t.Error("ShortMemory should not be nil")
+	}
+	if agent.LongMemory() == nil {
+		t.Error("LongMemory should not be nil")
+	}
+}
+
+func TestAgentRememberRecall(t *testing.T) {
+	agent := NewAgent("test", AgentTypeCoder)
+
+	agent.Remember("key1", "value1")
+	val, ok := agent.Recall("key1")
+	if !ok || val != "value1" {
+		t.Errorf("expected value1, got %v (ok=%v)", val, ok)
+	}
+
+	_, ok = agent.Recall("nonexistent")
+	if ok {
+		t.Error("expected false for nonexistent key")
+	}
+}
+
+func TestAgentLearnKnow(t *testing.T) {
+	agent := NewAgent("test", AgentTypeCoder)
+
+	agent.Learn("pattern", "always validate input")
+	val, ok := agent.Know("pattern")
+	if !ok || val != "always validate input" {
+		t.Errorf("expected 'always validate input', got %v (ok=%v)", val, ok)
+	}
+
+	_, ok = agent.Know("nonexistent")
+	if ok {
+		t.Error("expected false for nonexistent key")
+	}
+}
+
+func TestAgentSetGetConnection(t *testing.T) {
+	agent := NewAgent("test", AgentTypeCoder)
+
+	conn := agent.GetConnection()
+	if conn != nil {
+		t.Error("expected nil connection initially")
+	}
+
+	// Note: can't easily create a real AgentConnection without an ACP transport,
+	// but we can verify the nil case
+	agent.SetConnection(nil)
+	conn = agent.GetConnection()
+	if conn != nil {
+		t.Error("expected nil after SetConnection(nil)")
+	}
+}
