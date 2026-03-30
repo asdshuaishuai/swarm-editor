@@ -107,6 +107,7 @@ class WebSocketClient {
   private url: string
   private pendingRequests: Map<string, Deferred<unknown>> = new Map()
   private pendingTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  private queuedRequestIds: Set<string> = new Set()
   private eventHandlers: Map<string, Set<EventHandler>> = new Map()
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
@@ -200,6 +201,19 @@ class WebSocketClient {
     for (const msg of queued) {
       try {
         this.ws.send(JSON.stringify(msg))
+        // Start timeout timer for messages that were queued (timer was deferred)
+        if (this.queuedRequestIds.has(msg.id)) {
+          this.queuedRequestIds.delete(msg.id)
+          const timer = setTimeout(() => {
+            const deferred = this.pendingRequests.get(msg.id)
+            if (deferred && !deferred.settled) {
+              this.pendingRequests.delete(msg.id)
+              this.pendingTimers.delete(msg.id)
+              deferred.reject(new Error(`Request timeout: ${msg.method}`))
+            }
+          }, this.requestTimeout)
+          this.pendingTimers.set(msg.id, timer)
+        }
       } catch (error) {
         logger.error('WS', 'Failed to send queued message:', error)
         // Re-queue failed message if connection still valid
@@ -213,7 +227,9 @@ class WebSocketClient {
 
   // rejectAllPending rejects all pending requests with the given error message
   private rejectAllPending(errorMessage: string): void {
-    this.pendingTimers.forEach((timer) => clearTimeout(timer))
+    this.pendingTimers.forEach((timer) => {
+      if (timer) clearTimeout(timer)
+    })
     this.pendingTimers.clear()
     this.pendingRequests.forEach((deferred) => {
       if (!deferred.settled) {
@@ -221,6 +237,7 @@ class WebSocketClient {
       }
     })
     this.pendingRequests.clear()
+    this.queuedRequestIds.clear()
   }
 
   private handleReconnect(): void {
@@ -257,6 +274,7 @@ class WebSocketClient {
             clearTimeout(timer)
             this.pendingTimers.delete(message.id)
           }
+          this.queuedRequestIds.delete(message.id)
           if (message.error) {
             deferred.reject(new WSError(message.error.code, message.error.message))
           } else {
@@ -310,17 +328,12 @@ class WebSocketClient {
         throw new Error('Message queue full - connection unavailable')
       }
       // Queue the message for when connection is restored
+      // Timer starts when actually sent, not now (see flushMessageQueue)
       this.messageQueue.push({ id, method, params })
       const deferred = new Deferred<T>()
       this.pendingRequests.set(id, deferred as Deferred<unknown>)
-      const timer = setTimeout(() => {
-        if (!deferred.settled) {
-          this.pendingRequests.delete(id)
-          this.pendingTimers.delete(id)
-          deferred.reject(new Error(`Request timeout: ${method}`))
-        }
-      }, this.requestTimeout)
-      this.pendingTimers.set(id, timer)
+      // Mark as queued — timer will be started by flushMessageQueue
+      this.queuedRequestIds.add(id)
       return deferred.promise
     }
 
