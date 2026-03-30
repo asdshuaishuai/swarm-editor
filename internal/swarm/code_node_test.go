@@ -385,6 +385,144 @@ func TestExecuteCodeNode_ArithmeticWithVars(t *testing.T) {
 	}
 }
 
+// Tests for executeCodeNodeJavaScript via config setting
+func TestExecuteCodeNode_JavaScriptMode(t *testing.T) {
+	// Test with language="javascript" config
+	tests := []struct {
+		name     string
+		code     string
+		config   map[string]any
+		vars     map[string]any
+		expected any
+		hasError bool
+	}{
+		{
+			name:     "simple addition",
+			code:     "1 + 2",
+			config:   map[string]any{"language": "javascript"},
+			expected: int64(3),
+		},
+		{
+			name:     "with variables",
+			code:     "x + y",
+			config:   map[string]any{"language": "javascript"},
+			vars:     map[string]any{"x": 10, "y": 20},
+			expected: int64(30),
+		},
+		{
+			name:     "custom timeout",
+			code:     "1 + 1",
+			config:   map[string]any{"language": "javascript", "timeout_ms": 5000},
+			expected: int64(2),
+		},
+		{
+			name:     "syntax error",
+			code:     "invalid javascript {{{",
+			config:   map[string]any{"language": "javascript"},
+			hasError: true,
+		},
+		{
+			name:     "object creation",
+			code:     "({a: 1, b: 2})",
+			config:   map[string]any{"language": "javascript"},
+			expected: map[string]any{"a": int64(1), "b": int64(2)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]any{"code": tt.code}
+			for k, v := range tt.config {
+				params[k] = v
+			}
+			if tt.vars != nil {
+				params["variables"] = tt.vars
+			}
+
+			result, err := ExecuteCodeNode(params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.hasError {
+				if result.Error == "" {
+					t.Error("expected error result")
+				}
+				return
+			}
+
+			if result.Error != "" {
+				t.Fatalf("unexpected eval error: %s", result.Error)
+			}
+
+			// For simple values, compare directly
+			if m, ok := tt.expected.(map[string]any); ok {
+				gotMap, ok := result.Output.(map[string]any)
+				if !ok {
+					t.Fatalf("expected map, got %T", result.Output)
+				}
+				if len(gotMap) != len(m) {
+					t.Errorf("expected %d keys, got %d", len(m), len(gotMap))
+				}
+			} else if result.Output != tt.expected {
+				t.Errorf("expected %v (%T), got %v (%T)", tt.expected, tt.expected, result.Output, result.Output)
+			}
+		})
+	}
+}
+
+func TestExecuteCodeNode_JavaScriptTimeout(t *testing.T) {
+	// Very short timeout should fail on infinite loop
+	result, err := ExecuteCodeNode(map[string]any{
+		"code":        "while(true) {}",
+		"language":    "javascript",
+		"timeout_ms":  10, // 10ms - very short
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Error == "" {
+		t.Error("expected timeout error for infinite loop")
+	}
+}
+
+func TestExecuteCodeNode_JavaScriptTimeoutClamped(t *testing.T) {
+	// Timeout should be clamped to MaxCodeExecutionTimeout
+	result, err := ExecuteCodeNode(map[string]any{
+		"code":        "1 + 1",
+		"language":    "javascript",
+		"timeout_ms":  999999999, // Way over max
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should still work because timeout is clamped
+	if result.Output != int64(2) {
+		t.Errorf("expected 2, got %v", result.Output)
+	}
+}
+
+func TestExecuteCodeNode_JavaScriptVariableIsolation(t *testing.T) {
+	// Variables should be isolated - modifying them shouldn't affect original
+	original := map[string]any{"items": []any{"a", "b"}}
+	result, err := ExecuteCodeNode(map[string]any{
+		"code":      "items.push('c'); items.length",
+		"language":  "javascript",
+		"variables": original,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Error != "" {
+		t.Fatalf("unexpected eval error: %s", result.Error)
+	}
+	// Original should not be modified
+	items, ok := original["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Errorf("original variables should not be mutated, got %v", original["items"])
+	}
+}
+
 func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
 	t.Run("logical op does not match inside string", func(t *testing.T) {
 		// The || inside the string should not be treated as a logical operator.
