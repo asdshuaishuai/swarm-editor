@@ -188,6 +188,7 @@ const parseFileReferences = (text: string) => {
 55. ✅ internal/swarm interrupt_test.go — InterruptError + GojaExecutor 11 tests (71.4% → 71.7%)
 56. ✅ internal/api 测试覆盖率 47.8% (up from 41.6%) — 11 success path tests fixed (StartSwarm/StopSwarm/SubmitTask/AddAgentToTeam/RemoveAgentFromTeam/UpdateWorkflow/DeleteWorkflow/AddWorkflowNode/GetWorkflowCheckpoints/ClearNodeCache/ClearAllCaches)
 57. ✅ internal/swarm 测试覆盖率 72.0% (up from 71.7%) — executeCodeNodeJavaScript tests (5 sub-tests) + deepCopyAny tests (10 sub-tests)
+58. ✅ internal/api 测试覆盖率 50.5% (up from 47.8%) — emergence service tests (23 sub-tests) + execute workflow validation tests
 57. ✅ internal/swarm 测试覆盖率 71.9% (up from 71.7%) — executeCodeNodeJavaScript tests (simple/vars/timeout/syntax error/object creation + timeout clamp + variable isolation)
 
 ### 长期规划
