@@ -137,6 +137,8 @@ const parseFileReferences = (text: string) => {
 7. ✅ internal/api 测试覆盖率提升 (15.7% → 19.1%)
 8. ✅ api.ts `any` 类型替换为 `unknown` - ESLint 0 warnings
 9. ✅ glob 函数测试 - matchGlob + expandGlob (10 tests)
+10. ✅ WorkspaceManager 全覆盖测试 - 6个核心方法 + 7个HTTP Handler (35 sub-tests)
+11. ✅ internal/api 测试覆盖率 28.0% (up from 21.9%)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
@@ -158,7 +160,7 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 19.1% (up from 15.7%)
+- [x] 测试覆盖率趋势 - internal/api: 28.0% (up from 15.7%)
 - [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
