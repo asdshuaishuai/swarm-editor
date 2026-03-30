@@ -1507,3 +1507,35 @@ func TestCoordinatorExecuteTaskWithAssignedWorkers(t *testing.T) {
 		t.Errorf("Expected status Running, got %s", task.Status)
 	}
 }
+
+// ==================== Coordinator Setter Tests ====================
+
+func TestCoordinator_SetCheckpointStore(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	tmpDir := t.TempDir()
+	store, err := NewCheckpointStore(tmpDir, 5)
+	if err != nil {
+		t.Fatalf("NewCheckpointStore failed: %v", err)
+	}
+	coord.SetCheckpointStore(store)
+	if coord.checkpoint != store {
+		t.Error("checkpoint store should be set")
+	}
+}
+
+func TestCoordinator_SetInputGuardrails(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	chain := NewInputGuardrailChain()
+	coord.SetInputGuardrails(chain)
+	if coord.GetInputGuardrails() != chain {
+		t.Error("input guardrails should be set")
+	}
+}
+
+func TestCoordinator_GetInputGuardrails_Nil(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	// After construction, should have default guardrails
+	if coord.GetInputGuardrails() == nil {
+		t.Error("should have default input guardrails")
+	}
+}

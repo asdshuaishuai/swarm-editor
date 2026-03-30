@@ -2095,3 +2095,111 @@ func TestClassifyError_CustomTypes(t *testing.T) {
 		})
 	}
 }
+
+// ==================== Orchestrator Setter/Getter Tests ====================
+
+func TestOrchestrator_SetFailurePolicy(t *testing.T) {
+	o := NewOrchestrator(nil)
+	o.SetFailurePolicy(FailurePolicyContinuePartial)
+	if o.FailurePolicy != FailurePolicyContinuePartial {
+		t.Errorf("FailurePolicy = %v, want ContinuePartial", o.FailurePolicy)
+	}
+}
+
+func TestOrchestrator_SetMaxRounds(t *testing.T) {
+	o := NewOrchestrator(nil)
+	o.SetMaxRounds(10)
+	if o.MaxRounds != 10 {
+		t.Errorf("MaxRounds = %d, want 10", o.MaxRounds)
+	}
+}
+
+func TestOrchestrator_SetBroadcaster(t *testing.T) {
+	o := NewOrchestrator(nil)
+	var bc mockEventBroadcaster2
+	o.SetBroadcaster(bc)
+	got := o.GetBroadcaster()
+	if got == nil {
+		t.Error("GetBroadcaster should return non-nil after SetBroadcaster")
+	}
+}
+
+func TestOrchestrator_GetBroadcaster_Nil(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetBroadcaster() != nil {
+		t.Error("GetBroadcaster should be nil initially")
+	}
+}
+
+func TestOrchestrator_GetArtifactStore(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetArtifactStore() == nil {
+		t.Error("GetArtifactStore should return non-nil")
+	}
+}
+
+func TestOrchestrator_GetVariableStore(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetVariableStore() == nil {
+		t.Error("GetVariableStore should return non-nil")
+	}
+}
+
+func TestOrchestrator_GetAutomationEngine(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetAutomationEngine() == nil {
+		t.Error("GetAutomationEngine should return non-nil")
+	}
+}
+
+func TestOrchestrator_GetAuditLogger(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetAuditLogger() == nil {
+		t.Error("GetAuditLogger should return non-nil")
+	}
+}
+
+func TestOrchestrator_SetAuditLogger(t *testing.T) {
+	o := NewOrchestrator(nil)
+	o.SetAuditLogger(nil)
+	if o.GetAuditLogger() != nil {
+		t.Error("GetAuditLogger should be nil after SetAuditLogger(nil)")
+	}
+}
+
+func TestOrchestrator_GetResultCache(t *testing.T) {
+	o := NewOrchestrator(nil)
+	if o.GetResultCache() == nil {
+		t.Error("GetResultCache should return non-nil")
+	}
+}
+
+func TestOrchestrator_ClearNodeCache(t *testing.T) {
+	o := NewOrchestrator(nil)
+	// Should not panic
+	o.ClearNodeCache("nonexistent-node")
+}
+
+func TestOrchestrator_ClearAllCaches(t *testing.T) {
+	o := NewOrchestrator(nil)
+	// Should not panic
+	o.ClearAllCaches()
+}
+
+func TestWorkflow_SetName(t *testing.T) {
+	w := &Workflow{Name: "old"}
+	w.SetName("new")
+	if w.Name != "new" {
+		t.Errorf("Name = %q, want 'new'", w.Name)
+	}
+}
+
+func TestOrchestrator_Close(t *testing.T) {
+	o := NewOrchestrator(nil)
+	// Should not block or panic with no goroutines
+	o.Close()
+}
+
+type mockEventBroadcaster2 struct{}
+
+func (m mockEventBroadcaster2) Broadcast(eventType string, payload any) {}

@@ -959,3 +959,136 @@ func TestHandoffManager_ConcurrentHandoffs(t *testing.T) {
 		t.Errorf("expected 5 successful concurrent handoffs, got %d", successCount)
 	}
 }
+
+// ==================== Handoff Utility Tests ====================
+
+func TestHandoffContext_GetContextVariable_Nil(t *testing.T) {
+	hc := &HandoffContext{}
+	val, ok := hc.GetContextVariable("key")
+	if ok || val != nil {
+		t.Error("expected false, nil for nil ContextVariables")
+	}
+}
+
+func TestHandoffContext_GetContextVariable_Found(t *testing.T) {
+	hc := &HandoffContext{
+		ContextVariables: map[string]any{"key": "value"},
+	}
+	val, ok := hc.GetContextVariable("key")
+	if !ok || val != "value" {
+		t.Error("expected true, 'value'")
+	}
+}
+
+func TestHandoffContext_GetContextVariable_NotFound(t *testing.T) {
+	hc := &HandoffContext{
+		ContextVariables: map[string]any{"key": "value"},
+	}
+	_, ok := hc.GetContextVariable("missing")
+	if ok {
+		t.Error("expected false for missing key")
+	}
+}
+
+func TestHandoffContext_SetContextVariable_NilMap(t *testing.T) {
+	hc := &HandoffContext{}
+	hc.SetContextVariable("key", "value")
+	if hc.ContextVariables == nil {
+		t.Error("ContextVariables should be initialized")
+	}
+	if hc.ContextVariables["key"] != "value" {
+		t.Error("value should be set")
+	}
+}
+
+func TestHandoffContext_SetContextVariable_Existing(t *testing.T) {
+	hc := &HandoffContext{
+		ContextVariables: map[string]any{"key": "old"},
+	}
+	hc.SetContextVariable("key", "new")
+	if hc.ContextVariables["key"] != "new" {
+		t.Error("value should be overwritten")
+	}
+}
+
+func TestHandoffManager_IsTaskDepthBlocked(t *testing.T) {
+	hm := NewHandoffManager(nil)
+
+	if hm.IsTaskDepthBlocked("task-1") {
+		t.Error("task should not be blocked initially")
+	}
+
+	hm.handoffDepthBlocked["task-1"] = struct{}{}
+	if !hm.IsTaskDepthBlocked("task-1") {
+		t.Error("task should be blocked after setting")
+	}
+}
+
+func TestHandoffManager_ClearTaskDepthTracking(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.handoffDepth["task-1"] = 3
+	hm.handoffDepthBlocked["task-1"] = struct{}{}
+
+	hm.ClearTaskDepthTracking("task-1")
+
+	if len(hm.handoffDepth) != 0 {
+		t.Error("handoffDepth should be cleared for task-1")
+	}
+	if len(hm.handoffDepthBlocked) != 0 {
+		t.Error("handoffDepthBlocked should be cleared for task-1")
+	}
+}
+
+func TestHandoffManager_GetHandoffTimeout(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	if hm.GetHandoffTimeout() != 30*time.Second {
+		t.Errorf("default timeout = %v, want 30s", hm.GetHandoffTimeout())
+	}
+}
+
+func TestHandoffManager_SetHandoffTimeout(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.SetHandoffTimeout(60 * time.Second)
+	if hm.GetHandoffTimeout() != 60*time.Second {
+		t.Errorf("timeout = %v, want 60s", hm.GetHandoffTimeout())
+	}
+}
+
+func TestHandoffManager_SetOnHandoffRequested(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	called := false
+	hm.SetOnHandoffRequested(func(req *HandoffRequest) { called = true })
+	if hm.onHandoffRequested == nil {
+		t.Error("callback should be set")
+	}
+	_ = called
+}
+
+func TestHandoffManager_SetOnHandoffAccepted(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.SetOnHandoffAccepted(func(req *HandoffRequest) {})
+	if hm.onHandoffAccepted == nil {
+		t.Error("callback should be set")
+	}
+}
+
+func TestHandoffManager_SetOnHandoffCompleted(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.SetOnHandoffCompleted(func(req *HandoffRequest) {})
+	if hm.onHandoffCompleted == nil {
+		t.Error("callback should be set")
+	}
+}
+
+func TestHandoffManager_SetOnHandoffRejected(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.SetOnHandoffRejected(func(req *HandoffRequest) {})
+	if hm.onHandoffRejected == nil {
+		t.Error("callback should be set")
+	}
+}
+
+func TestHandoffManager_SetBroadcaster(t *testing.T) {
+	hm := NewHandoffManager(nil)
+	hm.SetBroadcaster(nil) // Should not panic
+}
