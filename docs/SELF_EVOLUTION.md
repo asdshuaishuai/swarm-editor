@@ -155,8 +155,8 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [ ] 测试覆盖率趋势
-- [ ] staticcheck 扫描
+- [x] 测试覆盖率趋势 - internal/api: 15.7% (需改进)
+- [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
 - [ ] 架构合理性审查
