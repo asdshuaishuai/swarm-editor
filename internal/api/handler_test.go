@@ -144,7 +144,7 @@ func TestCommandHandler_HandleCreateSwarm(t *testing.T) {
 }
 
 func TestCommandHandler_HandleCreateTeam(t *testing.T) {
-	teamMgr := team.NewManager()
+	teamMgr := team.NewManagerWithDir("")
 
 	server := &WebSocketServer{
 		teamManager: teamMgr,
@@ -365,6 +365,343 @@ func TestEmergenceGetDataReturnsCopy(t *testing.T) {
 			t.Error("GetData returned cached data that was mutated by caller")
 		}
 	}
+}
+
+func TestCommandHandler_HandleStopAgent(t *testing.T) {
+	registry := agent.NewRegistry()
+	connMgr := acp.NewConnectionManager(&acp.Config{})
+
+	server := &WebSocketServer{
+		registry:    registry,
+		connManager: connMgr,
+	}
+	handler := NewCommandHandler(server)
+
+	t.Run("stop non-existent agent", func(t *testing.T) {
+		params := map[string]interface{}{"id": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("stop_agent", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent agent")
+		}
+	})
+
+	t.Run("stop with empty id", func(t *testing.T) {
+		params := map[string]interface{}{"id": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("stop_agent", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty agent id")
+		}
+	})
+
+	t.Run("stop with invalid json", func(t *testing.T) {
+		_, err := handler.HandleCommand("stop_agent", []byte("bad"))
+		if err == nil {
+			t.Error("expected error for invalid json")
+		}
+	})
+}
+
+func TestCommandHandler_HandleRefreshAgents(t *testing.T) {
+	server := &WebSocketServer{
+		registry: agent.NewRegistry(),
+	}
+	handler := NewCommandHandler(server)
+
+	t.Run("refresh returns empty list", func(t *testing.T) {
+		result, err := handler.HandleCommand("refresh_agents", nil)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		agents, ok := result.([]AgentInfo)
+		if !ok {
+			t.Fatalf("expected []AgentInfo, got %T", result)
+		}
+		if len(agents) != 0 {
+			t.Errorf("expected 0 agents, got %d", len(agents))
+		}
+	})
+}
+
+func TestCommandHandler_HandleDeleteTeam(t *testing.T) {
+	t.Run("delete non-existent team succeeds (idempotent)", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir("")
+		server := &WebSocketServer{teamManager: teamMgr}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		result, err := handler.HandleCommand("delete_team", paramsJSON)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]string)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["status"] != "deleted" {
+			t.Errorf("expected status=deleted, got %s", m["status"])
+		}
+	})
+
+	t.Run("delete with empty id", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir("")
+		server := &WebSocketServer{teamManager: teamMgr}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("delete_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty id")
+		}
+	})
+
+	t.Run("delete with invalid json", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir("")
+		server := &WebSocketServer{teamManager: teamMgr}
+		handler := NewCommandHandler(server)
+
+		_, err := handler.HandleCommand("delete_team", []byte("bad"))
+		if err == nil {
+			t.Error("expected error for invalid json")
+		}
+	})
+}
+
+func TestCommandHandler_HandleAddAgentToTeam(t *testing.T) {
+	t.Run("add agent to non-existent team", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir("")
+		registry := agent.NewRegistry()
+		server := &WebSocketServer{teamManager: teamMgr, registry: registry}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"teamId": "non-existent", "agentId": "agent-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent team")
+		}
+	})
+
+	t.Run("missing team id", func(t *testing.T) {
+		server := &WebSocketServer{teamManager: team.NewManagerWithDir(""), registry: agent.NewRegistry()}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"agentId": "agent-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for missing team id")
+		}
+	})
+
+	t.Run("missing agent id", func(t *testing.T) {
+		server := &WebSocketServer{teamManager: team.NewManagerWithDir(""), registry: agent.NewRegistry()}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"teamId": "team-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for missing agent id")
+		}
+	})
+}
+
+func TestCommandHandler_HandleRemoveAgentFromTeam(t *testing.T) {
+	t.Run("remove agent from non-existent team", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir("")
+		server := &WebSocketServer{teamManager: teamMgr}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"teamId": "non-existent", "agentId": "agent-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent team")
+		}
+	})
+
+	t.Run("missing team id", func(t *testing.T) {
+		server := &WebSocketServer{teamManager: team.NewManagerWithDir("")}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"agentId": "agent-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for missing team id")
+		}
+	})
+
+	t.Run("missing agent id", func(t *testing.T) {
+		server := &WebSocketServer{teamManager: team.NewManagerWithDir("")}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"teamId": "team-1"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		if err == nil {
+			t.Error("expected error for missing agent id")
+		}
+	})
+}
+
+func TestCommandHandler_HandleStartSwarm(t *testing.T) {
+	t.Run("start non-existent swarm", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("start_swarm", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent swarm")
+		}
+	})
+
+	t.Run("empty swarm id", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("start_swarm", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty swarm id")
+		}
+	})
+}
+
+func TestCommandHandler_HandleStopSwarm(t *testing.T) {
+	t.Run("stop non-existent swarm", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("stop_swarm", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent swarm")
+		}
+	})
+
+	t.Run("empty swarm id", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("stop_swarm", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty swarm id")
+		}
+	})
+}
+
+func TestCommandHandler_HandleGetSwarmTasks(t *testing.T) {
+	t.Run("tasks from non-existent swarm", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"swarmId": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON)
+		if err == nil {
+			t.Error("expected error for non-existent swarm")
+		}
+	})
+
+	t.Run("empty swarm id", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"swarmId": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty swarm id")
+		}
+	})
+}
+
+func TestCommandHandler_HandleGetTeamsWithManager(t *testing.T) {
+	t.Run("returns team after creation", func(t *testing.T) {
+		teamMgr := team.NewManagerWithDir(t.TempDir())
+		server := &WebSocketServer{teamManager: teamMgr}
+		handler := NewCommandHandler(server)
+
+		// Create a team first
+		createParams := map[string]interface{}{
+			"name":        "Test Team",
+			"ownerId":     "user-1",
+			"description": "desc",
+		}
+		createJSON, _ := json.Marshal(createParams)
+		_, err := handler.HandleCommand("create_team", createJSON)
+		if err != nil {
+			t.Fatalf("create_team: %v", err)
+		}
+
+		// List teams
+		result, err := handler.HandleCommand("get_teams", nil)
+		if err != nil {
+			t.Fatalf("get_teams: %v", err)
+		}
+		teams, ok := result.([]TeamInfo)
+		if !ok {
+			t.Fatalf("expected []TeamInfo, got %T", result)
+		}
+		if len(teams) != 1 {
+			t.Fatalf("expected 1 team, got %d", len(teams))
+		}
+		if teams[0].Name != "Test Team" {
+			t.Errorf("expected name 'Test Team', got %s", teams[0].Name)
+		}
+	})
+}
+
+func TestCommandHandler_HandleDeleteSwarm(t *testing.T) {
+	t.Run("delete non-existent swarm is idempotent", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": "non-existent"}
+		paramsJSON, _ := json.Marshal(params)
+		result, err := handler.HandleCommand("delete_swarm", paramsJSON)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]string)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["status"] != "deleted" {
+			t.Errorf("expected status=deleted, got %s", m["status"])
+		}
+	})
+
+	t.Run("empty swarm id", func(t *testing.T) {
+		swarms := make(map[string]*swarm.Swarm)
+		server := &WebSocketServer{swarms: swarms}
+		handler := NewCommandHandler(server)
+
+		params := map[string]interface{}{"id": ""}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("delete_swarm", paramsJSON)
+		if err == nil {
+			t.Error("expected error for empty swarm id")
+		}
+	})
 }
 
 func TestEmergenceHandlersContentType(t *testing.T) {
