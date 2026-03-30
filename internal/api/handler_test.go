@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
@@ -727,6 +728,473 @@ func TestEmergenceHandlersContentType(t *testing.T) {
 			ct := rec.Header().Get("Content-Type")
 			if ct != "application/json" {
 				t.Errorf("%s: expected Content-Type 'application/json', got %q", tt.name, ct)
+			}
+		})
+	}
+}
+
+// ==================== Additional Handler Tests ====================
+
+func newTestServer() *WebSocketServer {
+	return &WebSocketServer{
+		registry:    agent.NewRegistry(),
+		connManager: nil,
+		swarms:      make(map[string]*swarm.Swarm),
+		teamManager: team.NewManagerWithDir(""),
+		mcpClients:  make(map[string]*mcp.Client),
+	}
+}
+
+func newTestHandler() (*CommandHandler, *WebSocketServer) {
+	server := newTestServer()
+	return NewCommandHandler(server), server
+}
+
+func TestCommandHandler_HandleGetConfigPath(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_config_path", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	path, ok := result.(string)
+	if !ok {
+		t.Fatal("expected string result")
+	}
+	if path == "" {
+		t.Error("config path should not be empty")
+	}
+}
+
+func TestCommandHandler_HandleCreateSession_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty agentId", `{"agentId": ""}`},
+		{"whitespace agentId", `{"agentId": "   "}`},
+		{"missing agentId", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("create_session", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCreateSession_NoConnManager(t *testing.T) {
+	handler, server := newTestHandler()
+	server.connManager = nil
+
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent"}`))
+	if err == nil {
+		t.Error("expected error when connManager is nil")
+	}
+}
+
+func TestCommandHandler_HandleSendMessage_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty sessionId", `{"sessionId": "", "message": "hello"}`},
+		{"whitespace sessionId", `{"sessionId": "   "}`},
+		{"missing sessionId", `{"message": "hello"}`},
+		{"message too large", `{"sessionId": "s1", "message": "` + strings.Repeat("a", 100*1024+1) + `"}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("send_message", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleSendMessage_SessionNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "nonexistent", "message": "hello"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}
+
+func TestCommandHandler_HandleCloseSession_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty sessionId", `{"sessionId": ""}`},
+		{"whitespace sessionId", `{"sessionId": "   "}`},
+		{"missing sessionId", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("close_session", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCloseSession_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
+
+	result, err := handler.HandleCommand("close_session", json.RawMessage(`{"sessionId": "session-1"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok || m["status"] != "closed" {
+		t.Errorf("expected status=closed, got %v", result)
+	}
+
+	// Verify session was removed
+	server.mu.RLock()
+	_, exists := server.sessionToAgent["session-1"]
+	server.mu.RUnlock()
+	if exists {
+		t.Error("session should be removed after close")
+	}
+}
+
+func TestCommandHandler_HandlePermissionResponse_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty requestId", `{"requestId": "", "approved": true, "resolvedBy": "user"}`},
+		{"missing requestId", `{"approved": true, "resolvedBy": "user"}`},
+		{"empty resolvedBy", `{"requestId": "r1", "approved": true, "resolvedBy": ""}`},
+		{"missing resolvedBy", `{"requestId": "r1", "approved": true}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("permission_response", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandlePermissionResponse_NoTeamManager(t *testing.T) {
+	handler, server := newTestHandler()
+	server.teamManager = nil
+
+	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`))
+	if err == nil {
+		t.Error("expected error when teamManager is nil")
+	}
+}
+
+func TestCommandHandler_HandleGetSwarm_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleGetSwarm_EmptyID(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": ""}`))
+	if err == nil {
+		t.Error("expected error for empty id")
+	}
+}
+
+func TestCommandHandler_HandleGetSwarm_InvalidJSON(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`invalid`))
+	if err == nil {
+		t.Error("expected error for invalid json")
+	}
+}
+
+func TestCommandHandler_HandleExecuteTask_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty swarmId", `{"swarmId": "", "taskId": "t1"}`},
+		{"empty taskId", `{"swarmId": "s1", "taskId": ""}`},
+		{"both empty", `{"swarmId": "  ", "taskId": "  "}`},
+		{"missing fields", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("execute_task", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleExecuteTask_SwarmNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("execute_task", json.RawMessage(`{"swarmId": "nonexistent", "taskId": "t1"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleStopMCPServer_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty serverId", `{"serverId": ""}`},
+		{"whitespace serverId", `{"serverId": "   "}`},
+		{"missing serverId", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStopMCPServer_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent server")
+	}
+}
+
+func TestCommandHandler_HandleCallMCPTool_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty serverId", `{"serverId": "", "toolName": "tool1"}`},
+		{"empty toolName", `{"serverId": "s1", "toolName": ""}`},
+		{"both empty", `{"serverId": "  ", "toolName": "  "}`},
+		{"missing fields", `{}`},
+		{"too many arguments", `{"serverId": "s1", "toolName": "t1", "arguments": {` + strings.Repeat(`"k":""`, 51) + `}}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCallMCPTool_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(`{"serverId": "nonexistent", "toolName": "tool1"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent server")
+	}
+}
+
+func TestCommandHandler_HandleGetSupervisorStats(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stats, ok := result.(SupervisorStats)
+	if !ok {
+		t.Fatal("expected SupervisorStats result")
+	}
+	if stats.TotalAgents != 0 {
+		t.Errorf("expected 0 agents, got %d", stats.TotalAgents)
+	}
+}
+
+func TestCommandHandler_HandleGetSupervisorStats_NilRegistry(t *testing.T) {
+	handler, server := newTestHandler()
+	server.registry = nil
+
+	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stats, ok := result.(SupervisorStats)
+	if !ok {
+		t.Fatal("expected SupervisorStats result")
+	}
+	if stats.TotalAgents != 0 {
+		t.Errorf("expected 0 agents, got %d", stats.TotalAgents)
+	}
+}
+
+func TestCommandHandler_HandleGetEmergenceData_Fallback(t *testing.T) {
+	handler, _ := newTestHandler()
+	// No emergence service, no swarms — should return fallback data
+
+	result, err := handler.HandleCommand("get_emergence_data", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, ok := result.(EmergenceData)
+	if !ok {
+		t.Fatal("expected EmergenceData result")
+	}
+	if data.Health.OverallScore == 0 {
+		t.Error("fallback should set default health score")
+	}
+}
+
+func TestCommandHandler_HandleAddMCPServer_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty name", `{"config": {"name": "", "command": "npx"}}`},
+		{"empty command", `{"config": {"name": "test", "command": ""}}`},
+		{"whitespace name", `{"config": {"name": "   ", "command": "npx"}}`},
+		{"whitespace command", `{"config": {"name": "test", "command": "  "}}`},
+		{"missing config", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleRemoveMCPServer_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty serverId", `{"serverId": ""}`},
+		{"whitespace serverId", `{"serverId": "   "}`},
+		{"missing serverId", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty id", `{"config": {"id": "", "name": "Test", "command": "echo"}}`},
+		{"empty name", `{"config": {"id": "a1", "name": "", "command": "echo"}}`},
+		{"missing id", `{"config": {"name": "Test", "command": "echo"}}`},
+		{"missing name", `{"config": {"id": "a1", "command": "echo"}}`},
+		{"missing config", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("add_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleUpdateAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty id", `{"config": {"id": ""}}`},
+		{"whitespace id", `{"config": {"id": "   "}}`},
+		{"missing id", `{"config": {}}`},
+		{"missing config", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("update_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty agentId", `{"agentId": ""}`},
+		{"whitespace agentId", `{"agentId": "   "}`},
+		{"missing agentId", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("delete_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
 			}
 		})
 	}
