@@ -639,3 +639,98 @@ func TestHandleGetCursors(t *testing.T) {
 		}
 	})
 }
+
+func TestDeepCopyMapAny(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := deepCopyMapAny(nil)
+		if result != nil {
+			t.Error("expected nil for nil input")
+		}
+	})
+
+	t.Run("nested map deep copy", func(t *testing.T) {
+		original := map[string]any{
+			"level1": map[string]any{
+				"level2": "value",
+			},
+		}
+		cp := deepCopyMapAny(original)
+		cp["level1"].(map[string]any)["level2"] = "modified"
+
+		if original["level1"].(map[string]any)["level2"] == "modified" {
+			t.Error("deep copy should not share nested references")
+		}
+	})
+
+	t.Run("slice deep copy", func(t *testing.T) {
+		original := map[string]any{
+			"items": []any{"a", "b", "c"},
+		}
+		cp := deepCopyMapAny(original)
+		cp["items"].([]any)[0] = "modified"
+
+		if original["items"].([]any)[0] == "modified" {
+			t.Error("deep copy should not share slice references")
+		}
+	})
+
+	t.Run("map[string]string copy", func(t *testing.T) {
+		original := map[string]any{
+			"tags": map[string]string{"key": "value"},
+		}
+		cp := deepCopyMapAny(original)
+		cp["tags"].(map[string]string)["key"] = "modified"
+
+		if original["tags"].(map[string]string)["key"] == "modified" {
+			t.Error("deep copy should not share map[string]string references")
+		}
+	})
+
+	t.Run("[]string copy", func(t *testing.T) {
+		original := map[string]any{
+			"list": []string{"a", "b"},
+		}
+		cp := deepCopyMapAny(original)
+		cp["list"].([]string)[0] = "modified"
+
+		if original["list"].([]string)[0] == "modified" {
+			t.Error("deep copy should not share []string references")
+		}
+	})
+
+	t.Run("primitive values pass through", func(t *testing.T) {
+		original := map[string]any{
+			"int":    42,
+			"float":  3.14,
+			"bool":   true,
+			"string": "hello",
+		}
+		cp := deepCopyMapAny(original)
+		if cp["int"] != 42 || cp["float"] != 3.14 || cp["bool"] != true || cp["string"] != "hello" {
+			t.Error("primitive values should be preserved")
+		}
+	})
+}
+
+func TestDeepCopyAnyValue(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		result := deepCopyAnyValue(nil)
+		if result != nil {
+			t.Error("expected nil")
+		}
+	})
+
+	t.Run("int pass through", func(t *testing.T) {
+		result := deepCopyAnyValue(42)
+		if result != 42 {
+			t.Error("int should pass through")
+		}
+	})
+
+	t.Run("string pass through", func(t *testing.T) {
+		result := deepCopyAnyValue("hello")
+		if result != "hello" {
+			t.Error("string should pass through")
+		}
+	})
+}

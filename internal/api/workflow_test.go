@@ -257,3 +257,237 @@ func TestGenerateID(t *testing.T) {
 		t.Errorf("ID too short: %s", id1)
 	}
 }
+
+func TestRandomString(t *testing.T) {
+	s1 := randomString(16)
+	s2 := randomString(16)
+
+	if s1 == s2 {
+		t.Error("expected different random strings")
+	}
+	if len(s1) != 16 {
+		t.Errorf("expected length 16, got %d", len(s1))
+	}
+}
+
+func TestWorkflowAPI_ExecuteWorkflow(t *testing.T) {
+	t.Run("missing workflow id", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		req := httptest.NewRequest(http.MethodPost, "/workflows/execute", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		api.HandleExecuteWorkflow(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("workflow not found", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		req := httptest.NewRequest(http.MethodPost, "/workflows/nonexistent/execute", nil)
+		req.SetPathValue("id", "nonexistent")
+		w := httptest.NewRecorder()
+		api.HandleExecuteWorkflow(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("expected 500, got %d", w.Code)
+		}
+	})
+}
+
+func TestWorkflowAPI_RestoreCheckpoint(t *testing.T) {
+	t.Run("invalid JSON", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		req := httptest.NewRequest(http.MethodPost, "/workflows/ws-1/restore", bytes.NewReader([]byte("not json")))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		api.HandleRestoreCheckpoint(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("checkpoint not found", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		body, _ := json.Marshal(RestoreCheckpointRequest{CheckpointID: "cp-nonexistent"})
+		req := httptest.NewRequest(http.MethodPost, "/workflows/ws-1/restore", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		api.HandleRestoreCheckpoint(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestWorkflowAPI_AddEdge_EdgeCases(t *testing.T) {
+	t.Run("missing workflow id", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		body, _ := json.Marshal(AddEdgeRequest{From: "a", To: "b"})
+		req := httptest.NewRequest(http.MethodPost, "/workflows//edges", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		api.HandleAddEdge(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("workflow not found", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		body, _ := json.Marshal(AddEdgeRequest{From: "a", To: "b"})
+		req := httptest.NewRequest(http.MethodPost, "/workspaces/missing/edges", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "missing")
+		w := httptest.NewRecorder()
+		api.HandleAddEdge(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing from field", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+		workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+		body, _ := json.Marshal(AddEdgeRequest{To: "b"})
+		req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/edges", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", workflow.ID)
+		w := httptest.NewRecorder()
+		api.HandleAddEdge(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing to field", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+		workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+		body, _ := json.Marshal(AddEdgeRequest{From: "a"})
+		req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/edges", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", workflow.ID)
+		w := httptest.NewRecorder()
+		api.HandleAddEdge(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+		workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+		req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/edges", bytes.NewReader([]byte("bad")))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", workflow.ID)
+		w := httptest.NewRecorder()
+		api.HandleAddEdge(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestWorkflowAPI_GetWorkflow_MissingID(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	req := httptest.NewRequest(http.MethodGet, "/workflows/", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+	api.HandleGetWorkflow(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWorkflowAPI_DeleteWorkflow_NotFound(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	// Delete is idempotent - returns 204 even for non-existent
+	req := httptest.NewRequest(http.MethodDelete, "/workspaces/nonexistent", nil)
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	api.HandleDeleteWorkflow(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204 (idempotent), got %d", w.Code)
+	}
+}
+
+func TestWorkflowAPI_GetCheckpoints_MissingID(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	req := httptest.NewRequest(http.MethodGet, "/workflows//checkpoints", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+	api.HandleGetCheckpoints(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWorkflowAPI_AddNode_EdgeCases(t *testing.T) {
+	t.Run("missing workflow id", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+
+		body, _ := json.Marshal(AddNodeRequest{Name: "Test", Type: "agent"})
+		req := httptest.NewRequest(http.MethodPost, "/workflows//nodes", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		api.HandleAddNode(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		api := NewWorkflowAPI(orchestrator)
+		workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+		req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/nodes", bytes.NewReader([]byte("bad")))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", workflow.ID)
+		w := httptest.NewRecorder()
+		api.HandleAddNode(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
