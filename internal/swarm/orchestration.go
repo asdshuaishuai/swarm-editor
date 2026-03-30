@@ -1556,6 +1556,11 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 			w.mu.Unlock()
 			return nil
 		}
+		failNow := time.Now()
+		w.mu.Lock()
+		coordinator.Status = TaskStatusFailed
+		coordinator.CompletedAt = &failNow
+		w.mu.Unlock()
 		report.AddFailure(coordinator.ID, classifyError(err), err.Error(), coordStart, float64(time.Since(coordStart).Milliseconds()))
 		report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 		w.mu.Lock()
@@ -2854,6 +2859,8 @@ func (o *Orchestrator) RestoreFromCheckpoint(checkpointID string) (*Workflow, er
 	if foundCP.SagaLog != nil {
 		workflow.sagaLog = make([]SagaRecord, len(foundCP.SagaLog))
 		copy(workflow.sagaLog, foundCP.SagaLog)
+	} else {
+		workflow.sagaLog = nil
 	}
 	workflow.roundCount = foundCP.RoundCount
 	// Clear interrupt state from failed execution

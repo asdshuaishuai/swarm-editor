@@ -312,10 +312,14 @@ func (s *WorkflowVariableStore) ResolveVariablesInMap(workflowID string, m map[s
 func (s *WorkflowVariableStore) ValidateAll(workflowID string) error {
 	s.mu.RLock()
 	vars := s.variables[workflowID]
+	// Copy slice to avoid TOCTOU: concurrent AddVariable/RemoveVariable
+	// may modify the backing array after we release RLock.
+	snapshot := make([]*WorkflowVariable, len(vars))
+	copy(snapshot, vars)
 	s.mu.RUnlock()
 
 	var errs []string
-	for _, v := range vars {
+	for _, v := range snapshot {
 		if err := v.Validate(); err != nil {
 			errs = append(errs, err.Error())
 		}
