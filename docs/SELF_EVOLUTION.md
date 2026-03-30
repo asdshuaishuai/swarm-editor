@@ -21,13 +21,16 @@
 | **终端集成** | ✅ | ✅ | ✅ | ✅ TerminalPanel |
 | **MCP 支持** | ✅ | ✅ | ✅ | ✅ |
 | **LSP 支持** | ✅ | ✅ | ✅ | ✅ |
-| **多 Agent 协调** | ❌ | ❌ | ❌ | ✅ **独有** |
+| **多 Agent 协调** | ⚠️ Background | ⚠️ Multi-turn | ❌ | ✅ **独有** |
 | **共识机制** | ❌ | ❌ | ❌ | ✅ **独有** |
 | **涌现智能** | ❌ | ❌ | ❌ | ✅ **独有** |
 | **代码库索引** | ✅ @Codebase | ✅ | ✅ 深度索引 | ⚠️ 基础 |
 | **@Files 语法** | ✅ | ✅ | ✅ | ✅ 已集成 |
 | **内联补全** | ✅ Tab | ✅ | ✅ | ❌ 缺失 |
 | **多文件编辑** | ✅ | ✅ | ✅ | ⚠️ 基础 |
+| **Background Agent** | ✅ 2025 Q4 | ✅ | ❌ | ⚠️ 基础 |
+| **Diff 应用** | ✅ Apply | ✅ | ✅ | ✅ Workspace |
+| **上下文窗口** | ✅ 200K | ✅ 200K | ✅ | ⚠️ 基础 |
 
 ### 1.2 Swarm Editor 差异化优势
 
@@ -175,10 +178,16 @@ const parseFileReferences = (text: string) => {
 45. ✅ internal/lsp 测试覆盖率 86.1% (up from 76.3%) — GetServer/GetServers/GetServersByLanguage/GetInstalledServers/GetMissingServers/InstallServer 全覆盖
 46. ✅ internal/acp validateCommand 100% (up from 57.1%) — empty/path-traversal/13 shell metacharacter patterns
 47. ✅ internal/team 测试覆盖率 83.9% (up from 78.6%) — Snapshot/HasPermission/isValidTeamID/deepCopyMapAny/hasRequiredSkills
+48. ✅ internal/swarm execution_report 100% — AddSuccess/AddFailure/AddSkipped/SetTotal/Finalize/HasFailures/IsComplete/Snapshot
+49. ✅ internal/swarm automations 0% 覆盖 — LastFired/FireCount/SetBroadcaster/EnableAutomation/Close
+50. ✅ internal/swarm circuit_breaker IsHalfOpen 100% — IsOpen/IsHalfOpen 状态转换测试
+51. ✅ 竞品对标更新 — Cursor Background Agent, Claude Code Multi-turn Agent, 200K context window GAP 识别
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
 2. **内联补全** - 需要 Agent 配合 (P3)
+3. **Background Agent** - 长时间自主任务 (Cursor 2025 Q4 已推出)
+4. **上下文窗口优化** - 智能截断 + 代码库摘要注入 (Cursor/Claude Code 200K)
 
 ---
 
