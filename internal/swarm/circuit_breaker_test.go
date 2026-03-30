@@ -349,3 +349,49 @@ func TestCircuitBreakerStateChangeCallback(t *testing.T) {
 
 	cb.Close()
 }
+
+func TestCircuitBreaker_IsOpen(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 3,
+		Timeout:          5 * time.Second,
+	})
+	defer cb.Close()
+
+	if cb.IsOpen() {
+		t.Error("new circuit should not be open")
+	}
+
+	// Trip the circuit
+	for i := 0; i < 3; i++ {
+		cb.RecordFailure()
+	}
+
+	if !cb.IsOpen() {
+		t.Error("circuit should be open after failures")
+	}
+}
+
+func TestCircuitBreaker_IsHalfOpen(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 2,
+		Timeout:          50 * time.Millisecond,
+	})
+	defer cb.Close()
+
+	// Trip the circuit
+	cb.RecordFailure()
+	cb.RecordFailure()
+
+	if cb.IsHalfOpen() {
+		t.Error("circuit should be open, not half-open")
+	}
+
+	// Wait for reset timeout
+	time.Sleep(100 * time.Millisecond)
+
+	// After reset timeout, state transitions to half-open on next Allow()
+	cb.Allow()
+	if !cb.IsHalfOpen() {
+		t.Error("circuit should be half-open after reset timeout")
+	}
+}

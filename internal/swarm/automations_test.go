@@ -618,3 +618,68 @@ func TestAutomationEngine_WebhookAction_NilParams(t *testing.T) {
 		t.Fatalf("expected 1 triggered, got %d", triggered)
 	}
 }
+
+func TestAutomation_LastFired(t *testing.T) {
+	a := &Automation{
+		ID: "test-auto",
+		lastFired: time.Now().Add(-1 * time.Hour),
+		fireCount: 5,
+	}
+
+	if a.LastFired().IsZero() {
+		t.Error("LastFired should not be zero")
+	}
+}
+
+func TestAutomation_FireCount(t *testing.T) {
+	a := &Automation{fireCount: 42}
+	if a.FireCount() != 42 {
+		t.Errorf("FireCount = %d, want 42", a.FireCount())
+	}
+}
+
+func TestAutomationEngine_SetBroadcaster(t *testing.T) {
+	engine := NewAutomationEngine()
+	engine.SetBroadcaster(&mockEventBroadcaster{})
+	// Just verify no panic
+}
+
+type mockEventBroadcaster struct{}
+
+func (m *mockEventBroadcaster) Broadcast(eventType string, payload any) {}
+
+func TestAutomationEngine_EnableAutomation(t *testing.T) {
+	engine := NewAutomationEngine()
+	a := &Automation{
+		ID:      "auto-1",
+		Name:    "Test",
+		Trigger: AutomationTrigger{Events: []string{"test"}},
+		Actions: []AutomationAction{{Type: "send_notification"}},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	// Disable
+	ok := engine.EnableAutomation("auto-1", false)
+	if !ok {
+		t.Error("EnableAutomation should return true")
+	}
+
+	// Nonexistent
+	ok = engine.EnableAutomation("nonexistent", true)
+	if ok {
+		t.Error("EnableAutomation should return false for nonexistent")
+	}
+}
+
+func TestAutomationEngine_Close(t *testing.T) {
+	engine := NewAutomationEngine()
+	engine.Close()
+	// Should not block or panic
+}
+
+func TestAutomationEngine_Close_Idempotent(t *testing.T) {
+	engine := NewAutomationEngine()
+	engine.Close()
+	engine.Close()
+}
