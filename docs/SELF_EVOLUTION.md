@@ -183,6 +183,7 @@ const parseFileReferences = (text: string) => {
 50. ✅ internal/swarm circuit_breaker IsHalfOpen 100% — IsOpen/IsHalfOpen 状态转换测试
 51. ✅ 竞品对标更新 — Cursor Background Agent, Claude Code Multi-turn Agent, 200K context window GAP 识别
 52. ✅ internal/mcp 测试覆盖率 81.1% (up from 71.9%) — mock_server_test.go 17 tests (NewTestClientPair/mockServerCore/MockMCPServer/CreateMockServerScript)
+53. ✅ internal/api 测试覆盖率 41.6% (up from 34.6%) — 13 command handler validation tests (90+ sub-tests: create_session/send_message/close_session/permission_response/get_swarm/execute_task/MCP/agent CRUD)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
