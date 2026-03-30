@@ -172,6 +172,9 @@ const parseFileReferences = (text: string) => {
 42. ✅ internal/agent 测试覆盖率 81.7% (up from 66.1%) — scanner/mcp_discovery/memory 全覆盖
 43. ✅ internal/config 测试覆盖率 98.0% (up from 66.1%) — Validate 100% (port/GRPC/message size/sessions/agents/consensus/team/font boundaries)
 44. ✅ internal/session 测试覆盖率 83.7% (up from 71.1%) — WaitForWrites/Close/loadFromDisk/validateSessionID/deleteFromDisk 全覆盖
+45. ✅ internal/lsp 测试覆盖率 86.1% (up from 76.3%) — GetServer/GetServers/GetServersByLanguage/GetInstalledServers/GetMissingServers/InstallServer 全覆盖
+46. ✅ internal/acp validateCommand 100% (up from 57.1%) — empty/path-traversal/13 shell metacharacter patterns
+47. ✅ internal/team 测试覆盖率 83.9% (up from 78.6%) — Snapshot/HasPermission/isValidTeamID/deepCopyMapAny/hasRequiredSkills
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
