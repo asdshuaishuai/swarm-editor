@@ -4,7 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Swarm Editor 是一个支持 ACP (Agent Client Protocol) 协议的多智能体协调开发编辑器。项目本身不内置 LLM，而是作为 ACP 协调中心，通过 stdio/WebSocket 与外部 Agent（如 Claude Code CLI）通信。
+Swarm Editor 是一个基于 ACP (Agent Client Protocol) 协议的**多Agent协调编辑器**。
+
+### 核心定位 (2026-03-31 自进化修正)
+- **不是**工作流引擎 (Temporal/LangGraph/n8n)
+- **是**多Agent协调编辑器 (对标 Cursor/Claude Code/Windsurf)
+
+### 独有优势
+- 多 Agent 协调 - 竞品都是单 Agent 架构
+- 涌现智能 - 信息素路由 + 自组织协商
+- 共识机制 - Queen Bee 投票
+- 三层记忆 - Agent级 + Swarm级 + Emergence级
+- 可靠性 - 熔断器 + DLQ + 重试策略
+
+### 竞品 GAP (待开发)
+| 优先级 | GAP | 竞品方案 |
+|--------|-----|----------|
+| P1 | 代码库索引 | Cursor @Codebase, Windsurf 深度索引 |
+| P2 | @Files 语法 | Cursor `@Files path` 引用文件 |
+| P3 | 内联补全 | Cursor Tab 补全 |
+
+详细文档: `docs/SELF_EVOLUTION.md`, `internal/swarm/FEATURE_CLASSIFICATION.md`
 
 ## 常用命令
 
@@ -105,3 +125,21 @@ Agent 配置文件位于 `~/.swarm-editor/agents.json`，定义外部 Agent 的�
 - Go 测试使用 `_test.go` 后缀
 - UI 测试使用 Vitest + React Testing Library
 - 测试中使用 `vi.useFakeTimers()` 时，用 `vi.advanceTimersByTimeAsync()` 代替 `waitFor`
+
+## 自进化历史
+
+### Round 4781 (2026-03-31)
+- **方向修正**: 从"工作流引擎"回归"多Agent协调编辑器"
+- **竞品对标**: Cursor / Claude Code / Windsurf
+- **代码清理**: 移除 internal/llm/, 过度设计代码
+- **新增文档**: SELF_EVOLUTION.md, FEATURE_CLASSIFICATION.md
+- **质量验证**: 18 Go packages PASS, 878 UI tests PASS, staticcheck CLEAN
+
+### Round 562 (2026-03-28)
+- Tauri 编译错误修复
+- 未使用变量移除
+- TeamPanel/SettingsPanel 测试覆盖率 100%
+
+---
+
+*自进化永不停歇 - PUA Pro Mode*
