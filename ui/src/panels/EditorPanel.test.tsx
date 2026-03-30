@@ -109,12 +109,13 @@ describe('EditorPanel', () => {
     expect(select).toHaveValue('python')
   })
 
-  it('renders Monaco editor with initial code', () => {
+  it('renders Monaco editor with empty initial code', () => {
     render(<EditorPanel />)
     const editor = screen.getByTestId('monaco-editor')
     expect(editor).toBeInTheDocument()
     const value = (editor as HTMLTextAreaElement).value
-    expect(value).toContain('Swarm')
+    // 编辑器初始为空，直到用户加载文件
+    expect(value).toBe('')
   })
 
   it('updates code when editor changes', () => {
@@ -128,7 +129,8 @@ describe('EditorPanel', () => {
     render(<EditorPanel />)
     const editor = screen.getByTestId('monaco-editor')
     const initialValue = (editor as HTMLTextAreaElement).value
-    expect(initialValue).toContain('Swarm')
+    // 编辑器初始为空，直到加载文件
+    expect(initialValue).toBe('')
     fireEvent.blur(editor)
     expect(editor).toHaveValue(initialValue)
   })

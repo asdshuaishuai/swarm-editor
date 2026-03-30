@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
 import {
   Plus,
@@ -33,13 +33,13 @@ const topologyDescriptions: Record<TopologyType, string> = {
 }
 
 export default function SwarmPanel() {
-  // Get entire state to avoid selector type inference issues
-  const store = useAppStore()
-  const swarms: Swarm[] = store.swarms
-  const activeSwarm = store.activeSwarm
-  const setActiveSwarm = store.setActiveSwarm
-  const agents = store.agents
-  const addToast = store.addToast
+  const swarms = useAppStore(state => state.swarms)
+  const activeSwarm = useAppStore(state => state.activeSwarm)
+  const setActiveSwarm = useAppStore(state => state.setActiveSwarm)
+  const setSwarms = useAppStore(state => state.setSwarms)
+  const addSwarm = useAppStore(state => state.addSwarm)
+  const agents = useAppStore(state => state.agents)
+  const addToast = useAppStore(state => state.addToast)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newSwarm, setNewSwarm] = useState({
     name: '',
@@ -48,12 +48,23 @@ export default function SwarmPanel() {
     agentIds: [] as string[],
   })
   const [loading, setLoading] = useState(false)
+  const mountedRef = useRef(true)
+
+  // Track mounted state to prevent setState on unmounted component
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // 加载后端蜂群
-  const loadSwarms = async () => {
+  const loadSwarms = useCallback(async () => {
     try {
       setLoading(true)
       const swarmInfos = await api.swarm.getSwarms()
+
+      if (!mountedRef.current) return
 
       // Convert SwarmInfo[] to Swarm[]
       const convertedSwarms: Swarm[] = swarmInfos.map((swarmInfo) => ({
@@ -61,34 +72,38 @@ export default function SwarmPanel() {
         name: swarmInfo.name,
         topology: swarmInfo.topology as TopologyType,
         strategy: swarmInfo.strategy as TaskStrategy,
-        state: swarmInfo.state as Swarm['state'],
-        agents: agents.filter((a) => swarmInfo.agents.includes(a.id)),
+        state: (swarmInfo.state || swarmInfo.status) as Swarm['state'],
+        agents: agents.filter((a) => (swarmInfo.agents || []).includes(a.id)),
         stats: {
-          agentCount: swarmInfo.stats.agentCount,
-          idleAgents: swarmInfo.stats.idleAgents,
-          executingAgents: swarmInfo.stats.executingAgents,
-          pendingTasks: swarmInfo.stats.pendingTasks,
-          completedTasks: swarmInfo.stats.completedTasks,
+          agentCount: swarmInfo.stats?.agentCount ?? swarmInfo.agentCount,
+          idleAgents: swarmInfo.stats?.idleAgents ?? 0,
+          executingAgents: swarmInfo.stats?.executingAgents ?? 0,
+          pendingTasks: swarmInfo.stats?.pendingTasks ?? swarmInfo.taskCount,
+          completedTasks: swarmInfo.stats?.completedTasks ?? 0,
           topology: swarmInfo.topology,
           strategy: swarmInfo.strategy,
-          state: swarmInfo.state,
+          state: swarmInfo.state || swarmInfo.status || 'idle',
         },
       }))
 
-      store.setSwarms(convertedSwarms)
+      setSwarms(convertedSwarms)
     } catch (err) {
       logger.error('Swarm', 'Failed to load swarms:', err)
       addToast('error', 'Failed to load swarms', err instanceof Error ? err.message : 'Unknown error')
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
-  }
+  }, [agents, addToast, setSwarms])
 
   const handleCreateSwarm = async () => {
     if (!newSwarm.name || newSwarm.agentIds.length === 0) return
 
     try {
       setLoading(true)
+      // Capture current agents fresh inside the async function to avoid stale closure
+      const currentAgents = agents
       const swarmInfo = await api.swarm.createSwarm({
         name: newSwarm.name,
         topology: newSwarm.topology,
@@ -96,26 +111,28 @@ export default function SwarmPanel() {
         agentIds: newSwarm.agentIds,
       })
 
+      if (!mountedRef.current) return
+
       // 添加到本地状态
       const swarm: Swarm = {
         id: swarmInfo.id,
         name: swarmInfo.name,
         topology: swarmInfo.topology as TopologyType,
         strategy: swarmInfo.strategy as TaskStrategy,
-        state: swarmInfo.state as Swarm['state'],
-        agents: agents.filter(a => swarmInfo.agents.includes(a.id)),
+        state: (swarmInfo.state || swarmInfo.status) as Swarm['state'],
+        agents: currentAgents.filter(a => (swarmInfo.agents || []).includes(a.id)),
         stats: {
-          agentCount: swarmInfo.stats.agentCount,
-          idleAgents: swarmInfo.stats.idleAgents,
-          executingAgents: swarmInfo.stats.executingAgents,
-          pendingTasks: swarmInfo.stats.pendingTasks,
-          completedTasks: swarmInfo.stats.completedTasks,
+          agentCount: swarmInfo.stats?.agentCount ?? swarmInfo.agentCount,
+          idleAgents: swarmInfo.stats?.idleAgents ?? 0,
+          executingAgents: swarmInfo.stats?.executingAgents ?? 0,
+          pendingTasks: swarmInfo.stats?.pendingTasks ?? swarmInfo.taskCount,
+          completedTasks: swarmInfo.stats?.completedTasks ?? 0,
           topology: swarmInfo.topology,
           strategy: swarmInfo.strategy,
-          state: swarmInfo.state,
+          state: swarmInfo.state || swarmInfo.status || 'idle',
         },
       }
-      store.addSwarm(swarm)
+      addSwarm(swarm)
       setShowCreateModal(false)
       setNewSwarm({
         name: '',
@@ -126,9 +143,12 @@ export default function SwarmPanel() {
       addToast('success', 'Swarm created', `Swarm "${swarmInfo.name}" is ready`)
     } catch (err) {
       logger.error('Swarm', 'Failed to create swarm:', err)
+      if (!mountedRef.current) return
       addToast('error', 'Failed to create swarm', err instanceof Error ? err.message : 'Unknown error')
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -144,10 +164,13 @@ export default function SwarmPanel() {
     e.stopPropagation()
     try {
       await api.swarm.startSwarm(swarmId)
+      if (!mountedRef.current) return
       await loadSwarms()
+      if (!mountedRef.current) return
       addToast('success', 'Swarm started')
     } catch (err) {
       logger.error('Swarm', 'Failed to start swarm:', err)
+      if (!mountedRef.current) return
       addToast('error', 'Failed to start swarm', err instanceof Error ? err.message : 'Unknown error')
     }
   }
@@ -156,10 +179,13 @@ export default function SwarmPanel() {
     e.stopPropagation()
     try {
       await api.swarm.stopSwarm(swarmId)
+      if (!mountedRef.current) return
       await loadSwarms()
+      if (!mountedRef.current) return
       addToast('success', 'Swarm stopped')
     } catch (err) {
       logger.error('Swarm', 'Failed to stop swarm:', err)
+      if (!mountedRef.current) return
       addToast('error', 'Failed to stop swarm', err instanceof Error ? err.message : 'Unknown error')
     }
   }
@@ -258,7 +284,7 @@ export default function SwarmPanel() {
       {/* Create Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[420px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[420px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Create New Swarm">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Zap size={18} className="text-accent" />
@@ -463,6 +489,7 @@ export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop }: SwarmC
             className="p-2 bg-success/10 hover:bg-success/20 rounded-mac text-success transition-colors"
             onClick={onStart}
             title="Start Swarm"
+            aria-label="Start Swarm"
           >
             <Play size={14} />
           </button>
@@ -471,6 +498,7 @@ export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop }: SwarmC
             className="p-2 bg-error/10 hover:bg-error/20 rounded-mac text-error transition-colors"
             onClick={onStop}
             title="Stop Swarm"
+            aria-label="Stop Swarm"
           >
             <Square size={14} />
           </button>

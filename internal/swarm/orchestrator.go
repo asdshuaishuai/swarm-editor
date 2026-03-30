@@ -3,9 +3,9 @@ package swarm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math/rand"
+	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +45,8 @@ const (
 	SwarmStateStopped      SwarmState = "stopped"
 )
 
-// Swarm represents a coordinated group of agents
+// Swarm represents a coordinated group of agents using Queen Bee model
+// The coordinator (Queen Bee) assigns tasks to workers, workers execute and report back
 type Swarm struct {
 	mu sync.RWMutex
 
@@ -58,55 +59,65 @@ type Swarm struct {
 	coordinator *agent.Agent
 	agents      map[acp.AgentID]*agent.Agent
 	edges       map[acp.AgentID][]acp.AgentID // Adjacency list for topology
+	registry    *agent.Registry               // Registry for HandoffManager
 
 	tasks     map[string]*Task
 	taskQueue []*Task
 	completed []*Task
 
-	consensusThreshold float64
-	votingTimeout      time.Duration
-
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup // Tracks in-flight goroutines for graceful shutdown (AutoGen drain pattern)
 
 	onTaskComplete func(task *Task)
-	onConsensus    func(result *SwarmConsensusResult)
+
+	// Handoff manager for agent handoffs
+	handoffManager *HandoffManager
+
+	// Result validator for post-execution guardrails (Semantic Kernel pattern)
+	resultValidator *ResultValidator
+
+	// Termination policy for composite execution limits (AutoGen pattern)
+	terminationPolicy *CompositeTerminationPolicy
+
+	// Event broadcaster for real-time streaming to UI
+	broadcaster EventBroadcaster
 }
 
 // SwarmConfig configures a swarm
 type SwarmConfig struct {
-	ID                 string
-	Name               string
-	Topology           TopologyType
-	Strategy           TaskStrategy
-	AgentCount         int
-	AgentTypes         []agent.AgentType
-	ConsensusThreshold float64
-	VotingTimeout      time.Duration
+	ID          string
+	Name        string
+	Topology    TopologyType
+	Strategy    TaskStrategy
+	AgentCount  int
+	AgentTypes  []agent.AgentType
+	TaskTimeout time.Duration // Timeout for task execution
 }
 
-// NewSwarm creates a new swarm
+// NewSwarm creates a new swarm with Queen Bee model
 func NewSwarm(config SwarmConfig) *Swarm {
 	s := &Swarm{
-		ID:                 config.ID,
-		Name:               config.Name,
-		Topology:           config.Topology,
-		Strategy:           config.Strategy,
-		State:              SwarmStateInitializing,
-		agents:             make(map[acp.AgentID]*agent.Agent),
-		edges:              make(map[acp.AgentID][]acp.AgentID),
-		tasks:              make(map[string]*Task),
-		consensusThreshold: config.ConsensusThreshold,
-		votingTimeout:      config.VotingTimeout,
+		ID:       config.ID,
+		Name:     config.Name,
+		Topology: config.Topology,
+		Strategy: config.Strategy,
+		State:    SwarmStateInitializing,
+		agents:   make(map[acp.AgentID]*agent.Agent),
+		edges:    make(map[acp.AgentID][]acp.AgentID),
+		tasks:    make(map[string]*Task),
+		registry: agent.NewRegistry(),
 	}
 
-	// Initialize consensus engine with default config
-	if s.consensusThreshold == 0 {
-		s.consensusThreshold = 0.51
-	}
-	if s.votingTimeout == 0 {
-		s.votingTimeout = 30 * time.Second
-	}
+	// Initialize handoff manager
+	s.handoffManager = NewHandoffManager(s.registry)
+
+	// Initialize result validator with default guardrails
+	s.resultValidator = NewResultValidator()
+
+	// Initialize termination policy with default conditions (AutoGen composite pattern)
+	s.terminationPolicy = NewCompositePolicy(TerminationOR)
+	s.terminationPolicy.Add(NewNoProgressCondition())
 
 	return s
 }
@@ -119,6 +130,9 @@ func (s *Swarm) AddAgent(a *agent.Agent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agents[a.ID] = a
+	if err := s.registry.Register(a); err != nil {
+		log.Printf("[Swarm] Failed to register agent %s: %v", a.ID, err)
+	}
 
 	// Update topology edges
 	s.buildTopology()
@@ -129,6 +143,9 @@ func (s *Swarm) RemoveAgent(id acp.AgentID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.agents, id)
+	if err := s.registry.Unregister(id); err != nil {
+		log.Printf("[Swarm] Failed to unregister agent %s: %v", id, err)
+	}
 	s.buildTopology()
 }
 
@@ -240,11 +257,17 @@ func (s *Swarm) buildTree(agentIDs []acp.AgentID, rootIdx int) {
 	}
 }
 
-// GetNeighbors returns the neighbors of an agent in the topology
+// GetNeighbors returns a copy of the neighbors of an agent in the topology
 func (s *Swarm) GetNeighbors(id acp.AgentID) []acp.AgentID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.edges[id]
+	neighbors := s.edges[id]
+	if neighbors == nil {
+		return nil
+	}
+	result := make([]acp.AgentID, len(neighbors))
+	copy(result, neighbors)
+	return result
 }
 
 // GetAgents returns all agents in the swarm
@@ -286,7 +309,8 @@ func (s *Swarm) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the swarm
+// Stop stops the swarm and waits for in-flight goroutines to complete.
+// Uses AutoGen's two-phase drain pattern: cancel context, then wait for goroutines.
 func (s *Swarm) Stop() error {
 	s.mu.Lock()
 	s.State = SwarmStateStopping
@@ -294,6 +318,14 @@ func (s *Swarm) Stop() error {
 		s.cancel()
 	}
 	s.mu.Unlock()
+
+	// Wait for all in-flight goroutines (executeOnAgentsWithPrompt, BroadcastToWorkers)
+	s.wg.Wait()
+
+	// Close handoff manager to release its goroutines
+	if s.handoffManager != nil {
+		s.handoffManager.Close()
+	}
 
 	// Stop all agents
 	for _, a := range s.GetAgents() {
@@ -350,6 +382,11 @@ func (s *Swarm) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error
 		return nil, fmt.Errorf("task cannot be nil")
 	}
 
+	// Check turn limit before execution (OpenAI Swarm pattern)
+	if task.IsTurnLimitReached() {
+		return nil, fmt.Errorf("task %s exceeded max_turns (%d/%d)", task.ID, task.TurnCount, task.MaxTurns)
+	}
+
 	s.mu.Lock()
 	task.State = TaskStateRunning
 	s.mu.Unlock()
@@ -379,19 +416,74 @@ func (s *Swarm) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error
 	// Run task execution
 	err := s.executeOnAgents(ctx, task, selectedAgents, result)
 
+	// Error recovery: if execution failed and we haven't hit max_turns,
+	// retry with error context appended to the prompt (OpenAI Swarm pattern).
+	// This gives the agent a chance to self-correct from its error.
+	// Note: we build a separate recoveryPrompt to avoid mutating task.Prompt
+	// which could cause race conditions with concurrent readers.
+	const maxRecoveryAttempts = 1
+	for i := 0; err != nil && i < maxRecoveryAttempts && !task.IsTurnLimitReached(); i++ {
+		// Build recovery prompt with error context prepended
+		task.mu.RLock()
+		originalPrompt := make(acp.Prompt, len(task.Prompt))
+		copy(originalPrompt, task.Prompt)
+		task.mu.RUnlock()
+
+		recoveryPrompt := make(acp.Prompt, 0, len(originalPrompt)+1)
+		recoveryPrompt = append(recoveryPrompt, acp.ContentBlock{
+			Type: "text",
+			Text: fmt.Sprintf("[Previous attempt failed with error: %s. Please retry with a different approach.]", err.Error()),
+		})
+		recoveryPrompt = append(recoveryPrompt, originalPrompt...)
+
+		// Use the original prompt for recovery (passed directly, not mutating task)
+		originalErr := err
+		recoveryErr := s.executeOnAgentsWithPrompt(ctx, task, selectedAgents, result, recoveryPrompt)
+		if recoveryErr == nil {
+			err = nil // Recovery succeeded
+		} else {
+			err = fmt.Errorf("recovery also failed: %v (original: %w)", recoveryErr, originalErr)
+		}
+	}
+
 	result.CompletedAt = time.Now()
 	if err != nil {
 		result.Error = err.Error()
 	}
 
+	// Validate result before accepting (Semantic Kernel guardrails pattern)
+	if err == nil {
+		validation := s.resultValidator.Validate(result)
+		if !validation.Valid {
+			log.Printf("[Swarm] Task %s result validation failed: %s (severity: %s)",
+				task.ID, validation.Reason, validation.Severity)
+			if validation.Severity == "error" {
+				err = fmt.Errorf("result validation failed: %s", validation.Reason)
+				result.Error = err.Error()
+			}
+		}
+	}
+
 	s.mu.Lock()
-	task.State = TaskStateCompleted
+	if err != nil {
+		task.State = TaskStateFailed
+	} else {
+		task.State = TaskStateCompleted
+	}
 	task.Result = result
 	s.completed = append(s.completed, task)
+
+	// Limit completed tasks to prevent memory leak (keep last 500)
+	const maxCompletedTasks = 500
+	if len(s.completed) > maxCompletedTasks {
+		s.completed = s.completed[len(s.completed)-maxCompletedTasks:]
+	}
+
+	onComplete := s.onTaskComplete
 	s.mu.Unlock()
 
-	if s.onTaskComplete != nil {
-		s.onTaskComplete(task)
+	if onComplete != nil {
+		onComplete(task)
 	}
 
 	return result, err
@@ -441,23 +533,62 @@ func (s *Swarm) selectAgentsForMapReduce(task *Task) []*agent.Agent {
 }
 
 func (s *Swarm) executeOnAgents(ctx context.Context, task *Task, agents []*agent.Agent, result *TaskResult) error {
+	return s.executeOnAgentsWithPrompt(ctx, task, agents, result, task.Prompt)
+}
+
+// executeOnAgentsWithPrompt executes a task using a specific prompt (used for error recovery)
+func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agents []*agent.Agent, result *TaskResult, prompt acp.Prompt) error {
 	if len(agents) == 0 {
 		return fmt.Errorf("no available agents")
 	}
 
+	// Increment turn count (AutoGen pattern: track turns for termination)
+	turns := task.IncrementTurns()
+
+	// Track in-flight goroutines on struct wg for graceful shutdown
+	s.wg.Add(len(agents))
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
+
+	// Collect outputs for termination policy check (thread-safe)
+	var outputMu sync.Mutex
+	var outputs []string
 
 	for _, a := range agents {
 		wg.Add(1)
 		go func(ag *agent.Agent) {
 			defer wg.Done()
+			defer s.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Swarm] executeOnAgentsWithPrompt goroutine panic for agent %s: %v", ag.ID, r)
+				}
+			}()
+
+			// Broadcast turn_start delimiter (OpenAI Swarm pattern)
+			s.broadcastTurnStart(ag.ID, task.ID)
+
 			ag.SetState(agent.StateExecuting)
 
-			// Execute task
-			_, err := ag.Execute(ctx, task.Prompt)
+			// Execute task with the provided prompt
+			execResult, err := ag.Execute(ctx, prompt)
+
+			// Always reset agent state after execution
+			ag.SetState(agent.StateIdle)
+
+			// Broadcast turn_end delimiter (OpenAI Swarm pattern)
+			s.broadcastTurnEnd(ag.ID, task.ID, err == nil)
+
 			if err != nil {
 				errCh <- fmt.Errorf("agent %s: %w", ag.ID, err)
+				return
+			}
+
+			// Collect output for termination policy
+			if execResult != nil && execResult.Output != "" {
+				outputMu.Lock()
+				outputs = append(outputs, execResult.Output)
+				outputMu.Unlock()
 			}
 		}(a)
 	}
@@ -473,112 +604,159 @@ func (s *Swarm) executeOnAgents(ctx context.Context, task *Task, agents []*agent
 
 	// Return combined error if any
 	if len(errors) > 0 {
-		return fmt.Errorf("execution errors: %v", errors)
+		return fmt.Errorf("execution failed: %d error(s)", len(errors))
+	}
+
+	// Check termination policy (AutoGen composable termination pattern)
+	// Combines MaxTurns, Timeout, NoProgress conditions with AND/OR logic
+	combinedOutput := strings.Join(outputs, "\n")
+	if s.terminationPolicy != nil {
+		termResult := s.terminationPolicy.Check(turns, combinedOutput)
+		if termResult.Terminated {
+			return fmt.Errorf("task %s terminated: %s (condition: %s)",
+				task.ID, termResult.Reason, termResult.Condition)
+		}
+	}
+
+	// Backward compatibility: check per-task MaxTurns if not covered by policy
+	if task.MaxTurns > 0 && turns > task.MaxTurns {
+		return fmt.Errorf("task %s exceeded max_turns (%d/%d)", task.ID, turns, task.MaxTurns)
 	}
 
 	return nil
 }
 
-// Vote initiates a consensus vote
-func (s *Swarm) Vote(ctx context.Context, proposal *Proposal) (*SwarmConsensusResult, error) {
-	if proposal == nil {
-		return nil, fmt.Errorf("proposal cannot be nil")
+// AssignTaskToWorker assigns a task to the best available worker (Queen Bee model)
+// The coordinator (Queen Bee) decides which worker gets the task - no voting
+func (s *Swarm) AssignTaskToWorker(task *Task) *agent.Agent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.coordinator == nil {
+		// No coordinator, select first available agent
+		for _, a := range s.agents {
+			if a.GetState() == agent.StateIdle {
+				task.AssignedTo = []acp.AgentID{a.ID}
+				return a
+			}
+		}
+		return nil
 	}
 
-	s.mu.RLock()
-	agents := make([]*agent.Agent, 0, len(s.agents))
+	// Queen Bee selects best worker based on:
+	// 1. Worker state (idle preferred)
+	// 2. Worker capabilities matching task requirements
+	// 3. Worker load (less loaded preferred)
+	var bestWorker *agent.Agent
+	bestScore := -1.0
+
 	for _, a := range s.agents {
-		agents = append(agents, a)
+		if a.ID == s.coordinator.ID {
+			continue // Skip coordinator
+		}
+
+		score := s.calculateWorkerScore(a, task)
+		if score > bestScore {
+			bestScore = score
+			bestWorker = a
+		}
+	}
+
+	if bestWorker != nil {
+		task.AssignedTo = []acp.AgentID{bestWorker.ID}
+	}
+
+	return bestWorker
+}
+
+// calculateWorkerScore calculates a score for worker selection (Queen Bee decision)
+func (s *Swarm) calculateWorkerScore(a *agent.Agent, task *Task) float64 {
+	score := 0.0
+
+	// Idle agents get highest priority
+	if a.GetState() == agent.StateIdle {
+		score += 10.0
+	} else if a.GetState() == agent.StateThinking {
+		score += 5.0
+	} else {
+		return -1.0 // Busy agents are not considered
+	}
+
+	// Capability matching based on task description keywords
+	taskLower := strings.ToLower(task.Description)
+	agentTypeStr := string(a.Type)
+
+	// Match agent type to task requirements
+	if strings.Contains(taskLower, "review") && agentTypeStr == "reviewer" {
+		score += 5.0
+	} else if strings.Contains(taskLower, "test") && agentTypeStr == "tester" {
+		score += 5.0
+	} else if strings.Contains(taskLower, "architect") && agentTypeStr == "architect" {
+		score += 5.0
+	} else if (strings.Contains(taskLower, "code") || strings.Contains(taskLower, "implement")) && agentTypeStr == "coder" {
+		score += 5.0
+	}
+
+	// Less tool history = less loaded (simplified load metric)
+	historyLen := len(a.GetToolHistory())
+	if historyLen < 10 {
+		score += 3.0
+	} else if historyLen < 50 {
+		score += 1.0
+	}
+
+	return score
+}
+
+// BroadcastToWorkers broadcasts a message to all workers (Queen Bee -> Workers)
+// Returns a map of agent IDs to errors (nil if successful)
+func (s *Swarm) BroadcastToWorkers(ctx context.Context, message string) map[acp.AgentID]error {
+	s.mu.RLock()
+	agents := make([]struct {
+		id    acp.AgentID
+		agent *agent.Agent
+	}, 0, len(s.agents))
+	for id, a := range s.agents {
+		if s.coordinator != nil && a.ID == s.coordinator.ID {
+			continue // Skip coordinator
+		}
+		agents = append(agents, struct {
+			id    acp.AgentID
+			agent *agent.Agent
+		}{id: id, agent: a})
 	}
 	s.mu.RUnlock()
 
-	votes := make(map[acp.AgentID]SwarmVote)
-	voteCh := make(chan SwarmVote, len(agents))
-
-	// Collect votes from all agents
+	errors := make(map[acp.AgentID]error)
+	var mu sync.Mutex
 	var wg sync.WaitGroup
+
+	// Track in-flight goroutines on struct wg for graceful shutdown
+	s.wg.Add(len(agents))
+
 	for _, a := range agents {
 		wg.Add(1)
-		go func(ag *agent.Agent) {
+		go func(agentID acp.AgentID, agent *agent.Agent) {
 			defer wg.Done()
-			vote := s.collectVote(ctx, ag, proposal)
-			voteCh <- vote
-		}(a)
+			defer s.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Swarm] BroadcastToWorkers goroutine panic for agent %s: %v", agentID, r)
+				}
+			}()
+			_, err := agent.Execute(ctx, acp.Prompt{
+				{Type: "text", Text: message},
+			})
+			if err != nil {
+				mu.Lock()
+				errors[agentID] = err
+				mu.Unlock()
+			}
+		}(a.id, a.agent)
 	}
 
 	wg.Wait()
-	close(voteCh)
-
-	for vote := range voteCh {
-		votes[vote.AgentID] = vote
-	}
-
-	// Calculate consensus
-	result := s.calculateConsensus(proposal, votes)
-
-	if s.onConsensus != nil {
-		s.onConsensus(result)
-	}
-
-	return result, nil
-}
-
-func (s *Swarm) collectVote(ctx context.Context, a *agent.Agent, proposal *Proposal) SwarmVote {
-	// Simulate vote collection (would be replaced with actual agent decision)
-	approve := rand.Float64() > 0.3 // 70% approval rate simulation
-	return SwarmVote{
-		AgentID: acp.AgentID(a.ID),
-		Approve: approve,
-		Comment: "",
-		Weight:  1.0,
-	}
-}
-
-func (s *Swarm) calculateConsensus(proposal *Proposal, votes map[acp.AgentID]SwarmVote) *SwarmConsensusResult {
-	if proposal == nil {
-		return &SwarmConsensusResult{
-			Status:       "disagreed",
-			ApprovalRate: 0,
-			Votes:        votes,
-		}
-	}
-
-	totalWeight := 0.0
-	approveWeight := 0.0
-
-	for _, vote := range votes {
-		totalWeight += vote.Weight
-		if vote.Approve {
-			approveWeight += vote.Weight
-		}
-	}
-
-	// Avoid division by zero
-	if totalWeight == 0 {
-		return &SwarmConsensusResult{
-			ProposalID:   proposal.ID,
-			Status:       "disagreed",
-			ApprovalRate: 0,
-			Votes:        votes,
-		}
-	}
-
-	approvalRate := approveWeight / totalWeight
-	consensus := approvalRate >= s.consensusThreshold
-
-	status := "disagreed"
-	if consensus {
-		status = "agreed"
-	} else if approvalRate > 0.5 {
-		status = "partial"
-	}
-
-	return &SwarmConsensusResult{
-		ProposalID:   proposal.ID,
-		Status:       status,
-		ApprovalRate: approvalRate,
-		Votes:        votes,
-	}
+	return errors
 }
 
 // OnTaskComplete registers a callback for task completion
@@ -586,13 +764,6 @@ func (s *Swarm) OnTaskComplete(fn func(task *Task)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onTaskComplete = fn
-}
-
-// OnConsensus registers a callback for consensus results
-func (s *Swarm) OnConsensus(fn func(result *SwarmConsensusResult)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.onConsensus = fn
 }
 
 // GetStats returns swarm statistics
@@ -635,27 +806,108 @@ type SwarmStats struct {
 	State           string `json:"state"`
 }
 
-// Proposal represents a proposal for consensus
-type Proposal struct {
-	ID          string
-	Title       string
-	Description string
-	Content     json.RawMessage
-	CreatedAt   time.Time
+// RequestHandoff initiates a handoff from one agent to another
+func (s *Swarm) RequestHandoff(ctx context.Context, fromAgent, toAgent, taskID, reason string, context *HandoffContext) (*HandoffRequest, error) {
+	return s.handoffManager.RequestHandoff(ctx, fromAgent, toAgent, taskID, reason, context)
 }
 
-// SwarmVote represents an agent's vote in swarm consensus
-type SwarmVote struct {
-	AgentID acp.AgentID
-	Approve bool
-	Comment string
-	Weight  float64
+// AcceptHandoff accepts a pending handoff request, optionally updating context variables
+func (s *Swarm) AcceptHandoff(ctx context.Context, requestID, summary string, updatedVars ...map[string]any) error {
+	return s.handoffManager.AcceptHandoff(ctx, requestID, summary, updatedVars...)
 }
 
-// SwarmConsensusResult represents the result of a swarm consensus vote
-type SwarmConsensusResult struct {
-	ProposalID   string
-	Status       string // "agreed", "disagreed", "partial"
-	ApprovalRate float64
-	Votes        map[acp.AgentID]SwarmVote
+// RejectHandoff rejects a pending handoff request
+func (s *Swarm) RejectHandoff(ctx context.Context, requestID, reason string) error {
+	return s.handoffManager.RejectHandoff(ctx, requestID, reason)
+}
+
+// CompleteHandoff marks an active handoff as completed
+func (s *Swarm) CompleteHandoff(ctx context.Context, requestID string) error {
+	return s.handoffManager.CompleteHandoff(ctx, requestID)
+}
+
+// GetHandoffStats returns statistics about handoffs
+func (s *Swarm) GetHandoffStats() map[HandoffState]int {
+	return s.handoffManager.GetHandoffStats()
+}
+
+// OnHandoffRequested registers a callback for handoff request events
+func (s *Swarm) OnHandoffRequested(fn func(req *HandoffRequest)) {
+	s.handoffManager.SetOnHandoffRequested(fn)
+}
+
+// OnHandoffAccepted registers a callback for handoff acceptance events
+func (s *Swarm) OnHandoffAccepted(fn func(req *HandoffRequest)) {
+	s.handoffManager.SetOnHandoffAccepted(fn)
+}
+
+// OnHandoffCompleted registers a callback for handoff completion events
+func (s *Swarm) OnHandoffCompleted(fn func(req *HandoffRequest)) {
+	s.handoffManager.SetOnHandoffCompleted(fn)
+}
+
+// OnHandoffRejected registers a callback for handoff rejection events
+func (s *Swarm) OnHandoffRejected(fn func(req *HandoffRequest)) {
+	s.handoffManager.SetOnHandoffRejected(fn)
+}
+
+// GetResultValidator returns the result validator for adding custom rules
+func (s *Swarm) GetResultValidator() *ResultValidator {
+	return s.resultValidator
+}
+
+// GetTerminationPolicy returns the composite termination policy for customization.
+// Users can add conditions (MaxTurns, Timeout, custom) or change the mode (AND/OR).
+func (s *Swarm) GetTerminationPolicy() *CompositeTerminationPolicy {
+	return s.terminationPolicy
+}
+
+// SetHandoffBroadcaster wires the event broadcaster to the handoff manager and swarm.
+// This enables real-time handoff and turn event streaming to UI (OpenAI Swarm pattern).
+func (s *Swarm) SetHandoffBroadcaster(broadcaster EventBroadcaster) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.broadcaster = broadcaster
+	if s.handoffManager != nil {
+		s.handoffManager.SetBroadcaster(broadcaster)
+	}
+}
+
+// broadcastTurnStart emits a turn_start delimiter event.
+// Inspired by OpenAI Swarm's {"delim": "start"} pattern, this allows UI consumers
+// to bracket agent turns for proper state tracking.
+func (s *Swarm) broadcastTurnStart(agentID acp.AgentID, taskID string) {
+	s.mu.RLock()
+	b := s.broadcaster
+	s.mu.RUnlock()
+	if b == nil {
+		return
+	}
+	b.Broadcast("agent_turn_start", map[string]any{
+		"agentId":   agentID,
+		"taskId":    taskID,
+		"timestamp": time.Now(),
+	})
+}
+
+// broadcastTurnEnd emits a turn_end delimiter event.
+// Inspired by OpenAI Swarm's {"delim": "end"} pattern.
+func (s *Swarm) broadcastTurnEnd(agentID acp.AgentID, taskID string, success bool) {
+	s.mu.RLock()
+	b := s.broadcaster
+	s.mu.RUnlock()
+	if b == nil {
+		return
+	}
+	b.Broadcast("agent_turn_end", map[string]any{
+		"agentId":   agentID,
+		"taskId":    taskID,
+		"success":   success,
+		"timestamp": time.Now(),
+	})
+}
+
+// GetHandoffManager returns the handoff manager for direct access
+func (s *Swarm) GetHandoffManager() *HandoffManager {
+	return s.handoffManager
 }

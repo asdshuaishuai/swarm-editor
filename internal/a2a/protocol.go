@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"log"
+	"slices"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/pkg/utils"
 )
 
 // MessageType defines the type of A2A message
@@ -51,6 +54,12 @@ const (
 	MessageTypeSignal    MessageType = "signal"    // Emergent signal
 	MessageTypePheromone MessageType = "pheromone" // Digital pheromone trail
 	MessageTypeSwarmCmd  MessageType = "swarm_cmd" // Swarm command
+
+	// Handoff messages (OpenAI Swarm pattern)
+	MessageTypeHandoffRequest  MessageType = "handoff_request"  // Request handoff to another agent
+	MessageTypeHandoffAccept   MessageType = "handoff_accept"   // Accept handoff
+	MessageTypeHandoffReject   MessageType = "handoff_reject"   // Reject handoff
+	MessageTypeHandoffComplete MessageType = "handoff_complete" // Handoff completed
 )
 
 // Priority defines message priority levels
@@ -105,11 +114,11 @@ func NewMessage(msgType MessageType, from, to string) *Message {
 }
 
 // WithPayload sets the message payload
-func (m *Message) WithPayload(payload interface{}) *Message {
+func (m *Message) WithPayload(payload any) *Message {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		// Log the error but don't fail - store error info for debugging
-		m.Payload = json.RawMessage(fmt.Sprintf(`{"error": "failed to marshal payload: %s"}`, err.Error()))
+		// Don't expose internal error details - use generic error message
+		m.Payload = json.RawMessage(`{"error": "payload serialization failed"}`)
 		return m
 	}
 	m.Payload = data
@@ -144,7 +153,7 @@ func (m *Message) WithHeader(key, value string) *Message {
 }
 
 // ParsePayload parses the payload into the target
-func (m *Message) ParsePayload(target interface{}) error {
+func (m *Message) ParsePayload(target any) error {
 	return json.Unmarshal(m.Payload, target)
 }
 
@@ -167,14 +176,14 @@ func (m *Message) IsBroadcast() bool {
 
 // TaskRequestPayload represents a task request
 type TaskRequestPayload struct {
-	TaskID       string                 `json:"taskId"`
-	Title        string                 `json:"title"`
-	Description  string                 `json:"description"`
-	Priority     int                    `json:"priority"`
-	RequiredRole string                 `json:"requiredRole,omitempty"`
-	Deadline     *time.Time             `json:"deadline,omitempty"`
-	Dependencies []string               `json:"dependencies,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	TaskID       string         `json:"taskId"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	Priority     int            `json:"priority"`
+	RequiredRole string         `json:"requiredRole,omitempty"`
+	Deadline     *time.Time     `json:"deadline,omitempty"`
+	Dependencies []string       `json:"dependencies,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 // TaskAcceptPayload represents task acceptance
@@ -376,12 +385,54 @@ type SwarmCommandPayload struct {
 }
 
 // ============================================================================
+// Handoff Payload Types (OpenAI Swarm Pattern)
+// ============================================================================
+
+// HandoffRequestPayload represents a handoff request
+// Based on OpenAI Swarm's handoff pattern for fluent task transfer
+type HandoffRequestPayload struct {
+	RequestID string             `json:"requestId"`
+	TaskID    string             `json:"taskId"`
+	Reason    string             `json:"reason"`
+	Context   HandoffContextData `json:"context"`
+	Timeout   time.Duration      `json:"timeout,omitempty"`
+}
+
+// HandoffContextData contains the context to transfer during handoff
+type HandoffContextData struct {
+	ConversationHistory []map[string]any `json:"conversationHistory,omitempty"`
+	FilesModified       []string         `json:"filesModified,omitempty"`
+	CurrentState        string           `json:"currentState,omitempty"`
+	NextSteps           []string         `json:"nextSteps,omitempty"`
+	Instructions        string           `json:"instructions,omitempty"`
+	Metadata            map[string]any   `json:"metadata,omitempty"`
+}
+
+// HandoffAcceptPayload represents handoff acceptance
+type HandoffAcceptPayload struct {
+	RequestID string `json:"requestId"`
+	AgentID   string `json:"agentId"`
+	Summary   string `json:"summary,omitempty"`
+}
+
+// HandoffRejectPayload represents handoff rejection
+type HandoffRejectPayload struct {
+	RequestID string `json:"requestId"`
+	Reason    string `json:"reason"`
+}
+
+// HandoffCompletePayload represents handoff completion
+type HandoffCompletePayload struct {
+	RequestID string          `json:"requestId"`
+	Result    json.RawMessage `json:"result,omitempty"`
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
 func generateMessageID() string {
-	// Add random suffix to avoid collisions in high-concurrency scenarios
-	return fmt.Sprintf("msg_%d_%08x", time.Now().UnixNano(), rand.Int63())
+	return utils.GenerateID("msg")
 }
 
 // ============================================================================
@@ -479,13 +530,17 @@ func (r *Router) UnregisterAgent(id string) {
 
 	delete(r.agents, id)
 
-	// Remove from all groups
+	// Remove from all groups and clean up empty groups
 	for group, members := range r.groups {
 		for i, member := range members {
 			if member == id {
 				r.groups[group] = append(members[:i], members[i+1:]...)
 				break
 			}
+		}
+		// Clean up empty group entries to prevent memory leak
+		if len(r.groups[group]) == 0 {
+			delete(r.groups, group)
 		}
 	}
 }
@@ -509,6 +564,10 @@ func (r *Router) LeaveGroup(agentID, groupID string) {
 			r.groups[groupID] = append(members[:i], members[i+1:]...)
 			break
 		}
+	}
+	// Clean up empty group entries to prevent memory leak
+	if len(r.groups[groupID]) == 0 {
+		delete(r.groups, groupID)
 	}
 }
 
@@ -556,59 +615,114 @@ func (r *Router) Stop() {
 
 // Send sends a message to a specific agent
 func (r *Router) Send(msg *Message) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Check if expired
+	// Check if expired (no lock needed, Message fields are immutable after creation)
 	if msg.IsExpired() {
 		return fmt.Errorf("message expired")
 	}
 
+	ctx := r.getContext()
+
 	// Check if broadcast
 	if msg.IsBroadcast() {
-		return r.broadcast(msg)
+		return r.broadcast(ctx, msg)
 	}
 
 	// Check if multicast
 	if msg.Group != "" {
-		return r.multicast(msg)
+		return r.multicast(ctx, msg)
 	}
 
-	// Direct message
+	// Direct message — copy agent endpoint under lock, send without lock
+	// to avoid holding RLock during sendWithRetry's blocking sleep
+	r.mu.RLock()
 	agent, ok := r.agents[msg.To]
+	r.mu.RUnlock()
+
 	if !ok {
 		return fmt.Errorf("agent not found: %s", msg.To)
 	}
 
-	return r.sendWithRetry(agent, msg)
+	return r.sendWithRetry(ctx, agent, msg)
 }
 
-// sendWithRetry sends a message with retry logic
-func (r *Router) sendWithRetry(agent *AgentEndpoint, msg *Message) error {
+// getContext returns the router's context for deadline/cancellation propagation.
+// Falls back to context.Background() if the router hasn't been started yet,
+// allowing direct agent-to-agent Send() without Start().
+func (r *Router) getContext() context.Context {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.ctx != nil {
+		return r.ctx
+	}
+	return context.Background()
+}
+
+// sendWithRetry sends a message with retry logic, respecting context cancellation.
+// Each SendFunc call is wrapped with SendTimeout to prevent indefinite blocking.
+func (r *Router) sendWithRetry(ctx context.Context, agent *AgentEndpoint, msg *Message) error {
 	var lastErr error
 
 	for i := 0; i < r.config.RetryCount; i++ {
-		err := agent.SendFunc(msg)
+		// Wrap SendFunc with timeout to prevent indefinite blocking
+		type sendResult struct {
+			err error
+		}
+		resultCh := make(chan sendResult, 1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[A2A] sendWithRetry SendFunc panic: %v", r)
+				}
+			}()
+			resultCh <- sendResult{err: agent.SendFunc(msg)}
+		}()
+
+		var err error
+		sendTimer := time.NewTimer(r.config.SendTimeout)
+		select {
+		case res := <-resultCh:
+			sendTimer.Stop()
+			err = res.err
+		case <-sendTimer.C:
+			err = fmt.Errorf("send timed out after %v", r.config.SendTimeout)
+		case <-ctx.Done():
+			sendTimer.Stop()
+			return ctx.Err()
+		}
+
 		if err == nil {
 			return nil
 		}
 		lastErr = err
-		time.Sleep(r.config.RetryDelay)
+
+		// Use timer instead of time.Sleep to respect context cancellation
+		timer := time.NewTimer(r.config.RetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 
 	return fmt.Errorf("failed after %d retries: %w", r.config.RetryCount, lastErr)
 }
 
 // broadcast sends a message to all agents
-func (r *Router) broadcast(msg *Message) error {
-	var errors []error
-
+func (r *Router) broadcast(ctx context.Context, msg *Message) error {
+	// Snapshot agent list under lock, send without lock
+	r.mu.RLock()
+	agents := make([]*AgentEndpoint, 0, len(r.agents))
 	for _, agent := range r.agents {
-		if agent.ID == msg.From {
-			continue // Don't send to self
+		if agent.ID != msg.From {
+			agents = append(agents, agent)
 		}
+	}
+	r.mu.RUnlock()
 
-		if err := r.sendWithRetry(agent, msg); err != nil {
+	var errors []error
+	for _, agent := range agents {
+		if err := r.sendWithRetry(ctx, agent, msg); err != nil {
 			errors = append(errors, err)
 		}
 	}
@@ -620,20 +734,25 @@ func (r *Router) broadcast(msg *Message) error {
 }
 
 // multicast sends a message to a group
-func (r *Router) multicast(msg *Message) error {
+func (r *Router) multicast(ctx context.Context, msg *Message) error {
+	// Snapshot group members and resolve agents under lock, send without lock
+	r.mu.RLock()
 	members, ok := r.groups[msg.Group]
 	if !ok {
+		r.mu.RUnlock()
 		return fmt.Errorf("group not found: %s", msg.Group)
 	}
+	agents := make([]*AgentEndpoint, 0, len(members))
+	for _, memberID := range members {
+		if agent, agentOk := r.agents[memberID]; agentOk {
+			agents = append(agents, agent)
+		}
+	}
+	r.mu.RUnlock()
 
 	var errors []error
-	for _, memberID := range members {
-		agent, ok := r.agents[memberID]
-		if !ok {
-			continue
-		}
-
-		if err := r.sendWithRetry(agent, msg); err != nil {
+	for _, agent := range agents {
+		if err := r.sendWithRetry(ctx, agent, msg); err != nil {
 			errors = append(errors, err)
 		}
 	}
@@ -658,9 +777,10 @@ func (r *Router) Enqueue(msg *Message) error {
 func (r *Router) processQueue() {
 	defer r.wg.Done()
 
+	ctx := r.getContext()
 	for {
 		select {
-		case <-r.ctx.Done():
+		case <-ctx.Done():
 			return
 		case msg := <-r.queue:
 			r.processMessage(msg)
@@ -676,7 +796,7 @@ func (r *Router) processMessage(msg *Message) {
 
 	for _, handler := range handlers {
 		if err := handler(msg); err != nil {
-			// Log error but continue processing
+			log.Printf("[A2A] Handler error for message type %s: %v", msg.Type, err)
 		}
 	}
 }
@@ -714,11 +834,8 @@ func (r *Router) GetAgentsByCapability(capability string) []string {
 
 	var matches []string
 	for id, agent := range r.agents {
-		for _, cap := range agent.Capabilities {
-			if cap == capability {
-				matches = append(matches, id)
-				break
-			}
+		if slices.Contains(agent.Capabilities, capability) {
+			matches = append(matches, id)
 		}
 	}
 	return matches

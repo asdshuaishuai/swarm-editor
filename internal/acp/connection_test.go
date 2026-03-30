@@ -1300,13 +1300,15 @@ func TestAgentSessionFinishContentCapture(t *testing.T) {
 	// Add content
 	session.AddContent(ContentBlock{Type: "text", Text: "Test"})
 
+	// Get done channel reference before calling FinishContentCapture
+	session.mu.Lock()
+	done := session.done
+	session.mu.Unlock()
+
 	// Finish content capture
 	session.FinishContentCapture()
 
 	// Verify done channel is closed
-	session.mu.Lock()
-	done := session.done
-	session.mu.Unlock()
 
 	select {
 	case <-done:
@@ -1315,7 +1317,7 @@ func TestAgentSessionFinishContentCapture(t *testing.T) {
 		t.Error("Done channel should be closed after FinishContentCapture")
 	}
 
-	// Calling again should be safe (uses sync.Once)
+	// Calling again should be safe (done is nil after first close)
 	session.FinishContentCapture()
 }
 
@@ -1389,6 +1391,76 @@ func TestAgentSessionGetContentEmpty(t *testing.T) {
 	if content != nil {
 		t.Error("GetContent should return nil when no content added")
 	}
+}
+
+// TestGetConnectedNoRace verifies that GetConnected() reads conn.State under conn.mu.
+// Without the fix, this test would fail under -race when the establishConnection
+// goroutine concurrently writes conn.State.
+func TestGetConnectedNoRace(t *testing.T) {
+	cm := NewConnectionManager(&Config{
+		Agents: map[string]*AgentConfig{
+			"agent-1": {ID: "agent-1", Command: "echo", Enabled: true, Timeout: 5},
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Connect starts a background goroutine that writes conn.State
+	cm.Connect(ctx, "agent-1")
+
+	// Repeatedly call GetConnected while establishConnection may be writing state.
+	// Without the fix (reading conn.State under conn.mu.RLock), this would race.
+	done := make(chan bool)
+	for i := 0; i < 10; i++ {
+		go func() {
+			cm.GetConnected()
+			done <- true
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+
+	cm.Disconnect("agent-1")
+}
+
+// TestConnectStateReadUnderConnMu verifies that Connect() reads conn.State
+// under conn.mu.RLock, not just m.mu.Lock.
+func TestConnectStateReadUnderConnMu(t *testing.T) {
+	cm := NewConnectionManager(&Config{
+		Agents: map[string]*AgentConfig{
+			"agent-1": {ID: "agent-1", Command: "echo", Enabled: true, Timeout: 5},
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// First Connect creates the connection entry and starts establishConnection
+	conn1, err := cm.Connect(ctx, "agent-1")
+	if err != nil {
+		t.Fatalf("first Connect failed: %v", err)
+	}
+
+	// Manually set state to connected (simulating establishConnection completion)
+	conn1.mu.Lock()
+	conn1.State = StateConnected
+	conn1.mu.Unlock()
+
+	// Second Connect should see StateConnected and return the same connection
+	conn2, err := cm.Connect(ctx, "agent-1")
+	if err != nil {
+		t.Fatalf("second Connect failed: %v", err)
+	}
+	if conn2 == nil {
+		t.Fatal("second Connect returned nil")
+	}
+	if conn1.ID != conn2.ID {
+		t.Errorf("expected same connection, got %s vs %s", conn1.ID, conn2.ID)
+	}
+
+	cm.Disconnect("agent-1")
 }
 
 func TestAgentSessionContentCaptureFullFlow(t *testing.T) {

@@ -1,10 +1,22 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
 import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
 import { logger } from '../utils'
+import { api, events } from '../services'
+
+interface ChatSession {
+  agentId: string
+  sessionId: string
+}
 
 export default function AgentPanel() {
-  const { agents, selectedAgent, selectAgent, startAgent, stopAgent, loadAgents } = useAppStore()
+  const agents = useAppStore(state => state.agents)
+  const selectedAgent = useAppStore(state => state.selectedAgent)
+  const selectAgent = useAppStore(state => state.selectAgent)
+  const startAgent = useAppStore(state => state.startAgent)
+  const stopAgent = useAppStore(state => state.stopAgent)
+  const loadAgents = useAppStore(state => state.loadAgents)
+  const addToast = useAppStore(state => state.addToast)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<Array<{
     id: string
@@ -15,9 +27,71 @@ export default function AgentPanel() {
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isToggling, setIsToggling] = useState<string | null>(null)
+  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
+  const sessionRef = useRef<ChatSession | null>(null)
+
+  // 监听后端事件 (WebSocket)
+  useEffect(() => {
+    const unlisten = events.onAgentMessage((payload) => {
+      const { sessionId, content } = payload as { sessionId: string; content: string }
+      if (sessionRef.current?.sessionId === sessionId) {
+        // 添加 Agent 响应消息
+        const agentMessage = {
+          id: Date.now().toString(),
+          role: 'assistant' as const,
+          content: content || 'Task completed.',
+          timestamp: new Date(),
+        }
+        setMessages((prev) => [...prev, agentMessage])
+        setIsLoading(false)
+      }
+    })
+
+    return () => {
+      unlisten()
+    }
+  }, [])
+
+  // 切换 Agent 时关闭旧会话
+  useEffect(() => {
+    if (currentSession && selectedAgent?.id !== currentSession.agentId) {
+      api.agent.closeSession(currentSession.sessionId).catch(e => {
+        logger.warn('AgentPanel', 'Failed to close session:', e)
+      })
+      setCurrentSession(null)
+      sessionRef.current = null
+      setMessages([])
+    }
+  }, [selectedAgent?.id, currentSession])
+
+  // 确保会话存在
+  const ensureSession = async (): Promise<ChatSession | null> => {
+    if (!selectedAgent) return null
+
+    // 如果已有会话且 Agent 匹配，复用
+    if (currentSession && currentSession.agentId === selectedAgent.id) {
+      return currentSession
+    }
+
+    // 创建新会话
+    try {
+      const result = await api.agent.createSession(selectedAgent.id)
+      const session: ChatSession = {
+        agentId: selectedAgent.id,
+        sessionId: result.sessionId || result.id,
+      }
+      setCurrentSession(session)
+      sessionRef.current = session
+      return session
+    } catch (e) {
+      logger.error('AgentPanel', 'Failed to create session:', e)
+      addToast('error', 'Session Error', `Failed to create session: ${e instanceof Error ? e.message : String(e)}`)
+      return null
+    }
+  }
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading || !selectedAgent) return
 
     const userMessage = {
       id: Date.now().toString(),
@@ -30,17 +104,24 @@ export default function AgentPanel() {
     setInput('')
     setIsLoading(true)
 
-    // Simulate agent response
-    setTimeout(() => {
-      const agentMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant' as const,
-        content: 'I understand your request. Let me help you with that.',
-        timestamp: new Date(),
+    try {
+      const session = await ensureSession()
+      if (!session) {
+        setIsLoading(false)
+        return
       }
-      setMessages((prev) => [...prev, agentMessage])
+
+      // 发送消息到后端
+      // 后端会通过 'agent-message' 事件返回响应，由事件监听器处理
+      await api.agent.sendMessage(session.sessionId, userMessage.content)
+
+      // 注意：不在这里设置 setIsLoading(false)
+      // 等待 'agent-message' 事件到达后，在监听器中处理
+    } catch (e) {
+      logger.error('AgentPanel', 'Failed to send message:', e)
+      addToast('error', 'Send Error', `Failed to send message: ${e instanceof Error ? e.message : String(e)}`)
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -146,6 +227,7 @@ export default function AgentPanel() {
             disabled={isRefreshing}
             className="p-1.5 hover:bg-card-hover rounded-mac transition-colors disabled:opacity-50"
             title="Refresh agents"
+            aria-label="Refresh agents"
           >
             <RefreshCw size={14} className={`text-text-secondary ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>

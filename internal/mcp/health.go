@@ -29,13 +29,13 @@ type HealthDetails struct {
 
 // HealthChecker performs health checks on MCP servers
 type HealthChecker struct {
-	mu          sync.RWMutex
-	interval    time.Duration
-	timeout     time.Duration
-	statuses    map[string]*HealthStatus
-	onChange    func(serverName string, status *HealthStatus)
-	stopChan    chan struct{}
-	running     bool
+	mu       sync.RWMutex
+	interval time.Duration
+	timeout  time.Duration
+	statuses map[string]*HealthStatus
+	onChange func(serverName string, status *HealthStatus)
+	stopChan chan struct{}
+	running  bool
 }
 
 // HealthCheckerConfig configures the health checker
@@ -73,6 +73,8 @@ func (hc *HealthChecker) Start() {
 		hc.mu.Unlock()
 		return
 	}
+	// Recreate stopChan in case it was closed by a previous Stop()
+	hc.stopChan = make(chan struct{})
 	hc.running = true
 	hc.mu.Unlock()
 
@@ -147,10 +149,10 @@ func (hc *HealthChecker) CheckServer(ctx context.Context, client *Client) *Healt
 	} else {
 		status.Healthy = true
 		status.Details = HealthDetails{
-			ToolsCount:     len(client.ListTools()),
-			ServerVersion:  "1.0.0",
+			ToolsCount:      len(client.ListTools()),
+			ServerVersion:   "1.0.0",
 			ProtocolVersion: "2024-11-05",
-			Uptime:         time.Now(),
+			Uptime:          time.Now(),
 		}
 	}
 
@@ -162,28 +164,30 @@ func (hc *HealthChecker) pingServer(ctx context.Context, client *Client) error {
 	if !client.IsConnected() {
 		return ErrNotConnected
 	}
-	return nil
+	return client.Ping(ctx)
 }
 
-// GetStatus returns the health status for a server
+// GetStatus returns a copy of the health status for a server
 func (hc *HealthChecker) GetStatus(serverName string) *HealthStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	if status, ok := hc.statuses[serverName]; ok {
-		return status
+		cp := *status
+		return &cp
 	}
 	return nil
 }
 
-// GetAllStatuses returns all health statuses
+// GetAllStatuses returns copies of all health statuses
 func (hc *HealthChecker) GetAllStatuses() map[string]*HealthStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	result := make(map[string]*HealthStatus, len(hc.statuses))
 	for k, v := range hc.statuses {
-		result[k] = v
+		cp := *v
+		result[k] = &cp
 	}
 	return result
 }

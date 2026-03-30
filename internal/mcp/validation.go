@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// enumPattern matches "enum:value1,value2,..." in property descriptions
+var enumPattern = regexp.MustCompile(`enum:([^\s]+)`)
+
 // SchemaValidator validates tool inputs against JSON Schema
 type SchemaValidator struct {
 	strict bool
@@ -19,7 +22,7 @@ func NewSchemaValidator(strict bool) *SchemaValidator {
 }
 
 // Validate validates input against a schema
-func (v *SchemaValidator) Validate(input map[string]interface{}, schema InputSchema) error {
+func (v *SchemaValidator) Validate(input map[string]any, schema InputSchema) error {
 	// Check required fields
 	for _, required := range schema.Required {
 		if _, ok := input[required]; !ok {
@@ -52,7 +55,7 @@ func (v *SchemaValidator) Validate(input map[string]interface{}, schema InputSch
 }
 
 // validateProperty validates a single property
-func (v *SchemaValidator) validateProperty(name string, value interface{}, prop Property) error {
+func (v *SchemaValidator) validateProperty(name string, value any, prop Property) error {
 	if value == nil {
 		return nil // Allow null values
 	}
@@ -76,7 +79,7 @@ func (v *SchemaValidator) validateProperty(name string, value interface{}, prop 
 }
 
 // validateString validates a string value
-func (v *SchemaValidator) validateString(name string, value interface{}, prop Property) error {
+func (v *SchemaValidator) validateString(name string, value any, prop Property) error {
 	str, ok := value.(string)
 	if !ok {
 		return &ValidationError{
@@ -90,7 +93,7 @@ func (v *SchemaValidator) validateString(name string, value interface{}, prop Pr
 		// Parse enum values from description
 		// Format: "enum:value1,value2,value3"
 		enumStr := strings.TrimPrefix(
-			regexp.MustCompile(`enum:([^\s]+)`).FindString(prop.Description),
+			enumPattern.FindString(prop.Description),
 			"enum:",
 		)
 		if enumStr != "" {
@@ -115,7 +118,7 @@ func (v *SchemaValidator) validateString(name string, value interface{}, prop Pr
 }
 
 // validateNumber validates a number value
-func (v *SchemaValidator) validateNumber(name string, value interface{}) error {
+func (v *SchemaValidator) validateNumber(name string, value any) error {
 	switch value.(type) {
 	case float64, float32, int, int64, int32:
 		return nil
@@ -128,7 +131,7 @@ func (v *SchemaValidator) validateNumber(name string, value interface{}) error {
 }
 
 // validateInteger validates an integer value
-func (v *SchemaValidator) validateInteger(name string, value interface{}) error {
+func (v *SchemaValidator) validateInteger(name string, value any) error {
 	switch val := value.(type) {
 	case float64:
 		if val != float64(int64(val)) {
@@ -158,7 +161,7 @@ func (v *SchemaValidator) validateInteger(name string, value interface{}) error 
 }
 
 // validateBoolean validates a boolean value
-func (v *SchemaValidator) validateBoolean(name string, value interface{}) error {
+func (v *SchemaValidator) validateBoolean(name string, value any) error {
 	_, ok := value.(bool)
 	if !ok {
 		return &ValidationError{
@@ -170,8 +173,8 @@ func (v *SchemaValidator) validateBoolean(name string, value interface{}) error 
 }
 
 // validateArray validates an array value
-func (v *SchemaValidator) validateArray(name string, value interface{}) error {
-	_, ok := value.([]interface{})
+func (v *SchemaValidator) validateArray(name string, value any) error {
+	_, ok := value.([]any)
 	if !ok {
 		// Try as JSON array
 		if arr, ok := value.([]json.RawMessage); ok {
@@ -187,8 +190,8 @@ func (v *SchemaValidator) validateArray(name string, value interface{}) error {
 }
 
 // validateObject validates an object value
-func (v *SchemaValidator) validateObject(name string, value interface{}) error {
-	_, ok := value.(map[string]interface{})
+func (v *SchemaValidator) validateObject(name string, value any) error {
+	_, ok := value.(map[string]any)
 	if !ok {
 		return &ValidationError{
 			Field:   name,
@@ -209,7 +212,7 @@ func (e *ValidationError) Error() string {
 }
 
 // ValidateToolInput validates tool input against the tool's schema
-func ValidateToolInput(tool Tool, input map[string]interface{}) error {
+func ValidateToolInput(tool Tool, input map[string]any) error {
 	validator := NewSchemaValidator(false)
 	return validator.Validate(input, tool.InputSchema)
 }

@@ -24,7 +24,7 @@ export interface PermissionRequest {
   timestamp: number
 }
 
-interface AppState {
+export interface AppState {
   // Connection state
   connected: boolean
   connecting: boolean
@@ -32,6 +32,7 @@ interface AppState {
 
   // Agents
   agents: Agent[]
+  agentLoadError: string | null
   selectedAgent: Agent | null
 
   // Swarm
@@ -100,7 +101,7 @@ interface AppState {
 }
 
 // Helper to convert AgentInfo to Agent
-function agentInfoToAgent(info: AgentInfo): Agent {
+export function agentInfoToAgent(info: AgentInfo): Agent {
   // Map status string to AgentState
   const stateMap: Record<string, Agent['state']> = {
     'running': 'executing',
@@ -128,9 +129,9 @@ function agentInfoToAgent(info: AgentInfo): Agent {
     id: info.id,
     name: info.name,
     type: typeMap[info.type] || 'coder',
-    state: stateMap[info.status] || 'idle',
+    state: stateMap[info.state || info.status || 'unknown'] || 'idle',
     capabilities: {
-      loadSession: info.capabilities.includes('load_session'),
+      loadSession: info.capabilities?.includes('load_session') ?? false,
       promptCapabilities: {
         image: false,
         audio: false,
@@ -140,8 +141,8 @@ function agentInfoToAgent(info: AgentInfo): Agent {
         http: false,
         sse: false,
       },
-      pairProgramming: info.capabilities.includes('pair_programming'),
-      teamCollaboration: info.capabilities.includes('team_collaboration'),
+      pairProgramming: info.capabilities?.includes('pair_programming') ?? false,
+      teamCollaboration: info.capabilities?.includes('team_collaboration') ?? false,
     },
     createdAt: new Date().toISOString(),
     lastActive: info.lastActive || new Date().toISOString(),
@@ -174,11 +175,12 @@ const savePersistedData = (data: PersistedState) => {
   }
 }
 
-export const useAppStore = create<AppState>()((set, get) => ({
+export const useAppStore = create<AppState>()((set) => ({
   connected: false,
   connecting: false,
   connectionError: null,
   agents: [] as Agent[],
+  agentLoadError: null,
   selectedAgent: null,
   swarms: [] as Swarm[],
   activeSwarm: null,
@@ -194,6 +196,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   loading: false,
 
   initialize: async (options?: { simulateError?: boolean | string }) => {
+    // Prevent concurrent initialization (e.g., React StrictMode double-mount)
+    const currentState = useAppStore.getState()
+    if (currentState.connecting || currentState.connected) return
     set({ connecting: true, connectionError: null })
     try {
       // For testing: simulate initialization error
@@ -216,15 +221,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
           connected: true,
           connecting: false,
           agents,
+          agentLoadError: null,
           swarms: persisted?.swarms || [],
           teams: persisted?.teams || [],
         })
       } catch (agentError) {
-        logger.warn('Agents', 'Failed to load agents, using empty list:', agentError)
+        logger.warn('Agents', 'Failed to load agents:', agentError)
+        const agentErrorMsg = agentError instanceof Error ? agentError.message : 'Failed to load agents'
         set({
           connected: true,
           connecting: false,
           agents: [],
+          agentLoadError: agentErrorMsg,
           swarms: persisted?.swarms || [],
           teams: persisted?.teams || [],
         })
@@ -249,9 +257,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       const agentInfos = await api.agent.refreshAgents()
       const agents = agentInfos.map(agentInfoToAgent)
-      set({ agents })
+      set({ agents, agentLoadError: null })
     } catch (error) {
       logger.error('Agents', 'Failed to load agents:', error)
+      const msg = error instanceof Error ? error.message : 'Failed to load agents'
+      set({ agentLoadError: msg })
     }
   },
 
@@ -283,7 +293,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setConnected: (connected) => set({ connected, connectionError: connected ? null : undefined }),
+  setConnected: (connected) => set(connected ? { connected, connectionError: null } : { connected }),
 
   setConnectionError: (connectionError) => set({ connectionError }),
 
@@ -306,8 +316,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectAgent: (agent) => set({ selectedAgent: agent }),
 
   setSwarms: (swarms) => {
-    set({ swarms })
-    savePersistedData({ swarms, teams: get().teams })
+    set((state) => {
+      savePersistedData({ swarms, teams: state.teams })
+      return { swarms }
+    })
   },
 
   addSwarm: (swarm) => set((state) => {
@@ -328,8 +340,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setActiveSwarm: (swarm) => set({ activeSwarm: swarm }),
 
   setTeams: (teams) => {
-    set({ teams })
-    savePersistedData({ swarms: get().swarms, teams })
+    set((state) => {
+      savePersistedData({ swarms: state.swarms, teams })
+      return { teams }
+    })
   },
 
   addTeam: (team) => set((state) => {
@@ -361,11 +375,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   addPermissionRequest: (event) => set((state) => {
     const request: PermissionRequest = {
-      id: event.request_id,
-      requestId: event.request_id,
-      sessionId: event.session_id,
-      toolCallId: event.tool_call_id,
-      toolName: event.tool_name,
+      id: event.id,
+      requestId: event.id,
+      sessionId: event.sessionId,
+      toolCallId: event.metadata?.toolCallId as string || '',
+      toolName: event.type,
       description: event.description,
       options: event.options,
       timestamp: Date.now(),

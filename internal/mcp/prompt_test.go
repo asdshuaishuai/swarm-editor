@@ -37,7 +37,9 @@ func TestRegisterPrompt(t *testing.T) {
 
 func TestUnregisterPrompt(t *testing.T) {
 	pm := NewPromptManager()
-	pm.RegisterPrompt(&Prompt{Name: "test-prompt"})
+	if err := pm.RegisterPrompt(&Prompt{Name: "test-prompt"}); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
 	pm.UnregisterPrompt("test-prompt")
 
 	if len(pm.prompts) != 0 {
@@ -47,8 +49,12 @@ func TestUnregisterPrompt(t *testing.T) {
 
 func TestListPrompts(t *testing.T) {
 	pm := NewPromptManager()
-	pm.RegisterPrompt(&Prompt{Name: "prompt1"})
-	pm.RegisterPrompt(&Prompt{Name: "prompt2"})
+	if err := pm.RegisterPrompt(&Prompt{Name: "prompt1"}); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
+	if err := pm.RegisterPrompt(&Prompt{Name: "prompt2"}); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
 
 	prompts := pm.ListPrompts()
 	if len(prompts) != 2 {
@@ -58,7 +64,9 @@ func TestListPrompts(t *testing.T) {
 
 func TestGetPrompt(t *testing.T) {
 	pm := NewPromptManager()
-	pm.RegisterPrompt(&Prompt{Name: "test-prompt"})
+	if err := pm.RegisterPrompt(&Prompt{Name: "test-prompt"}); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
 
 	prompt, ok := pm.GetPrompt("test-prompt")
 	if !ok {
@@ -93,7 +101,9 @@ func TestExecutePromptWithHandler(t *testing.T) {
 			}, nil
 		},
 	}
-	pm.RegisterPrompt(prompt)
+	if err := pm.RegisterPrompt(prompt); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
 
 	messages, err := pm.ExecutePrompt(context.Background(), "handler-prompt", nil)
 	if err != nil {
@@ -112,7 +122,9 @@ func TestExecutePromptMissingRequiredArg(t *testing.T) {
 			{Name: "required", Required: true},
 		},
 	}
-	pm.RegisterPrompt(prompt)
+	if err := pm.RegisterPrompt(prompt); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
 
 	_, err := pm.ExecutePrompt(context.Background(), "requires-input", nil)
 	if err == nil {

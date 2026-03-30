@@ -36,6 +36,7 @@ describe('SwarmCoordinatorPanel', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -282,6 +283,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -309,26 +311,12 @@ describe('SwarmCoordinatorPanel task progress', () => {
     render(<SwarmCoordinatorPanel initialTasks={[runningTask]} />)
 
     // Initially shows 30% progress
+    // Note: Progress updates now come from backend events, not simulated setInterval
+    // Progress remains static until backend events arrive
     expect(screen.getByText('30%')).toBeInTheDocument()
-
-    // Advance timer to trigger progress update (1 second)
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-
-    // Progress should increase by 0.1 (to 40%)
-    expect(screen.getByText('40%')).toBeInTheDocument()
-
-    // Advance again
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-
-    // Progress should be 50%
-    expect(screen.getByText('50%')).toBeInTheDocument()
   })
 
-  it('auto-completes task when progress reaches 100%', async () => {
+  it('displays task with high progress correctly', async () => {
     const runningTask: CoordinationTask = {
       id: 'running-task-2',
       title: 'Near Complete Task',
@@ -344,7 +332,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
 
     render(<SwarmCoordinatorPanel initialTasks={[runningTask]} />)
 
-    // Initially shows 95% progress
+    // Shows 95% progress
     expect(screen.getByText('95%')).toBeInTheDocument()
 
     // Verify stats show 1 running task
@@ -352,23 +340,8 @@ describe('SwarmCoordinatorPanel task progress', () => {
     const runningStat = screen.getByText('Running').closest('.bg-glass')?.querySelector('.text-xl')
     expect(runningStat?.textContent).toBe('1')
 
-    // Advance timer - progress reaches 100% and task auto-completes
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-
-    // Task should be completed now - verify by stats showing 1 completed task
-    // The value is in a sibling div to the label container
-    const completedLabel = screen.getByText('Completed')
-    const statCard = completedLabel.closest('.bg-glass')
-    const completedValue = statCard?.querySelector('.text-xl')
-    expect(completedValue?.textContent).toBe('1')
-
-    // Running tasks should now be 0
-    const runningLabel = screen.getByText('Running')
-    const runningCard = runningLabel.closest('.bg-glass')
-    const runningValue = runningCard?.querySelector('.text-xl')
-    expect(runningValue?.textContent).toBe('0')
+    // Note: Auto-completion now happens via backend events, not simulated progress
+    // Task remains in running state until backend updates it
   })
 
   it('does not update progress for non-running tasks', async () => {
@@ -391,15 +364,15 @@ describe('SwarmCoordinatorPanel task progress', () => {
     expect(screen.getByText('Pending Task')).toBeInTheDocument()
 
     // Advance timer - should not show progress bar (not running)
-    act(() => {
-      vi.advanceTimersByTime(1000)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
     })
 
     // No progress percentage should be shown for pending tasks
     expect(screen.queryByText('%')).not.toBeInTheDocument()
   })
 
-  it('auto-completes task already at 100% progress', async () => {
+  it('displays task already at 100% progress correctly', async () => {
     const runningTask: CoordinationTask = {
       id: 'running-task-3',
       title: 'Complete Progress Task',
@@ -415,19 +388,15 @@ describe('SwarmCoordinatorPanel task progress', () => {
 
     render(<SwarmCoordinatorPanel initialTasks={[runningTask]} />)
 
-    // Initially shows 100% progress (running task at 100%)
+    // Shows 100% progress (running task at 100%)
     expect(screen.getByText('100%')).toBeInTheDocument()
 
-    // Advance timer - should auto-complete
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-
-    // Task should now be completed - verify by stats
-    const completedLabel = screen.getByText('Completed')
-    const statCard = completedLabel.closest('.bg-glass')
-    const completedValue = statCard?.querySelector('.text-xl')
-    expect(completedValue?.textContent).toBe('1')
+    // Note: Auto-completion now happens via backend events
+    // Task remains in running state until backend updates it
+    const runningLabel = screen.getByText('Running')
+    const runningCard = runningLabel.closest('.bg-glass')
+    const runningValue = runningCard?.querySelector('.text-xl')
+    expect(runningValue?.textContent).toBe('1')
   })
 
   it('updates multiple running tasks independently', async () => {
@@ -460,18 +429,11 @@ describe('SwarmCoordinatorPanel task progress', () => {
 
     render(<SwarmCoordinatorPanel initialTasks={tasks} />)
 
-    // Both tasks show their progress
+    // Both tasks show their initial progress (no simulated updates)
     expect(screen.getByText('20%')).toBeInTheDocument()
     expect(screen.getByText('50%')).toBeInTheDocument()
 
-    // Advance timer
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-
-    // Both should update
-    expect(screen.getByText('30%')).toBeInTheDocument()
-    expect(screen.getByText('60%')).toBeInTheDocument()
+    // Note: Progress updates come from backend events, not setInterval simulation
   })
 })
 
@@ -481,6 +443,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -700,6 +663,7 @@ describe('SwarmCoordinatorPanel form fields', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -789,7 +753,7 @@ describe('SwarmCoordinatorPanel form fields', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(screen.getByText('Task Details')).toBeInTheDocument()
     // Click X button to close
-    const closeButton = screen.getByRole('button', { name: '' })
+    const closeButton = screen.getByRole('button', { name: 'Close' })
     fireEvent.click(closeButton)
     await vi.advanceTimersByTimeAsync(100)
     expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
@@ -1001,6 +965,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1024,6 +989,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
     const promptTextarea = screen.getByPlaceholderText('Write the prompt that will be sent to agents...')
     fireEvent.change(promptTextarea, { target: { value: 'Test prompt' } })
 
+    // Use waitFor to properly await the async submit handler
     fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
 
     // Wait for async operation
@@ -1243,6 +1209,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1328,6 +1295,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1385,6 +1353,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1441,6 +1410,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1486,6 +1456,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1545,6 +1516,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1598,6 +1570,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -1653,6 +1626,7 @@ describe('handleStartTask error handling', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })

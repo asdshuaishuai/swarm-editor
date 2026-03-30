@@ -111,7 +111,7 @@ describe('ToastContainer', () => {
     render(<ToastContainer toasts={[defaultToast]} onDismiss={mockOnDismiss} />)
     expect(mockOnDismiss).not.toHaveBeenCalled()
 
-    vi.advanceTimersByTime(5000)
+    await vi.advanceTimersByTimeAsync(5000)
     expect(mockOnDismiss).toHaveBeenCalledWith('test-toast')
   })
 
@@ -119,7 +119,7 @@ describe('ToastContainer', () => {
     const toast: Toast = { ...defaultToast, duration: 3000 }
     render(<ToastContainer toasts={[toast]} onDismiss={mockOnDismiss} />)
 
-    vi.advanceTimersByTime(3000)
+    await vi.advanceTimersByTimeAsync(3000)
     expect(mockOnDismiss).toHaveBeenCalledWith('test-toast')
   })
 
@@ -127,7 +127,7 @@ describe('ToastContainer', () => {
     const toast: Toast = { ...defaultToast, persistent: true }
     render(<ToastContainer toasts={[toast]} onDismiss={mockOnDismiss} />)
 
-    vi.advanceTimersByTime(10000)
+    await vi.advanceTimersByTimeAsync(10000)
     expect(mockOnDismiss).not.toHaveBeenCalled()
   })
 
@@ -135,7 +135,7 @@ describe('ToastContainer', () => {
     const toast: Toast = { ...defaultToast, duration: 0 }
     render(<ToastContainer toasts={[toast]} onDismiss={mockOnDismiss} />)
 
-    vi.advanceTimersByTime(10000)
+    await vi.advanceTimersByTimeAsync(10000)
     expect(mockOnDismiss).not.toHaveBeenCalled()
   })
 

@@ -1,10 +1,12 @@
 // Package swarm implements consensus mechanisms for multi-agent coordination
+// Using Queen Bee model: Coordinator evaluates task results instead of voting
 package swarm
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -27,28 +29,34 @@ const (
 	ConsensusWeighted ConsensusAlgorithm = "weighted"
 	// ConsensusByzantine uses Byzantine fault tolerance
 	ConsensusByzantine ConsensusAlgorithm = "byzantine"
+	// ConsensusQueenBee uses Queen Bee model - coordinator evaluates results
+	ConsensusQueenBee ConsensusAlgorithm = "queen_bee"
+
+	// taskCleanupDelay is how long to keep completed task results before cleanup
+	taskCleanupDelay = 5 * time.Minute
 )
 
-// ConsensusEngine manages consensus voting among agents
+// ConsensusEngine manages task result evaluation using Queen Bee model
 type ConsensusEngine struct {
 	mu sync.RWMutex
 
-	config          ConsensusConfig
-	agentRegistry   *agent.Registry
-	activeProposals map[string]*ActiveProposal
-	running         bool
+	config        ConsensusConfig
+	agentRegistry *agent.Registry
+	activeTasks   map[string]*ActiveTaskEvaluation
+	running       bool
 
 	// Callbacks
-	onProposalCreated  func(proposal *Proposal)
-	onVoteReceived     func(proposalID string, vote Vote)
-	onConsensusReached func(result *ConsensusResult)
-	onTimeout          func(proposalID string)
+	onTaskEvaluationStarted func(task *Task)
+	onEvaluationReceived    func(taskID string, evaluation Evaluation)
+	onConsensusReached      func(result *ConsensusResult)
+	onTimeout               func(taskID string)
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// WaitGroup for tracking cleanup goroutines
-	cleanupWg sync.WaitGroup
+	// WaitGroups for tracking goroutines
+	monitorWg sync.WaitGroup // Tracks monitor loop goroutine
+	cleanupWg sync.WaitGroup // Tracks cleanup goroutines
 }
 
 // ConsensusConfig configures the consensus engine
@@ -57,21 +65,36 @@ type ConsensusConfig struct {
 	DefaultTimeout   time.Duration      `json:"defaultTimeout"`
 	MinAgreement     float64            `json:"minAgreement"` // 0.0-1.0
 	MaxRetries       int                `json:"maxRetries"`
-	VotingDelay      time.Duration      `json:"votingDelay"` // Delay before collecting votes
+	EvaluationDelay  time.Duration      `json:"evaluationDelay"` // Delay before collecting evaluations
 
 	// Byzantine fault tolerance settings
 	ByzantineMaxFaults int `json:"byzantineMaxFaults"` // Max faulty nodes tolerated
 }
 
-// ActiveProposal tracks an active voting proposal
-type ActiveProposal struct {
-	Proposal    *Proposal
-	Votes       map[string]Vote
-	Algorithm   ConsensusAlgorithm
-	Deadline    time.Time
-	Completed   bool
-	Result      *ConsensusResult
-	VoteChannel chan Vote
+// ActiveTaskEvaluation tracks an active task evaluation
+type ActiveTaskEvaluation struct {
+	Task             *Task
+	Evaluations      map[string]Evaluation
+	Algorithm        ConsensusAlgorithm
+	Deadline         time.Time
+	Completed        bool
+	Result           *ConsensusResult
+	EvalChannel      chan Evaluation
+	cleanupScheduled bool      // Internal flag to prevent duplicate cleanup goroutines
+	closeOnce        sync.Once // Ensures EvalChannel is closed exactly once
+
+	// ExpectedEvaluationCount is the number of agents asked to evaluate this task.
+	// Used for ConsensusUnanimity to determine when all participating agents have voted.
+	ExpectedEvaluationCount int
+}
+
+// Evaluation represents an agent's evaluation of a task result
+type Evaluation struct {
+	AgentID    string  `json:"agentId"`
+	Approved   bool    `json:"approved"`
+	Confidence float64 `json:"confidence"`
+	Comment    string  `json:"comment,omitempty"`
+	Weight     float64 `json:"weight,omitempty"`
 }
 
 // NewConsensusEngine creates a new consensus engine
@@ -80,16 +103,16 @@ func NewConsensusEngine(config ConsensusConfig, registry *agent.Registry) *Conse
 		config.DefaultTimeout = 30 * time.Second
 	}
 	if config.DefaultAlgorithm == "" {
-		config.DefaultAlgorithm = ConsensusSimpleMajority
+		config.DefaultAlgorithm = ConsensusQueenBee
 	}
 	if config.MinAgreement == 0 {
 		config.MinAgreement = 0.51
 	}
 
 	return &ConsensusEngine{
-		config:          config,
-		agentRegistry:   registry,
-		activeProposals: make(map[string]*ActiveProposal),
+		config:        config,
+		agentRegistry: registry,
+		activeTasks:   make(map[string]*ActiveTaskEvaluation),
 	}
 }
 
@@ -105,7 +128,8 @@ func (e *ConsensusEngine) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	e.running = true
 
-	go e.proposalMonitorLoop()
+	e.monitorWg.Add(1)
+	go e.taskMonitorLoop()
 	return nil
 }
 
@@ -122,36 +146,40 @@ func (e *ConsensusEngine) Stop() {
 	}
 	e.mu.Unlock()
 
-	// Wait for all cleanup goroutines to finish
+	// Wait for all goroutines to finish (monitor loop + cleanup goroutines)
+	e.monitorWg.Wait()
 	e.cleanupWg.Wait()
 }
 
-// CreateProposal creates a new proposal for voting
-func (e *ConsensusEngine) CreateProposal(ctx context.Context, proposal *Proposal, algorithm ConsensusAlgorithm) (*ConsensusResult, error) {
-	if proposal == nil {
-		return nil, fmt.Errorf("proposal cannot be nil")
+// EvaluateTask creates a new task evaluation request (Queen Bee model)
+// The coordinator evaluates task results instead of voting on proposals
+func (e *ConsensusEngine) EvaluateTask(ctx context.Context, task *Task, algorithm ConsensusAlgorithm) (*ConsensusResult, error) {
+	if task == nil {
+		return nil, fmt.Errorf("task cannot be nil")
 	}
 	if algorithm == "" {
 		algorithm = e.config.DefaultAlgorithm
 	}
 
 	e.mu.Lock()
-	active := &ActiveProposal{
-		Proposal:    proposal,
-		Votes:       make(map[string]Vote),
+	active := &ActiveTaskEvaluation{
+		Task:        task,
+		Evaluations: make(map[string]Evaluation),
 		Algorithm:   algorithm,
 		Deadline:    time.Now().Add(e.config.DefaultTimeout),
-		VoteChannel: make(chan Vote, 100),
+		EvalChannel: make(chan Evaluation, 100),
 	}
-	e.activeProposals[proposal.ID] = active
+	e.activeTasks[task.ID] = active
+	onStarted := e.onTaskEvaluationStarted
 	e.mu.Unlock()
 
-	if e.onProposalCreated != nil {
-		e.onProposalCreated(proposal)
+	if onStarted != nil {
+		onStarted(task)
 	}
 
-	// Collect votes from agents
-	go e.collectVotes(active)
+	// Collect evaluations from agents (tracked for graceful shutdown)
+	e.cleanupWg.Add(1)
+	go e.collectEvaluations(active)
 
 	// Wait for result or timeout
 	result, err := e.waitForConsensus(ctx, active)
@@ -159,16 +187,58 @@ func (e *ConsensusEngine) CreateProposal(ctx context.Context, proposal *Proposal
 	return result, err
 }
 
-// collectVotes collects votes from all available agents
-func (e *ConsensusEngine) collectVotes(active *ActiveProposal) {
+// CreateProposal is kept for backward compatibility, delegates to EvaluateTask
+func (e *ConsensusEngine) CreateProposal(ctx context.Context, task *Task, algorithm ConsensusAlgorithm) (*ConsensusResult, error) {
+	return e.EvaluateTask(ctx, task, algorithm)
+}
+
+// collectEvaluations collects evaluations from all available agents
+func (e *ConsensusEngine) collectEvaluations(active *ActiveTaskEvaluation) {
+	defer e.cleanupWg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Consensus] collectEvaluations panic for task %s: %v", active.Task.ID, r)
+		}
+	}()
+
 	agents := e.agentRegistry.GetIdle()
 	if len(agents) == 0 {
 		agents = e.agentRegistry.GetAll()
 	}
 
-	// Give agents time to review the proposal
-	if e.config.VotingDelay > 0 {
-		time.Sleep(e.config.VotingDelay)
+	// Record the number of agents that will be asked to evaluate.
+	// This is used by ConsensusUnanimity to determine when all participating agents
+	// have voted, rather than using e.agentRegistry.Count() which includes
+	// disconnected/inactive agents that will never submit an evaluation.
+	e.mu.Lock()
+	active.ExpectedEvaluationCount = len(agents)
+	e.mu.Unlock()
+
+	// If no agents are available, we cannot collect evaluations - return early
+	// to prevent deadlock (wg.Wait() would block forever if no goroutines spawned)
+	if len(agents) == 0 {
+		log.Printf("[Consensus] No agents available for evaluation of task %s", active.Task.ID)
+		return
+	}
+
+	// Give agents time to review the task result, respecting context cancellation
+	if e.config.EvaluationDelay > 0 {
+		e.mu.RLock()
+		engineCtx := e.ctx
+		e.mu.RUnlock()
+
+		delayTimer := time.NewTimer(e.config.EvaluationDelay)
+		defer delayTimer.Stop()
+
+		if engineCtx != nil {
+			select {
+			case <-delayTimer.C:
+			case <-engineCtx.Done():
+				return
+			}
+		} else {
+			<-delayTimer.C
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -176,19 +246,35 @@ func (e *ConsensusEngine) collectVotes(active *ActiveProposal) {
 		wg.Add(1)
 		go func(ag *agent.Agent) {
 			defer wg.Done()
-			vote := e.requestVote(ag, active.Proposal)
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Consensus] evaluation goroutine panic for agent %s: %v", ag.ID, r)
+				}
+			}()
+			evaluation := e.evaluateTaskResult(ag, active.Task)
 
-			// Record vote with proper locking
+			// Record evaluation with proper locking
 			e.mu.Lock()
 			if !active.Completed {
-				active.Votes[vote.AgentID] = vote
-				if e.onVoteReceived != nil {
-					e.onVoteReceived(active.Proposal.ID, vote)
+				active.Evaluations[evaluation.AgentID] = evaluation
+				onReceived := e.onEvaluationReceived
+				earlyConsensus := e.canReachEarlyConsensus(active)
+				e.mu.Unlock()
+
+				// Fire callback outside lock
+				if onReceived != nil {
+					onReceived(active.Task.ID, evaluation)
 				}
-				// Check if we can reach early consensus
-				if e.canReachEarlyConsensus(active) {
-					e.finalizeConsensus(active)
+
+				if earlyConsensus {
+					e.mu.Lock()
+					onConsensus := e.finalizeConsensus(active)
+					e.mu.Unlock()
+					if onConsensus != nil && active.Result != nil {
+						onConsensus(active.Result)
+					}
 				}
+				return
 			}
 			e.mu.Unlock()
 		}(a)
@@ -197,64 +283,87 @@ func (e *ConsensusEngine) collectVotes(active *ActiveProposal) {
 	wg.Wait()
 }
 
-// requestVote requests a vote from an agent
-func (e *ConsensusEngine) requestVote(a *agent.Agent, proposal *Proposal) Vote {
+// evaluateTaskResult evaluates a task result from an agent's perspective (Queen Bee model)
+// Instead of voting on proposals, agents evaluate task execution results
+func (e *ConsensusEngine) evaluateTaskResult(a *agent.Agent, task *Task) Evaluation {
 	// Create evaluation prompt for the agent
 	evalPrompt := acp.Prompt{
-		{Type: "text", Text: e.buildEvaluationPrompt(proposal)},
+		{Type: "text", Text: e.buildEvaluationPrompt(task)},
 	}
 
-	// Execute evaluation
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Execute evaluation using engine's context for proper cancellation
+	e.mu.RLock()
+	engineCtx := e.ctx
+	e.mu.RUnlock()
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if engineCtx != nil {
+		ctx, cancel = context.WithTimeout(engineCtx, 10*time.Second)
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	}
 	defer cancel()
 
 	result, err := a.Execute(ctx, evalPrompt)
 	if err != nil {
-		return Vote{
-			AgentID: string(a.ID),
-			Approve: false,
-			Comment: fmt.Sprintf("Evaluation failed: %v", err),
-			Weight:  e.calculateAgentWeight(a),
+		return Evaluation{
+			AgentID:  string(a.ID),
+			Approved: false,
+			Comment:  fmt.Sprintf("Evaluation failed: %v", err),
+			Weight:   e.calculateAgentWeight(a),
 		}
 	}
 
-	// Parse the agent's response to determine vote
-	return e.parseAgentResponse(a, result, proposal)
+	// Parse the agent's response to determine evaluation
+	return e.parseAgentEvaluation(a, result, task)
 }
 
-// buildEvaluationPrompt creates a prompt for agents to evaluate a proposal
-func (e *ConsensusEngine) buildEvaluationPrompt(proposal *Proposal) string {
-	return fmt.Sprintf(`You are asked to evaluate and vote on the following proposal.
+// buildEvaluationPrompt creates a prompt for agents to evaluate a task result
+func (e *ConsensusEngine) buildEvaluationPrompt(task *Task) string {
+	resultInfo := "No result available"
+	if task.Result != nil {
+		resultInfo = fmt.Sprintf("Content: %s\nFiles Changed: %v\nDuration: %v",
+			task.Result.Content, task.Result.FilesChanged, task.Result.Duration)
+		if task.Result.Error != "" {
+			resultInfo += fmt.Sprintf("\nError: %s", task.Result.Error)
+		}
+	}
+
+	return fmt.Sprintf(`You are asked to evaluate the result of the following task.
 
 Title: %s
 Description: %s
 
-Please analyze this proposal and respond with your vote in the following JSON format:
+Task Result:
+%s
+
+Please analyze this task result and respond with your evaluation in the following JSON format:
 {
-  "approve": true/false,
+  "approved": true/false,
   "confidence": 0.0-1.0,
-  "reasoning": "brief explanation of your decision"
+  "reasoning": "brief explanation of your evaluation"
 }
 
 Consider:
-1. Feasibility - Can this be implemented successfully?
-2. Quality - Does this meet our standards?
-3. Risk - What are the potential issues?
-4. Alignment - Does this align with the project goals?
+1. Completeness - Was the task completed successfully?
+2. Quality - Does the result meet our standards?
+3. Correctness - Are there any errors or issues?
+4. Efficiency - Was the task executed efficiently?
 
-Provide your honest assessment.`, proposal.Title, proposal.Description)
+Provide your honest assessment.`, task.Title, task.Description, resultInfo)
 }
 
-// parseAgentResponse parses the agent's response into a vote
-func (e *ConsensusEngine) parseAgentResponse(a *agent.Agent, result *agent.ExecutionResult, proposal *Proposal) Vote {
-	vote := Vote{
+// parseAgentEvaluation parses the agent's response into an evaluation
+func (e *ConsensusEngine) parseAgentEvaluation(a *agent.Agent, result *agent.ExecutionResult, task *Task) Evaluation {
+	evaluation := Evaluation{
 		AgentID: string(a.ID),
 		Weight:  e.calculateAgentWeight(a),
 	}
 
 	// Try to parse JSON response
 	var response struct {
-		Approve    bool    `json:"approve"`
+		Approved   bool    `json:"approved"`
 		Confidence float64 `json:"confidence"`
 		Reasoning  string  `json:"reasoning"`
 	}
@@ -264,25 +373,31 @@ func (e *ConsensusEngine) parseAgentResponse(a *agent.Agent, result *agent.Execu
 
 	if err := json.Unmarshal([]byte(textContent), &response); err != nil {
 		// If JSON parsing fails, try to infer from text
-		vote.Approve = e.inferVoteFromText(textContent)
-		vote.Comment = "Vote inferred from text response"
+		evaluation.Approved = e.inferEvaluationFromText(textContent)
+		evaluation.Comment = "Evaluation inferred from text response"
 	} else {
-		vote.Approve = response.Approve
-		vote.Comment = response.Reasoning
+		evaluation.Approved = response.Approved
+		evaluation.Confidence = response.Confidence
+		evaluation.Comment = response.Reasoning
 		// Adjust weight based on confidence
 		if response.Confidence > 0 {
-			vote.Weight *= response.Confidence
+			evaluation.Weight *= response.Confidence
 		}
 	}
 
-	return vote
+	return evaluation
 }
 
-// inferVoteFromText attempts to infer a vote from unstructured text
-func (e *ConsensusEngine) inferVoteFromText(text string) bool {
+// inferEvaluationFromText attempts to infer an evaluation from unstructured text
+func (e *ConsensusEngine) inferEvaluationFromText(text string) bool {
+	// Empty or whitespace-only text defaults to reject (not approve)
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+
 	// Simple heuristic: look for positive/negative indicators
-	positiveIndicators := []string{"approve", "accept", "yes", "agree", "support", "good", "excellent"}
-	negativeIndicators := []string{"reject", "deny", "no", "disagree", "oppose", "bad", "poor"}
+	positiveIndicators := []string{"approved", "accept", "yes", "agree", "good", "excellent", "complete", "success"}
+	negativeIndicators := []string{"reject", "deny", "disagree", "bad", "poor", "incomplete", "fail"}
 
 	textLower := strings.ToLower(text)
 	positiveCount := 0
@@ -303,7 +418,7 @@ func (e *ConsensusEngine) inferVoteFromText(text string) bool {
 	return positiveCount >= negativeCount
 }
 
-// calculateAgentWeight calculates voting weight for an agent
+// calculateAgentWeight calculates evaluation weight for an agent
 func (e *ConsensusEngine) calculateAgentWeight(a *agent.Agent) float64 {
 	baseWeight := 1.0
 
@@ -333,64 +448,109 @@ func (e *ConsensusEngine) calculateAgentWeight(a *agent.Agent) float64 {
 	return baseWeight
 }
 
-// recordVote records a vote for a proposal
-// Note: This function assumes the caller holds the lock
-func (e *ConsensusEngine) recordVote(active *ActiveProposal, vote Vote) {
+// recordEvaluation records an evaluation for a task.
+// Note: This function assumes the caller holds the lock.
+// Returns callbacks to fire after the lock is released.
+func (e *ConsensusEngine) recordEvaluation(active *ActiveTaskEvaluation, evaluation Evaluation) (func(string, Evaluation), func(*ConsensusResult)) {
 	if active.Completed {
-		return // Proposal already completed
+		return nil, nil // Task already completed
 	}
 
-	active.Votes[vote.AgentID] = vote
+	active.Evaluations[evaluation.AgentID] = evaluation
 
-	if e.onVoteReceived != nil {
-		e.onVoteReceived(active.Proposal.ID, vote)
+	onReceived := e.onEvaluationReceived
+	onConsensus := e.canReachEarlyConsensus(active)
+
+	if onConsensus {
+		cb := e.finalizeConsensus(active)
+		return onReceived, cb
 	}
 
-	// Check if we can reach early consensus
-	if e.canReachEarlyConsensus(active) {
-		e.finalizeConsensus(active)
-	}
+	return onReceived, nil
 }
 
 // canReachEarlyConsensus checks if consensus can be determined before timeout
-func (e *ConsensusEngine) canReachEarlyConsensus(active *ActiveProposal) bool {
-	// For unanimity, we need all votes
+func (e *ConsensusEngine) canReachEarlyConsensus(active *ActiveTaskEvaluation) bool {
+	// For unanimity, we need all evaluations from participating agents.
+	// Use ExpectedEvaluationCount (agents actually asked to evaluate) rather
+	// than e.agentRegistry.Count() (total registered agents including disconnected).
 	if active.Algorithm == ConsensusUnanimity {
-		return len(active.Votes) >= e.agentRegistry.Count()
+		// Use ExpectedEvaluationCount when available (set by RequestConsensus).
+		// Fallback to registry count for backward compatibility (e.g., tests).
+		expectedCount := active.ExpectedEvaluationCount
+		if expectedCount == 0 {
+			expectedCount = e.agentRegistry.Count()
+		}
+		if expectedCount == 0 {
+			return false // No agents to evaluate
+		}
+		return len(active.Evaluations) >= expectedCount
 	}
 
-	// For other algorithms, check if remaining votes can't change outcome
+	// For weighted algorithms, check if remaining evaluations can't change outcome
 	totalAgents := e.agentRegistry.Count()
 	if totalAgents == 0 {
-		return false // No agents to vote
+		return false // No agents to evaluate
 	}
 
-	currentVotes := len(active.Votes)
-	remainingVotes := totalAgents - currentVotes
-
-	if remainingVotes == 0 {
+	remainingEvals := totalAgents - len(active.Evaluations)
+	if remainingEvals == 0 {
 		return true
 	}
 
-	// Calculate current approval
-	approved, _ := e.countVotes(active.Votes)
-	approvalRate := approved / float64(totalAgents)
+	// Use weight-based calculation consistent with finalizeConsensus
+	approved, totalWeight := e.countEvaluations(active.Evaluations)
+	if totalWeight == 0 {
+		return false
+	}
+	approvalRate := approved / totalWeight
 
-	// Check if remaining votes could swing the decision
+	// Max remaining weight: assume all remaining agents have max weight (1.5)
+	const maxAgentWeight = 1.5
+	maxRemainingWeight := float64(remainingEvals) * maxAgentWeight
+	maxTotalWeight := totalWeight + maxRemainingWeight
+
+	// Worst case: all remaining agents reject with max weight
+	worstCaseRate := approved / maxTotalWeight
+	// Best case: all remaining agents approve with max weight
+	bestCaseRate := (approved + maxRemainingWeight) / maxTotalWeight
+
+	// Check if remaining evaluations could swing the decision
 	switch active.Algorithm {
 	case ConsensusSimpleMajority:
-		// If approval > 50% + remaining/total, it's decided
-		if approvalRate > 0.5+float64(remainingVotes)/float64(totalAgents) {
+		// Even if all remaining reject, still above 50%
+		if worstCaseRate > 0.5 {
 			return true
 		}
-		if approvalRate < 0.5-float64(remainingVotes)/float64(totalAgents) {
+		// Even if all remaining approve, still below 50%
+		if bestCaseRate <= 0.5 {
 			return true
 		}
 	case ConsensusSupermajority:
-		if approvalRate > 0.667+float64(remainingVotes)/float64(totalAgents) {
+		if worstCaseRate >= 0.667 {
 			return true
 		}
-		if approvalRate < 0.333-float64(remainingVotes)/float64(totalAgents) {
+		if bestCaseRate < 0.667 {
+			return true
+		}
+	case ConsensusWeighted:
+		threshold := e.config.MinAgreement
+		if worstCaseRate >= threshold {
+			return true
+		}
+		if bestCaseRate < threshold {
+			return true
+		}
+	case ConsensusByzantine:
+		if worstCaseRate >= 0.667 {
+			return true
+		}
+		if bestCaseRate < 0.667 {
+			return true
+		}
+	case ConsensusQueenBee:
+		// Queen Bee model: coordinator decision can be final
+		if approvalRate >= e.config.MinAgreement {
 			return true
 		}
 	}
@@ -398,8 +558,9 @@ func (e *ConsensusEngine) canReachEarlyConsensus(active *ActiveProposal) bool {
 	return false
 }
 
-// waitForConsensus waits for consensus to be reached or timeout
-func (e *ConsensusEngine) waitForConsensus(ctx context.Context, active *ActiveProposal) (*ConsensusResult, error) {
+// waitForConsensus waits for consensus to be reached or timeout.
+// Uses EvalChannel (closed by finalizeConsensus) instead of polling.
+func (e *ConsensusEngine) waitForConsensus(ctx context.Context, active *ActiveTaskEvaluation) (*ConsensusResult, error) {
 	timeout := time.Until(active.Deadline)
 	if timeout <= 0 {
 		timeout = time.Second
@@ -408,43 +569,41 @@ func (e *ConsensusEngine) waitForConsensus(ctx context.Context, active *ActivePr
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Wait for completion or timeout
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	// Wait for EvalChannel close (signals consensus finalized) or context timeout
+	select {
+	case <-active.EvalChannel:
+		// Channel closed — consensus finalized
+		e.mu.RLock()
+		result := active.Result
+		e.mu.RUnlock()
+		return result, nil
 
-	for {
-		select {
-		case <-ctx.Done():
-			e.mu.Lock()
-			if !active.Completed {
-				e.finalizeConsensus(active)
-			}
-			result := active.Result
-			e.mu.Unlock()
-			return result, nil
-
-		case <-ticker.C:
-			e.mu.RLock()
-			completed := active.Completed
-			result := active.Result
-			e.mu.RUnlock()
-
-			if completed {
-				return result, nil
-			}
+	case <-ctx.Done():
+		var onConsensus func(*ConsensusResult)
+		e.mu.Lock()
+		if !active.Completed {
+			onConsensus = e.finalizeConsensus(active)
 		}
+		result := active.Result
+		e.mu.Unlock()
+		if onConsensus != nil && result != nil {
+			onConsensus(result)
+		}
+		return result, nil
 	}
 }
 
-// finalizeConsensus calculates and stores the final consensus result
-func (e *ConsensusEngine) finalizeConsensus(active *ActiveProposal) {
+// finalizeConsensus calculates and stores the final consensus result.
+// IMPORTANT: Caller must hold e.mu. Returns the onConsensusReached callback
+// to be fired after the lock is released to prevent deadlock.
+func (e *ConsensusEngine) finalizeConsensus(active *ActiveTaskEvaluation) func(*ConsensusResult) {
 	if active.Completed {
-		return
+		return nil
 	}
 
 	active.Completed = true
 
-	approved, total := e.countVotes(active.Votes)
+	approved, total := e.countEvaluations(active.Evaluations)
 	approvalRate := approved / total
 
 	status := "disagreed"
@@ -456,47 +615,62 @@ func (e *ConsensusEngine) finalizeConsensus(active *ActiveProposal) {
 
 	// Build contributions list
 	var contributions []AgentContribution
-	for agentID, vote := range active.Votes {
+	for agentID, evaluation := range active.Evaluations {
 		voteStr := "reject"
-		if vote.Approve {
+		if evaluation.Approved {
 			voteStr = "approve"
 		}
 		contributions = append(contributions, AgentContribution{
 			AgentID: agentID,
 			Vote:    voteStr,
-			Content: vote.Comment,
-			Weight:  vote.Weight,
+			Content: evaluation.Comment,
+			Weight:  evaluation.Weight,
 		})
 	}
 
+	// Convert evaluations to votes for backward compatibility
+	votes := make(map[string]Vote)
+	for agentID, evaluation := range active.Evaluations {
+		votes[agentID] = Vote{
+			AgentID: agentID,
+			Approve: evaluation.Approved,
+			Comment: evaluation.Comment,
+			Weight:  evaluation.Weight,
+		}
+	}
+
 	active.Result = &ConsensusResult{
-		TaskID:        active.Proposal.ID,
+		TaskID:        active.Task.ID,
 		Status:        status,
 		ApprovalRate:  approvalRate,
-		Votes:         active.Votes,
+		Votes:         votes,
 		Contributions: contributions,
 	}
 
-	if e.onConsensusReached != nil {
-		e.onConsensusReached(active.Result)
-	}
+	// Cleanup - use sync.Once to ensure channel is closed exactly once
+	active.closeOnce.Do(func() {
+		close(active.EvalChannel)
+	})
 
-	// Cleanup
-	close(active.VoteChannel)
+	// Return callback to fire outside lock
+	return e.onConsensusReached
 }
 
-// countVotes counts approved votes and total weight
-func (e *ConsensusEngine) countVotes(votes map[string]Vote) (float64, float64) {
+// countEvaluations counts approved evaluations and total weight.
+// Returns (approvedWeight, totalWeight). When there are no evaluations,
+// returns (0, 1) to avoid division by zero - this results in approvalRate=0.0
+// which correctly indicates no consensus was reached.
+func (e *ConsensusEngine) countEvaluations(evaluations map[string]Evaluation) (float64, float64) {
 	var approved, total float64
-	for _, vote := range votes {
-		total += vote.Weight
-		if vote.Approve {
-			approved += vote.Weight
+	for _, evaluation := range evaluations {
+		total += evaluation.Weight
+		if evaluation.Approved {
+			approved += evaluation.Weight
 		}
 	}
 
 	if total == 0 {
-		return 0, 1 // Avoid division by zero
+		return 0, 1 // Avoid division by zero, results in approvalRate=0.0
 	}
 
 	return approved, total
@@ -516,13 +690,18 @@ func (e *ConsensusEngine) isConsensusReached(approvalRate float64, algorithm Con
 	case ConsensusByzantine:
 		// Byzantine requires 2/3 + 1 agreement
 		return approvalRate >= 0.667
+	case ConsensusQueenBee:
+		// Queen Bee model uses configurable threshold
+		return approvalRate >= e.config.MinAgreement
 	default:
 		return approvalRate >= e.config.MinAgreement
 	}
 }
 
-// proposalMonitorLoop monitors active proposals for timeouts
-func (e *ConsensusEngine) proposalMonitorLoop() {
+// taskMonitorLoop monitors active tasks for timeouts
+func (e *ConsensusEngine) taskMonitorLoop() {
+	defer e.monitorWg.Done()
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -536,35 +715,50 @@ func (e *ConsensusEngine) proposalMonitorLoop() {
 	}
 }
 
-// checkTimeouts checks for timed out proposals
+// checkTimeouts checks for timed out tasks and cleans up completed ones
 func (e *ConsensusEngine) checkTimeouts() {
+	var timeoutEvents []func()
+	var consensusEvents []func()
+
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	now := time.Now()
-	for id, active := range e.activeProposals {
+	for id, active := range e.activeTasks {
 		if !active.Completed && now.After(active.Deadline) {
-			e.finalizeConsensus(active)
-
-			if e.onTimeout != nil {
-				e.onTimeout(id)
+			onConsensus := e.finalizeConsensus(active)
+			if onConsensus != nil && active.Result != nil {
+				result := active.Result
+				consensusEvents = append(consensusEvents, func() { onConsensus(result) })
 			}
 
-			// Clean up completed proposals after a delay
+			onTimeout := e.onTimeout
+			taskID := id
+			if onTimeout != nil {
+				timeoutEvents = append(timeoutEvents, func() { onTimeout(taskID) })
+			}
+		}
+
+		// Clean up completed tasks that haven't had cleanup scheduled yet
+		if active.Completed && !active.cleanupScheduled {
+			active.cleanupScheduled = true
 			// Capture ctx while holding the lock
 			ctx := e.ctx
 			e.cleanupWg.Add(1)
-			go func(proposalID string, engineCtx context.Context) {
+			go func(taskID string, engineCtx context.Context) {
 				defer e.cleanupWg.Done()
-				// Use a timer for cleanup
-				timer := time.NewTimer(5 * time.Minute)
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Consensus] cleanup goroutine panic for task %s: %v", taskID, r)
+					}
+				}()
+				// Use a timer for cleanup delay (allows consumers to read results)
+				timer := time.NewTimer(taskCleanupDelay)
 				defer timer.Stop()
 
 				if engineCtx == nil {
 					// No context, just wait for timer
 					<-timer.C
 					e.mu.Lock()
-					delete(e.activeProposals, proposalID)
+					delete(e.activeTasks, taskID)
 					e.mu.Unlock()
 					return
 				}
@@ -572,73 +766,180 @@ func (e *ConsensusEngine) checkTimeouts() {
 				select {
 				case <-timer.C:
 					e.mu.Lock()
-					delete(e.activeProposals, proposalID)
+					delete(e.activeTasks, taskID)
 					e.mu.Unlock()
 				case <-engineCtx.Done():
 					// Engine is shutting down, cleanup immediately
 					e.mu.Lock()
-					delete(e.activeProposals, proposalID)
+					delete(e.activeTasks, taskID)
 					e.mu.Unlock()
 				}
 			}(id, ctx)
 		}
 	}
+	e.mu.Unlock()
+
+	// Fire consensus and timeout callbacks outside lock to prevent deadlock
+	for _, fn := range consensusEvents {
+		fn()
+	}
+	for _, fn := range timeoutEvents {
+		fn()
+	}
 }
 
-// GetProposal gets a proposal by ID
-func (e *ConsensusEngine) GetProposal(proposalID string) (*ActiveProposal, bool) {
+// GetTask gets a task evaluation by ID (returns a copy to prevent mutation)
+func (e *ConsensusEngine) GetTask(taskID string) (*ActiveTaskEvaluation, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	active, ok := e.activeProposals[proposalID]
-	return active, ok
+	active, ok := e.activeTasks[taskID]
+	if !ok || active == nil {
+		return nil, false
+	}
+	// Return a deep copy to prevent callers from corrupting internal state
+	// Note: ActiveTaskEvaluation contains sync.Once, so we cannot use value copy.
+	// Construct a new struct and copy field-by-field.
+	cp := &ActiveTaskEvaluation{
+		Task:                    active.Task,
+		Algorithm:               active.Algorithm,
+		Deadline:                active.Deadline,
+		Completed:               active.Completed,
+		Result:                  active.Result,
+		EvalChannel:             nil, // Do not copy the channel
+		ExpectedEvaluationCount: active.ExpectedEvaluationCount,
+		// closeOnce is zero-valued by default
+	}
+	if active.Evaluations != nil {
+		cp.Evaluations = make(map[string]Evaluation, len(active.Evaluations))
+		for k, v := range active.Evaluations {
+			cp.Evaluations[k] = v
+		}
+	}
+	return cp, true
 }
 
-// GetActiveProposals returns all active proposals
-func (e *ConsensusEngine) GetActiveProposals() []*ActiveProposal {
+// GetProposal is kept for backward compatibility, delegates to GetTask
+func (e *ConsensusEngine) GetProposal(proposalID string) (*ActiveTaskEvaluation, bool) {
+	return e.GetTask(proposalID)
+}
+
+// GetActiveTasks returns copies of all active task evaluations
+func (e *ConsensusEngine) GetActiveTasks() []*ActiveTaskEvaluation {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	result := make([]*ActiveProposal, 0, len(e.activeProposals))
-	for _, active := range e.activeProposals {
+	result := make([]*ActiveTaskEvaluation, 0, len(e.activeTasks))
+	for _, active := range e.activeTasks {
 		if !active.Completed {
-			result = append(result, active)
+			// Return a copy to prevent callers from corrupting internal state
+			// Same field-by-field copy as GetTask (sync.Once prevents value copy)
+			cp := &ActiveTaskEvaluation{
+				Task:                    active.Task,
+				Algorithm:               active.Algorithm,
+				Deadline:                active.Deadline,
+				Completed:               active.Completed,
+				Result:                  active.Result,
+				EvalChannel:             nil,
+				ExpectedEvaluationCount: active.ExpectedEvaluationCount,
+			}
+			if active.Evaluations != nil {
+				cp.Evaluations = make(map[string]Evaluation, len(active.Evaluations))
+				for k, v := range active.Evaluations {
+					cp.Evaluations[k] = v
+				}
+			}
+			result = append(result, cp)
 		}
 	}
 	return result
 }
 
-// CastVote allows manually casting a vote (for external integrations)
-func (e *ConsensusEngine) CastVote(proposalID string, vote Vote) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+// GetActiveProposals is kept for backward compatibility, delegates to GetActiveTasks
+func (e *ConsensusEngine) GetActiveProposals() []*ActiveTaskEvaluation {
+	return e.GetActiveTasks()
+}
 
-	active, ok := e.activeProposals[proposalID]
+// CastEvaluation allows manually casting an evaluation (for external integrations)
+func (e *ConsensusEngine) CastEvaluation(taskID string, evaluation Evaluation) error {
+	e.mu.Lock()
+
+	active, ok := e.activeTasks[taskID]
 	if !ok {
-		return fmt.Errorf("proposal not found: %s", proposalID)
+		e.mu.Unlock()
+		return fmt.Errorf("task not found: %s", taskID)
 	}
 
 	if active.Completed {
-		return fmt.Errorf("proposal already completed: %s", proposalID)
+		e.mu.Unlock()
+		return fmt.Errorf("task already completed: %s", taskID)
 	}
 
-	e.recordVote(active, vote)
+	onReceived, onConsensus := e.recordEvaluation(active, evaluation)
+	// Capture values for callbacks before unlocking
+	taskIDCopy := active.Task.ID
+	var resultCopy *ConsensusResult
+	if active.Result != nil {
+		resultCopy = active.Result
+	}
+	e.mu.Unlock()
+
+	// Fire callbacks outside lock
+	if onReceived != nil {
+		onReceived(taskIDCopy, evaluation)
+	}
+	if onConsensus != nil && resultCopy != nil {
+		onConsensus(resultCopy)
+	}
+
 	return nil
+}
+
+// CastVote is kept for backward compatibility, converts Vote to Evaluation
+func (e *ConsensusEngine) CastVote(taskID string, vote Vote) error {
+	evaluation := Evaluation{
+		AgentID:  vote.AgentID,
+		Approved: vote.Approve,
+		Comment:  vote.Comment,
+		Weight:   vote.Weight,
+	}
+	return e.CastEvaluation(taskID, evaluation)
 }
 
 // Callbacks
 
-// OnProposalCreated registers a callback for proposal creation events
-func (e *ConsensusEngine) OnProposalCreated(fn func(proposal *Proposal)) {
+// OnTaskEvaluationStarted registers a callback for task evaluation start events
+func (e *ConsensusEngine) OnTaskEvaluationStarted(fn func(task *Task)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.onProposalCreated = fn
+	e.onTaskEvaluationStarted = fn
 }
 
-// OnVoteReceived registers a callback for vote events
-func (e *ConsensusEngine) OnVoteReceived(fn func(proposalID string, vote Vote)) {
+// OnEvaluationReceived registers a callback for evaluation events
+func (e *ConsensusEngine) OnEvaluationReceived(fn func(taskID string, evaluation Evaluation)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.onVoteReceived = fn
+	e.onEvaluationReceived = fn
+}
+
+// OnProposalCreated is kept for backward compatibility, delegates to OnTaskEvaluationStarted
+func (e *ConsensusEngine) OnProposalCreated(fn func(task *Task)) {
+	e.OnTaskEvaluationStarted(fn)
+}
+
+// OnVoteReceived is kept for backward compatibility, converts to evaluation callback
+func (e *ConsensusEngine) OnVoteReceived(fn func(taskID string, vote Vote)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// Wrap the vote callback to work with evaluations
+	e.onEvaluationReceived = func(taskID string, evaluation Evaluation) {
+		vote := Vote{
+			AgentID: evaluation.AgentID,
+			Approve: evaluation.Approved,
+			Comment: evaluation.Comment,
+			Weight:  evaluation.Weight,
+		}
+		fn(taskID, vote)
+	}
 }
 
 // OnConsensusReached registers a callback for consensus events
@@ -649,7 +950,7 @@ func (e *ConsensusEngine) OnConsensusReached(fn func(result *ConsensusResult)) {
 }
 
 // OnTimeout registers a callback for timeout events
-func (e *ConsensusEngine) OnTimeout(fn func(proposalID string)) {
+func (e *ConsensusEngine) OnTimeout(fn func(taskID string)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.onTimeout = fn

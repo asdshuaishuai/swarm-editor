@@ -2,6 +2,7 @@
 package swarm
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -14,7 +15,31 @@ const (
 	TaskStatusCompleted TaskStatus = "completed"
 	TaskStatusFailed    TaskStatus = "failed"
 	TaskStatusRetrying  TaskStatus = "retrying"
+	TaskStatusCancelled TaskStatus = "cancelled"
+
+	// Intermediate states (Google A2A pattern: distinguish terminal vs in-progress)
+	TaskStatusDecomposing TaskStatus = "decomposing"
+	TaskStatusAssigned    TaskStatus = "assigned"
+	TaskStatusConsensus   TaskStatus = "consensus"
 )
+
+// IsTerminal returns true if the status represents a final, non-reversible state.
+// Inspired by Google A2A protocol's terminal state distinction:
+// TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED, TASK_STATE_REJECTED
+// are all terminal and cannot transition to any other state.
+func (s TaskStatus) IsTerminal() bool {
+	switch s {
+	case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	}
+	return false
+}
+
+// IsInterrupted returns true if the task is waiting for external input.
+// Inspired by Google A2A's TASK_STATE_INPUT_REQUIRED and TASK_STATE_AUTH_REQUIRED.
+func (s TaskStatus) IsInterrupted() bool {
+	return false // Reserved for future: "input_required", "auth_required"
+}
 
 // TaskResult represents the result of a task execution
 type TaskResult struct {
@@ -40,7 +65,8 @@ type Artifact struct {
 
 // ConsensusResult represents the result of a consensus vote
 type ConsensusResult struct {
-	TaskID        string              `json:"taskId"`
+	TaskID        string              `json:"taskId,omitempty"`
+	ProposalID    string              `json:"proposalId,omitempty"`
 	Status        string              `json:"status"` // "agreed", "disagreed", "partial"
 	ApprovalRate  float64             `json:"approvalRate"`
 	Votes         map[string]Vote     `json:"votes"`
@@ -62,4 +88,13 @@ type AgentContribution struct {
 	Content string  `json:"content,omitempty"`
 	Vote    string  `json:"vote,omitempty"` // "approve", "reject", "abstain"
 	Weight  float64 `json:"weight,omitempty"`
+}
+
+// Proposal represents a proposal for consensus voting
+type Proposal struct {
+	ID          string          `json:"id"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Content     json.RawMessage `json:"content,omitempty"`
+	CreatedAt   time.Time       `json:"createdAt,omitempty"`
 }

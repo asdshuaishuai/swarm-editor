@@ -1,22 +1,53 @@
-import { useState, useEffect, useCallback } from 'react'
-import Editor from '@monaco-editor/react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import Editor, { OnMount } from '@monaco-editor/react'
+import type { editor } from 'monaco-editor'
 import { useAppStore } from '../store/appStore'
 import { PanelLeft, Play, Save, ChevronRight, ChevronDown, Folder, FileText, X, Zap } from 'lucide-react'
 import { api, FileEntry } from '../services'
 import TerminalPanel, { TerminalEntry } from './TerminalPanel'
 import { logger } from '../utils'
 
-export default function EditorPanel() {
-  const { swarms, addToast } = useAppStore()
-  const [code, setCode] = useState(`// Welcome to Swarm Editor
-// A multi-agent collaborative development environment
-
-function main() {
-  console.log("Hello, Swarm!")
+// 现代化深色主题 - 摆脱 VSCode 风格
+const swarmDarkTheme: editor.IStandaloneThemeData = {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'c084fc' },
+    { token: 'string', foreground: '34d399' },
+    { token: 'number', foreground: 'f472b6' },
+    { token: 'type', foreground: '60a5fa' },
+    { token: 'function', foreground: 'fbbf24' },
+    { token: 'variable', foreground: 'e5e7eb' },
+    { token: 'constant', foreground: 'f472b6' },
+    { token: 'delimiter', foreground: '9ca3af' },
+    { token: 'delimiter.bracket', foreground: 'd1d5db' },
+  ],
+  colors: {
+    'editor.background': '#0f1117',
+    'editor.foreground': '#e5e7eb',
+    'editor.lineHighlightBackground': '#1f293740',
+    'editor.selectionBackground': '#3b82f640',
+    'editor.inactiveSelectionBackground': '#3b82f620',
+    'editorLineNumber.foreground': '#4b5563',
+    'editorLineNumber.activeForeground': '#9ca3af',
+    'editorCursor.foreground': '#60a5fa',
+    'editor.selectionHighlightBackground': '#3b82f620',
+    'editorIndentGuide.background': '#374151',
+    'editorIndentGuide.activeBackground': '#4b5563',
+    'editorBracketMatch.background': '#3b82f640',
+    'editorBracketMatch.border': '#3b82f6',
+    'minimap.background': '#0f1117',
+    'scrollbarSlider.background': '#37415180',
+    'scrollbarSlider.hoverBackground': '#4b556380',
+    'scrollbarSlider.activeBackground': '#3b82f680',
+  }
 }
 
-main()
-`)
+export default function EditorPanel() {
+  const swarms = useAppStore(state => state.swarms)
+  const addToast = useAppStore(state => state.addToast)
+  const [code, setCode] = useState('')
   const [language, setLanguage] = useState('typescript')
   const [showFileTree, setShowFileTree] = useState(true)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
@@ -26,6 +57,8 @@ main()
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([])
   const [showAgentSelector, setShowAgentSelector] = useState(false)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const mountedRef = useRef(true)
 
   const addTerminalEntry = useCallback((
     type: TerminalEntry['type'],
@@ -46,19 +79,39 @@ main()
     setTerminalEntries([])
   }, [])
 
+  // Monaco Editor 初始化 - 注册自定义主题
+  const handleEditorMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor
+    monaco.editor.defineTheme('swarm-dark', swarmDarkTheme)
+    monaco.editor.setTheme('swarm-dark')
+  }
+
+  // Track mounted state to prevent setState on unmounted component
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   useEffect(() => {
     const loadWorkspace = async () => {
       try {
         setLoading(true)
         const ws = await api.fs.getWorkspace()
+        if (!mountedRef.current) return
         setWorkspace(ws)
         const entries = await api.fs.listDir(ws)
+        if (!mountedRef.current) return
         setFileTree(entries)
       } catch (err) {
         logger.error('Editor', 'Failed to load workspace:', err)
+        if (!mountedRef.current) return
         addToast('error', 'Failed to load workspace', err instanceof Error ? err.message : String(err))
       } finally {
-        setLoading(false)
+        if (mountedRef.current) {
+          setLoading(false)
+        }
       }
     }
     loadWorkspace()
@@ -74,14 +127,18 @@ main()
     try {
       setLoading(true)
       const content = await api.fs.readFile(entry.path)
+      if (!mountedRef.current) return
       setCode(content)
       setCurrentFile(entry.path)
       setLanguage(getLanguageFromPath(entry.path))
     } catch (err) {
       logger.error('Editor', 'Failed to load file:', err)
+      if (!mountedRef.current) return
       addToast('error', 'Failed to load file', err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -91,12 +148,16 @@ main()
     try {
       setLoading(true)
       await api.fs.writeFile(currentFile, code)
+      if (!mountedRef.current) return
       addTerminalEntry('success', `Saved: ${currentFile.split('/').pop()}`)
     } catch (err) {
       logger.error('Editor', 'Failed to save file:', err)
+      if (!mountedRef.current) return
       addTerminalEntry('error', `Failed to save file: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -121,6 +182,8 @@ main()
         swarmId
       )
 
+      if (!mountedRef.current) return
+
       if (result.success) {
         addTerminalEntry('success', 'Execution completed successfully', result.output)
       } else {
@@ -128,12 +191,14 @@ main()
       }
     } catch (err) {
       logger.error('Editor', 'Failed to execute code:', err)
+      if (!mountedRef.current) return
       addTerminalEntry('error', `Execution error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+        setShowAgentSelector(false)
+      }
     }
-
-    setShowAgentSelector(false)
   }
 
   const getLanguageFromPath = (path: string): string => {
@@ -171,18 +236,21 @@ main()
       if (!entry.children || entry.children.length === 0) {
         try {
           const children = await api.fs.listDir(entry.path)
-          const updateChildren = (entries: FileEntry[], path: string): FileEntry[] => {
-            return entries.map(e => {
-              if (e.path === path && e.isDirectory) {
-                return { ...e, children }
-              }
-              if (e.isDirectory && e.children) {
-                return { ...e, children: updateChildren(e.children, path) }
-              }
-              return e
-            })
-          }
-          setFileTree(updateChildren(fileTree, entry.path))
+          // Use functional update to avoid stale closure over fileTree
+          setFileTree(prev => {
+            const updateChildren = (entries: FileEntry[], path: string): FileEntry[] => {
+              return entries.map(e => {
+                if (e.path === path && e.isDirectory) {
+                  return { ...e, children }
+                }
+                if (e.isDirectory && e.children) {
+                  return { ...e, children: updateChildren(e.children, path) }
+                }
+                return e
+              })
+            }
+            return updateChildren(prev, entry.path)
+          })
         } catch (err) {
           logger.error('Editor', 'Failed to load directory:', err)
         }
@@ -252,6 +320,7 @@ main()
             className="p-1.5 hover:bg-card-hover rounded-mac transition-colors duration-200"
             title="Toggle File Tree"
             aria-label="Toggle file tree"
+            aria-expanded={showFileTree}
           >
             <PanelLeft size={16} className="text-text-secondary" />
           </button>
@@ -323,7 +392,7 @@ main()
               language={language}
               value={code}
               onChange={handleEditorChange}
-              theme="vs-dark"
+              onMount={handleEditorMount}
               options={{
                 fontSize: 14,
                 fontFamily: "'SF Mono', 'JetBrains Mono', Monaco, Menlo, monospace",
@@ -351,7 +420,7 @@ main()
       {/* Agent Selector Modal */}
       {showAgentSelector && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-panel-bg border border-glass-border rounded-mac-xl p-4 w-96 max-w-md shadow-mac">
+          <div className="bg-panel-bg border border-glass-border rounded-mac-xl p-4 w-96 max-w-md shadow-mac" role="dialog" aria-modal="true" aria-label="Select Execution Mode">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Zap size={18} className="text-accent" />

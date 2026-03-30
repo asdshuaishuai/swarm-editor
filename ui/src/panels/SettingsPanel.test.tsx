@@ -37,6 +37,7 @@ const mockSettings: useSettingsModule.Settings = {
   agentAutoScan: true,
   agentScanInterval: 30000,
   agentAutoConnect: false,
+  websocketPort: 8080,
   networkProxyEnabled: false,
   networkProxyUrl: '',
   networkProxyAuth: false,

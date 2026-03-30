@@ -1,12 +1,14 @@
-// Package acp implements ACP agent connection management
 package acp
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,6 +22,43 @@ const (
 	StateConnected    ConnectionState = "connected"
 	StateError        ConnectionState = "error"
 )
+
+// validateCommand validates the command and arguments for security purposes.
+// It prevents command injection, path traversal, and shell metacharacter attacks.
+func validateCommand(command string, args []string) error {
+	if command == "" {
+		return fmt.Errorf("command cannot be empty")
+	}
+
+	// Clean the command path and check for path traversal
+	cleanCmd := filepath.Clean(command)
+	if strings.Contains(cleanCmd, "..") {
+		return fmt.Errorf("path traversal detected in command: %s", command)
+	}
+
+	// Check for shell metacharacters that could enable command injection
+	dangerousPatterns := []string{
+		"|", "||", "&&", ";", "\n", "\r",
+		"$(", "`", "${", ">", ">>", "<", "<<",
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(command, pattern) {
+			return fmt.Errorf("shell metacharacter detected in command: %s", command)
+		}
+	}
+
+	// Validate arguments for shell injection
+	for i, arg := range args {
+		for _, pattern := range dangerousPatterns {
+			if strings.Contains(arg, pattern) {
+				return fmt.Errorf("shell metacharacter detected in argument %d: %s", i, arg)
+			}
+		}
+	}
+
+	return nil
+}
 
 // AgentConnection represents a connection to an ACP agent
 type AgentConnection struct {
@@ -63,17 +102,18 @@ type AgentSession struct {
 	LastActive time.Time
 
 	// Content capture for prompt responses
-	mu           sync.Mutex
-	content      []ContentBlock
-	done         chan struct{}
-	closeOnce    sync.Once // Ensures done channel is only closed once
+	mu      sync.Mutex
+	content []ContentBlock
+	done    chan struct{}
+	closed  bool // Tracks whether done channel is already closed for current capture
 }
 
-// StartContentCapture initializes content capture for a prompt turn
+// StartContentCapture initializes content capture for a prompt turn.
 func (s *AgentSession) StartContentCapture() {
 	s.mu.Lock()
 	s.content = nil
 	s.done = make(chan struct{})
+	s.closed = false
 	s.mu.Unlock()
 }
 
@@ -84,16 +124,20 @@ func (s *AgentSession) AddContent(block ContentBlock) {
 	s.mu.Unlock()
 }
 
-// FinishContentCapture signals that content capture is complete
+// FinishContentCapture signals that content capture is complete.
+// Idempotent for the same capture session (safe to call multiple times).
 func (s *AgentSession) FinishContentCapture() {
 	s.mu.Lock()
 	done := s.done
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
 	s.mu.Unlock()
 
 	if done != nil {
-		s.closeOnce.Do(func() {
-			close(done)
-		})
+		close(done)
 	}
 }
 
@@ -107,13 +151,16 @@ func (s *AgentSession) WaitForContent(timeout time.Duration) []ContentBlock {
 		return nil
 	}
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case <-done:
 		s.mu.Lock()
 		content := s.content
 		s.mu.Unlock()
 		return content
-	case <-time.After(timeout):
+	case <-timer.C:
 		return nil
 	}
 }
@@ -132,6 +179,9 @@ type ConnectionManager struct {
 	config      *Config
 
 	onConnectionChange func(id string, state ConnectionState)
+
+	// wg tracks goroutines spawned for async connection establishment
+	wg sync.WaitGroup
 }
 
 // NewConnectionManager creates a new connection manager
@@ -150,10 +200,19 @@ func (m *ConnectionManager) Connect(ctx context.Context, agentID string) (*Agent
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if already connected
+	// Check if already connected (conn.State is protected by conn.mu)
 	if conn, ok := m.connections[agentID]; ok {
-		if conn.State == StateConnected {
+		conn.mu.RLock()
+		state := conn.State
+		cancel := conn.cancel // MEDIUM FIX: capture cancel under conn.mu.RLock
+		conn.mu.RUnlock()
+		if state == StateConnected || state == StateConnecting {
+			// Return existing connection (caller can wait for StateConnected if needed)
 			return conn, nil
+		}
+		// Connection exists but in error/disconnected state - clean up before reconnecting
+		if cancel != nil {
+			cancel()
 		}
 	}
 
@@ -179,7 +238,16 @@ func (m *ConnectionManager) Connect(ctx context.Context, agentID string) (*Agent
 	m.connections[agentID] = conn
 
 	// Start connection in background
-	go m.establishConnection(conn)
+	m.wg.Add(1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Connection] establishConnection panic for %q: %v", conn.ID, r)
+			}
+			m.wg.Done()
+		}()
+		m.establishConnection(conn)
+	}()
 
 	return conn, nil
 }
@@ -189,10 +257,17 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	conn.mu.Lock()
 	conn.State = StateConnecting
 	oldState := StateDisconnected
+	onStateChange := conn.onStateChange
 	conn.mu.Unlock()
 
-	if conn.onStateChange != nil {
-		conn.onStateChange(conn.ID, oldState, StateConnecting)
+	if onStateChange != nil {
+		onStateChange(conn.ID, oldState, StateConnecting)
+	}
+
+	// Validate command and args for security (prevent command injection)
+	if err := validateCommand(conn.Config.Command, conn.Config.Args); err != nil {
+		m.setConnectionError(conn, fmt.Errorf("command validation failed: %w", err))
+		return
 	}
 
 	// Start the agent process
@@ -215,12 +290,15 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdin.Close() // Clean up stdin on stdout failure
 		m.setConnectionError(conn, fmt.Errorf("failed to create stdout pipe: %w", err))
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		stdin.Close() // Clean up on stderr failure
+		stdout.Close()
 		m.setConnectionError(conn, fmt.Errorf("failed to create stderr pipe: %w", err))
 		return
 	}
@@ -235,6 +313,10 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	// which reads conn.cmd.Process under the same lock
 	if err := cmd.Start(); err != nil {
 		conn.mu.Unlock()
+		// Clean up pipes on start failure (MEDIUM: pipe leak fix)
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
 		m.setConnectionError(conn, fmt.Errorf("failed to start agent process: %w", err))
 		return
 	}
@@ -252,6 +334,8 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	// Start client
 	if err := client.Start(conn.ctx); err != nil {
 		m.setConnectionError(conn, fmt.Errorf("failed to start client: %w", err))
+		// Kill orphaned process on client start failure (MEDIUM: process leak fix)
+		m.killProcess(conn, cmd)
 		return
 	}
 
@@ -259,6 +343,8 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	initResult, err := m.initializeAgent(conn)
 	if err != nil {
 		m.setConnectionError(conn, fmt.Errorf("initialization failed: %w", err))
+		// Kill orphaned process on initialization failure (MEDIUM: process leak fix)
+		m.killProcess(conn, cmd)
 		return
 	}
 
@@ -266,14 +352,48 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	conn.State = StateConnected
 	conn.Capabilities = initResult.AgentCapabilities
 	conn.Info = initResult.AgentInfo
+	onConnected := conn.onStateChange
 	conn.mu.Unlock()
 
-	if conn.onStateChange != nil {
-		conn.onStateChange(conn.ID, StateConnecting, StateConnected)
+	if onConnected != nil {
+		onConnected(conn.ID, StateConnecting, StateConnected)
 	}
 
 	if m.onConnectionChange != nil {
 		m.onConnectionChange(conn.ID, StateConnected)
+	}
+}
+
+// killProcess terminates an agent process on startup failure.
+// Used to clean up orphaned processes when client.Start() or initializeAgent() fails.
+func (m *ConnectionManager) killProcess(conn *AgentConnection, cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	// Try graceful shutdown first
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		// Process might already be dead, try to kill directly
+		_ = cmd.Process.Kill() //nolint:errcheck // best effort during cleanup
+		return
+	}
+	// Wait briefly for graceful shutdown, then force kill if needed
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Connection] killProcess cmd.Wait panic: %v", r)
+			}
+		}()
+		done <- cmd.Wait()
+	}()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+		// Process exited gracefully
+	case <-timer.C:
+		// Force kill after timeout
+		_ = cmd.Process.Kill() //nolint:errcheck // best effort during cleanup
 	}
 }
 
@@ -306,32 +426,49 @@ func (m *ConnectionManager) initializeAgent(conn *AgentConnection) (*InitializeR
 }
 
 // setConnectionError sets the connection to error state
+// Lock ordering: acquires conn.mu only. Does NOT acquire m.mu to prevent ABBA deadlock
+// with Disconnect() which holds m.mu -> conn.mu.
 func (m *ConnectionManager) setConnectionError(conn *AgentConnection, err error) {
 	conn.mu.Lock()
 	oldState := conn.State
 	conn.State = StateError
 	conn.Error = err
+	onStateChange := conn.onStateChange
 	conn.mu.Unlock()
 
-	if conn.onStateChange != nil {
-		conn.onStateChange(conn.ID, oldState, StateError)
+	// Invoke connection state change callback (no lock needed - callback is immutable after Connect)
+	if onStateChange != nil {
+		onStateChange(conn.ID, oldState, StateError)
 	}
 
-	if m.onConnectionChange != nil {
-		m.onConnectionChange(conn.ID, StateError)
+	// Invoke manager-level callback. Note: we read m.onConnectionChange without m.mu here.
+	// This is safe because:
+	// 1. setConnectionError is only called from establishConnection goroutine
+	// 2. Disconnect() holds m.mu when modifying connections, so the conn won't be deleted concurrently
+	// 3. onConnectionChange is set during Setup() before any connections exist
+	m.mu.RLock()
+	onConnectionChange := m.onConnectionChange
+	m.mu.RUnlock()
+
+	if onConnectionChange != nil {
+		onConnectionChange(conn.ID, StateError)
 	}
 }
 
 // Disconnect closes a connection
 func (m *ConnectionManager) Disconnect(agentID string) error {
+	// Remove from map under m.mu, release before blocking I/O
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	conn, ok := m.connections[agentID]
 	if !ok {
+		m.mu.Unlock()
 		return nil
 	}
+	delete(m.connections, agentID)
+	onConnectionChange := m.onConnectionChange
+	m.mu.Unlock()
 
+	// Perform blocking shutdown outside m.mu to avoid blocking other operations
 	conn.mu.Lock()
 	if conn.cancel != nil {
 		conn.cancel()
@@ -355,25 +492,43 @@ func (m *ConnectionManager) Disconnect(agentID string) error {
 			// Wait briefly for graceful shutdown, then force kill if needed
 			done := make(chan error, 1)
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[ACP] cmd.Wait panic: %v", r)
+						select {
+						case done <- fmt.Errorf("panic: %v", r):
+						default:
+						}
+					}
+				}()
 				done <- conn.cmd.Wait()
 			}()
+
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
 
 			select {
 			case <-done:
 				// Process exited gracefully
-			case <-time.After(2 * time.Second):
+			case <-timer.C:
 				// Force kill after timeout
 				_ = conn.cmd.Process.Kill() //nolint:errcheck // best effort during shutdown
 			}
 		}
 	}
 	conn.State = StateDisconnected
+
+	// Clear sessions to prevent memory leak
+	// Close done channels first to unblock any waiting goroutines
+	for id, session := range conn.sessions {
+		session.FinishContentCapture()
+		delete(conn.sessions, id)
+	}
+
 	conn.mu.Unlock()
 
-	delete(m.connections, agentID)
-
-	if m.onConnectionChange != nil {
-		m.onConnectionChange(agentID, StateDisconnected)
+	if onConnectionChange != nil {
+		onConnectionChange(agentID, StateDisconnected)
 	}
 
 	return nil
@@ -406,7 +561,10 @@ func (m *ConnectionManager) GetConnected() []*AgentConnection {
 
 	result := make([]*AgentConnection, 0)
 	for _, conn := range m.connections {
-		if conn.State == StateConnected {
+		conn.mu.RLock()
+		state := conn.State
+		conn.mu.RUnlock()
+		if state == StateConnected {
 			result = append(result, conn)
 		}
 	}
@@ -438,6 +596,9 @@ func (m *ConnectionManager) DisconnectAll() {
 	for _, id := range ids {
 		_ = m.Disconnect(id) //nolint:errcheck // intentional - disconnect all regardless of errors
 	}
+
+	// Wait for any in-flight connection establishment goroutines to complete
+	m.wg.Wait()
 }
 
 // OnConnectionChange registers a callback for connection state changes

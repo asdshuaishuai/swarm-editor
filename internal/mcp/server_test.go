@@ -297,3 +297,51 @@ func TestServerUnregisterNonExistent(t *testing.T) {
 		t.Errorf("Expected 0 tools, got %d", len(tools))
 	}
 }
+
+func TestServerListToolsPreservesMetadata(t *testing.T) {
+	server := NewServer(&ServerConfig{Name: "test", Version: "1.0.0"})
+
+	handler := func(ctx context.Context, args map[string]interface{}) (*ToolResult, error) {
+		return &ToolResult{}, nil
+	}
+
+	tool := Tool{
+		Name:        "search",
+		Description: "Search for files",
+		InputSchema: InputSchema{
+			Type: "object",
+			Properties: map[string]Property{
+				"query": {Type: "string", Description: "Search query"},
+			},
+			Required: []string{"query"},
+		},
+	}
+
+	server.RegisterTool(tool, handler)
+	tools := server.ListTools()
+
+	if len(tools) != 1 {
+		t.Fatalf("Expected 1 tool, got %d", len(tools))
+	}
+
+	got := tools[0]
+	if got.Name != "search" {
+		t.Errorf("Expected name 'search', got %s", got.Name)
+	}
+	if got.Description != "Search for files" {
+		t.Errorf("Expected description 'Search for files', got %s", got.Description)
+	}
+	if got.InputSchema.Type != "object" {
+		t.Errorf("Expected schema type 'object', got %s", got.InputSchema.Type)
+	}
+	if len(got.InputSchema.Required) != 1 || got.InputSchema.Required[0] != "query" {
+		t.Errorf("Expected required ['query'], got %v", got.InputSchema.Required)
+	}
+
+	// Unregister should also remove metadata
+	server.UnregisterTool("search")
+	tools = server.ListTools()
+	if len(tools) != 0 {
+		t.Errorf("Expected 0 tools after unregister, got %d", len(tools))
+	}
+}

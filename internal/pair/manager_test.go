@@ -269,19 +269,19 @@ func TestManagerGetAgentSession(t *testing.T) {
 	m.CreateSession(driver.ID, navigator.ID)
 
 	// Find by driver ID
-	found := m.GetAgentSession(driver.ID)
+	found := m.GetAgentSessionInfo(driver.ID)
 	if found == nil {
 		t.Error("should find session by driver ID")
 	}
 
 	// Find by navigator ID
-	found = m.GetAgentSession(navigator.ID)
+	found = m.GetAgentSessionInfo(navigator.ID)
 	if found == nil {
 		t.Error("should find session by navigator ID")
 	}
 
 	// Non-participant
-	found = m.GetAgentSession("non-existent")
+	found = m.GetAgentSessionInfo("non-existent")
 	if found != nil {
 		t.Error("should not find session for non-participant")
 	}
@@ -325,6 +325,7 @@ func TestManagerBroadcastToSession(t *testing.T) {
 
 	m := NewManager(registry)
 	session, _ := m.CreateSession(driver.ID, navigator.ID)
+	session.Start(context.Background())
 
 	// Broadcast message
 	m.BroadcastToSession(session.ID, driver.ID, "Hello!")

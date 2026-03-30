@@ -1,10 +1,31 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AgentConfigPanel, { AgentConfigCard } from './AgentConfigPanel'
 import { AgentConfig } from '../types'
 
 // Mock console.log
 vi.spyOn(console, 'log').mockImplementation(() => {})
+
+// Mock the agent API (WebSocket backend)
+vi.mock('../services', () => ({
+  api: {
+    agent: {
+      addAgent: vi.fn().mockImplementation(async (config: AgentConfig) => config),
+      updateAgent: vi.fn().mockImplementation(async (config: AgentConfig) => config),
+      deleteAgent: vi.fn().mockResolvedValue(undefined),
+      startAgent: vi.fn().mockImplementation(async (agentId: string) => ({
+        id: agentId,
+        name: 'Test Agent',
+        type: 'coder',
+        status: 'running',
+        command: '/usr/bin/test',
+        capabilities: [],
+        lastActive: new Date().toISOString(),
+        enabled: true,
+      })),
+    },
+  },
+}))
 
 describe('AgentConfigPanel', () => {
   it('renders header with title', () => {
@@ -165,15 +186,22 @@ describe('AgentConfigPanel', () => {
     expect(screen.getByPlaceholderText('primary, coding, review')).toBeInTheDocument()
   })
 
-  it('closes modal on Add Agent button click in modal', () => {
+  it('closes modal on Add Agent button click in modal', async () => {
     render(<AgentConfigPanel />)
     // Click header button to open modal
     const addButtons = screen.getAllByText('Add Agent')
     fireEvent.click(addButtons[0])
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('claude-code'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByPlaceholderText('Claude Code'), { target: { value: 'Test Agent' } })
+    fireEvent.change(screen.getByPlaceholderText('/usr/local/bin/claude-code'), { target: { value: '/usr/bin/test' } })
     // Click modal submit button (last Add Agent button)
     const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
     fireEvent.click(modalButtons[modalButtons.length - 1])
-    expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+    // Modal should close after successful save
+    await waitFor(() => {
+      expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+    })
   })
 })
 
@@ -312,18 +340,21 @@ describe('AgentConfigPanel form inputs', () => {
     expect(screen.getByText('architect')).toBeInTheDocument()
   })
 
-  it('shows Save Changes button when editing', () => {
+  it('shows Save Changes button when editing', async () => {
     render(<AgentConfigPanel />)
     // Open add modal
     fireEvent.click(screen.getByText('Add Agent'))
     // Fill required fields
     fireEvent.change(screen.getByPlaceholderText('claude-code'), { target: { value: 'test-id' } })
     fireEvent.change(screen.getByPlaceholderText('Claude Code'), { target: { value: 'Test Agent' } })
+    fireEvent.change(screen.getByPlaceholderText('/usr/local/bin/claude-code'), { target: { value: '/usr/bin/test' } })
     // Save
     const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
     fireEvent.click(modalButtons[modalButtons.length - 1])
-    // Modal should close
-    expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+    // Modal should close (async)
+    await waitFor(() => {
+      expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+    })
   })
 
   it('cancels and closes modal', () => {
@@ -482,7 +513,7 @@ describe('AgentConfigCard', () => {
 })
 
 describe('AgentConfigPanel agent management', () => {
-  it('adds a new agent to the list', () => {
+  it('adds a new agent to the list', async () => {
     render(<AgentConfigPanel />)
     // Open modal
     fireEvent.click(screen.getByText('Add Agent'))
@@ -493,12 +524,14 @@ describe('AgentConfigPanel agent management', () => {
     // Submit
     const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
     fireEvent.click(modalButtons[modalButtons.length - 1])
-    // New agent should appear
-    expect(screen.getByText('New Test Agent')).toBeInTheDocument()
-    expect(screen.getByText('new-test-agent')).toBeInTheDocument()
+    // New agent should appear (async)
+    await waitFor(() => {
+      expect(screen.getByText('New Test Agent')).toBeInTheDocument()
+      expect(screen.getByText('new-test-agent')).toBeInTheDocument()
+    })
   })
 
-  it('adds a new agent with args parsed from comma-separated string', () => {
+  it('adds a new agent with args parsed from comma-separated string', async () => {
     render(<AgentConfigPanel />)
     fireEvent.click(screen.getByText('Add Agent'))
     // Fill required fields
@@ -511,7 +544,9 @@ describe('AgentConfigPanel agent management', () => {
     // Submit
     const modalButtons = screen.getAllByRole('button', { name: 'Add Agent' })
     fireEvent.click(modalButtons[modalButtons.length - 1])
-    expect(screen.getByText('Args Agent')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Args Agent')).toBeInTheDocument()
+    })
   })
 
   it('parses empty args string correctly', () => {
@@ -524,7 +559,7 @@ describe('AgentConfigPanel agent management', () => {
     expect(argsInput).toHaveValue('')
   })
 
-  it('edits an existing agent with existing args', () => {
+  it('edits an existing agent with existing args', async () => {
     const initialAgents: AgentConfig[] = [
       {
         id: 'edit-test-agent',
@@ -548,11 +583,13 @@ describe('AgentConfigPanel agent management', () => {
     fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
     // Save
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
-    // Agent should be updated
-    expect(screen.getByText('Updated Name')).toBeInTheDocument()
+    // Agent should be updated (async)
+    await waitFor(() => {
+      expect(screen.getByText('Updated Name')).toBeInTheDocument()
+    })
   })
 
-  it('edits agent while preserving other agents unchanged', () => {
+  it('edits agent while preserving other agents unchanged', async () => {
     const initialAgents: AgentConfig[] = [
       {
         id: 'first-agent',
@@ -581,13 +618,15 @@ describe('AgentConfigPanel agent management', () => {
     fireEvent.change(nameInput, { target: { value: 'Updated First' } })
     // Save
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
-    // First agent should be updated
-    expect(screen.getByText('Updated First')).toBeInTheDocument()
+    // First agent should be updated (async)
+    await waitFor(() => {
+      expect(screen.getByText('Updated First')).toBeInTheDocument()
+    })
     // Second agent should still be visible unchanged
     expect(screen.getByText('Second Agent')).toBeInTheDocument()
   })
 
-  it('deletes an agent from the list', () => {
+  it('deletes an agent from the list', async () => {
     const initialAgents: AgentConfig[] = [
       {
         id: 'delete-test-agent',
@@ -600,11 +639,21 @@ describe('AgentConfigPanel agent management', () => {
     render(<AgentConfigPanel initialAgents={initialAgents} />)
     // Agent should be visible
     expect(screen.getByText('Agent To Delete')).toBeInTheDocument()
-    // Click delete button
+    // Click delete button to open confirmation dialog
     const deleteButton = screen.getByTitle('Delete')
     fireEvent.click(deleteButton)
-    // Agent should be removed
-    expect(screen.queryByText('Agent To Delete')).not.toBeInTheDocument()
+    // ConfirmDialog should appear
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    // Click the Delete button in the dialog
+    const dialog = screen.getByRole('alertdialog')
+    const confirmDelete = within(dialog).getByRole('button', { name: 'Delete' })
+    fireEvent.click(confirmDelete)
+    // Wait for agent to be removed
+    await waitFor(() => {
+      expect(screen.queryByText('Agent To Delete')).not.toBeInTheDocument()
+    })
+    // Dialog should be closed (confirm button shows text but dialog element gone)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     // Empty state should show
     expect(screen.getByText('No agents configured')).toBeInTheDocument()
   })

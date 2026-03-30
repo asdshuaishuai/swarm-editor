@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
@@ -19,14 +20,19 @@ var (
 
 // Router handles message routing between agents
 type Router struct {
-	mu       sync.RWMutex
-	agents   map[acp.AgentID]*Agent
-	sessions map[acp.SessionID][]acp.AgentID
-	handlers map[string]MessageHandler
+	mu         sync.RWMutex
+	agents     map[acp.AgentID]*Agent
+	sessions   map[acp.SessionID][]acp.AgentID
+	handlers   map[string]MessageHandler
+	middleware []Middleware // Ordered list of middleware (AutoGen reply chain pattern)
 }
 
 // MessageHandler handles routed messages
 type MessageHandler func(ctx context.Context, msg *RoutedMessage) error
+
+// Middleware wraps a handler to add pre/post processing (chain of responsibility pattern)
+// Inspired by AutoGen's register_reply function chain
+type Middleware func(next MessageHandler) MessageHandler
 
 // RoutedMessage represents a message with routing information
 type RoutedMessage struct {
@@ -85,11 +91,17 @@ func (r *Router) BindSession(sessionID acp.SessionID, agentIDs []acp.AgentID) {
 	r.sessions[sessionID] = agentIDs
 }
 
-// GetSessionAgents returns agents bound to a session
+// GetSessionAgents returns a copy of agents bound to a session
 func (r *Router) GetSessionAgents(sessionID acp.SessionID) []acp.AgentID {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.sessions[sessionID]
+	agents := r.sessions[sessionID]
+	if agents == nil {
+		return nil
+	}
+	result := make([]acp.AgentID, len(agents))
+	copy(result, agents)
+	return result
 }
 
 // Route sends a message to a specific agent
@@ -177,7 +189,16 @@ func (r *Router) RegisterHandler(msgType MessageType, handler MessageHandler) {
 	r.handlers[string(msgType)] = handler
 }
 
-// Handle processes incoming messages
+// Use adds middleware to the router's processing chain
+// Middleware is applied in LIFO order (last registered runs first)
+// This follows the AutoGen reply function chain pattern
+func (r *Router) Use(mw Middleware) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.middleware = append(r.middleware, mw)
+}
+
+// Handle processes incoming messages through the middleware chain
 func (r *Router) Handle(ctx context.Context, msg *RoutedMessage) error {
 	if msg == nil {
 		return nil
@@ -185,10 +206,18 @@ func (r *Router) Handle(ctx context.Context, msg *RoutedMessage) error {
 
 	r.mu.RLock()
 	handler, ok := r.handlers[string(msg.Type)]
+	middleware := make([]Middleware, len(r.middleware))
+	copy(middleware, r.middleware)
 	r.mu.RUnlock()
 
 	if !ok {
 		return nil // No handler registered
+	}
+
+	// Apply middleware in reverse order (LIFO) to form chain of responsibility
+	// e.g., Use(A) then Use(B) results in B(A(handler))
+	for i := len(middleware) - 1; i >= 0; i-- {
+		handler = middleware[i](handler)
 	}
 
 	return handler(ctx, msg)
@@ -204,13 +233,23 @@ func (r *Router) FanOut(ctx context.Context, to []acp.AgentID, msg *RoutedMessag
 	results := make(chan *RoutedMessage, len(to))
 
 	go func() {
-		defer close(results)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Router] FanOut outer goroutine panic: %v", r)
+			}
+			close(results)
+		}()
 		var wg sync.WaitGroup
 
 		for _, agentID := range to {
 			wg.Add(1)
 			go func(id acp.AgentID) {
-				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Router] FanOut agent %s panic: %v", id, r)
+					}
+					wg.Done()
+				}()
 
 				r.mu.RLock()
 				ag, ok := r.agents[id]

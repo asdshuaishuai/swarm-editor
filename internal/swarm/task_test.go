@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -160,6 +161,9 @@ func TestTaskComplete(t *testing.T) {
 	task := NewTask("Test", "Desc", acp.Prompt{})
 	result := &TaskResult{TaskID: task.ID}
 
+	// Must transition through running state first (A2A guarded transitions)
+	task.Assign(acp.AgentID("agent-1"))
+
 	task.Complete(result)
 
 	if task.State != TaskStateCompleted {
@@ -178,6 +182,9 @@ func TestTaskComplete(t *testing.T) {
 func TestTaskFail(t *testing.T) {
 	task := NewTask("Test", "Desc", acp.Prompt{})
 
+	// Must transition through running state first (A2A guarded transitions)
+	task.Assign(acp.AgentID("agent-1"))
+
 	testErr := errors.New("test error")
 	task.Fail(testErr)
 
@@ -193,8 +200,9 @@ func TestTaskFail(t *testing.T) {
 		t.Error("CompletedAt should be set")
 	}
 
-	// Test with nil error
+	// Test with nil error (from running state)
 	task2 := NewTask("Test2", "Desc", acp.Prompt{})
+	task2.Assign(acp.AgentID("agent-2"))
 	task2.Fail(nil)
 
 	if task2.Error != "" {
@@ -204,7 +212,7 @@ func TestTaskFail(t *testing.T) {
 
 func TestTaskCancel(t *testing.T) {
 	task := NewTask("Test", "Desc", acp.Prompt{})
-	task.Cancel()
+	task.Cancel(CancelReasonUser)
 
 	if task.State != TaskStateCancelled {
 		t.Errorf("Expected state '%s', got '%s'", TaskStateCancelled, task.State)
@@ -219,6 +227,13 @@ func TestTaskRetry(t *testing.T) {
 	task := NewTask("Test", "Desc", acp.Prompt{})
 	task.MaxRetries = 2
 
+	// Put task into failed state: pending -> running -> failed
+	task.Assign(acp.AgentID("agent-1"))
+	task.Fail(fmt.Errorf("simulated failure"))
+	if task.State != TaskStateFailed {
+		t.Fatalf("Task should be failed, got %s", task.State)
+	}
+
 	// First retry should succeed
 	if !task.Retry() {
 		t.Error("First retry should succeed")
@@ -230,6 +245,10 @@ func TestTaskRetry(t *testing.T) {
 		t.Errorf("State should be pending, got '%s'", task.State)
 	}
 
+	// Fail again to test second retry: pending -> running -> failed
+	task.Assign(acp.AgentID("agent-1"))
+	task.Fail(fmt.Errorf("simulated failure"))
+
 	// Second retry should succeed
 	if !task.Retry() {
 		t.Error("Second retry should succeed")
@@ -237,6 +256,10 @@ func TestTaskRetry(t *testing.T) {
 	if task.RetryCount != 2 {
 		t.Errorf("RetryCount should be 2, got %d", task.RetryCount)
 	}
+
+	// Fail again to test max retries: pending -> running -> failed
+	task.Assign(acp.AgentID("agent-1"))
+	task.Fail(fmt.Errorf("simulated failure"))
 
 	// Third retry should fail (max retries reached)
 	if task.Retry() {
@@ -573,6 +596,156 @@ func TestTaskQueueConcurrentAccess(t *testing.T) {
 	}
 }
 
+func TestTaskEscalatePriorityIfNearDeadline(t *testing.T) {
+	tests := []struct {
+		name          string
+		timeout       time.Duration
+		createdAgo    time.Duration
+		initialPrio   TaskPriority
+		wantEscalated bool
+		wantPriority  TaskPriority
+	}{
+		{
+			name:          "no timeout returns false",
+			timeout:       0,
+			createdAgo:    0,
+			initialPrio:   PriorityLow,
+			wantEscalated: false,
+			wantPriority:  PriorityLow,
+		},
+		{
+			name:          "far from deadline returns false",
+			timeout:       1 * time.Hour,
+			createdAgo:    1 * time.Minute,
+			initialPrio:   PriorityLow,
+			wantEscalated: false,
+			wantPriority:  PriorityLow,
+		},
+		{
+			name:          "past deadline returns false",
+			timeout:       1 * time.Minute,
+			createdAgo:    2 * time.Minute,
+			initialPrio:   PriorityLow,
+			wantEscalated: false,
+			wantPriority:  PriorityLow,
+		},
+		{
+			name:          "within 15 min escalates low to medium",
+			timeout:       20 * time.Minute,
+			createdAgo:    8 * time.Minute,
+			initialPrio:   PriorityLow,
+			wantEscalated: true,
+			wantPriority:  PriorityMedium,
+		},
+		{
+			name:          "within 5 min escalates low to high",
+			timeout:       10 * time.Minute,
+			createdAgo:    6 * time.Minute,
+			initialPrio:   PriorityLow,
+			wantEscalated: true,
+			wantPriority:  PriorityHigh,
+		},
+		{
+			name:          "within 1 min escalates to critical",
+			timeout:       5 * time.Minute,
+			createdAgo:    4*time.Minute + 30*time.Second,
+			initialPrio:   PriorityLow,
+			wantEscalated: true,
+			wantPriority:  PriorityCritical,
+		},
+		{
+			name:          "already at critical does not escalate",
+			timeout:       30 * time.Second,
+			createdAgo:    15 * time.Second,
+			initialPrio:   PriorityCritical,
+			wantEscalated: false,
+			wantPriority:  PriorityCritical,
+		},
+		{
+			name:          "already at high within 5 min but not 1 min does not escalate",
+			timeout:       10 * time.Minute,
+			createdAgo:    6 * time.Minute,
+			initialPrio:   PriorityHigh,
+			wantEscalated: false,
+			wantPriority:  PriorityHigh,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := NewTask("Test", "Desc", acp.Prompt{})
+			task.SetPriority(tt.initialPrio)
+			task.SetTimeout(tt.timeout)
+			if tt.createdAgo > 0 {
+				task.CreatedAt = time.Now().Add(-tt.createdAgo)
+			}
+
+			escalated := task.EscalatePriorityIfNearDeadline()
+			if escalated != tt.wantEscalated {
+				t.Errorf("EscalatePriorityIfNearDeadline() = %v, want %v", escalated, tt.wantEscalated)
+			}
+			if task.Priority != tt.wantPriority {
+				t.Errorf("Priority = %v, want %v", task.Priority, tt.wantPriority)
+			}
+		})
+	}
+}
+
+func TestTaskQueueEscalateDeadlines(t *testing.T) {
+	q := NewTaskQueue()
+
+	// Task within 1 min of deadline (low → critical)
+	criticalTask := NewTask("Critical", "Desc", acp.Prompt{})
+	criticalTask.SetPriority(PriorityLow)
+	criticalTask.SetTimeout(30 * time.Second)
+	criticalTask.CreatedAt = time.Now().Add(-15 * time.Second)
+	q.Push(criticalTask)
+
+	// Task far from deadline (no change)
+	farTask := NewTask("Far", "Desc", acp.Prompt{})
+	farTask.SetPriority(PriorityLow)
+	farTask.SetTimeout(1 * time.Hour)
+	q.Push(farTask)
+
+	// Task no timeout (no change)
+	noTimeoutTask := NewTask("NoTimeout", "Desc", acp.Prompt{})
+	noTimeoutTask.SetPriority(PriorityLow)
+	q.Push(noTimeoutTask)
+
+	escalated := q.EscalateDeadlines()
+	if escalated != 1 {
+		t.Errorf("EscalateDeadlines() = %d, want 1", escalated)
+	}
+
+	// Verify re-sorting: criticalTask should now be first
+	first := q.Peek()
+	if first == nil || first.ID != criticalTask.ID {
+		t.Errorf("Expected critical task first, got %v", first)
+	}
+	if criticalTask.Priority != PriorityCritical {
+		t.Errorf("Expected critical priority, got %v", criticalTask.Priority)
+	}
+
+	// Far task and no-timeout task should remain low
+	remaining := q.GetAll()
+	for _, task := range remaining {
+		if task.ID == farTask.ID && task.Priority != PriorityLow {
+			t.Errorf("Far task should remain low, got %v", task.Priority)
+		}
+		if task.ID == noTimeoutTask.ID && task.Priority != PriorityLow {
+			t.Errorf("No-timeout task should remain low, got %v", task.Priority)
+		}
+	}
+}
+
+func TestTaskQueueEscalateDeadlinesEmpty(t *testing.T) {
+	q := NewTaskQueue()
+	escalated := q.EscalateDeadlines()
+	if escalated != 0 {
+		t.Errorf("EscalateDeadlines() on empty queue = %d, want 0", escalated)
+	}
+}
+
 func TestTaskConcurrentStateChanges(t *testing.T) {
 	task := NewTask("Test", "Desc", acp.Prompt{})
 	done := make(chan bool)
@@ -592,5 +765,73 @@ func TestTaskConcurrentStateChanges(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 10; i++ {
 		<-done
+	}
+}
+
+func TestTaskCancelCascadesToSubtasks(t *testing.T) {
+	parent := NewTask("Parent", "Parent desc", acp.Prompt{})
+	subtasks := parent.CreateSubtasks(3)
+
+	// Verify subtasks exist
+	if len(parent.Subtasks) != 3 {
+		t.Fatalf("Expected 3 subtasks, got %d", len(parent.Subtasks))
+	}
+
+	// Cancel parent
+	parent.Cancel(CancelReasonUser)
+
+	// Verify parent is cancelled
+	if parent.State != TaskStateCancelled {
+		t.Errorf("Expected parent state '%s', got '%s'", TaskStateCancelled, parent.State)
+	}
+
+	// Verify all subtasks are also cancelled (AutoGen linked cancellation pattern)
+	for i, st := range subtasks {
+		if st.State != TaskStateCancelled {
+			t.Errorf("Subtask %d: expected state '%s', got '%s'", i, TaskStateCancelled, st.State)
+		}
+		if st.CompletedAt.IsZero() {
+			t.Errorf("Subtask %d: CompletedAt should be set after cancellation", i)
+		}
+	}
+}
+
+func TestTaskCancelCascadesRecursively(t *testing.T) {
+	parent := NewTask("Parent", "Parent desc", acp.Prompt{})
+	subtasks := parent.CreateSubtasks(2)
+
+	// Add nested subtasks to the first subtask
+	grandchildren := subtasks[0].CreateSubtasks(2)
+
+	parent.Cancel(CancelReasonUser)
+
+	// Verify nested subtasks are also cancelled
+	for i, gc := range grandchildren {
+		if gc.State != TaskStateCancelled {
+			t.Errorf("Grandchild %d: expected state '%s', got '%s'", i, TaskStateCancelled, gc.State)
+		}
+	}
+}
+
+func TestTaskStatusIsTerminal(t *testing.T) {
+	tests := []struct {
+		status   TaskStatus
+		terminal bool
+	}{
+		{TaskStatusPending, false},
+		{TaskStatusRunning, false},
+		{TaskStatusRetrying, false},
+		{TaskStatusDecomposing, false},
+		{TaskStatusAssigned, false},
+		{TaskStatusConsensus, false},
+		{TaskStatusCompleted, true},
+		{TaskStatusFailed, true},
+		{TaskStatusCancelled, true},
+	}
+
+	for _, tt := range tests {
+		if got := tt.status.IsTerminal(); got != tt.terminal {
+			t.Errorf("TaskStatus(%q).IsTerminal() = %v, want %v", tt.status, got, tt.terminal)
+		}
 	}
 }

@@ -47,7 +47,9 @@ func main() {
 	<-ctx.Done()
 
 	// Graceful shutdown
-	server.Stop()
+	if err := server.Stop(); err != nil {
+		fmt.Fprintf(os.Stderr, "Server stop error: %v\n", err)
+	}
 	fmt.Fprintf(os.Stderr, "Swarm Agent stopped\n")
 }
 
@@ -137,4 +139,20 @@ func (h *AgentHandler) SwarmExecuteTask(ctx context.Context, params *acp.SwarmEx
 
 func (h *AgentHandler) SwarmGetStatus(ctx context.Context, params *acp.SwarmGetStatusParams) (*acp.SwarmStatusResult, error) {
 	return nil, fmt.Errorf("standalone agent does not support swarm operations")
+}
+
+func (h *AgentHandler) MCPStartServer(ctx context.Context, params *acp.MCPStartServerParams) (*acp.MCPServerStatus, error) {
+	return nil, fmt.Errorf("standalone agent does not support MCP operations")
+}
+
+func (h *AgentHandler) MCPStopServer(ctx context.Context, params *acp.MCPStopServerParams) (*acp.MCPServerStatus, error) {
+	return nil, fmt.Errorf("standalone agent does not support MCP operations")
+}
+
+func (h *AgentHandler) MCPCallTool(ctx context.Context, params *acp.MCPCallToolParams) (*acp.MCPCallToolResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support MCP operations")
+}
+
+func (h *AgentHandler) MCPListTools(ctx context.Context, params *acp.MCPListToolsParams) (*acp.MCPListToolsResult, error) {
+	return nil, fmt.Errorf("standalone agent does not support MCP operations")
 }

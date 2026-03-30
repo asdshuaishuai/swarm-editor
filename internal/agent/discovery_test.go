@@ -97,7 +97,9 @@ func TestDiscoveryServiceScan(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -206,7 +208,9 @@ func TestRejectRegistration(t *testing.T) {
 		Endpoint: "localhost:8080",
 	}
 
-	service.RegisterSelf(req)
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
 
 	// Reject
 	err := service.RejectRegistration("test-agent-reject", "testing")
@@ -228,9 +232,9 @@ func TestInferCapabilities(t *testing.T) {
 	service := NewDiscoveryService(config, nil, nil, nil)
 
 	tests := []struct {
-		cmd       string
-		contains  string
-		notEmpty  bool
+		cmd      string
+		contains string
+		notEmpty bool
 	}{
 		{"claude", "coordinator", true},
 		{"copilot", "role:coder", true},
@@ -259,8 +263,8 @@ func TestInferCapabilities(t *testing.T) {
 
 func TestExpandHome(t *testing.T) {
 	tests := []struct {
-		input    string
-		hasHome  bool
+		input   string
+		hasHome bool
 	}{
 		{"~/path", true},
 		{"/absolute/path", false},
@@ -280,10 +284,10 @@ func TestExpandHome(t *testing.T) {
 
 func TestCallbacks(t *testing.T) {
 	config := DiscoveryConfig{
-		AutoScan:        false,
-		EnableNetwork:   false,
+		AutoScan:          false,
+		EnableNetwork:     false,
 		AllowSelfRegister: true,
-		RequireApproval: false,
+		RequireApproval:   false,
 	}
 	registry := NewRegistry()
 
@@ -298,7 +302,9 @@ func TestCallbacks(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	req := &RegistrationRequest{
@@ -307,7 +313,9 @@ func TestCallbacks(t *testing.T) {
 		Endpoint: "localhost:8080",
 	}
 
-	service.RegisterSelf(req)
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
 
 	// Give callback time to execute
 	time.Sleep(100 * time.Millisecond)
@@ -341,7 +349,9 @@ func TestParseConfigFile(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -370,7 +380,9 @@ func TestParseConfigFileSingle(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -398,7 +410,9 @@ func TestParseConfigFileInvalid(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	// Should not panic, just return empty
@@ -435,7 +449,9 @@ func TestScanConfigDirectory(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -575,7 +591,9 @@ func TestScanNetworkDisabled(t *testing.T) {
 	service := NewDiscoveryService(config, registry, nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -642,13 +660,45 @@ func TestApproveRegistrationNotPending(t *testing.T) {
 
 	// Register and approve
 	req := &RegistrationRequest{AgentID: "test-approve", Name: "Test"}
-	service.RegisterSelf(req)
-	service.ApproveRegistration("test-approve", "admin")
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
+	if err := service.ApproveRegistration("test-approve", "admin"); err != nil {
+		t.Fatalf("ApproveRegistration failed: %v", err)
+	}
 
 	// Try to approve again
 	err := service.ApproveRegistration("test-approve", "admin2")
 	if err == nil {
 		t.Error("Should fail to approve non-pending registration")
+	}
+}
+
+func TestApproveRegistrationCleansPending(t *testing.T) {
+	config := DiscoveryConfig{
+		AllowSelfRegister: true,
+		RequireApproval:   true,
+	}
+	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
+
+	// Register and approve
+	req := &RegistrationRequest{AgentID: "test-approve-cleanup", Name: "Test"}
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
+
+	// Verify pending has 1 entry
+	if len(service.GetPending()) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(service.GetPending()))
+	}
+
+	if err := service.ApproveRegistration("test-approve-cleanup", "admin"); err != nil {
+		t.Fatalf("ApproveRegistration failed: %v", err)
+	}
+
+	// Verify pending is now empty (cleaned up on approval)
+	if len(service.GetPending()) != 0 {
+		t.Errorf("expected 0 pending after approval, got %d", len(service.GetPending()))
 	}
 }
 
@@ -661,8 +711,12 @@ func TestRejectRegistrationNotPending(t *testing.T) {
 
 	// Register and approve
 	req := &RegistrationRequest{AgentID: "test-reject-approved", Name: "Test"}
-	service.RegisterSelf(req)
-	service.ApproveRegistration("test-reject-approved", "admin")
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
+	if err := service.ApproveRegistration("test-reject-approved", "admin"); err != nil {
+		t.Fatalf("ApproveRegistration failed: %v", err)
+	}
 
 	// Now the status is "approved", not "pending"
 	// RejectRegistration checks for pending status
@@ -701,7 +755,9 @@ func TestScanNetwork(t *testing.T) {
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	// Give listener time to be ready
@@ -723,7 +779,9 @@ func TestScanNetworkNoListener(t *testing.T) {
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agents := service.Scan()
@@ -745,7 +803,9 @@ func TestConnectFailure(t *testing.T) {
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agent := &DiscoveredAgent{
@@ -779,7 +839,9 @@ func TestOnFailedCallbackWithConnect(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	agent := &DiscoveredAgent{
@@ -788,7 +850,8 @@ func TestOnFailedCallbackWithConnect(t *testing.T) {
 		Endpoint: "nonexistent-agent-id",
 	}
 
-	service.Connect(agent)
+	// Connect returns error for nonexistent agent, but we want to test callback
+	_, _ = service.Connect(agent)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -816,17 +879,19 @@ func TestProbeNetworkAgentTimeout(t *testing.T) {
 
 func TestDiscoveryServiceWithLifecycle(t *testing.T) {
 	config := DiscoveryConfig{
-		AutoScan:        false,
-		EnableNetwork:   false,
+		AutoScan:          false,
+		EnableNetwork:     false,
 		AllowSelfRegister: true,
-		RequireApproval: false,
+		RequireApproval:   false,
 	}
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
 	service := NewDiscoveryService(config, registry, lifecycle, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	req := &RegistrationRequest{
 		AgentID:  "lifecycle-test",
@@ -834,13 +899,15 @@ func TestDiscoveryServiceWithLifecycle(t *testing.T) {
 		Endpoint: "localhost:8080",
 	}
 
-	service.RegisterSelf(req)
+	if err := service.RegisterSelf(req); err != nil {
+		t.Fatalf("RegisterSelf failed: %v", err)
+	}
 
 	// Get discovered and connect (this will trigger lifecycle.Spawn)
 	agents := service.GetDiscovered()
 	if len(agents) > 0 {
 		// Try to connect - will fail but lifecycle interaction is tested
-		service.Connect(agents[0])
+		_, _ = service.Connect(agents[0])
 	}
 
 	service.Stop()
@@ -856,8 +923,8 @@ func TestNetworkListener(t *testing.T) {
 	listener.Close()
 
 	config := DiscoveryConfig{
-		AutoScan:         false,
-		EnableNetwork:    true,
+		AutoScan:          false,
+		EnableNetwork:     true,
 		AllowSelfRegister: true,
 		RequireApproval:   false,
 		BroadcastPort:     port,
@@ -892,7 +959,9 @@ func TestNetworkListener(t *testing.T) {
 	}
 
 	// Read response
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
 	var resp map[string]string
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&resp); err != nil {
@@ -928,15 +997,17 @@ func TestNetworkListenerInvalidRequest(t *testing.T) {
 	listener.Close()
 
 	config := DiscoveryConfig{
-		AutoScan:         false,
-		EnableNetwork:    true,
+		AutoScan:          false,
+		EnableNetwork:     true,
 		AllowSelfRegister: true,
 		BroadcastPort:     port,
 	}
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	time.Sleep(100 * time.Millisecond)
@@ -948,10 +1019,14 @@ func TestNetworkListenerInvalidRequest(t *testing.T) {
 	}
 	defer conn.Close()
 
-	conn.Write([]byte("invalid json"))
+	if _, err := conn.Write([]byte("invalid json")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
 
 	// Connection should be closed without response
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
 	var resp map[string]string
 	decoder := json.NewDecoder(conn)
 	err = decoder.Decode(&resp)
@@ -965,14 +1040,16 @@ func TestNetworkListenerSelfRegisterDisabled(t *testing.T) {
 	// This tests that RegisterSelf returns an error when called directly
 
 	config := DiscoveryConfig{
-		AutoScan:         false,
-		EnableNetwork:    true,
+		AutoScan:          false,
+		EnableNetwork:     true,
 		AllowSelfRegister: false, // Disabled
 	}
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	ctx := context.Background()
-	service.Start(ctx)
+	if err := service.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	defer service.Stop()
 
 	// Try to register directly - should fail

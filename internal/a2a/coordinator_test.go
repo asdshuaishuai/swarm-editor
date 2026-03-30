@@ -72,12 +72,17 @@ func TestCoordinatorSubmitTask(t *testing.T) {
 	router := NewRouter(RouterConfig{})
 	coordinator := NewCoordinator(CoordinatorConfig{}, router)
 
+	ctx := context.Background()
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
+
 	task := &CoordinationTask{
 		ID:       "task1",
 		Priority: 1,
 	}
 
-	ctx := context.Background()
 	err := coordinator.SubmitTask(ctx, task)
 	if err != nil {
 		t.Errorf("Failed to submit task: %v", err)
@@ -85,6 +90,22 @@ func TestCoordinatorSubmitTask(t *testing.T) {
 
 	if coordinator.pendingTasks["task1"] == nil {
 		t.Error("Task should be in pending tasks")
+	}
+}
+
+func TestCoordinatorSubmitTaskRejectsWhenStopped(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	ctx := context.Background()
+	task := &CoordinationTask{
+		ID:       "task1",
+		Priority: 1,
+	}
+
+	err := coordinator.SubmitTask(ctx, task)
+	if err == nil {
+		t.Error("Expected error when submitting to stopped coordinator")
 	}
 }
 
@@ -102,8 +123,13 @@ func TestCoordinatorTaskDependencies(t *testing.T) {
 		Dependencies: []string{"task1"},
 	}
 
-	coordinator.SubmitTask(ctx, task1)
-	coordinator.SubmitTask(ctx, task2)
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
+
+	_ = coordinator.SubmitTask(ctx, task1)
+	_ = coordinator.SubmitTask(ctx, task2)
 
 	// Task2 should not be ready until task1 is done
 	if coordinator.areDependenciesMet(task2) {
@@ -214,7 +240,12 @@ func TestCoordinatorGetStats(t *testing.T) {
 	coordinator := NewCoordinator(CoordinatorConfig{}, router)
 
 	coordinator.RegisterAgent("agent1", []string{})
-	coordinator.SubmitTask(context.Background(), &CoordinationTask{ID: "task1"})
+	ctx := context.Background()
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
+	_ = coordinator.SubmitTask(ctx, &CoordinationTask{ID: "task1"})
 	coordinator.runningTasks["task2"] = &CoordinationTask{ID: "task2"}
 	coordinator.completedTasks["task3"] = &CoordinationTask{ID: "task3"}
 
@@ -349,6 +380,10 @@ func TestCoordinatorGetNextTask(t *testing.T) {
 	coordinator := NewCoordinator(CoordinatorConfig{}, router)
 
 	ctx := context.Background()
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
 
 	// Add tasks with different priorities
 	coordinator.SubmitTask(ctx, &CoordinationTask{ID: "task1", Priority: 1})
@@ -592,9 +627,9 @@ func TestCoordinatorCleanupOldCompletedTasks(t *testing.T) {
 	// Add more completed tasks than the limit
 	for i := 0; i < 5; i++ {
 		task := &CoordinationTask{
-			ID:           string(rune('a' + i)),
-			Status:       "completed",
-			CompletedAt:  time.Now().Add(time.Duration(i) * time.Minute),
+			ID:          string(rune('a' + i)),
+			Status:      "completed",
+			CompletedAt: time.Now().Add(time.Duration(i) * time.Minute),
 		}
 		coordinator.completedTasks[task.ID] = task
 	}
@@ -932,9 +967,9 @@ func TestCoordinatorSelectSwarmNoIdleAgents(t *testing.T) {
 
 	// Add pheromone trail
 	coordinator.pheromones["coding:auth-module"] = &PheromoneTrail{
-		Type:      "coding",
-		Location:  "auth-module",
-		Strength:  0.8,
+		Type:     "coding",
+		Location: "auth-module",
+		Strength: 0.8,
 	}
 
 	task := &CoordinationTask{
@@ -960,9 +995,9 @@ func TestCoordinatorSelectSwarmWrongRole(t *testing.T) {
 
 	// Add pheromone trail for coding
 	coordinator.pheromones["coding:auth-module"] = &PheromoneTrail{
-		Type:      "coding",
-		Location:  "auth-module",
-		Strength:  0.8,
+		Type:     "coding",
+		Location: "auth-module",
+		Strength: 0.8,
 	}
 
 	task := &CoordinationTask{
@@ -976,4 +1011,81 @@ func TestCoordinatorSelectSwarmWrongRole(t *testing.T) {
 	if len(selected) != 0 {
 		t.Errorf("Expected no selection (wrong role), got %d", len(selected))
 	}
+}
+
+func TestCoordinatorCallbackOutsideLock(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	// Register an agent
+	coordinator.RegisterAgent("agent-1", []string{"coding"})
+
+	var callbackCompleted bool
+	var canAcquireLock bool
+
+	coordinator.OnTaskComplete(func(task *CoordinationTask, result *TaskResult) {
+		// If callback is invoked outside the lock, we should be able to acquire the lock
+		coordinator.mu.TryLock()
+		canAcquireLock = true
+		coordinator.mu.Unlock()
+		callbackCompleted = true
+	})
+
+	// Manually set up a running task with results for all assigned agents
+	coordinator.mu.Lock()
+	task := &CoordinationTask{
+		ID:           "task-1",
+		RequiredRole: "coding",
+		Status:       "running",
+		AssignedTo:   []string{"agent-1"},
+		Results:      make(map[string]*TaskResult),
+	}
+	coordinator.runningTasks["task-1"] = task
+	coordinator.mu.Unlock()
+
+	// Simulate task completion message
+	msg := NewMessage(MessageTypeTaskComplete, "agent-1", "coordinator").
+		WithPayload(&TaskCompletePayload{
+			TaskID: "task-1",
+			Result: []byte(`{"output": "done"}`),
+		})
+
+	err := coordinator.handleTaskComplete(msg)
+	if err != nil {
+		t.Fatalf("handleTaskComplete failed: %v", err)
+	}
+
+	if !callbackCompleted {
+		t.Error("onTaskComplete callback should have been called")
+	}
+	if !canAcquireLock {
+		t.Error("callback should be invoked outside coordinator lock (TryLock succeeded)")
+	}
+}
+
+func TestCoordinatorHandleHelpRequestNoRace(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	coordinator.RegisterAgent("agent-1", []string{"coding"})
+
+	msg := NewMessage(MessageTypeHelpRequest, "agent-1", "coordinator").
+		WithPayload(&HelpRequestPayload{
+			Skills: []string{"coding"},
+		})
+
+	// This should not race with concurrent RegisterAgent/UnregisterAgent
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = coordinator.handleHelpRequest(msg)
+	}()
+
+	// Concurrently register/unregister agents
+	for i := 0; i < 10; i++ {
+		coordinator.RegisterAgent("extra", []string{})
+		coordinator.UnregisterAgent("extra")
+	}
+
+	<-done
 }

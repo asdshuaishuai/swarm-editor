@@ -171,31 +171,6 @@ func TestAgentOnToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentExecute(t *testing.T) {
-	agent := NewAgent("test", AgentTypeCoder)
-
-	prompt := acp.Prompt{
-		{Type: "text", Text: "Test prompt"},
-	}
-
-	result, err := agent.Execute(context.Background(), prompt)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Result should not be nil")
-	}
-
-	if result.AgentID != agent.ID {
-		t.Errorf("AgentID mismatch")
-	}
-
-	if result.StopReason != acp.StopEndTurn {
-		t.Errorf("Expected StopEndTurn, got '%s'", result.StopReason)
-	}
-}
-
 func TestAgentAgentInfo(t *testing.T) {
 	agent := NewAgent("test", AgentTypeCoder)
 
@@ -250,8 +225,12 @@ func TestRegistryUnregister(t *testing.T) {
 	registry := NewRegistry()
 	agent := NewAgent("test", AgentTypeCoder)
 
-	registry.Register(agent)
-	registry.Unregister(agent.ID)
+	if err := registry.Register(agent); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if err := registry.Unregister(agent.ID); err != nil {
+		t.Fatalf("Unregister failed: %v", err)
+	}
 
 	if len(registry.agents) != 0 {
 		t.Errorf("Expected 0 agents after unregister, got %d", len(registry.agents))
@@ -261,7 +240,9 @@ func TestRegistryUnregister(t *testing.T) {
 func TestRegistryGet(t *testing.T) {
 	registry := NewRegistry()
 	agent := NewAgent("test", AgentTypeCoder)
-	registry.Register(agent)
+	if err := registry.Register(agent); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	retrieved, ok := registry.Get(agent.ID)
 	if !ok {
@@ -285,8 +266,12 @@ func TestRegistryGetAll(t *testing.T) {
 	agent1 := NewAgent("agent1", AgentTypeCoder)
 	agent2 := NewAgent("agent2", AgentTypeReviewer)
 
-	registry.Register(agent1)
-	registry.Register(agent2)
+	if err := registry.Register(agent1); err != nil {
+		t.Fatalf("Register agent1 failed: %v", err)
+	}
+	if err := registry.Register(agent2); err != nil {
+		t.Fatalf("Register agent2 failed: %v", err)
+	}
 
 	all := registry.GetAll()
 	if len(all) != 2 {
@@ -301,9 +286,15 @@ func TestRegistryGetByType(t *testing.T) {
 	coder2 := NewAgent("coder2", AgentTypeCoder)
 	reviewer := NewAgent("reviewer", AgentTypeReviewer)
 
-	registry.Register(coder1)
-	registry.Register(coder2)
-	registry.Register(reviewer)
+	if err := registry.Register(coder1); err != nil {
+		t.Fatalf("Register coder1 failed: %v", err)
+	}
+	if err := registry.Register(coder2); err != nil {
+		t.Fatalf("Register coder2 failed: %v", err)
+	}
+	if err := registry.Register(reviewer); err != nil {
+		t.Fatalf("Register reviewer failed: %v", err)
+	}
 
 	coders := registry.GetByType(AgentTypeCoder)
 	if len(coders) != 2 {
@@ -329,9 +320,15 @@ func TestRegistryGetIdle(t *testing.T) {
 	agent2.SetState(StateExecuting)
 	agent3 := NewAgent("agent3", AgentTypeCoder)
 
-	registry.Register(agent1)
-	registry.Register(agent2)
-	registry.Register(agent3)
+	if err := registry.Register(agent1); err != nil {
+		t.Fatalf("Register agent1 failed: %v", err)
+	}
+	if err := registry.Register(agent2); err != nil {
+		t.Fatalf("Register agent2 failed: %v", err)
+	}
+	if err := registry.Register(agent3); err != nil {
+		t.Fatalf("Register agent3 failed: %v", err)
+	}
 
 	idle := registry.GetIdle()
 	if len(idle) != 2 {
@@ -346,8 +343,12 @@ func TestRegistryCount(t *testing.T) {
 		t.Errorf("New registry should have 0 agents")
 	}
 
-	registry.Register(NewAgent("agent1", AgentTypeCoder))
-	registry.Register(NewAgent("agent2", AgentTypeReviewer))
+	if err := registry.Register(NewAgent("agent1", AgentTypeCoder)); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if err := registry.Register(NewAgent("agent2", AgentTypeReviewer)); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	if registry.Count() != 2 {
 		t.Errorf("Expected 2 agents, got %d", registry.Count())
@@ -357,9 +358,15 @@ func TestRegistryCount(t *testing.T) {
 func TestRegistryCountByType(t *testing.T) {
 	registry := NewRegistry()
 
-	registry.Register(NewAgent("coder1", AgentTypeCoder))
-	registry.Register(NewAgent("coder2", AgentTypeCoder))
-	registry.Register(NewAgent("reviewer", AgentTypeReviewer))
+	if err := registry.Register(NewAgent("coder1", AgentTypeCoder)); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if err := registry.Register(NewAgent("coder2", AgentTypeCoder)); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if err := registry.Register(NewAgent("reviewer", AgentTypeReviewer)); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	counts := registry.CountByType()
 
@@ -476,7 +483,9 @@ func TestLifecycleCallbacks(t *testing.T) {
 		t.Error("Spawn callback should have been called")
 	}
 
-	lifecycle.Terminate(context.Background(), agent.ID)
+	if err := lifecycle.Terminate(context.Background(), agent.ID); err != nil {
+		t.Fatalf("Terminate failed: %v", err)
+	}
 
 	if !terminateCalled {
 		t.Error("Terminate callback should have been called")
@@ -570,7 +579,9 @@ func TestPoolAdd(t *testing.T) {
 func TestPoolAcquireRelease(t *testing.T) {
 	pool := NewPool(2)
 	agent := NewAgent("test", AgentTypeCoder)
-	pool.Add(agent)
+	if err := pool.Add(agent); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
 
 	ctx := context.Background()
 	acquired, err := pool.Acquire(ctx)
@@ -599,7 +610,9 @@ func TestPoolAcquireRelease(t *testing.T) {
 func TestPoolAcquireTimeout(t *testing.T) {
 	pool := NewPool(1)
 	agent := NewAgent("test", AgentTypeCoder)
-	pool.Add(agent)
+	if err := pool.Add(agent); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -650,7 +663,8 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			agent := NewAgent("agent", AgentTypeCoder)
-			registry.Register(agent)
+			// Error intentionally ignored in concurrent test
+			_ = registry.Register(agent)
 			done <- true
 		}()
 	}

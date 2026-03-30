@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -124,6 +126,8 @@ func TestHealthCheckerUpdateStatus(t *testing.T) {
 
 func TestHealthCheckerCheckServer(t *testing.T) {
 	hc := NewHealthChecker(nil)
+
+	// Test with disconnected client (no command)
 	client := NewClient(&ClientConfig{Name: "test"})
 
 	// Not connected - should return unhealthy
@@ -135,11 +139,31 @@ func TestHealthCheckerCheckServer(t *testing.T) {
 		t.Error("expected error message for disconnected client")
 	}
 
+	// Test with connected client using mock server
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mockPath := filepath.Join(dir, "mock_server.py")
+
+	client2 := NewClient(&ClientConfig{
+		Name:    "test-client",
+		Command: "python3",
+		Args:    []string{mockPath},
+		Timeout: 5,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client2.Connect(ctx); err != nil {
+		t.Fatalf("failed to connect client: %v", err)
+	}
+	defer func() { _ = client2.Disconnect() }()
+
 	// Connected - should return healthy
-	client.Connect(context.Background())
-	status = hc.CheckServer(context.Background(), client)
+	status = hc.CheckServer(context.Background(), client2)
 	if !status.Healthy {
-		t.Error("expected healthy status for connected client")
+		t.Errorf("expected healthy status for connected client, got: %s", status.Error)
 	}
 }
 

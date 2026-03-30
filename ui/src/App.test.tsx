@@ -5,9 +5,19 @@ import App from './App'
 
 // Mock the store
 vi.mock('./store/appStore', () => ({
-  useAppStore: vi.fn(() => ({
-    initialize: vi.fn(),
-  })),
+  useAppStore: vi.fn((selector?: (state: unknown) => unknown) => {
+    const state = {
+      initialize: vi.fn(),
+      toasts: [] as unknown[],
+      removeToast: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  }),
+}))
+
+// Mock hooks
+vi.mock('./hooks', () => ({
+  useACPEvents: vi.fn(),
 }))
 
 // Mock child components
@@ -31,6 +41,30 @@ vi.mock('./panels/TeamPanel', () => ({
 
 vi.mock('./panels/SettingsPanel', () => ({
   default: () => <div data-testid="settings-panel">Settings</div>,
+}))
+
+vi.mock('./components/Toast', () => ({
+  ToastContainer: ({ toasts }: { toasts: unknown[] }) => (
+    <div data-testid="toast-container">{toasts.length} toasts</div>
+  ),
+}))
+
+vi.mock('./components/PermissionDialog', () => ({
+  PermissionDialog: () => <div data-testid="permission-dialog" />,
+  PermissionQueueIndicator: () => <div data-testid="permission-queue-indicator" />,
+}))
+
+vi.mock('./components/CommandPalette', () => ({
+  CommandPalette: () => <div data-testid="command-palette" />,
+}))
+
+vi.mock('./components/HandoffDialog', () => ({
+  useHandoffStore: vi.fn(() => ({
+    activeHandoff: null,
+    resolveHandoff: vi.fn(),
+    clearActiveHandoff: vi.fn(),
+  })),
+  HandoffDialog: () => <div data-testid="handoff-dialog" />,
 }))
 
 describe('App', () => {

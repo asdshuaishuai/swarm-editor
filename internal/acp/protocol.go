@@ -86,6 +86,12 @@ const (
 	ErrCapabilityNotSupported = -32007
 )
 
+// Sentinel errors
+var (
+	// ErrNoConnection is returned when trying to execute without an ACP connection
+	ErrNoConnection = fmt.Errorf("no ACP connection available")
+)
+
 // NewRequest creates a new JSON-RPC request
 func NewRequest(id *RequestID, method string, params any) (*Message, error) {
 	paramsJSON, err := json.Marshal(params)
@@ -114,11 +120,19 @@ func NewResponse(id *RequestID, result any) (*Message, error) {
 }
 
 // NewErrorResponse creates a new JSON-RPC error response
+// Note: data marshal errors are logged but not propagated to avoid
+// masking the original error being reported
 func NewErrorResponse(id *RequestID, code int, message string, data any) *Message {
 	var dataJSON json.RawMessage
 	if data != nil {
-		d, _ := json.Marshal(data)
-		dataJSON = d
+		d, err := json.Marshal(data)
+		if err != nil {
+			// Log marshal error but continue - don't mask the original error
+			// by failing to create the error response
+			dataJSON = json.RawMessage(fmt.Sprintf(`{"marshal_error":%q}`, err.Error()))
+		} else {
+			dataJSON = d
+		}
 	}
 	return &Message{
 		JSONRPC: JSONRPCVersion,

@@ -14,7 +14,7 @@ import (
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 	"github.com/swarm-editor/swarm-editor/internal/config"
-	"github.com/swarm-editor/swarm-editor/internal/llm"
+	"github.com/swarm-editor/swarm-editor/internal/mcp"
 	"github.com/swarm-editor/swarm-editor/internal/pair"
 	"github.com/swarm-editor/swarm-editor/internal/swarm"
 	"github.com/swarm-editor/swarm-editor/internal/team"
@@ -48,19 +48,27 @@ func main() {
 
 	fmt.Printf("Spawned agents: %s, %s, %s\n", coder.ID, reviewer.ID, architect.ID)
 
-	// Initialize LLM provider registry
-	llmRegistry := llm.NewRegistry()
-	mockProvider := llm.NewMockProvider("mock")
-	llmRegistry.Register(mockProvider)
+	// Load ACP configuration and initialize ConnectionManager
+	// This connects to external coding agents (Claude Code CLI, Copilot, etc.)
+	acpConfig, err := acp.LoadConfig("")
+	if err != nil {
+		log.Printf("Warning: Failed to load ACP config: %v, using defaults", err)
+		acpConfig = acp.NewConfig()
+	}
+	connManager := acp.NewConnectionManager(acpConfig)
 
-	// Initialize swarm orchestrator
+	// Connect to all enabled external agents
+	if err := connManager.ConnectAll(ctx); err != nil {
+		log.Printf("Warning: Some agents failed to connect: %v", err)
+	}
+	fmt.Printf("ConnectionManager initialized with %d connections\n", len(connManager.ListConnections()))
+
+	// Initialize swarm orchestrator with Queen Bee model
 	swarmConfig := swarm.SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Main Swarm",
-		Topology:           swarm.TopologyStar,
-		Strategy:           swarm.StrategyParallel,
-		ConsensusThreshold: 0.6,
-		VotingTimeout:      30 * time.Second,
+		ID:       "swarm-1",
+		Name:     "Main Swarm",
+		Topology: swarm.TopologyStar,
+		Strategy: swarm.StrategyParallel,
 	}
 	mainSwarm := swarm.NewSwarm(swarmConfig)
 	mainSwarm.AddAgent(coder)
@@ -82,13 +90,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create team: %v", err)
 	}
-	myTeam.AddMember(&team.Member{
+	if err := myTeam.AddMember(&team.Member{
 		ID:   "user-1",
 		Name: "Developer",
 		Role: team.RoleDeveloper,
-	})
-	myTeam.AddAgent(coder)
-	myTeam.AddAgent(reviewer)
+	}); err != nil {
+		log.Printf("Warning: failed to add member: %v", err)
+	}
+	if err := myTeam.AddAgent(coder); err != nil {
+		log.Printf("Warning: failed to add coder agent: %v", err)
+	}
+	if err := myTeam.AddAgent(reviewer); err != nil {
+		log.Printf("Warning: failed to add reviewer agent: %v", err)
+	}
 
 	fmt.Printf("Team '%s' created with %d members\n", myTeam.Name, len(myTeam.Members))
 
@@ -103,8 +117,10 @@ func main() {
 		swarm:       mainSwarm,
 		pairManager: pairManager,
 		teamManager: teamManager,
-		llmRegistry: llmRegistry,
 		swarms:      make(map[string]*swarm.Swarm),
+		connManager: connManager,
+		// MCP client management - maintains active MCP server connections
+		mcpClients: make(map[string]*mcp.Client),
 	}
 	acpServer := acp.NewServer(handler, transport)
 	if acpServer == nil {
@@ -123,12 +139,50 @@ func main() {
 	// Wait for shutdown
 	<-ctx.Done()
 
-	// Graceful shutdown
+	// Graceful shutdown with timeout (Temporal-inspired worker.Shutdown pattern)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+
 	fmt.Println("Stopping swarm...")
-	mainSwarm.Stop()
+	if err := mainSwarm.Stop(); err != nil {
+		log.Printf("Warning: swarm stop error: %v", err)
+	}
+
+	// Stop any dynamically created swarms
+	handler.swarmMutex.RLock()
+	for id, s := range handler.swarms {
+		if err := s.Stop(); err != nil {
+			log.Printf("Warning: swarm %s stop error: %v", id, err)
+		}
+	}
+	handler.swarmMutex.RUnlock()
+
+	// Disconnect MCP clients
+	handler.mcpClientsMutex.Lock()
+	for id, client := range handler.mcpClients {
+		if client != nil {
+			if err := client.Disconnect(); err != nil {
+				log.Printf("Warning: MCP client %s disconnect error: %v", id, err)
+			}
+		}
+		delete(handler.mcpClients, id)
+	}
+	handler.mcpClientsMutex.Unlock()
+
+	fmt.Println("Disconnecting external agents...")
+	connManager.DisconnectAll()
 	fmt.Println("Stopping ACP server...")
-	acpServer.Stop()
-	fmt.Println("Swarm Editor stopped")
+	if err := acpServer.Stop(); err != nil {
+		log.Printf("Warning: ACP server stop error: %v", err)
+	}
+
+	// Wait for shutdown timeout or all goroutines to finish
+	select {
+	case <-shutdownCtx.Done():
+		log.Println("Warning: graceful shutdown timed out after 15s")
+	default:
+		fmt.Println("Swarm Editor stopped")
+	}
 }
 
 // ACPServerHandler implements acp.Handler
@@ -137,9 +191,20 @@ type ACPServerHandler struct {
 	swarm       *swarm.Swarm
 	pairManager *pair.Manager
 	teamManager *team.Manager
-	llmRegistry *llm.Registry
 	swarms      map[string]*swarm.Swarm
 	swarmMutex  sync.RWMutex
+
+	// ConnectionManager manages external ACP agent connections
+	connManager *acp.ConnectionManager
+
+	// MCP clients manages MCP server connections
+	mcpClients      map[string]*mcp.Client
+	mcpClientsMutex sync.RWMutex
+
+	// Callbacks for updates and permissions
+	updateCallback     func(sessionID acp.SessionID, update *acp.Update)
+	permissionCallback func(sessionID acp.SessionID, request *acp.SessionRequestPermissionParams) (*acp.PermissionOutcome, error)
+	callbackMutex      sync.RWMutex
 }
 
 func (h *ACPServerHandler) Initialize(ctx context.Context, params *acp.InitializeParams) (*acp.InitializeResult, error) {
@@ -194,28 +259,32 @@ func (h *ACPServerHandler) SessionSetMode(ctx context.Context, params *acp.Sessi
 }
 
 func (h *ACPServerHandler) SessionPrompt(ctx context.Context, params *acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
-	// Get default LLM provider
-	provider := h.llmRegistry.GetDefault()
-	if provider == nil {
-		return nil, fmt.Errorf("no LLM provider available")
+	// Dispatch to external coding agents via ConnectionManager
+	// Swarm Editor is an aggregation/scheduling platform, not an LLM executor.
+	// Real coding agents (Claude Code CLI, Copilot, Cursor) handle LLM calls.
+
+	// Get connected external agents
+	connectedAgents := h.connManager.GetConnected()
+	if len(connectedAgents) == 0 {
+		return nil, fmt.Errorf("no external agents connected - please connect an ACP-compatible agent")
 	}
 
-	// Convert prompt to LLM messages
-	messages := llm.ConvertACPPromptToLLMMessages(params.Prompt)
+	// Use the first available connected agent
+	agentConn := connectedAgents[0]
 
-	// Generate response
-	req := &llm.GenerateRequest{
-		Model:    "default",
-		Messages: messages,
-	}
-	resp, err := provider.Generate(ctx, req)
+	// Create session with the external agent
+	session, err := agentConn.CreateSession(ctx, acp.ModeDefault)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create session with external agent: %w", err)
 	}
 
-	return &acp.SessionPromptResult{
-		StopReason: acp.StopReason(resp.StopReason),
-	}, nil
+	// Send prompt to external agent
+	result, err := agentConn.SendPrompt(ctx, session.ID, params.Prompt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send prompt to external agent: %w", err)
+	}
+
+	return result, nil
 }
 
 func (h *ACPServerHandler) SessionCancel(ctx context.Context, sessionID acp.SessionID) error {
@@ -223,11 +292,15 @@ func (h *ACPServerHandler) SessionCancel(ctx context.Context, sessionID acp.Sess
 }
 
 func (h *ACPServerHandler) OnUpdate(callback func(sessionID acp.SessionID, update *acp.Update)) {
-	// Register update callback
+	h.callbackMutex.Lock()
+	defer h.callbackMutex.Unlock()
+	h.updateCallback = callback
 }
 
 func (h *ACPServerHandler) OnPermissionRequest(callback func(sessionID acp.SessionID, request *acp.SessionRequestPermissionParams) (*acp.PermissionOutcome, error)) {
-	// Register permission callback
+	h.callbackMutex.Lock()
+	defer h.callbackMutex.Unlock()
+	h.permissionCallback = callback
 }
 
 // parseTopology converts string to TopologyType
@@ -415,5 +488,312 @@ func (h *ACPServerHandler) SwarmGetStatus(ctx context.Context, params *acp.Swarm
 		CompletedTasks:  stats.CompletedTasks,
 		Topology:        stats.Topology,
 		Strategy:        stats.Strategy,
+	}, nil
+}
+
+// MCPStartServer starts an MCP server
+func (h *ACPServerHandler) MCPStartServer(ctx context.Context, params *acp.MCPStartServerParams) (*acp.MCPServerStatus, error) {
+	// Check if already connected
+	h.mcpClientsMutex.RLock()
+	if client, exists := h.mcpClients[params.ServerID]; exists && client != nil {
+		h.mcpClientsMutex.RUnlock()
+		// Return existing connection status
+		tools := client.ListTools()
+		var acpTools []acp.Tool
+		for _, t := range tools {
+			inputSchemaBytes, err := json.Marshal(t.InputSchema)
+			if err != nil {
+				log.Printf("[MCP] Failed to marshal input schema for tool %s: %v", t.Name, err)
+				continue
+			}
+			acpTools = append(acpTools, acp.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: inputSchemaBytes,
+			})
+		}
+		return &acp.MCPServerStatus{
+			ServerID: params.ServerID,
+			Name:     params.ServerID,
+			Status:   "connected",
+			Tools:    acpTools,
+			Error:    "",
+		}, nil
+	}
+	h.mcpClientsMutex.RUnlock()
+
+	// Load config to find the MCP server
+	cfg, err := acp.LoadConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Find the server config
+	var serverConfig *acp.MCPServerConfig
+	for _, s := range cfg.DefaultMCPSettings.CustomMCPServers {
+		if s.Name == params.ServerID {
+			serverConfig = &s
+			break
+		}
+	}
+
+	if serverConfig == nil {
+		return nil, fmt.Errorf("MCP server not found: %s", params.ServerID)
+	}
+
+	// Create and connect MCP client
+	mcpConfig := &mcp.ClientConfig{
+		Name:    serverConfig.Name,
+		Command: serverConfig.Command,
+		Args:    serverConfig.Args,
+		Env:     serverConfig.Env,
+		Timeout: 30, // 30 seconds startup timeout
+	}
+
+	client := mcp.NewClient(mcpConfig)
+
+	// Connect to the MCP server
+	if err := client.Connect(ctx); err != nil {
+		return &acp.MCPServerStatus{
+			ServerID: params.ServerID,
+			Name:     serverConfig.Name,
+			Status:   "error",
+			Tools:    nil,
+			Error:    fmt.Sprintf("Failed to connect: %v", err),
+		}, nil
+	}
+
+	// Store the client
+	h.mcpClientsMutex.Lock()
+	h.mcpClients[params.ServerID] = client
+	h.mcpClientsMutex.Unlock()
+
+	// Get available tools
+	tools := client.ListTools()
+	var acpTools []acp.Tool
+	for _, t := range tools {
+		inputSchemaBytes, err := json.Marshal(t.InputSchema)
+		if err != nil {
+			log.Printf("[MCP] Failed to marshal input schema for tool %s: %v", t.Name, err)
+			continue
+		}
+		acpTools = append(acpTools, acp.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: inputSchemaBytes,
+		})
+	}
+
+	log.Printf("MCP server %s started with %d tools", params.ServerID, len(tools))
+
+	return &acp.MCPServerStatus{
+		ServerID: params.ServerID,
+		Name:     serverConfig.Name,
+		Status:   "connected",
+		Tools:    acpTools,
+		Error:    "",
+	}, nil
+}
+
+// MCPStopServer stops an MCP server
+func (h *ACPServerHandler) MCPStopServer(ctx context.Context, params *acp.MCPStopServerParams) (*acp.MCPServerStatus, error) {
+	h.mcpClientsMutex.Lock()
+	defer h.mcpClientsMutex.Unlock()
+
+	client, exists := h.mcpClients[params.ServerID]
+	if !exists {
+		return &acp.MCPServerStatus{
+			ServerID: params.ServerID,
+			Name:     params.ServerID,
+			Status:   "disconnected",
+			Tools:    nil,
+			Error:    "",
+		}, nil
+	}
+
+	// Disconnect and remove from cache
+	if client != nil {
+		if err := client.Disconnect(); err != nil {
+			log.Printf("Warning: MCP client disconnect error: %v", err)
+		}
+	}
+	delete(h.mcpClients, params.ServerID)
+
+	log.Printf("MCP server %s stopped", params.ServerID)
+
+	return &acp.MCPServerStatus{
+		ServerID: params.ServerID,
+		Name:     params.ServerID,
+		Status:   "disconnected",
+		Tools:    nil,
+		Error:    "",
+	}, nil
+}
+
+// MCPCallTool calls a tool on an MCP server
+func (h *ACPServerHandler) MCPCallTool(ctx context.Context, params *acp.MCPCallToolParams) (*acp.MCPCallToolResult, error) {
+	// Try to use cached client first
+	h.mcpClientsMutex.RLock()
+	cachedClient, clientExists := h.mcpClients[params.ServerID]
+	h.mcpClientsMutex.RUnlock()
+
+	if clientExists && cachedClient != nil {
+		// Use the cached client
+		result, err := cachedClient.CallTool(ctx, params.ToolName, params.Arguments)
+		if err != nil {
+			return &acp.MCPCallToolResult{
+				Content: []acp.MCPContent{
+					{Type: "text", Text: err.Error()},
+				},
+				IsError: true,
+			}, nil
+		}
+
+		// Convert result to ACP format
+		var content []acp.MCPContent
+		for _, c := range result.Content {
+			content = append(content, acp.MCPContent{
+				Type:     c.Type,
+				Text:     c.Text,
+				Data:     c.Data,
+				MimeType: c.MimeType,
+			})
+		}
+
+		return &acp.MCPCallToolResult{
+			Content: content,
+			IsError: result.IsError,
+		}, nil
+	}
+
+	// Fallback: Create temporary connection if no cached client exists
+	// This handles the case where the server wasn't explicitly started
+	cfg, err := acp.LoadConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Find the server config
+	var serverConfig *acp.MCPServerConfig
+	for _, s := range cfg.DefaultMCPSettings.CustomMCPServers {
+		if s.Name == params.ServerID {
+			serverConfig = &s
+			break
+		}
+	}
+
+	if serverConfig == nil {
+		return nil, fmt.Errorf("MCP server not found: %s", params.ServerID)
+	}
+
+	// Create MCP client config
+	mcpConfig := &mcp.ClientConfig{
+		Name:    serverConfig.Name,
+		Command: serverConfig.Command,
+		Args:    serverConfig.Args,
+		Env:     serverConfig.Env,
+	}
+
+	client := mcp.NewClient(mcpConfig)
+
+	// Connect to the MCP server
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
+	}
+	defer func() {
+		if err := client.Disconnect(); err != nil {
+			log.Printf("Warning: MCP client disconnect error: %v", err)
+		}
+	}()
+
+	// Call the tool
+	result, err := client.CallTool(ctx, params.ToolName, params.Arguments)
+	if err != nil {
+		return &acp.MCPCallToolResult{
+			Content: []acp.MCPContent{
+				{Type: "text", Text: err.Error()},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Convert result to ACP format
+	var content []acp.MCPContent
+	for _, c := range result.Content {
+		content = append(content, acp.MCPContent{
+			Type:     c.Type,
+			Text:     c.Text,
+			Data:     c.Data,
+			MimeType: c.MimeType,
+		})
+	}
+
+	return &acp.MCPCallToolResult{
+		Content: content,
+		IsError: result.IsError,
+	}, nil
+}
+
+// MCPListTools lists available tools on an MCP server
+func (h *ACPServerHandler) MCPListTools(ctx context.Context, params *acp.MCPListToolsParams) (*acp.MCPListToolsResult, error) {
+	// Load config to find the MCP server
+	cfg, err := acp.LoadConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Find the server config
+	var serverConfig *acp.MCPServerConfig
+	for _, s := range cfg.DefaultMCPSettings.CustomMCPServers {
+		if s.Name == params.ServerID {
+			serverConfig = &s
+			break
+		}
+	}
+
+	if serverConfig == nil {
+		return nil, fmt.Errorf("MCP server not found: %s", params.ServerID)
+	}
+
+	// Create MCP client and list tools
+	mcpConfig := &mcp.ClientConfig{
+		Name:    serverConfig.Name,
+		Command: serverConfig.Command,
+		Args:    serverConfig.Args,
+		Env:     serverConfig.Env,
+	}
+
+	client := mcp.NewClient(mcpConfig)
+
+	// Connect to the MCP server
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
+	}
+	defer func() {
+		if err := client.Disconnect(); err != nil {
+			log.Printf("Warning: MCP client disconnect error: %v", err)
+		}
+	}()
+
+	// List tools
+	tools := client.ListTools()
+
+	// Convert to ACP format
+	var acpTools []acp.Tool
+	for _, t := range tools {
+		// Convert InputSchema to json.RawMessage
+		inputSchemaBytes, err := json.Marshal(t.InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("marshal input schema for tool %s: %w", t.Name, err)
+		}
+		acpTools = append(acpTools, acp.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: inputSchemaBytes,
+		})
+	}
+
+	return &acp.MCPListToolsResult{
+		Tools: acpTools,
 	}, nil
 }

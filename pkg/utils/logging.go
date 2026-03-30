@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -41,7 +43,7 @@ type Logger struct {
 	level  LogLevel
 	out    io.Writer
 	prefix string
-	fields map[string]interface{}
+	fields map[string]any
 }
 
 // NewLogger creates a new logger
@@ -52,7 +54,7 @@ func NewLogger(out io.Writer, level LogLevel) *Logger {
 	return &Logger{
 		level:  level,
 		out:    out,
-		fields: make(map[string]interface{}),
+		fields: make(map[string]any),
 	}
 }
 
@@ -81,14 +83,12 @@ func (l *Logger) SetPrefix(prefix string) {
 }
 
 // WithField returns a new logger with an added field
-func (l *Logger) WithField(key string, value interface{}) *Logger {
+func (l *Logger) WithField(key string, value any) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	newFields := make(map[string]interface{}, len(l.fields)+1)
-	for k, v := range l.fields {
-		newFields[k] = v
-	}
+	newFields := make(map[string]any, len(l.fields)+1)
+	maps.Copy(newFields, l.fields)
 	newFields[key] = value
 
 	return &Logger{
@@ -100,17 +100,13 @@ func (l *Logger) WithField(key string, value interface{}) *Logger {
 }
 
 // WithFields returns a new logger with added fields
-func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
+func (l *Logger) WithFields(fields map[string]any) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	newFields := make(map[string]interface{}, len(l.fields)+len(fields))
-	for k, v := range l.fields {
-		newFields[k] = v
-	}
-	for k, v := range fields {
-		newFields[k] = v
-	}
+	newFields := make(map[string]any, len(l.fields)+len(fields))
+	maps.Copy(newFields, l.fields)
+	maps.Copy(newFields, fields)
 
 	return &Logger{
 		level:  l.level,
@@ -136,7 +132,7 @@ func (l *Logger) WithContext(ctx context.Context) *Logger {
 }
 
 // log writes a log entry
-func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
+func (l *Logger) log(level LogLevel, format string, args ...any) {
 	if level < l.level {
 		return
 	}
@@ -154,43 +150,45 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 
 	// Add fields
 	if len(l.fields) > 0 {
-		fieldsStr := ""
+		var sb strings.Builder
 		for k, v := range l.fields {
-			fieldsStr += fmt.Sprintf(" %s=%v", k, v)
+			sb.WriteString(" ")
+			sb.WriteString(k)
+			fmt.Fprintf(&sb, "=%v", v)
 		}
-		entry += fieldsStr
+		entry += sb.String()
 	}
 
 	fmt.Fprintln(l.out, entry)
 }
 
 // Debug logs a debug message
-func (l *Logger) Debug(format string, args ...interface{}) {
+func (l *Logger) Debug(format string, args ...any) {
 	l.log(LogLevelDebug, format, args...)
 }
 
 // Info logs an info message
-func (l *Logger) Info(format string, args ...interface{}) {
+func (l *Logger) Info(format string, args ...any) {
 	l.log(LogLevelInfo, format, args...)
 }
 
 // Warn logs a warning message
-func (l *Logger) Warn(format string, args ...interface{}) {
+func (l *Logger) Warn(format string, args ...any) {
 	l.log(LogLevelWarn, format, args...)
 }
 
 // Error logs an error message
-func (l *Logger) Error(format string, args ...interface{}) {
+func (l *Logger) Error(format string, args ...any) {
 	l.log(LogLevelError, format, args...)
 }
 
 // ErrorWithError logs an error with error value
-func (l *Logger) ErrorWithError(err error, format string, args ...interface{}) {
+func (l *Logger) ErrorWithError(err error, format string, args ...any) {
 	l.log(LogLevelError, format+": %v", append(args, err)...)
 }
 
 // Fatal logs an error and exits
-func (l *Logger) Fatal(format string, args ...interface{}) {
+func (l *Logger) Fatal(format string, args ...any) {
 	l.log(LogLevelError, format, args...)
 	os.Exit(1)
 }
@@ -198,37 +196,37 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 // Package-level convenience functions
 
 // Debug logs a debug message using default logger
-func Debug(format string, args ...interface{}) {
+func Debug(format string, args ...any) {
 	DefaultLogger.Debug(format, args...)
 }
 
 // Info logs an info message using default logger
-func Info(format string, args ...interface{}) {
+func Info(format string, args ...any) {
 	DefaultLogger.Info(format, args...)
 }
 
 // Warn logs a warning message using default logger
-func Warn(format string, args ...interface{}) {
+func Warn(format string, args ...any) {
 	DefaultLogger.Warn(format, args...)
 }
 
 // Error logs an error message using default logger
-func Error(format string, args ...interface{}) {
+func Error(format string, args ...any) {
 	DefaultLogger.Error(format, args...)
 }
 
 // Fatal logs an error and exits using default logger
-func Fatal(format string, args ...interface{}) {
+func Fatal(format string, args ...any) {
 	DefaultLogger.Fatal(format, args...)
 }
 
 // WithField returns a new logger with an added field using default logger
-func WithField(key string, value interface{}) *Logger {
+func WithField(key string, value any) *Logger {
 	return DefaultLogger.WithField(key, value)
 }
 
 // WithFields returns a new logger with added fields using default logger
-func WithFields(fields map[string]interface{}) *Logger {
+func WithFields(fields map[string]any) *Logger {
 	return DefaultLogger.WithFields(fields)
 }
 

@@ -7,12 +7,55 @@ vi.mock('../store/appStore', () => ({
   useAppStore: vi.fn(),
 }))
 
-describe('AgentPanel', () => {
-  const mockSelectAgent = vi.fn()
-  const mockStartAgent = vi.fn()
-  const mockStopAgent = vi.fn()
-  const mockLoadAgents = vi.fn()
+// Store event handlers for triggering in tests
+const eventHandlers = new Map<string, (payload: unknown) => void>()
 
+// Mock WebSocket events API
+vi.mock('../services', () => ({
+  events: {
+    onAgentMessage: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('agent_message', handler)
+      return () => eventHandlers.delete('agent_message')
+    }),
+  },
+  api: {
+    agent: {
+      createSession: vi.fn().mockResolvedValue({
+        sessionId: 'test-session',
+        agentId: '1',
+        agentName: 'Agent 1',
+      }),
+      sendMessage: vi.fn().mockImplementation(async (_sessionId: string, _message: string) => {
+        // Simulate a delay and then trigger the WebSocket event handler
+        await new Promise((resolve) => {
+          setTimeout(resolve, 500)
+        })
+        // Trigger the WebSocket event handler for agent_message
+        const handler = eventHandlers.get('agent_message')
+        if (handler) {
+          handler({
+            sessionId: 'test-session',
+            content: 'I understand your request. Let me help you with that.',
+          })
+        }
+        return {
+          sessionId: 'test-session',
+          stopReason: 'EndTurn',
+        }
+      }),
+      closeSession: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}))
+
+// Shared mock functions accessible across all describe blocks
+const mockSelectAgent = vi.fn()
+const mockStartAgent = vi.fn()
+const mockStopAgent = vi.fn()
+const mockLoadAgents = vi.fn()
+const mockAddToast = vi.fn()
+
+describe('AgentPanel', () => {
   const defaultMockState = {
     agents: [
       { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
@@ -23,6 +66,7 @@ describe('AgentPanel', () => {
     startAgent: mockStartAgent,
     stopAgent: mockStopAgent,
     loadAgents: mockLoadAgents,
+    addToast: mockAddToast,
   }
 
   beforeEach(() => {
@@ -189,7 +233,7 @@ describe('AgentPanel', () => {
 
     // Fast-forward timers and wrap in act
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      await vi.advanceTimersByTimeAsync(1000)
     })
 
     expect(screen.getByText('I understand your request. Let me help you with that.')).toBeInTheDocument()
@@ -297,6 +341,7 @@ describe('AgentPanel with selected agent', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -322,6 +367,7 @@ describe('AgentPanel with selected agent', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -343,6 +389,7 @@ describe('AgentPanel loading state', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -392,6 +439,7 @@ describe('AgentPanel loading state', () => {
 
 describe('AgentPanel agent selection', () => {
   const mockSelectAgent = vi.fn()
+  const mockAddToast = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -403,6 +451,7 @@ describe('AgentPanel agent selection', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -441,6 +490,7 @@ describe('AgentPanel state colors', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -457,6 +507,7 @@ describe('AgentPanel state colors', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -473,6 +524,7 @@ describe('AgentPanel state colors', () => {
         startAgent: vi.fn(),
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -490,6 +542,7 @@ describe('AgentPanel state colors', () => {
         startAgent: mockStartAgent,
         stopAgent: vi.fn(),
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })
@@ -516,6 +569,7 @@ describe('AgentPanel state colors', () => {
         startAgent: vi.fn(),
         stopAgent: mockStopAgent,
         loadAgents: vi.fn(),
+        addToast: mockAddToast,
       }
       return selector ? selector(state) : state
     })

@@ -153,6 +153,33 @@ func TestHeartbeatCheckerGetStatus(t *testing.T) {
 	}
 }
 
+func TestHeartbeatCheckerGetStatusReturnsCopy(t *testing.T) {
+	hc := NewHeartbeatChecker(0, 0)
+	hc.RegisterAgent("agent-1")
+
+	// Get two copies and verify they are independent
+	status1 := hc.GetStatus("agent-1")
+	status2 := hc.GetStatus("agent-1")
+
+	// Mutate the returned copy — should not affect the stored value or other copies
+	status1.Healthy = false
+	status1.Consecutive = 99
+
+	// Get a fresh copy — should still reflect the original (healthy=true)
+	fresh := hc.GetStatus("agent-1")
+	if !fresh.Healthy {
+		t.Error("mutating returned copy should not affect stored status")
+	}
+	if fresh.Consecutive != 0 {
+		t.Errorf("expected Consecutive 0, got %d", fresh.Consecutive)
+	}
+
+	// Second copy should also be independent
+	if status2.Consecutive != 0 {
+		t.Errorf("second copy should be independent, Consecutive = %d", status2.Consecutive)
+	}
+}
+
 func TestHeartbeatCheckerGetAllStatuses(t *testing.T) {
 	hc := NewHeartbeatChecker(0, 0)
 	hc.RegisterAgent("agent-1")

@@ -2,8 +2,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Application version constants
@@ -21,7 +23,6 @@ type AppConfig struct {
 	Swarm   SwarmConfig   `yaml:"swarm"`
 	Pair    PairConfig    `yaml:"pair"`
 	Team    TeamConfig    `yaml:"team"`
-	LLM     LLMConfig     `yaml:"llm"`
 	Storage StorageConfig `yaml:"storage"`
 	Logging LoggingConfig `yaml:"logging"`
 	UI      UIConfig      `yaml:"ui"`
@@ -77,19 +78,6 @@ type TeamConfig struct {
 	MaxTeams              int    `yaml:"max_teams"`
 	MaxMembersPerTeam     int    `yaml:"max_members_per_team"`
 	WorkspaceSyncInterval string `yaml:"workspace_sync_interval"`
-}
-
-// LLMConfig holds LLM provider settings
-type LLMConfig struct {
-	DefaultProvider string                    `yaml:"default_provider"`
-	Providers       map[string]ProviderConfig `yaml:"providers"`
-}
-
-// ProviderConfig holds individual provider settings
-type ProviderConfig struct {
-	Model       string  `yaml:"model"`
-	MaxTokens   int     `yaml:"max_tokens"`
-	Temperature float64 `yaml:"temperature"`
 }
 
 // StorageConfig holds storage settings
@@ -174,21 +162,6 @@ func DefaultConfig() *AppConfig {
 			MaxMembersPerTeam:     100,
 			WorkspaceSyncInterval: "1m",
 		},
-		LLM: LLMConfig{
-			DefaultProvider: "claude",
-			Providers: map[string]ProviderConfig{
-				"claude": {
-					Model:       "claude-sonnet-4-6",
-					MaxTokens:   8192,
-					Temperature: 0.7,
-				},
-				"openai": {
-					Model:       "gpt-4",
-					MaxTokens:   8192,
-					Temperature: 0.7,
-				},
-			},
-		},
 		Storage: StorageConfig{
 			Type: "sqlite",
 			SQLite: SQLiteConfig{
@@ -219,6 +192,89 @@ func DefaultConfig() *AppConfig {
 	}
 }
 
+// Validate validates the configuration and returns an error if invalid
+func (c *AppConfig) Validate() error {
+	// Validate server config
+	if c.Server.Port < 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d (must be 0-65535)", c.Server.Port)
+	}
+	if c.Server.GRPCPort < 0 || c.Server.GRPCPort > 65535 {
+		return fmt.Errorf("invalid grpc port: %d (must be 0-65535)", c.Server.GRPCPort)
+	}
+
+	// Validate ACP config
+	if c.ACP.MaxMessageSize < 0 {
+		return fmt.Errorf("invalid max message size: %d (must be >= 0)", c.ACP.MaxMessageSize)
+	}
+	if err := validateDuration("acp.timeout", c.ACP.Timeout); err != nil {
+		return err
+	}
+
+	// Validate agent config
+	if c.Agent.MaxConcurrentSessions < 0 {
+		return fmt.Errorf("invalid max concurrent sessions: %d (must be >= 0)", c.Agent.MaxConcurrentSessions)
+	}
+	if err := validateDuration("agent.heartbeat_interval", c.Agent.HeartbeatInterval); err != nil {
+		return err
+	}
+	if err := validateDuration("agent.session_timeout", c.Agent.SessionTimeout); err != nil {
+		return err
+	}
+
+	// Validate swarm config
+	if c.Swarm.MaxAgents < 0 {
+		return fmt.Errorf("invalid max agents: %d (must be >= 0)", c.Swarm.MaxAgents)
+	}
+	if err := validateDuration("swarm.task_timeout", c.Swarm.TaskTimeout); err != nil {
+		return err
+	}
+
+	// Validate consensus config
+	if err := validateDuration("swarm.consensus.timeout", c.Swarm.Consensus.Timeout); err != nil {
+		return err
+	}
+	if c.Swarm.Consensus.MinAgreement < 0 || c.Swarm.Consensus.MinAgreement > 1 {
+		return fmt.Errorf("invalid min agreement: %f (must be 0.0-1.0)", c.Swarm.Consensus.MinAgreement)
+	}
+
+	// Validate pair config
+	if err := validateDuration("pair.default_session_timeout", c.Pair.DefaultSessionTimeout); err != nil {
+		return err
+	}
+	if err := validateDuration("pair.role_switch_cooldown", c.Pair.RoleSwitchCooldown); err != nil {
+		return err
+	}
+
+	// Validate team config
+	if c.Team.MaxTeams < 0 {
+		return fmt.Errorf("invalid max teams: %d (must be >= 0)", c.Team.MaxTeams)
+	}
+	if c.Team.MaxMembersPerTeam < 0 {
+		return fmt.Errorf("invalid max members per team: %d (must be >= 0)", c.Team.MaxMembersPerTeam)
+	}
+	if err := validateDuration("team.workspace_sync_interval", c.Team.WorkspaceSyncInterval); err != nil {
+		return err
+	}
+
+	// Validate UI config
+	if c.UI.EditorFontSize < 8 || c.UI.EditorFontSize > 72 {
+		return fmt.Errorf("invalid editor font size: %d (must be 8-72)", c.UI.EditorFontSize)
+	}
+
+	return nil
+}
+
+// validateDuration checks that a duration string is parseable by time.ParseDuration.
+func validateDuration(field, value string) error {
+	if value == "" {
+		return nil
+	}
+	if _, err := time.ParseDuration(value); err != nil {
+		return fmt.Errorf("invalid duration for %q: %q (%w)", field, value, err)
+	}
+	return nil
+}
+
 // ConfigPath returns the default config file path
 func ConfigPath() string {
 	if path := os.Getenv("SWARM_EDITOR_CONFIG"); path != "" {
@@ -236,5 +292,6 @@ func ConfigPath() string {
 // EnsureDir ensures the directory for the given path exists
 func EnsureDir(path string) error {
 	dir := filepath.Dir(path)
-	return os.MkdirAll(dir, 0755)
+	// Use 0750 for better security (owner rwx, group rx, others none)
+	return os.MkdirAll(dir, 0750)
 }

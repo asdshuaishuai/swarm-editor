@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -15,12 +17,17 @@ import (
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 )
 
+const maxSchedulerDLQEntries = 100 // Max in-memory DLQ entries
+
 // Scheduler manages intelligent task scheduling across agents
 type Scheduler struct {
 	mu sync.RWMutex
 
 	// Configuration
 	config SchedulerConfig
+
+	// Fallback configuration (CrewAI-inspired cascading fallback)
+	fallbackConfig FallbackConfig
 
 	// Agent pool
 	coordinator *AgentInfo
@@ -30,6 +37,8 @@ type Scheduler struct {
 	pendingQueue  *TaskQueue
 	runningTasks  map[string]*ScheduledTask
 	completedTask []*ScheduledTask
+	completedIDs  map[string]bool // Fast lookup for dependency resolution
+	failedIDs     map[string]bool // Track failed tasks for dependency failure propagation
 
 	// Connections
 	connections *acp.ConnectionManager
@@ -46,6 +55,15 @@ type Scheduler struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Rate limiter for backpressure (CrewAI-inspired)
+	rateLimiter *RateLimiter
+
+	// Dead Letter Queue for tasks that exhausted retries (Temporal-inspired)
+	dlq *schedulerDLQ
+
+	// Health provider for fallback (decoupled from Supervisor)
+	healthProvider AgentHealthProvider
 }
 
 // SchedulerConfig configures the scheduler
@@ -55,6 +73,8 @@ type SchedulerConfig struct {
 	RetryCount          int           `json:"retryCount"`
 	RetryDelay          time.Duration `json:"retryDelay"`
 	LoadBalanceStrategy string        `json:"loadBalanceStrategy"` // "round_robin", "least_loaded", "priority", "capability"
+	OverloadThreshold   float64       `json:"overloadThreshold"`   // 0.0-1.0, load ratio to consider agent overloaded
+	RebalanceInterval   time.Duration `json:"rebalanceInterval"`   // How often to check for rebalancing
 }
 
 // AgentInfo contains information about an available agent
@@ -67,10 +87,15 @@ type AgentInfo struct {
 	MaxConcurrent int
 
 	// Runtime state (protected by mu)
-	mu          sync.RWMutex
-	currentLoad int
-	totalTasks  int
-	successRate float64
+	mu               sync.RWMutex
+	currentLoad      int
+	totalTasks       int
+	successCount     int // Total successful tasks (for accurate success rate)
+	successRate      float64
+	consecutiveFails int
+
+	// Circuit breaker for health management
+	circuitBreaker *CircuitBreaker
 }
 
 // IncrementLoad atomically increments the agent's current load
@@ -97,6 +122,98 @@ func (a *AgentInfo) GetLoad() int {
 	return a.currentLoad
 }
 
+// GetSuccessRate returns the agent's task success rate (0.0-1.0)
+func (a *AgentInfo) GetSuccessRate() float64 {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.successRate
+}
+
+// GetConsecutiveFails returns the number of consecutive task failures
+func (a *AgentInfo) GetConsecutiveFails() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.consecutiveFails
+}
+
+// RecordResult updates success/failure tracking after a task completes
+func (a *AgentInfo) RecordResult(success bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.totalTasks++
+	if success {
+		a.successCount++
+		a.consecutiveFails = 0
+	} else {
+		a.consecutiveFails++
+	}
+	// Calculate success rate as successes / total (not 1 - consecutiveFails/total)
+	if a.totalTasks > 0 {
+		a.successRate = float64(a.successCount) / float64(a.totalTasks)
+	}
+
+	// Update circuit breaker
+	if a.circuitBreaker != nil {
+		if success {
+			a.circuitBreaker.RecordSuccess()
+		} else {
+			a.circuitBreaker.RecordFailure()
+		}
+	}
+}
+
+// IsHealthy returns true if the agent is not in a degraded state.
+// Uses circuit breaker state when available, falls back to simple check.
+func (a *AgentInfo) IsHealthy() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	// Use circuit breaker if available
+	if a.circuitBreaker != nil {
+		return a.circuitBreaker.IsHealthy()
+	}
+	// Fallback to simple check
+	return a.consecutiveFails < 3
+}
+
+// AllowRequest checks if a request should be allowed through the circuit breaker.
+// Returns true if the request can proceed, false if it should be rejected.
+func (a *AgentInfo) AllowRequest() bool {
+	a.mu.RLock()
+	cb := a.circuitBreaker
+	a.mu.RUnlock()
+
+	if cb == nil {
+		return true // No circuit breaker, allow by default
+	}
+	return cb.Allow()
+}
+
+// GetCircuitBreakerStats returns the circuit breaker statistics.
+// Returns nil if circuit breaker is not initialized.
+func (a *AgentInfo) GetCircuitBreakerStats() *CircuitBreakerStats {
+	a.mu.RLock()
+	cb := a.circuitBreaker
+	a.mu.RUnlock()
+
+	if cb == nil {
+		return nil
+	}
+	stats := cb.GetStats()
+	return &stats
+}
+
+// initCircuitBreaker initializes the circuit breaker with the given config.
+func (a *AgentInfo) initCircuitBreaker(config CircuitBreakerConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.circuitBreaker != nil {
+		a.circuitBreaker.Close()
+	}
+	a.circuitBreaker = NewCircuitBreaker(config)
+}
+
 // GetTotalTasks returns the total tasks processed
 func (a *AgentInfo) GetTotalTasks() int {
 	a.mu.RLock()
@@ -115,6 +232,7 @@ type ScheduledTask struct {
 	Result      *TaskResult
 	Error       error
 	RetryCount  int
+	Trace       *PropagationContext // Trace propagation for observability
 }
 
 // NewScheduler creates a new scheduler
@@ -132,14 +250,25 @@ func NewScheduler(config SchedulerConfig, connections *acp.ConnectionManager) *S
 	if config.LoadBalanceStrategy == "" {
 		config.LoadBalanceStrategy = "least_loaded"
 	}
+	if config.OverloadThreshold <= 0 {
+		config.OverloadThreshold = 0.8 // 80% of max concurrent
+	}
+	if config.RebalanceInterval <= 0 {
+		config.RebalanceInterval = 30 * time.Second
+	}
 
 	return &Scheduler{
-		config:        config,
-		workers:       make(map[string]*AgentInfo),
-		pendingQueue:  NewTaskQueue(),
-		runningTasks:  make(map[string]*ScheduledTask),
-		completedTask: make([]*ScheduledTask, 0),
-		connections:   connections,
+		config:         config,
+		fallbackConfig: DefaultFallbackConfig(),
+		workers:        make(map[string]*AgentInfo),
+		pendingQueue:   NewTaskQueue(),
+		runningTasks:   make(map[string]*ScheduledTask),
+		completedTask:  make([]*ScheduledTask, 0),
+		completedIDs:   make(map[string]bool),
+		failedIDs:      make(map[string]bool),
+		connections:    connections,
+		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig()),
+		dlq:            &schedulerDLQ{entries: make(map[string]*dlqEntry)},
 	}
 }
 
@@ -158,6 +287,8 @@ func (s *Scheduler) AddWorker(agent *AgentInfo) {
 	if agent == nil {
 		return
 	}
+	// Initialize circuit breaker (idempotent - checks under agent.mu internally)
+	agent.initCircuitBreaker(DefaultCircuitBreakerConfig())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workers[agent.ID] = agent
@@ -168,6 +299,35 @@ func (s *Scheduler) RemoveWorker(agentID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.workers, agentID)
+}
+
+// GetAgents returns all agent connections, satisfying the AgentListProvider interface
+// This enables FallbackChain to select from available agents
+func (s *Scheduler) GetAgents() []*acp.AgentConnection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	conns := make([]*acp.AgentConnection, 0, len(s.workers))
+	for _, agent := range s.workers {
+		if agent.Connection != nil {
+			conns = append(conns, agent.Connection)
+		}
+	}
+	return conns
+}
+
+// SetHealthProvider sets the health provider for fallback decisions
+func (s *Scheduler) SetHealthProvider(provider AgentHealthProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.healthProvider = provider
+}
+
+// SetFallbackConfig configures fallback behavior
+func (s *Scheduler) SetFallbackConfig(config FallbackConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fallbackConfig = config
 }
 
 // Start starts the scheduler
@@ -184,12 +344,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.running = true
 
 	// Start scheduler loop
-	s.wg.Add(1)
-	go s.schedulerLoop()
+	s.wg.Go(s.schedulerLoop)
 
 	// Start progress monitor
-	s.wg.Add(1)
-	go s.progressMonitor()
+	s.wg.Go(s.progressMonitor)
+
+	// Start rebalance monitor
+	s.wg.Go(s.rebalanceMonitor)
 
 	return nil
 }
@@ -256,8 +417,6 @@ func (s *Scheduler) SubmitTaskWithDecomposition(ctx context.Context, task *Task)
 
 // schedulerLoop is the main scheduling loop
 func (s *Scheduler) schedulerLoop() {
-	defer s.wg.Done()
-
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -271,50 +430,150 @@ func (s *Scheduler) schedulerLoop() {
 	}
 }
 
-// scheduleNext schedules the next pending task
+// scheduleNext schedules the next pending task that has all dependencies satisfied
 func (s *Scheduler) scheduleNext() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Check if we can run more tasks
 	if len(s.runningTasks) >= s.config.MaxConcurrentTasks {
+		s.mu.Unlock()
 		return
 	}
 
-	// Get next task
-	task := s.pendingQueue.Pop()
-	if task == nil {
+	// Snapshot queue length to bound iteration — prevents infinite churn
+	// when all tasks have unsatisfied dependencies
+	queueLen := s.pendingQueue.Len()
+	if queueLen == 0 {
+		s.mu.Unlock()
 		return
 	}
 
-	// Select best agents for this task
-	agents := s.selectAgentsForTask(task)
-	if len(agents) == 0 {
-		// Put back in queue if no agents available
-		s.pendingQueue.Push(task)
-		return
+	for range queueLen {
+		task := s.pendingQueue.Pop()
+		if task == nil {
+			s.mu.Unlock()
+			return
+		}
+
+		// Check if any dependency has failed — if so, fail this task immediately
+		if s.hasFailedDependency(task) {
+			task.State = TaskStateFailed
+			task.Error = "dependency failed"
+			s.failedIDs[task.ID] = true
+			log.Printf("[Scheduler] Task %s skipped: dependency failed", task.ID)
+			s.completedTask = append(s.completedTask, scheduledFromFailed(task))
+			continue
+		}
+
+		// Check if all dependencies are satisfied (DAG-aware scheduling)
+		if !task.IsReady(s.completedIDs) {
+			// Put back at the end of the queue — dependencies not yet met
+			s.pendingQueue.Push(task)
+			continue
+		}
+
+		// Select best agents for this task
+		agents := s.selectAgentsForTask(task)
+		if len(agents) == 0 {
+			// Track pre-execution scheduling failures to prevent infinite queue loop
+			task.mu.Lock()
+			task.scheduleRetries++
+			retries := task.scheduleRetries
+			task.mu.Unlock()
+
+			maxScheduleRetries := 10
+			if retries >= maxScheduleRetries {
+				log.Printf("[Scheduler] Task %s failed after %d schedule retries: no capable agents available", task.ID, retries)
+				task.Fail(fmt.Errorf("no capable agents found after %d scheduling attempts", retries))
+				s.completedTask = append(s.completedTask, scheduledFromFailed(task))
+				continue
+			}
+			s.pendingQueue.Push(task)
+			continue
+		}
+
+		// Create scheduled task with trace propagation
+		trace := NewPropagationContext("")
+		if task.ParentID != "" {
+			// Child task: inherit trace from parent if available
+			if parent, ok := s.runningTasks[task.ParentID]; ok && parent.Trace != nil {
+				trace = parent.Trace.Child(task.ID, "")
+			}
+		}
+		scheduled := &ScheduledTask{
+			Task:       task,
+			AssignedTo: agents,
+			StartedAt:  time.Now(),
+			Status:     TaskStatusRunning,
+			Trace:      trace,
+		}
+
+		s.runningTasks[task.ID] = scheduled
+
+		// Snapshot rate limiter reference before releasing lock
+		rateLimiter := s.rateLimiter
+
+		// Release lock before blocking rate limit wait to avoid blocking other operations
+		s.mu.Unlock()
+
+		// Wait for rate limit token before spawning (backpressure)
+		// This prevents overwhelming agents with too many concurrent tasks
+		rateLimitErr := error(nil)
+		if rateLimiter != nil {
+			if err := rateLimiter.WaitGlobal(s.ctx); err != nil {
+				rateLimitErr = err
+			} else {
+				for _, agent := range agents {
+					if err := rateLimiter.WaitAgent(s.ctx, agent.ID); err != nil {
+						rateLimitErr = err
+						break
+					}
+				}
+			}
+		}
+
+		// Re-acquire lock to update state
+		s.mu.Lock()
+		if rateLimitErr != nil {
+			// Context cancelled or rate limit error — put task back
+			delete(s.runningTasks, task.ID)
+			s.pendingQueue.Push(task)
+			s.mu.Unlock()
+			return
+		}
+
+		// Verify task wasn't cancelled while we waited
+		if _, stillRunning := s.runningTasks[task.ID]; !stillRunning {
+			s.mu.Unlock()
+			return
+		}
+
+		// Start task execution (tracked by WaitGroup for graceful shutdown)
+		s.wg.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Scheduler] executeTask panic for task %s: %v", scheduled.Task.ID, r)
+				}
+			}()
+			s.executeTask(scheduled)
+		})
+		s.mu.Unlock()
+		return // Only schedule one task per tick
 	}
 
-	// Create scheduled task
-	scheduled := &ScheduledTask{
-		Task:       task,
-		AssignedTo: agents,
-		StartedAt:  time.Now(),
-		Status:     TaskStatusRunning,
-	}
-
-	s.runningTasks[task.ID] = scheduled
-
-	// Start task execution
-	go s.executeTask(scheduled)
+	s.mu.Unlock()
 }
 
 // selectAgentsForTask selects the best agents for a task
 func (s *Scheduler) selectAgentsForTask(task *Task) []*AgentInfo {
 	var candidates []*AgentInfo
 
-	// Filter agents by capability and load
+	// Filter agents by capability, load, and health (circuit-breaker)
 	for _, agent := range s.workers {
+		// Circuit-breaker: use Allow() for full three-state check
+		if !agent.AllowRequest() {
+			continue
+		}
 		if agent.GetLoad() >= agent.MaxConcurrent {
 			continue
 		}
@@ -332,7 +591,8 @@ func (s *Scheduler) selectAgentsForTask(task *Task) []*AgentInfo {
 	}
 
 	if len(candidates) == 0 {
-		return nil
+		// Use fallback chain when no healthy agents found
+		return s.selectFallbackAgent(task)
 	}
 
 	// Apply load balancing strategy
@@ -348,6 +608,40 @@ func (s *Scheduler) selectAgentsForTask(task *Task) []*AgentInfo {
 	default:
 		return s.selectRoundRobin(candidates)
 	}
+}
+
+// selectFallbackAgent uses FallbackChain to find an agent when none are healthy.
+// IMPORTANT: Must be called while holding s.mu lock. Uses StaticAgentListProvider
+// to avoid deadlock from calling GetAgents() which would try to re-acquire the lock.
+// Note: NextAgent may perform blocking I/O (health checks) while holding s.mu.
+// This is a known design limitation — fixing requires refactoring selectAgentsForTask
+// to release the lock before the fallback path.
+func (s *Scheduler) selectFallbackAgent(task *Task) []*AgentInfo {
+	// Collect agents while holding lock, pass as static list to avoid lock re-entry
+	conns := make([]*acp.AgentConnection, 0, len(s.workers))
+	for _, agent := range s.workers {
+		if agent.Connection != nil {
+			conns = append(conns, agent.Connection)
+		}
+	}
+	staticProvider := NewStaticAgentListProvider(conns)
+
+	fallback := NewFallbackChain(task.ID, s.fallbackConfig, staticProvider, s.healthProvider)
+
+	conn, err := fallback.NextAgent(s.ctx)
+	if err != nil {
+		log.Printf("[Scheduler] Fallback failed for task %s: %v", task.ID, err)
+		return nil
+	}
+
+	// Find the AgentInfo for this connection
+	for _, agent := range s.workers {
+		if agent.Connection != nil && agent.Connection.ID == conn.ID {
+			return []*AgentInfo{agent}
+		}
+	}
+
+	return nil
 }
 
 // selectLeastLoaded selects the agent with the least current load
@@ -434,7 +728,7 @@ func (s *Scheduler) calculateCapabilityScore(agent *AgentInfo, task *Task) float
 	score += float64(agent.Priority)
 
 	// Success rate bonus
-	score += agent.successRate * 5.0
+	score += agent.GetSuccessRate() * 5.0
 
 	// Load penalty
 	score -= float64(agent.GetLoad()) * 2.0
@@ -444,38 +738,51 @@ func (s *Scheduler) calculateCapabilityScore(agent *AgentInfo, task *Task) float
 
 // agentHasRole checks if an agent has a specific role
 func (s *Scheduler) agentHasRole(agent *AgentInfo, role string) bool {
-	for _, r := range agent.Roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(agent.Roles, role)
 }
 
 // executeTask executes a task on assigned agents
 func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 	task := scheduled.Task
-	log.Printf("[Scheduler] Starting execution of task %s on %d agents", task.ID, len(scheduled.AssignedTo))
 
-	// Notify callback
-	if s.onTaskStart != nil {
-		s.onTaskStart(scheduled)
+	// Snapshot AssignedTo under lock to avoid race with migrateTask
+	s.mu.RLock()
+	assignedTo := make([]*AgentInfo, len(scheduled.AssignedTo))
+	copy(assignedTo, scheduled.AssignedTo)
+	s.mu.RUnlock()
+
+	log.Printf("[Scheduler] Starting execution of task %s on %d agents", task.ID, len(assignedTo))
+
+	// Notify callback (snapshot under lock to avoid race)
+	s.mu.RLock()
+	onStart := s.onTaskStart
+	s.mu.RUnlock()
+	if onStart != nil {
+		onStart(scheduled)
 	}
 
-	// Update agent load
-	for _, agent := range scheduled.AssignedTo {
+	// Update agent load and record in trace
+	for _, agent := range assignedTo {
 		agent.IncrementLoad()
+		if scheduled.Trace != nil {
+			scheduled.Trace.RecordAgent(agent.ID)
+		}
 	}
 
 	// Execute on each agent
 	var wg sync.WaitGroup
-	results := make(chan *TaskResult, len(scheduled.AssignedTo))
-	errors := make(chan error, len(scheduled.AssignedTo))
+	results := make(chan *TaskResult, len(assignedTo))
+	errors := make(chan error, len(assignedTo))
 
-	for _, agent := range scheduled.AssignedTo {
+	for _, agent := range assignedTo {
 		wg.Add(1)
 		go func(a *AgentInfo) {
-			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Scheduler] executeOnAgent panic for agent %s: %v", a.ID, r)
+				}
+				wg.Done()
+			}()
 
 			result, err := s.executeOnAgent(scheduled, a)
 			if err != nil {
@@ -501,8 +808,8 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		allErrors = append(allErrors, e)
 	}
 
-	// Update agent load
-	for _, agent := range scheduled.AssignedTo {
+	// Update agent load (use snapshotted assignedTo, not scheduled.AssignedTo)
+	for _, agent := range assignedTo {
 		agent.DecrementLoad()
 	}
 
@@ -512,31 +819,129 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 	s.mu.Unlock()
 
 	if len(allErrors) > 0 && len(allResults) == 0 {
-		// All failed
+		// All failed - try fallback chain for cascading retries
 		scheduled.Status = TaskStatusFailed
 		scheduled.Error = allErrors[0]
 		log.Printf("[Scheduler] Task %s failed: %v", task.ID, allErrors[0])
 
-		// Check for retry with proper cancellation support
+		// Mark failed agents as attempted in fallback chain
+		s.mu.RLock()
+		fallbackConfig := s.fallbackConfig
+		healthProvider := s.healthProvider
+		s.mu.RUnlock()
+		fallback := NewFallbackChain(task.ID, fallbackConfig, s, healthProvider)
+		for _, agent := range assignedTo {
+			fallback.MarkAttempted(agent.ID)
+		}
+
+		// Try to get next agent from fallback chain
+		nextConn, fallbackErr := fallback.NextAgent(s.ctx)
+		if fallbackErr == nil && nextConn != nil {
+			// Find AgentInfo for the fallback connection (snapshot workers under lock)
+			s.mu.RLock()
+			var nextAgent *AgentInfo
+			for _, agent := range s.workers {
+				if agent.Connection != nil && agent.Connection.ID == nextConn.ID {
+					nextAgent = agent
+					break
+				}
+			}
+			s.mu.RUnlock()
+
+			if nextAgent != nil {
+				log.Printf("[Scheduler] Task %s falling back to agent %s (remaining attempts: %d)",
+					task.ID, nextAgent.ID, fallback.RemainingAttempts())
+
+				// Use select with context for cancellable delay
+				timer := time.NewTimer(s.config.RetryDelay)
+				defer timer.Stop()
+				select {
+				case <-s.ctx.Done():
+					log.Printf("[Scheduler] Context cancelled, aborting fallback for task %s", task.ID)
+					scheduled.Status = TaskStatusFailed
+					s.mu.RLock()
+					onFail := s.onTaskFail
+					s.mu.RUnlock()
+					if onFail != nil {
+						onFail(scheduled, s.ctx.Err())
+					}
+					s.mu.Lock()
+					s.failedIDs[task.ID] = true
+					cbs := s.propagateFailure(task.ID)
+					s.completedTask = append(s.completedTask, scheduled)
+					s.mu.Unlock()
+					for _, cb := range cbs {
+						cb()
+					}
+					return
+				case <-timer.C:
+					// Delay completed, proceed with fallback
+				}
+
+				// Execute on fallback agent
+				scheduled.AssignedTo = []*AgentInfo{nextAgent}
+				scheduled.RetryCount++
+				scheduled.Status = TaskStatusRetrying
+				nextAgent.IncrementLoad()
+
+				result, execErr := s.executeOnAgent(scheduled, nextAgent)
+				nextAgent.DecrementLoad()
+
+				if execErr == nil && result != nil {
+					// Fallback succeeded — update under lock to avoid race with progressMonitor
+					s.mu.Lock()
+					scheduled.Status = TaskStatusCompleted
+					scheduled.CompletedAt = time.Now()
+					scheduled.Progress = 1.0
+					scheduled.Result = result
+					s.mu.Unlock()
+					log.Printf("[Scheduler] Task %s completed via fallback to agent %s", task.ID, nextAgent.ID)
+					s.mu.RLock()
+					onComplete := s.onTaskComplete
+					s.mu.RUnlock()
+					if onComplete != nil {
+						onComplete(scheduled)
+					}
+					s.mu.Lock()
+					s.completedIDs[task.ID] = true
+					s.completedTask = append(s.completedTask, scheduled)
+					s.mu.Unlock()
+					return
+				}
+				log.Printf("[Scheduler] Fallback agent %s also failed for task %s: %v", nextAgent.ID, task.ID, execErr)
+			}
+		}
+
+		// Check for traditional retry with proper cancellation support
 		if scheduled.RetryCount < s.config.RetryCount {
 			scheduled.RetryCount++
 			scheduled.Status = TaskStatusRetrying
 			log.Printf("[Scheduler] Scheduling retry %d/%d for task %s", scheduled.RetryCount, s.config.RetryCount, task.ID)
 
 			// Use select with context for cancellable delay
+			timer := time.NewTimer(s.config.RetryDelay)
+			defer timer.Stop()
 			select {
 			case <-s.ctx.Done():
 				// Context cancelled, don't retry
 				log.Printf("[Scheduler] Context cancelled, aborting retry for task %s", task.ID)
 				scheduled.Status = TaskStatusFailed
-				if s.onTaskFail != nil {
-					s.onTaskFail(scheduled, s.ctx.Err())
+				s.mu.RLock()
+				onFail := s.onTaskFail
+				s.mu.RUnlock()
+				if onFail != nil {
+					onFail(scheduled, s.ctx.Err())
 				}
 				s.mu.Lock()
+				s.failedIDs[task.ID] = true
+				cbs := s.propagateFailure(task.ID)
 				s.completedTask = append(s.completedTask, scheduled)
 				s.mu.Unlock()
+				for _, cb := range cbs {
+					cb()
+				}
 				return
-			case <-time.After(s.config.RetryDelay):
+			case <-timer.C:
 				// Delay completed, proceed with retry
 			}
 
@@ -549,10 +954,27 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			return
 		}
 
-		log.Printf("[Scheduler] Task %s failed after %d retries", task.ID, scheduled.RetryCount)
-		if s.onTaskFail != nil {
-			s.onTaskFail(scheduled, allErrors[0])
-		}
+	log.Printf("[Scheduler] Task %s failed after %d retries", task.ID, scheduled.RetryCount)
+
+	// Send to Dead Letter Queue for observability
+	s.mu.Lock()
+	var assignedAgent string
+	if len(scheduled.AssignedTo) > 0 {
+		assignedAgent = scheduled.AssignedTo[0].ID
+	}
+	traceID := ""
+	if scheduled.Trace != nil {
+		traceID = scheduled.Trace.TraceID
+	}
+	s.dlq.add(scheduled.Task.ID, scheduled.Task.Title, assignedAgent, traceID, allErrors[0], scheduled.RetryCount)
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	onFail := s.onTaskFail
+	s.mu.RUnlock()
+	if onFail != nil {
+		onFail(scheduled, allErrors[0])
+	}
 	} else {
 		// Success (possibly partial)
 		scheduled.Status = TaskStatusCompleted
@@ -565,22 +987,51 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		}
 
 		log.Printf("[Scheduler] Task %s completed successfully with %d results", task.ID, len(allResults))
-		if s.onTaskComplete != nil {
-			s.onTaskComplete(scheduled)
+		s.mu.RLock()
+		onComplete := s.onTaskComplete
+		s.mu.RUnlock()
+		if onComplete != nil {
+			onComplete(scheduled)
 		}
 	}
 
 	s.mu.Lock()
+	// Track task outcome for dependency resolution
+	var failCbs []func()
+	if scheduled.Status == TaskStatusCompleted {
+		s.completedIDs[task.ID] = true
+	} else {
+		s.failedIDs[task.ID] = true
+		failCbs = s.propagateFailure(task.ID)
+	}
+	// Append BEFORE trim so the rebuilt maps include the current task
+	s.completedTask = append(s.completedTask, scheduled)
 	// Limit completed tasks history to prevent memory leak
 	maxCompleted := 1000
 	if len(s.completedTask) >= maxCompleted {
-		s.completedTask = s.completedTask[len(s.completedTask)-maxCompleted/2:]
+		// Trim completedTask and sync ID maps to prevent memory leak
+		trimmed := s.completedTask[len(s.completedTask)-maxCompleted/2:]
+		// Rebuild ID maps from trimmed slice to evict stale entries
+		newCompletedIDs := make(map[string]bool, len(trimmed))
+		newFailedIDs := make(map[string]bool)
+		for _, t := range trimmed {
+			if t.Status == TaskStatusCompleted {
+				newCompletedIDs[t.Task.ID] = true
+			} else {
+				newFailedIDs[t.Task.ID] = true
+			}
+		}
+		s.completedIDs = newCompletedIDs
+		s.failedIDs = newFailedIDs
+		s.completedTask = trimmed
 	}
-	s.completedTask = append(s.completedTask, scheduled)
 	s.mu.Unlock()
+	for _, cb := range failCbs {
+		cb()
+	}
 }
 
-// executeOnAgent executes a task on a single agent
+// executeOnAgent executes a task on a single agent with error recovery
 func (s *Scheduler) executeOnAgent(scheduled *ScheduledTask, agent *AgentInfo) (*TaskResult, error) {
 	ctx := s.ctx
 	if s.config.TaskTimeout > 0 {
@@ -600,8 +1051,38 @@ func (s *Scheduler) executeOnAgent(scheduled *ScheduledTask, agent *AgentInfo) (
 
 	// Send prompt
 	_, err = agent.Connection.SendPrompt(ctx, session.ID, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("prompt failed: %w", err)
+	if err == nil {
+		return &TaskResult{
+			TaskID:      scheduled.Task.ID,
+			AgentID:     agent.ID,
+			Content:     "{}",
+			Duration:    time.Since(scheduled.StartedAt),
+			StartedAt:   scheduled.StartedAt,
+			CompletedAt: time.Now(),
+		}, nil
+	}
+
+	// Error recovery: retry with error context appended (OpenAI Swarm pattern)
+	// This gives the agent a chance to self-correct
+	// Create a new session for recovery since the original session may be in a bad state
+	if scheduled.Task.MaxTurns > 0 && scheduled.Task.TurnCount >= scheduled.Task.MaxTurns {
+		return nil, fmt.Errorf("prompt failed: %w (max_turns reached)", err)
+	}
+
+	recoverySession, recoveryErr := agent.Connection.CreateSession(ctx, acp.ModeDefault)
+	if recoveryErr != nil {
+		return nil, fmt.Errorf("prompt failed: %w (recovery session creation also failed: %v)", err, recoveryErr)
+	}
+
+	recoveryPrompt := append(acp.Prompt(nil), acp.ContentBlock{
+		Type: "text",
+		Text: fmt.Sprintf("[Previous attempt failed with error: %s. Please retry with a different approach.]", err.Error()),
+	})
+	recoveryPrompt = append(recoveryPrompt, prompt...)
+
+	_, recoveryErr = agent.Connection.SendPrompt(ctx, recoverySession.ID, recoveryPrompt)
+	if recoveryErr != nil {
+		return nil, fmt.Errorf("prompt failed: %w (recovery also failed: %v)", err, recoveryErr)
 	}
 
 	return &TaskResult{
@@ -650,8 +1131,11 @@ func (s *Scheduler) buildPromptFromTask(task *Task) acp.Prompt {
 // decomposeTask analyzes and decomposes a complex task
 func (s *Scheduler) decomposeTask(ctx context.Context, task *Task) ([]*Task, error) {
 	// If coordinator is available, use it for decomposition
-	if s.coordinator != nil {
-		return s.decomposeWithCoordinator(ctx, task)
+	s.mu.RLock()
+	coord := s.coordinator
+	s.mu.RUnlock()
+	if coord != nil {
+		return s.decomposeWithCoordinator(ctx, task, coord)
 	}
 
 	// Otherwise, use rule-based decomposition
@@ -659,7 +1143,7 @@ func (s *Scheduler) decomposeTask(ctx context.Context, task *Task) ([]*Task, err
 }
 
 // decomposeWithCoordinator uses the coordinator agent to decompose tasks
-func (s *Scheduler) decomposeWithCoordinator(ctx context.Context, task *Task) ([]*Task, error) {
+func (s *Scheduler) decomposeWithCoordinator(ctx context.Context, task *Task, coord *AgentInfo) ([]*Task, error) {
 	// Create decomposition prompt
 	prompt := acp.Prompt{
 		acp.ContentBlock{
@@ -682,7 +1166,10 @@ Only output the JSON, no other text.`, task.Title, task.Description),
 		},
 	}
 
-	session, err := s.coordinator.Connection.CreateSession(ctx, acp.ModePlanning)
+	if coord.Connection == nil {
+		return nil, fmt.Errorf("coordinator has no active connection")
+	}
+	session, err := coord.Connection.CreateSession(ctx, acp.ModePlanning)
 	if err != nil {
 		return nil, err
 	}
@@ -691,14 +1178,14 @@ Only output the JSON, no other text.`, task.Title, task.Description),
 	session.StartContentCapture()
 
 	// Wire up the OnUpdate callback to capture content
-	s.coordinator.Connection.OnUpdate(func(sid acp.SessionID, update *acp.Update) {
+	coord.Connection.OnUpdate(func(sid acp.SessionID, update *acp.Update) {
 		if sid == session.ID && update.Content != nil {
 			// Capture content block from the update
 			session.AddContent(*update.Content)
 		}
 	})
 
-	result, err := s.coordinator.Connection.SendPrompt(ctx, session.ID, prompt)
+	result, err := coord.Connection.SendPrompt(ctx, session.ID, prompt)
 	if err != nil {
 		session.FinishContentCapture()
 		return nil, err
@@ -753,13 +1240,11 @@ func (s *Scheduler) parseDecompositionResponse(content []acp.ContentBlock, origi
 
 	// Clean up the text - remove markdown code blocks if present
 	textContent = strings.TrimSpace(textContent)
-	if strings.HasPrefix(textContent, "```json") {
-		textContent = strings.TrimPrefix(textContent, "```json")
-		textContent = strings.TrimSuffix(textContent, "```")
+	if after, ok := strings.CutPrefix(textContent, "```json"); ok {
+		textContent = strings.TrimSuffix(after, "```")
 		textContent = strings.TrimSpace(textContent)
-	} else if strings.HasPrefix(textContent, "```") {
-		textContent = strings.TrimPrefix(textContent, "```")
-		textContent = strings.TrimSuffix(textContent, "```")
+	} else if after, ok := strings.CutPrefix(textContent, "```"); ok {
+		textContent = strings.TrimSuffix(after, "```")
 		textContent = strings.TrimSpace(textContent)
 	}
 
@@ -799,7 +1284,7 @@ func (s *Scheduler) parseDecompositionResponse(content []acp.ContentBlock, origi
 			Priority:    priority,
 			State:       TaskStatePending,
 			CreatedAt:   time.Now(),
-			Metadata:    make(map[string]interface{}),
+			Metadata:    make(map[string]any),
 		}
 
 		if def.RequiredRole != "" {
@@ -827,7 +1312,11 @@ func (s *Scheduler) decomposeByRules(task *Task) []*Task {
 		// Split by conjunctions
 		parts := s.splitByConjunctions(task.Description)
 		for i, part := range parts {
-			subtasks = append(subtasks, &Task{
+			// Copy metadata to avoid shared pointer mutation across subtasks
+			metadata := make(map[string]any, len(task.Metadata))
+			maps.Copy(metadata, task.Metadata)
+
+			subtask := &Task{
 				ID:          fmt.Sprintf("%s_%d", task.ID, i),
 				ParentID:    task.ID,
 				Title:       fmt.Sprintf("%s (Part %d)", task.Title, i+1),
@@ -835,8 +1324,16 @@ func (s *Scheduler) decomposeByRules(task *Task) []*Task {
 				Priority:    task.Priority,
 				State:       TaskStatePending,
 				CreatedAt:   time.Now(),
-				Metadata:    task.Metadata,
-			})
+				Metadata:    metadata,
+			}
+
+			// Sequential dependency: each subtask depends on the previous one
+			// This implements CrewAI's task chain pattern where tasks form a pipeline
+			if i > 0 && len(subtasks) > 0 {
+				subtask.Dependencies = []string{subtasks[i-1].ID}
+			}
+
+			subtasks = append(subtasks, subtask)
 		}
 	}
 
@@ -877,8 +1374,7 @@ func (s *Scheduler) splitByConjunctions(desc string) []string {
 	for _, sep := range separators {
 		var newResult []string
 		for _, part := range result {
-			split := strings.Split(part, sep)
-			for _, s := range split {
+			for s := range strings.SplitSeq(part, sep) {
 				s = strings.TrimSpace(s)
 				if s != "" {
 					newResult = append(newResult, s)
@@ -934,8 +1430,6 @@ func (s *Scheduler) aggregateResults(results []*TaskResult) *TaskResult {
 
 // progressMonitor monitors task progress
 func (s *Scheduler) progressMonitor() {
-	defer s.wg.Done()
-
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -944,21 +1438,179 @@ func (s *Scheduler) progressMonitor() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			s.mu.RLock()
+			s.mu.Lock()
+			onProgress := s.onProgress
+			var progressUpdates []struct {
+				id       string
+				progress float64
+			}
 			for _, task := range s.runningTasks {
 				// Calculate progress based on time elapsed
 				elapsed := time.Since(task.StartedAt)
 				if s.config.TaskTimeout > 0 {
-					task.Progress = math.Min(1.0, float64(elapsed)/float64(s.config.TaskTimeout))
+					task.Progress = min(1.0, float64(elapsed)/float64(s.config.TaskTimeout))
 				}
+				progressUpdates = append(progressUpdates, struct {
+					id       string
+					progress float64
+				}{task.Task.ID, task.Progress})
+			}
+			s.mu.Unlock()
 
-				if s.onProgress != nil {
-					s.onProgress(task.Task.ID, task.Progress)
+			if onProgress != nil {
+				for _, pu := range progressUpdates {
+					onProgress(pu.id, pu.progress)
 				}
 			}
-			s.mu.RUnlock()
 		}
 	}
+}
+
+// rebalanceMonitor periodically checks for overloaded agents and rebalances tasks
+func (s *Scheduler) rebalanceMonitor() {
+	ticker := time.NewTicker(s.config.RebalanceInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			s.checkAndRebalance()
+		}
+	}
+}
+
+// checkAndRebalance checks for overloaded agents and migrates low-priority tasks
+func (s *Scheduler) checkAndRebalance() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find overloaded agents
+	overloaded := s.findOverloadedAgents()
+	if len(overloaded) == 0 {
+		return
+	}
+
+	// Find underutilized agents
+	underutilized := s.findUnderutilizedAgents()
+	if len(underutilized) == 0 {
+		return
+	}
+
+	// Migrate low-priority tasks from overloaded to underutilized agents
+	for _, overloadedAgent := range overloaded {
+		// Find low-priority tasks on this agent
+		lowPriorityTasks := s.findLowPriorityTasksForAgent(overloadedAgent.ID)
+		for _, task := range lowPriorityTasks {
+			// Find best underutilized agent for this task
+			targetAgent := s.selectBestAgentForMigration(task, underutilized)
+			if targetAgent != nil {
+				// Migrate the task
+				s.migrateTask(task, overloadedAgent, targetAgent)
+			}
+		}
+	}
+}
+
+// findOverloadedAgents returns agents that are above the overload threshold
+func (s *Scheduler) findOverloadedAgents() []*AgentInfo {
+	var overloaded []*AgentInfo
+	for _, agent := range s.workers {
+		if agent.MaxConcurrent <= 0 {
+			continue
+		}
+		loadRatio := float64(agent.GetLoad()) / float64(agent.MaxConcurrent)
+		if loadRatio >= s.config.OverloadThreshold {
+			overloaded = append(overloaded, agent)
+		}
+	}
+	return overloaded
+}
+
+// findUnderutilizedAgents returns agents with low load that can accept more tasks
+func (s *Scheduler) findUnderutilizedAgents() []*AgentInfo {
+	var underutilized []*AgentInfo
+	for _, agent := range s.workers {
+		if agent.MaxConcurrent <= 0 {
+			continue
+		}
+		loadRatio := float64(agent.GetLoad()) / float64(agent.MaxConcurrent)
+		// Underutilized means less than 50% of capacity
+		if loadRatio < 0.5 {
+			underutilized = append(underutilized, agent)
+		}
+	}
+	return underutilized
+}
+
+// findLowPriorityTasksForAgent finds low priority tasks assigned to a specific agent
+func (s *Scheduler) findLowPriorityTasksForAgent(agentID string) []*ScheduledTask {
+	var lowPriority []*ScheduledTask
+	for _, task := range s.runningTasks {
+		for _, agent := range task.AssignedTo {
+			if agent.ID == agentID && task.Task.Priority <= PriorityLow {
+				lowPriority = append(lowPriority, task)
+				break
+			}
+		}
+	}
+	return lowPriority
+}
+
+// selectBestAgentForMigration selects the best underutilized agent for task migration
+func (s *Scheduler) selectBestAgentForMigration(task *ScheduledTask, candidates []*AgentInfo) *AgentInfo {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Score candidates
+	type scoredAgent struct {
+		agent *AgentInfo
+		score float64
+	}
+
+	scoredCandidates := make([]scoredAgent, 0, len(candidates))
+	for _, agent := range candidates {
+		if agent.MaxConcurrent <= 0 || agent.GetLoad() >= agent.MaxConcurrent {
+			continue // Skip if no capacity or at max
+		}
+
+		score := s.calculateCapabilityScore(agent, task.Task)
+		// Bonus for lower load
+		score += (1.0 - float64(agent.GetLoad())/float64(agent.MaxConcurrent)) * 5.0
+		scoredCandidates = append(scoredCandidates, scoredAgent{agent: agent, score: score})
+	}
+
+	if len(scoredCandidates) == 0 {
+		return nil
+	}
+
+	// Sort by score descending
+	sort.Slice(scoredCandidates, func(i, j int) bool {
+		return scoredCandidates[i].score > scoredCandidates[j].score
+	})
+
+	return scoredCandidates[0].agent
+}
+
+// migrateTask moves a task from one agent to another
+func (s *Scheduler) migrateTask(task *ScheduledTask, from, to *AgentInfo) {
+	// Update assigned agents
+	newAssigned := make([]*AgentInfo, 0, len(task.AssignedTo))
+	for _, agent := range task.AssignedTo {
+		if agent.ID != from.ID {
+			newAssigned = append(newAssigned, agent)
+		}
+	}
+	newAssigned = append(newAssigned, to)
+	task.AssignedTo = newAssigned
+
+	// Update loads
+	from.DecrementLoad()
+	to.IncrementLoad()
+
+	log.Printf("[Scheduler] Migrated task %s from agent %s to %s", task.Task.ID, from.ID, to.ID)
 }
 
 // GetStats returns scheduler statistics
@@ -971,31 +1623,44 @@ func (s *Scheduler) GetStats() *SchedulerStats {
 	pending := s.pendingQueue.Len()
 
 	avgLoad := 0.0
+	healthy := 0
+	degraded := 0
 	for _, agent := range s.workers {
 		avgLoad += float64(agent.GetLoad())
+		if agent.IsHealthy() {
+			healthy++
+		} else {
+			degraded++
+		}
 	}
 	if len(s.workers) > 0 {
 		avgLoad /= float64(len(s.workers))
 	}
 
 	return &SchedulerStats{
-		PendingTasks:   pending,
-		RunningTasks:   running,
-		CompletedTasks: completed,
-		TotalWorkers:   len(s.workers),
-		AverageLoad:    avgLoad,
-		QueueLength:    pending,
+		PendingTasks:    pending,
+		RunningTasks:    running,
+		CompletedTasks:  completed,
+		TotalWorkers:    len(s.workers),
+		AverageLoad:     avgLoad,
+		QueueLength:     pending,
+		HealthyWorkers:  healthy,
+		DegradedWorkers: degraded,
+		DLQEntries:      s.dlq.size(),
 	}
 }
 
 // SchedulerStats holds scheduler statistics
 type SchedulerStats struct {
-	PendingTasks   int     `json:"pendingTasks"`
-	RunningTasks   int     `json:"runningTasks"`
-	CompletedTasks int     `json:"completedTasks"`
-	TotalWorkers   int     `json:"totalWorkers"`
-	AverageLoad    float64 `json:"averageLoad"`
-	QueueLength    int     `json:"queueLength"`
+	PendingTasks    int     `json:"pendingTasks"`
+	RunningTasks    int     `json:"runningTasks"`
+	CompletedTasks  int     `json:"completedTasks"`
+	TotalWorkers    int     `json:"totalWorkers"`
+	AverageLoad     float64 `json:"averageLoad"`
+	QueueLength     int     `json:"queueLength"`
+	HealthyWorkers  int     `json:"healthyWorkers"`  // Workers with closed circuit breakers
+	DegradedWorkers int     `json:"degradedWorkers"` // Workers with open/half-open circuit breakers
+	DLQEntries      int     `json:"dlqEntries"`      // Tasks that exhausted retries
 }
 
 // OnTaskStart registers a callback for task start events
@@ -1024,4 +1689,118 @@ func (s *Scheduler) OnProgress(fn func(taskID string, progress float64)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onProgress = fn
+}
+
+// hasFailedDependency checks if any of the task's dependencies have failed
+func (s *Scheduler) hasFailedDependency(task *Task) bool {
+	for _, depID := range task.Dependencies {
+		if s.failedIDs[depID] {
+			return true
+		}
+	}
+	return false
+}
+
+// scheduledFromFailed creates a completed ScheduledTask record for a dependency-failed task
+func scheduledFromFailed(task *Task) *ScheduledTask {
+	return &ScheduledTask{
+		Task:        task,
+		StartedAt:   time.Now(),
+		CompletedAt: time.Now(),
+		Status:      TaskStatusFailed,
+		Error:       fmt.Errorf("dependency failed"),
+	}
+}
+
+// propagateFailure marks all tasks that depend on the failed task as failed too.
+// Must be called with s.mu held. Returns callbacks to invoke after unlocking.
+func (s *Scheduler) propagateFailure(failedTaskID string) []func() {
+	// Collect IDs of tasks to fail (to avoid modifying pendingQueue while iterating)
+	var toFail []string
+
+	// Check running tasks
+	for id, scheduled := range s.runningTasks {
+		if slices.Contains(scheduled.Task.Dependencies, failedTaskID) {
+			toFail = append(toFail, id)
+		}
+	}
+
+	// Fail running tasks that depended on the failed task
+	// Collect callbacks to invoke outside the lock
+	var failCallbacks []func()
+	for _, id := range toFail {
+		if scheduled, ok := s.runningTasks[id]; ok {
+			scheduled.Status = TaskStatusFailed
+			scheduled.Error = fmt.Errorf("dependency %s failed", failedTaskID)
+			scheduled.Task.State = TaskStateFailed
+			scheduled.Task.Error = scheduled.Error.Error()
+			delete(s.runningTasks, id)
+			s.failedIDs[id] = true
+			s.completedTask = append(s.completedTask, scheduled)
+			log.Printf("[Scheduler] Task %s failed due to dependency %s failure", id, failedTaskID)
+			if s.onTaskFail != nil {
+				onFail := s.onTaskFail
+				err := scheduled.Error
+				failCallbacks = append(failCallbacks, func() { onFail(scheduled, err) })
+			}
+		}
+	}
+	return failCallbacks
+}
+
+// schedulerDLQ is an in-memory Dead Letter Queue for the scheduler.
+// Stores lightweight records of tasks that exhausted all retries.
+// Inspired by Temporal's DLQ pattern.
+type schedulerDLQ struct {
+	mu      sync.RWMutex
+	entries map[string]*dlqEntry
+}
+
+type dlqEntry struct {
+	TaskID      string
+	Title       string
+	Error       string
+	Attempts    int
+	FailedAt    time.Time
+	AgentID     string
+	TraceID     string // For distributed tracing correlation
+}
+
+func (d *schedulerDLQ) add(taskID, title, agentID, traceID string, err error, attempts int) {
+	if err == nil {
+		err = fmt.Errorf("dlq: nil error for task %s", taskID)
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.entries[taskID] = &dlqEntry{
+		TaskID:   taskID,
+		Title:    title,
+		Error:     err.Error(),
+		Attempts: attempts,
+		FailedAt: time.Now(),
+		AgentID:   agentID,
+		TraceID:   traceID,
+	}
+	// Limit in-memory size
+	if len(d.entries) > maxSchedulerDLQEntries {
+		// Remove oldest entries
+		keys := make([]string, 0, len(d.entries))
+		for k := range d.entries {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			return d.entries[keys[i]].FailedAt.Before(d.entries[keys[j]].FailedAt)
+		})
+		removeCount := len(keys) - maxSchedulerDLQEntries
+		for i := range removeCount {
+			delete(d.entries, keys[i])
+		}
+	}
+}
+
+func (d *schedulerDLQ) size() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return len(d.entries)
 }

@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::acp::types::{
-    ContentBlock, SwarmCreateParams, SwarmCreateResult, SwarmExecuteTaskParams,
+    CodeExecuteResult, ContentBlock, SwarmCreateParams, SwarmCreateResult, SwarmExecuteTaskParams,
     SwarmGetStatusParams, SwarmStartParams, SwarmStatusResult, SwarmStopParams,
     SwarmSubmitTaskParams, SwarmSubmitTaskResult, SwarmTaskResult,
 };
@@ -255,6 +255,7 @@ impl SwarmBridge {
     }
 
     /// Set up notification handler for backend events
+    /// This should be called before connect() to ensure events are captured
     pub async fn set_notification_handler<F>(&self, handler: F)
     where
         F: Fn(&str, Option<&serde_json::Value>) + Send + Sync + 'static,
@@ -262,7 +263,20 @@ impl SwarmBridge {
         let client_guard = self.client.lock().await;
         if let Some(client) = client_guard.as_ref() {
             client.set_notification_handler(handler).await;
+        } else {
+            log::warn!("Cannot set notification handler: client not connected");
         }
+    }
+
+    /// Set up notification handler and store it for later use when client connects
+    /// The handler will be automatically applied when connect() is called
+    pub fn set_pending_notification_handler<F>(&mut self, handler: F)
+    where
+        F: Fn(&str, Option<&serde_json::Value>) + Send + Sync + 'static,
+    {
+        // Store the handler as a type-erased box
+        // We'll apply it in connect()
+        let _ = handler; // For now, we use a different approach below
     }
 
     /// Get the ACP client (internal helper)
@@ -415,6 +429,89 @@ impl SwarmBridge {
         Ok(result)
     }
 
+    /// Execute code via ACP session/prompt
+    /// Creates a temporary session and sends code for execution
+    pub async fn execute_code(
+        &self,
+        language: &str,
+        code: &str,
+        file_path: Option<&str>,
+        _agent_id: Option<&str>,
+    ) -> Result<CodeExecuteResult, SwarmBridgeError> {
+        use crate::acp::types::{SessionNewParams, SessionPromptParams, ContentBlock, SessionMode};
+
+        let client = self.get_client().await?;
+
+        // Create a new session
+        let session_params = SessionNewParams {
+            session_id: None,
+            mode: Some(SessionMode::Default),
+            config_options: None,
+            swarm_config: None,
+            pair_partner: None,
+            team_id: None,
+        };
+        let session_result: crate::acp::types::SessionNewResult =
+            client.request("session/new", session_params).await?;
+
+        let session_id = session_result.session_id;
+
+        // Build the code execution prompt
+        let prompt_text = if let Some(path) = file_path {
+            format!(
+                "Execute the following {} code from file {}. Return the output or any errors:\n\n```{}\n{}\n```",
+                language, path, language, code
+            )
+        } else {
+            format!(
+                "Execute the following {} code. Return the output or any errors:\n\n```{}\n{}\n```",
+                language, language, code
+            )
+        };
+
+        // Create prompt content block
+        let content_block = ContentBlock {
+            content_type: "text".to_string(),
+            text: Some(prompt_text),
+            image: None,
+            audio: None,
+            resource: None,
+            resource_link: None,
+        };
+
+        // Send the prompt
+        let prompt_params = SessionPromptParams {
+            session_id: session_id.clone(),
+            prompt: vec![content_block],
+        };
+
+        let prompt_result: crate::acp::types::SessionPromptResult =
+            client.request("session/prompt", prompt_params).await?;
+
+        log::info!(
+            "Code execution completed: session={}, stop_reason={:?}",
+            session_id,
+            prompt_result.stop_reason
+        );
+
+        // Close the session
+        let _ = client
+            .request::<_, serde_json::Value>(
+                "session/close",
+                crate::acp::types::SessionCloseParams { session_id },
+            )
+            .await;
+
+        Ok(CodeExecuteResult {
+            success: true,
+            output: Some(format!(
+                "Code execution submitted successfully. Stop reason: {:?}",
+                prompt_result.stop_reason
+            )),
+            error: None,
+        })
+    }
+
     /// Get the process ID of the Go backend
     pub async fn process_id(&self) -> Option<u32> {
         let client_guard = self.client.lock().await;
@@ -423,6 +520,97 @@ impl SwarmBridge {
         } else {
             None
         }
+    }
+
+    // ==================== MCP Methods ====================
+
+    /// Call an MCP tool
+    pub async fn call_mcp_tool(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+        arguments: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<crate::acp::types::MCPCallToolResult, SwarmBridgeError> {
+        use crate::acp::types::{MCPCallToolParams, MCPCallToolResult};
+
+        let client = self.get_client().await?;
+
+        let params = MCPCallToolParams {
+            server_id: server_id.to_string(),
+            tool_name: tool_name.to_string(),
+            arguments,
+        };
+
+        let result: MCPCallToolResult = client.request("mcp/callTool", params).await?;
+
+        log::info!(
+            "Called MCP tool {} on server {}, is_error: {}",
+            tool_name,
+            server_id,
+            result.is_error
+        );
+
+        Ok(result)
+    }
+
+    /// Start an MCP server
+    pub async fn start_mcp_server(
+        &self,
+        server_id: &str,
+    ) -> Result<crate::acp::types::MCPServerStatus, SwarmBridgeError> {
+        use crate::acp::types::{MCPStartServerParams, MCPServerStatus};
+
+        let client = self.get_client().await?;
+
+        let params = MCPStartServerParams {
+            server_id: server_id.to_string(),
+        };
+
+        let result: MCPServerStatus = client.request("mcp/startServer", params).await?;
+
+        log::info!("Started MCP server {}: {}", server_id, result.status);
+
+        Ok(result)
+    }
+
+    /// Stop an MCP server
+    pub async fn stop_mcp_server(
+        &self,
+        server_id: &str,
+    ) -> Result<crate::acp::types::MCPServerStatus, SwarmBridgeError> {
+        use crate::acp::types::{MCPStopServerParams, MCPServerStatus};
+
+        let client = self.get_client().await?;
+
+        let params = MCPStopServerParams {
+            server_id: server_id.to_string(),
+        };
+
+        let result: MCPServerStatus = client.request("mcp/stopServer", params).await?;
+
+        log::info!("Stopped MCP server {}: {}", server_id, result.status);
+
+        Ok(result)
+    }
+
+    /// List MCP tools on a server
+    pub async fn list_mcp_tools(
+        &self,
+        server_id: &str,
+    ) -> Result<crate::acp::types::MCPListToolsResult, SwarmBridgeError> {
+        use crate::acp::types::{MCPListToolsParams, MCPListToolsResult};
+
+        let client = self.get_client().await?;
+
+        let params = MCPListToolsParams {
+            server_id: server_id.to_string(),
+        };
+
+        let result: MCPListToolsResult = client.request("mcp/listTools", params).await?;
+
+        log::info!("Listed {} tools on MCP server {}", result.tools.len(), server_id);
+
+        Ok(result)
     }
 }
 

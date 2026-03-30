@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import {
   Play,
@@ -39,7 +39,9 @@ export default function SwarmCoordinatorPanel({
   testPauseTaskId,
   testCancelTaskId,
 }: SwarmCoordinatorPanelProps) {
-  const { activeSwarm, addToast } = useAppStore()
+  const activeSwarm = useAppStore(state => state.activeSwarm)
+  const addToast = useAppStore(state => state.addToast)
+  const mountedRef = useRef(true)
   const [tasks, setTasks] = useState<CoordinationTask[]>(initialTasks)
   const [selectedTask, setSelectedTask] = useState<CoordinationTask | null>(() => {
     // Test-only: set initial selected task from prop
@@ -84,6 +86,14 @@ export default function SwarmCoordinatorPanel({
       handleCancelTask(testCancelTaskId)
     }
   }, [testCancelTaskId])
+
+  // Track mounted state to prevent setState on unmounted component
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Simulated task updates
   useEffect(() => {
@@ -137,7 +147,7 @@ export default function SwarmCoordinatorPanel({
     return () => clearInterval(interval)
   }, [])
 
-  const handleSubmitTask = async () => {
+  const handleSubmitTask = useCallback(async () => {
     if (!activeSwarm) {
       addToast('warning', 'No Active Swarm', 'Please select or create a swarm first')
       return
@@ -149,9 +159,11 @@ export default function SwarmCoordinatorPanel({
         swarmId: activeSwarm.id,
         title: newTask.title,
         description: newTask.description,
-        prompt: newTask.prompt,
-        priority: newTask.priority,
+        priority: String(newTask.priority),
       })
+
+      // Check if component is still mounted before updating state
+      if (!mountedRef.current) return
 
       const task: CoordinationTask = {
         id: taskId,
@@ -177,8 +189,9 @@ export default function SwarmCoordinatorPanel({
       })
     } catch (err) {
       logger.error('Swarm', 'Failed to submit task:', err)
+      addToast('error', 'Submit Failed', err instanceof Error ? err.message : 'Failed to submit task')
     }
-  }
+  }, [activeSwarm, addToast, newTask])
 
   const statusColors = {
     pending: 'bg-text-tertiary',
@@ -190,7 +203,7 @@ export default function SwarmCoordinatorPanel({
     failed: 'bg-error',
   }
 
-  const handleStartTask = async (taskId: string) => {
+  const handleStartTask = useCallback(async (taskId: string) => {
     if (!activeSwarm) return
 
     setTasks((prev) =>
@@ -205,6 +218,9 @@ export default function SwarmCoordinatorPanel({
     try {
       // 调用后端执行任务
       const result = await api.swarm.executeTask(activeSwarm.id, taskId)
+
+      // Check if component is still mounted before updating state
+      if (!mountedRef.current) return
 
       // 更新任务结果
       setTasks((prev) =>
@@ -234,13 +250,15 @@ export default function SwarmCoordinatorPanel({
       )
     } catch (err) {
       logger.error('Swarm', 'Failed to execute task:', err)
+      // Check if component is still mounted before updating state
+      if (!mountedRef.current) return
       setTasks((prev) =>
         prev.map((t) =>
           t.id === taskId ? { ...t, status: 'failed' as const } : t
         )
       )
     }
-  }
+  }, [activeSwarm])
 
   const handlePauseTask = (taskId: string) => {
     setTasks((prev) =>
@@ -300,7 +318,7 @@ export default function SwarmCoordinatorPanel({
             <Target size={16} />
             <span>New Task</span>
           </button>
-          <button className="p-2 hover:bg-card-hover rounded-mac transition-colors" title="Refresh">
+          <button className="p-2 hover:bg-card-hover rounded-mac transition-colors" title="Refresh" aria-label="Refresh">
             <RefreshCw size={16} className="text-text-secondary" />
           </button>
         </div>
@@ -382,7 +400,7 @@ export default function SwarmCoordinatorPanel({
       {/* New Task Modal */}
       {newTaskModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Submit New Task">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Target size={18} className="text-accent" />
@@ -611,7 +629,7 @@ export function TaskDetails({
     <div>
       <div className="flex items-center justify-between mb-5">
         <h3 className="font-semibold text-text-primary">Task Details</h3>
-        <button onClick={onClose} className="p-1.5 hover:bg-card-hover rounded-mac transition-colors">
+        <button onClick={onClose} className="p-1.5 hover:bg-card-hover rounded-mac transition-colors" aria-label="Close">
           <XCircle size={16} className="text-text-secondary" />
         </button>
       </div>

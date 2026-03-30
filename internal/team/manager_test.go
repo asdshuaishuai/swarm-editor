@@ -8,6 +8,13 @@ import (
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 )
 
+// newTestManager creates a Manager with a temporary directory for test isolation
+func newTestManager(t *testing.T) *Manager {
+	t.Helper()
+	tempDir := t.TempDir()
+	return NewManagerWithDir(tempDir)
+}
+
 func TestNewTeam(t *testing.T) {
 	team := NewTeam("team-1", "Test Team", "owner-1")
 
@@ -332,7 +339,7 @@ func TestTeamGetStats(t *testing.T) {
 // Manager tests
 
 func TestNewManager(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	if manager == nil {
 		t.Fatal("NewManager returned nil")
@@ -344,7 +351,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManagerCreateTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	team, err := manager.CreateTeam("Test Team", "owner-1")
 	if err != nil {
@@ -361,7 +368,7 @@ func TestManagerCreateTeam(t *testing.T) {
 }
 
 func TestManagerGetTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	team, _ := manager.CreateTeam("Test Team", "owner-1")
 
 	found, ok := manager.GetTeam(team.ID)
@@ -381,7 +388,7 @@ func TestManagerGetTeam(t *testing.T) {
 }
 
 func TestManagerDeleteTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	team, _ := manager.CreateTeam("Test Team", "owner-1")
 
 	manager.DeleteTeam(team.ID)
@@ -392,8 +399,47 @@ func TestManagerDeleteTeam(t *testing.T) {
 	}
 }
 
+func TestManagerDeleteTeam_CleansIndexes(t *testing.T) {
+	manager := newTestManager(t)
+	team, _ := manager.CreateTeam("Test Team", "owner-1")
+
+	// Owner must be a member for permission checks to work
+	team.Members["owner-1"] = &Member{ID: "owner-1", Role: RoleOwner}
+
+	// Add member via manager (updates byUser index)
+	err := manager.AddMemberWithPermission(team.ID, "user-1", RoleDeveloper, team.Owner)
+	if err != nil {
+		t.Fatalf("AddMemberWithPermission failed: %v", err)
+	}
+
+	// Add agent via manager (updates byAgent index)
+	err = manager.AddAgentWithPermission(team.ID, "agent-1", team.Owner)
+	if err != nil {
+		t.Fatalf("AddAgentWithPermission failed: %v", err)
+	}
+
+	// Verify indexes are populated
+	if len(manager.byUser["user-1"]) != 1 {
+		t.Fatalf("Expected byUser[user-1] to have 1 entry, got %d", len(manager.byUser["user-1"]))
+	}
+	if len(manager.byAgent["agent-1"]) != 1 {
+		t.Fatalf("Expected byAgent[agent-1] to have 1 entry, got %d", len(manager.byAgent["agent-1"]))
+	}
+
+	// Delete team
+	manager.DeleteTeam(team.ID)
+
+	// Verify indexes are cleaned up
+	if len(manager.byUser["user-1"]) != 0 {
+		t.Errorf("Expected byUser[user-1] to be cleaned up, got %d entries", len(manager.byUser["user-1"]))
+	}
+	if len(manager.byAgent["agent-1"]) != 0 {
+		t.Errorf("Expected byAgent[agent-1] to be cleaned up, got %d entries", len(manager.byAgent["agent-1"]))
+	}
+}
+
 func TestManagerListTeams(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	// Create multiple teams
 	for i := 0; i < 3; i++ {
@@ -407,7 +453,7 @@ func TestManagerListTeams(t *testing.T) {
 }
 
 func TestManagerGetUserTeams(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	// Create teams with different members
 	team1, _ := manager.CreateTeam("Team 1", "owner-1")
@@ -425,7 +471,7 @@ func TestManagerGetUserTeams(t *testing.T) {
 }
 
 func TestManagerAssignAgentToTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	team, _ := manager.CreateTeam("Test Team", "owner-1")
 
 	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
@@ -441,7 +487,7 @@ func TestManagerAssignAgentToTeam(t *testing.T) {
 }
 
 func TestManagerAssignAgentToNonExistentTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
 
 	err := manager.AssignAgentToTeam("non-existent", a)
@@ -451,7 +497,7 @@ func TestManagerAssignAgentToNonExistentTeam(t *testing.T) {
 }
 
 func TestManagerBroadcastToTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	team, _ := manager.CreateTeam("Test Team", "owner-1")
 
 	err := manager.BroadcastToTeam(team.ID, []byte(`{"type":"test"}`))
@@ -461,7 +507,7 @@ func TestManagerBroadcastToTeam(t *testing.T) {
 }
 
 func TestManagerBroadcastToNonExistentTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	err := manager.BroadcastToTeam("non-existent", []byte(`{}`))
 	if err == nil {
@@ -470,7 +516,7 @@ func TestManagerBroadcastToNonExistentTeam(t *testing.T) {
 }
 
 func TestManagerGetAllStats(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 
 	// Create multiple teams
 	for i := 0; i < 3; i++ {
@@ -747,7 +793,7 @@ func TestTeamConcurrentAccess(t *testing.T) {
 }
 
 func TestManagerConcurrentAccess(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	done := make(chan bool, 10)
 
 	// Concurrent team creation
@@ -891,7 +937,7 @@ func TestTeamAddNilMember(t *testing.T) {
 }
 
 func TestManagerAssignNilAgentToTeam(t *testing.T) {
-	manager := NewManager()
+	manager := newTestManager(t)
 	team, _ := manager.CreateTeam("Test Team", "owner-1")
 
 	err := manager.AssignAgentToTeam(team.ID, nil)

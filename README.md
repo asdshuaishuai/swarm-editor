@@ -1,131 +1,153 @@
-# Swarm Editor - 多智能体协调开发编辑器
+# Swarm Editor - 多Agent协调编辑器
 
-一个支持ACP协议的多智能体协调开发编辑器，支持结对编程和蜂群模式。
+一个基于 ACP 协议的多Agent协调编辑器，支持Agent共识、涌现智能和可靠调度。
+
+## 核心定位
+
+**Swarm Editor 是编辑器，不是工作流引擎。**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Swarm Editor 核心能力                         │
+├─────────────────────────────────────────────────────────────────┤
+│  编辑器核心                                                      │
+│  ├── 代码编辑 (Monaco Editor)                                    │
+│  ├── Agent 对话面板                                              │
+│  ├── 多 Agent 协调                                               │
+│  └── 任务调度与执行                                               │
+├─────────────────────────────────────────────────────────────────┤
+│  协调能力                                                         │
+│  ├── Agent Handoff (任务交接)                                    │
+│  ├── 结果共识 (Queen Bee 投票)                                   │
+│  ├── 涌现智能 (信息素路由)                                        │
+│  └── 健康监控 (Supervisor)                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  可靠性                                                           │
+│  ├── 熔断器 (Circuit Breaker)                                    │
+│  ├── 死信队列 (DLQ)                                              │
+│  ├── 重试/超时策略                                                │
+│  └── 工件管理                                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## 核心特性
 
-- **ACP协议兼容**: 完整支持JetBrains Agent Client Protocol
-- **多智能体协调**: 支持多个AI智能体协同工作
-- **结对编程**: Driver/Navigator模式的智能体协作
-- **蜂群模式**: 大规模智能体并行任务处理
-- **多团队协作**: 支持团队间的代码协作和评审
+### 协议与通信
+- **ACP 协议原生**: Agent Client Protocol，支持 stdio/WebSocket/TCP
+- **MCP 集成**: Model Context Protocol 工具发现和调用
+- **A2A 协议**: Agent-to-Agent 跨实例通信
+
+### Agent 协调
+- **智能调度**: round_robin / least_loaded / priority / capability
+- **Agent Handoff**: 任务在Agent间平滑交接
+- **结果共识**: Queen Bee 投票机制，多数一致性保证
+- **涌现智能**: 信息素路由 + 自组织协商
+
+### 可靠性
+- **Circuit Breaker**: 熔断器防止级联故障
+- **DLQ**: Dead Letter Queue 失败隔离
+- **Guardrails**: Agent 输出验证
+- **重试/超时策略**: 灵活的可靠性配置
+
+### 可观测性
+- **审计日志**: 完整操作追踪
+- **Emergence Dashboard**: 涌现行为可视化
+- **Supervisor**: Agent 健康监控
 
 ## 架构概览
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Swarm Editor GUI                           │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │ Code Editor │  │ Agent Panel │  │ Swarm View  │  │ Team Panel │ │
-│  │  (Monaco)   │  │   (Chat)    │  │ (Topo)      │  │ (Members)  │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │ Tauri IPC
-┌────────────────────────────▼────────────────────────────────────────┐
-│                    Tauri/Rust Layer                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐ │
-│  │ ACP Client   │  │ Swarm Bridge │  │    Tauri Commands         │ │
-│  │ (Rust)       │  │ (Rust)       │  │    (lib.rs)               │ │
-│  └───────┬──────┘  └──────┬───────┘  └───────────────────────────┘ │
-└──────────┼────────────────┼─────────────────────────────────────────┘
-           │ ACP/stdio      │
-┌──────────▼────────────────▼────────────────────────────────────────┐
-│                      Swarm Core (Go Backend)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐ │
-│  │ ACP Server   │  │ Agent Router │  │    Swarm Orchestrator     │ │
-│  │    (Go)      │  │   (Router)   │  │  ┌─────┐ ┌─────┐ ┌─────┐  │ │
-│  └──────────────┘  └──────────────┘  │  │Agent│ │Agent│ │Agent│  │ │
-│  ┌──────────────┐  ┌──────────────┐  │  │  1  │ │  2  │ │  N  │  │ │
-│  │ Session Mgr  │  │  Discovery   │  │  └─────┘ └─────┘ └─────┘  │ │
-│  └──────────────┘  └──────────────┘  └───────────────────────────┘ │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐ │
-│  │ Consensus    │  │ A2A Protocol │  │    Swarm Intelligence     │ │
-│  └──────────────┘  └──────────────┘  └───────────────────────────┘ │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                     External Services                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐ │
-│  │ LLM Providers│  │ MCP Servers  │  │    Version Control        │ │
-│  │ (Claude/GPT) │  │ (Tools)      │  │    (Git)                  │ │
-│  └──────────────┘  └──────────────┘  └───────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     React UI (Vite + TypeScript)                         │
+│  Monaco Editor | Agent Panel | Swarm Coordinator | Workflow Editor      │
+│  Visual Orchestrator | Emergence Dashboard | Consensus Visualization    │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │ WebSocket (JSON-RPC 2.0)
+┌────────────────────────────────▼────────────────────────────────────────┐
+│                        Go Backend (18 packages)                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────────────┐  │
+│  │ api/        │  │ swarm/      │  │ agent/                          │  │
+│  │ websocket   │  │ scheduler   │  │ registry, discovery, scanner    │  │
+│  │ workspace   │  │ coordinator │  │ memory, router, handshake       │  │
+│  │ emergence   │  │ supervisor  │  │                                 │  │
+│  └─────────────┘  │ consensus   │  └─────────────────────────────────┘  │
+│  ┌─────────────┐  │ orchestrator│  ┌─────────────────────────────────┐  │
+│  │ acp/        │  │ (51 files)  │  │ mcp/ | lsp/ | audit/ | pair/    │  │
+│  │ protocol    │  └─────────────┘  │ session/ | team/ | a2a/         │  │
+│  │ transport   │  ┌─────────────┐  └─────────────────────────────────┘  │
+│  │ connection  │  │ config/     │                                       │
+│  │ server      │  │ storage/    │                                       │
+│  └─────────────┘  └─────────────┘                                       │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │ stdio/WebSocket/TCP (ACP)
+┌────────────────────────────────▼────────────────────────────────────────┐
+│                     External ACP Agents                                  │
+│  Claude Code CLI | Kimi Code | OpenCode | Crush CLI | Custom Agents     │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 技术栈
 
 | 层级 | 技术选择 | 说明 |
 |------|----------|------|
-| 前端 GUI | Tauri 2.0 + React + TypeScript | 轻量跨平台，原生性能 |
+| 前端 | React 18 + TypeScript + Vite 8 | 现代 React 开发栈 |
+| 状态管理 | Zustand | 轻量级状态管理 |
 | 代码编辑器 | Monaco Editor | VS Code 同款编辑器 |
-| 后端核心 | Go 1.22+ | 高性能，用户已有经验 |
-| Rust桥接层 | Rust + ACP Client | Tauri-Go通信桥接 |
-| 通信协议 | JSON-RPC 2.0 / ACP | ACP 协议标准 |
-| 实时通信 | WebSocket + gRPC | 双向通信 + 高效RPC |
-| LLM集成 | Claude API / OpenAI API | 支持多种LLM |
-| 存储 | SQLite + BadgerDB | 结构化 + KV存储 |
+| 样式 | Tailwind CSS | 原子化 CSS |
+| 后端核心 | Go 1.22+ | 高性能，单二进制部署 |
+| 通信协议 | JSON-RPC 2.0 over WebSocket | 双向实时通信 |
+| Agent 协议 | ACP (stdio/WebSocket/TCP) | 标准化 Agent 通信 |
+| 工具协议 | MCP (Model Context Protocol) | 工具集成标准 |
+| 测试 | Vitest + React Testing Library | 878 个 UI 测试 |
 
 ## 目录结构
 
 ```
 swarm-editor/
-├── cmd/                    # 应用入口
-│   ├── swarm-editor/       # 主程序入口
-│   └── swarm-agent/        # 独立Agent进程
-├── internal/               # 内部模块
-│   ├── acp/                # ACP协议实现
-│   │   ├── protocol.go     # 协议定义
-│   │   ├── server.go       # ACP服务端
-│   │   ├── client.go       # ACP客户端
-│   │   ├── messages.go     # 消息类型
-│   │   └── transport.go    # 传输层
-│   ├── agent/              # 智能体系统
-│   │   ├── agent.go        # 智能体接口
-│   │   ├── registry.go     # 智能体注册表
-│   │   ├── lifecycle.go    # 生命周期管理
-│   │   └── router.go       # 消息路由
-│   ├── swarm/              # 蜂群系统
-│   │   ├── orchestrator.go # 蜂群编排器
-│   │   ├── topology.go     # 拓扑结构
-│   │   ├── task.go         # 任务管理
-│   │   └── consensus.go    # 共识机制
-│   ├── pair/               # 结对编程
-│   │   ├── session.go      # 结对会话
-│   │   ├── driver.go       # Driver角色
-│   │   └── navigator.go    # Navigator角色
-│   ├── team/               # 团队协作
-│   │   ├── manager.go      # 团队管理
-│   │   ├── workspace.go    # 工作空间
-│   │   └── review.go       # 代码评审
-│   ├── llm/                # LLM集成
-│   │   ├── provider.go     # 提供者接口
-│   │   ├── claude.go       # Claude实现
-│   │   ├── openai.go       # OpenAI实现
-│   │   └── tools.go        # 工具定义
-│   ├── mcp/                # MCP集成
-│   │   ├── client.go       # MCP客户端
-│   │   └── server.go       # MCP服务端
-│   └── config/             # 配置管理
-│       └── config.go       # 配置定义
-├── pkg/                    # 公共包
-│   ├── rpc/                # RPC工具
-│   ├── storage/            # 存储抽象
-│   └── utils/              # 工具函数
-├── ui/                     # 前端代码
-│   ├── src/
-│   │   ├── components/     # UI组件
-│   │   ├── panels/         # 面板组件
-│   │   ├── editor/         # 编辑器组件
-│   │   ├── agents/         # 智能体UI
-│   │   ├── swarm/          # 蜂群UI
-│   │   └── store/          # 状态管理
-│   ├── package.json
-│   └── vite.config.ts
-├── configs/                # 配置文件
-│   └── default.yaml
-├── go.mod
-└── README.md
+├── cmd/                        # 应用入口
+│   ├── swarm-editor/           # 主程序入口
+│   └── swarm-agent/            # 独立 Agent 进程
+├── internal/                   # 内部模块
+│   ├── acp/                    # ACP 协议 (stdio/WebSocket/TCP)
+│   ├── agent/                  # Agent 系统 (注册/发现/路由/记忆)
+│   ├── swarm/                  # 核心调度模块
+│   │   ├── task.go             # 任务定义
+│   │   ├── scheduler.go        # 智能调度
+│   │   ├── coordinator.go      # Agent 协调
+│   │   ├── handoff.go          # Agent 交接
+│   │   ├── consensus.go        # 结果共识 ⭐
+│   │   ├── swarm_intelligence.go # 涌现智能 ⭐
+│   │   ├── circuit_breaker.go  # 熔断器 ⭐
+│   │   ├── dead_letter_queue.go # 死信队列 ⭐
+│   │   ├── supervisor.go       # 健康监控
+│   │   ├── retry_policy.go     # 重试策略
+│   │   ├── timeout_policy.go   # 超时策略
+│   │   ├── artifacts.go        # 工件管理
+│   │   └── variables.go        # 变量系统
+│   │   # 以下为实验性功能 (见 FEATURE_CLASSIFICATION.md)
+│   │   ├── orchestration*.go   # 工作流编排 [实验性]
+│   │   ├── *_node.go           # 节点类型 [实验性]
+│   │   └── checkpoint*.go      # 检查点 [实验性]
+│   ├── a2a/                    # Agent-to-Agent 协议
+│   ├── mcp/                    # MCP 客户端
+│   ├── lsp/                    # LSP 集成
+│   ├── api/                    # HTTP/WebSocket API
+│   ├── audit/                  # 审计日志
+│   ├── session/                # 会话存储
+│   ├── pair/                   # 结对编程
+│   ├── team/                   # 团队管理
+│   └── config/                 # 配置管理
+├── pkg/                        # 公共包
+├── ui/                         # 前端代码
+│   └── src/
+│       ├── components/         # UI 组件
+│       ├── panels/             # 面板组件
+│       └── services/           # API 客户端
+├── docs/                       # 文档
+└── CLAUDE.md                   # Claude Code 指引
 ```
+
+⭐ = 核心差异化特性
 
 ## 快速开始
 
@@ -133,79 +155,101 @@ swarm-editor/
 
 - Go 1.22+
 - Node.js 18+
-- Rust 1.70+ (用于Tauri)
-
-#### Linux 系统依赖 (Tauri)
-
-在 Fedora/RHEL 上安装：
-```bash
-sudo dnf install webkit2gtk4.1-devel javascriptcoregtk4.1-devel \
-    openssl-devel curl wget libappindicator-gtk3-devel
-```
-
-在 Ubuntu/Debian 上安装：
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
-    build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev
-```
 
 ### 构建
 
 ```bash
 # 构建后端
 go build -o bin/swarm-editor ./cmd/swarm-editor
+go build -o bin/swarm-agent ./cmd/swarm-agent
 
-# 构建前端
-cd ui && npm install && npm run build
+# 运行测试
+make test              # Go 测试
+make test-race         # 带 race 检测
+cd ui && npm run test  # UI 测试 (878 个)
 
-# 开发模式
-cargo tauri dev
+# 开发模式 - 后端
+./bin/swarm-editor
+
+# 开发模式 - 前端
+cd ui && npm run dev
 ```
 
 ## 核心概念
 
 ### 1. Agent (智能体)
 
-智能体是执行任务的基本单元，每个智能体：
-- 支持ACP协议通信
-- 可连接MCP服务器获取工具能力
-- 具有独立的会话和上下文
+智能体是执行任务的基本单元：
+- 通过 ACP 协议通信 (stdio/WebSocket/TCP)
+- 可连接 MCP 服务器获取工具能力
+- 具有独立的会话、记忆和上下文
+- 由外部 Agent CLI (Claude Code 等) 提供 LLM 能力
 
 ### 2. Swarm (蜂群)
 
-蜂群是多个智能体的协作模式：
-- **拓扑结构**: 星型、网状、树状、环状
-- **任务分解**: 自动将大任务分解为子任务
-- **结果聚合**: 智能合并多个智能体的输出
+蜂群是多智能体协作系统：
+- **涌现智能**: 信息素路由，自组织协商
+- **共识机制**: Queen Bee 投票，多数一致性
+- **任务调度**: round_robin / least_loaded / priority / capability
+- **健康监控**: Supervisor 心跳追踪，卡住检测
+- **可靠性**: 熔断器 + 死信队列 + 重试策略
 
-### 3. Pair Programming (结对编程)
+### 3. 结对编程
 
-两个智能体的协作模式：
+人-Agent 或 Agent-Agent 协作模式：
 - **Driver**: 执行具体编码任务
 - **Navigator**: 审查代码、提出建议
-- 实时切换角色
+- 实时角色切换
 
-### 4. Team (团队)
+## 差异化优势
 
-多团队协作支持：
-- 团队间代码共享
-- 跨团队代码评审
-- 协作式问题解决
+| 特性 | Swarm Editor | Cursor | Claude Code | Windsurf |
+|------|--------------|--------|-------------|----------|
+| 多 Agent 协调 | ✅ 原生 | ❌ 单 Agent | ❌ 单 Agent | ❌ 单 Agent |
+| 涌现智能 | ✅ 独创 | ❌ | ❌ | ❌ |
+| 结果共识 | ✅ Queen Bee | ❌ | ❌ | ❌ |
+| Agent Handoff | ✅ | ❌ | ❌ | ❌ |
+| ACP 协议 | ✅ 原生 | ❌ | ❌ | ❌ |
+| MCP 支持 | ✅ | ✅ | ✅ | ✅ |
+| Go 后端 | ✅ 高性能 | ❌ TS | ❌ TS | ❌ TS |
+| 熔断器/DLQ | ✅ | ❌ | ❌ | ❌ |
+
+## 待改进项
+
+### 编辑器核心
+- [ ] Monaco Editor 深度集成 (代码补全、跳转)
+- [ ] 文件树增强 (多工作区、搜索)
+- [ ] Agent 对话面板优化
+
+### 协调能力
+- [ ] 更智能的任务分解
+- [ ] Agent 能力匹配优化
+- [ ] 共识算法调优
 
 ## 协议支持
 
-### ACP协议方法
+### ACP 协议方法
 
 | 方法 | 方向 | 说明 |
 |------|------|------|
 | initialize | Client→Agent | 初始化连接 |
-| authenticate | Client→Agent | 认证 |
 | session/new | Client→Agent | 创建会话 |
 | session/load | Client→Agent | 加载会话 |
 | session/prompt | Client→Agent | 发送提示 |
 | session/cancel | Client→Agent | 取消操作 |
 | session/update | Agent→Client | 状态更新 |
 | session/request_permission | Agent→Client | 请求权限 |
+
+### WebSocket 命令
+
+完整的 WebSocket API 支持以下命令：
+- Agent: add/update/delete/list
+- Swarm: create/delete/list/execute
+- Workflow: create/update/delete/execute/list
+- Team: create/join/leave/list
+- MCP: add/remove/list servers
+- Automation: create/delete/list
+- Artifact/Variable: CRUD 操作
 
 ## 许可证
 

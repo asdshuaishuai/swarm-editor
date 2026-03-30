@@ -115,6 +115,12 @@ func TestCoordinatorSubmitTask(t *testing.T) {
 	config := CoordinatorConfig{MaxConcurrent: 5}
 	coord := NewCoordinator(config, nil)
 
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
 	task := &CoordinationTask{
 		ID:          "task-1",
 		Title:       "Test Task",
@@ -123,7 +129,6 @@ func TestCoordinatorSubmitTask(t *testing.T) {
 		Priority:    1,
 	}
 
-	ctx := context.Background()
 	err := coord.SubmitTask(ctx, task)
 	if err != nil {
 		t.Fatalf("SubmitTask failed: %v", err)
@@ -138,16 +143,40 @@ func TestCoordinatorSubmitTask(t *testing.T) {
 	}
 }
 
+func TestCoordinatorSubmitTaskRejectsWhenStopped(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	ctx := context.Background()
+	task := &CoordinationTask{
+		ID:          "task-1",
+		Title:       "Test Task",
+		Description: "A test task",
+		Priority:    1,
+	}
+
+	err := coord.SubmitTask(ctx, task)
+	if err == nil {
+		t.Error("Expected error when submitting to stopped coordinator")
+	}
+}
+
 func TestCoordinatorGetStats(t *testing.T) {
 	config := CoordinatorConfig{
 		MaxConcurrent: 5,
 	}
 	coord := NewCoordinator(config, nil)
 
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
 	coord.AddWorker("worker-1", mockAgentConnection("worker-1"))
 	coord.AddWorker("worker-2", mockAgentConnection("worker-2"))
 
-	coord.SubmitTask(context.Background(), &CoordinationTask{ID: "task-1", Title: "Test Task"})
+	coord.SubmitTask(ctx, &CoordinationTask{ID: "task-1", Title: "Test Task"})
 
 	stats := coord.GetStats()
 
@@ -391,8 +420,8 @@ func TestCoordinatorCancelTask(t *testing.T) {
 
 	coord.cancelTask("task-1")
 
-	if task.Status != TaskStatusFailed {
-		t.Errorf("Expected status '%s', got '%s'", TaskStatusFailed, task.Status)
+	if task.Status != TaskStatusCancelled {
+		t.Errorf("Expected status '%s', got '%s'", TaskStatusCancelled, task.Status)
 	}
 
 	if _, exists := coord.activeTasks["task-1"]; exists {
@@ -412,12 +441,18 @@ func TestCoordinatorHandleResult(t *testing.T) {
 	config := CoordinatorConfig{MaxConcurrent: 5}
 	coord := NewCoordinator(config, nil)
 
+	// Register the worker (required for validation)
+	coord.workers["worker-1"] = nil // nil connection is ok for this test
+
 	task := &CoordinationTask{
 		ID:         "task-1",
 		AssignedTo: []string{"worker-1"},
 		Results:    make(map[string]*TaskResult),
 	}
 	coord.activeTasks["task-1"] = task
+
+	// Set up reverse index (required for O(1) lookup in handleResult)
+	coord.agentToTask["worker-1"] = "task-1"
 
 	result := &TaskResult{
 		AgentID: "worker-1",
@@ -439,12 +474,15 @@ func TestCoordinatorHandleResultNonExistentTask(t *testing.T) {
 	config := CoordinatorConfig{MaxConcurrent: 5}
 	coord := NewCoordinator(config, nil)
 
+	// Register the worker (required for validation)
+	coord.workers["worker-1"] = nil
+
 	result := &TaskResult{
 		AgentID: "worker-1",
 		Content: "Done",
 	}
 
-	// Should not panic
+	// Should not panic - no task assigned to this worker
 	coord.handleResult(result)
 }
 
@@ -461,7 +499,10 @@ func TestCoordinatorCompleteTask(t *testing.T) {
 	}
 	coord.activeTasks["task-1"] = task
 
+	// completeTask expects lock to be held; it releases the lock internally
+	coord.mu.Lock()
 	coord.completeTask(task)
+	coord.mu.Lock() // re-acquire after completeTask releases it
 
 	if task.Status != TaskStatusCompleted {
 		t.Errorf("Expected status '%s', got '%s'", TaskStatusCompleted, task.Status)
@@ -478,6 +519,7 @@ func TestCoordinatorCompleteTask(t *testing.T) {
 	if len(coord.completedTasks) != 1 {
 		t.Errorf("Expected 1 completed task, got %d", len(coord.completedTasks))
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorCompleteTaskWithConsensus(t *testing.T) {
@@ -498,7 +540,10 @@ func TestCoordinatorCompleteTaskWithConsensus(t *testing.T) {
 	}
 	coord.activeTasks["task-1"] = task
 
+	// completeTask expects lock to be held; it releases the lock internally
+	coord.mu.Lock()
 	coord.completeTask(task)
+	coord.mu.Lock() // re-acquire after completeTask releases it
 
 	if task.Consensus == nil {
 		t.Error("Consensus should be calculated")
@@ -512,6 +557,7 @@ func TestCoordinatorCompleteTaskWithConsensus(t *testing.T) {
 	if task.Status != TaskStatusCompleted {
 		t.Errorf("Expected status '%s', got '%s'", TaskStatusCompleted, task.Status)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorCompleteTaskWithCallback(t *testing.T) {
@@ -534,7 +580,10 @@ func TestCoordinatorCompleteTaskWithCallback(t *testing.T) {
 	}
 	coord.activeTasks["task-1"] = task
 
+	// completeTask expects lock to be held; it releases the lock internally
+	coord.mu.Lock()
 	coord.completeTask(task)
+	coord.mu.Lock() // re-acquire after completeTask releases it
 
 	// Verify callback was called
 	if callbackTask == nil {
@@ -548,6 +597,7 @@ func TestCoordinatorCompleteTaskWithCallback(t *testing.T) {
 	if callbackResult.Content != "Done" {
 		t.Errorf("Expected result content 'Done', got '%s'", callbackResult.Content)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorRunConsensus(t *testing.T) {
@@ -567,7 +617,10 @@ func TestCoordinatorRunConsensus(t *testing.T) {
 		},
 	}
 
+	// runConsensus expects lock held; it releases via completeTask
+	coord.mu.Lock()
 	coord.runConsensus(task)
+	coord.mu.Lock() // re-acquire
 
 	if task.Consensus == nil {
 		t.Fatal("Consensus should be set")
@@ -581,6 +634,7 @@ func TestCoordinatorRunConsensus(t *testing.T) {
 	if task.Consensus.Status != "agreed" {
 		t.Errorf("Expected status 'agreed', got '%s'", task.Consensus.Status)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorRunConsensusDisagreed(t *testing.T) {
@@ -600,12 +654,16 @@ func TestCoordinatorRunConsensusDisagreed(t *testing.T) {
 		},
 	}
 
+	// runConsensus expects lock held; it releases via completeTask
+	coord.mu.Lock()
 	coord.runConsensus(task)
+	coord.mu.Lock() // re-acquire
 
 	// 1 out of 2 = 0.5, which is below 0.8 threshold
 	if task.Consensus.Status != "disagreed" {
 		t.Errorf("Expected status 'disagreed', got '%s'", task.Consensus.Status)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorRunConsensusPartial(t *testing.T) {
@@ -626,12 +684,16 @@ func TestCoordinatorRunConsensusPartial(t *testing.T) {
 		},
 	}
 
+	// runConsensus expects lock held; it releases via completeTask
+	coord.mu.Lock()
 	coord.runConsensus(task)
+	coord.mu.Lock() // re-acquire
 
 	// 2 out of 3 = 0.667, which is below 0.8 but above 0.5
 	if task.Consensus.Status != "partial" {
 		t.Errorf("Expected status 'partial', got '%s'", task.Consensus.Status)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorHandleWorkerError(t *testing.T) {
@@ -833,8 +895,8 @@ func TestCoordinatorHandleBroadcast(t *testing.T) {
 	coord.handleBroadcast(msg)
 
 	// Task should be cancelled
-	if task.Status != TaskStatusFailed {
-		t.Errorf("Expected status '%s', got '%s'", TaskStatusFailed, task.Status)
+	if task.Status != TaskStatusCancelled {
+		t.Errorf("Expected status '%s', got '%s'", TaskStatusCancelled, task.Status)
 	}
 }
 
@@ -1106,7 +1168,10 @@ func TestCoordinatorRunConsensusZeroResults(t *testing.T) {
 		Results:    map[string]*TaskResult{}, // Empty results
 	}
 
+	// runConsensus expects lock held; it releases via completeTask
+	coord.mu.Lock()
 	coord.runConsensus(task)
+	coord.mu.Lock() // re-acquire
 
 	if task.Consensus == nil {
 		t.Fatal("Consensus should be set even with zero results")
@@ -1119,6 +1184,7 @@ func TestCoordinatorRunConsensusZeroResults(t *testing.T) {
 	if task.Consensus.ApprovalRate != 0 {
 		t.Errorf("Expected ApprovalRate 0 for zero results, got %f", task.Consensus.ApprovalRate)
 	}
+	coord.mu.Unlock()
 }
 
 func TestCoordinatorSubmitTaskValidation(t *testing.T) {
@@ -1157,6 +1223,10 @@ func TestCoordinatorSubmitDuplicateTask(t *testing.T) {
 	coord := NewCoordinator(config, nil)
 
 	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
 
 	task := &CoordinationTask{
 		ID:       "task-1",

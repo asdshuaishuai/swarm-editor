@@ -216,6 +216,48 @@ func TestRouterUnregisterAgentFromGroup(t *testing.T) {
 	}
 }
 
+func TestRouterEmptyGroupCleanup(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	router.RegisterAgent("agent1", func(m *Message) error { return nil }, nil)
+	router.JoinGroup("agent1", "team-alpha")
+
+	// Verify group exists
+	router.mu.RLock()
+	_, exists := router.groups["team-alpha"]
+	router.mu.RUnlock()
+	if !exists {
+		t.Fatal("Expected group to exist after agent joins")
+	}
+
+	// Leave group - should clean up empty group
+	router.LeaveGroup("agent1", "team-alpha")
+
+	router.mu.RLock()
+	_, exists = router.groups["team-alpha"]
+	router.mu.RUnlock()
+	if exists {
+		t.Error("Expected empty group to be cleaned up after last agent leaves")
+	}
+}
+
+func TestRouterUnregisterAgentCleansEmptyGroups(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+
+	router.RegisterAgent("agent1", func(m *Message) error { return nil }, nil)
+	router.JoinGroup("agent1", "solo-team")
+
+	// Unregister agent - should clean up empty group
+	router.UnregisterAgent("agent1")
+
+	router.mu.RLock()
+	_, exists := router.groups["solo-team"]
+	router.mu.RUnlock()
+	if exists {
+		t.Error("Expected empty group to be cleaned up when only member unregisters")
+	}
+}
+
 func TestRouterMessageHandler(t *testing.T) {
 	router := NewRouter(RouterConfig{})
 

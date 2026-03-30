@@ -4,9 +4,13 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -97,7 +101,8 @@ type FileBackend struct {
 
 // NewFileBackend creates a new file-based backend
 func NewFileBackend(basePath string) (*FileBackend, error) {
-	if err := os.MkdirAll(basePath, 0755); err != nil {
+	// Create directory with restricted permissions
+	if err := os.MkdirAll(basePath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create base path: %w", err)
 	}
 	return &FileBackend{basePath: basePath}, nil
@@ -108,9 +113,12 @@ func (b *FileBackend) Get(ctx context.Context, key string) ([]byte, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	path := b.keyToPath(key)
+	path, err := b.keyToPath(key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid key: %w", err)
+	}
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -124,7 +132,10 @@ func (b *FileBackend) Set(ctx context.Context, key string, value []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	path := b.keyToPath(key)
+	path, err := b.keyToPath(key)
+	if err != nil {
+		return fmt.Errorf("invalid key: %w", err)
+	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
@@ -151,9 +162,12 @@ func (b *FileBackend) Delete(ctx context.Context, key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	path := b.keyToPath(key)
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
+	path, err := b.keyToPath(key)
+	if err != nil {
+		return fmt.Errorf("invalid key: %w", err)
+	}
+	err = os.Remove(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	return err
@@ -169,7 +183,8 @@ func (b *FileBackend) List(ctx context.Context, prefix string) ([]string, error)
 
 	err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			log.Printf("[Storage] Skipping path %s: %v", path, err)
+			return nil
 		}
 		if info.IsDir() {
 			return nil
@@ -196,8 +211,28 @@ func (b *FileBackend) Close() error {
 }
 
 // keyToPath converts a key to a file path
-func (b *FileBackend) keyToPath(key string) string {
-	return filepath.Join(b.basePath, key)
+func (b *FileBackend) keyToPath(key string) (string, error) {
+	// Validate key to prevent path traversal
+	if key == "" {
+		return "", errors.New("key cannot be empty")
+	}
+	if strings.Contains(key, "..") {
+		return "", errors.New("key cannot contain path traversal sequences")
+	}
+	if strings.HasPrefix(key, "/") || strings.HasPrefix(key, "\\") {
+		return "", errors.New("key cannot be an absolute path")
+	}
+
+	path := filepath.Join(b.basePath, key)
+
+	// Ensure the resolved path is within basePath (prevent escaping)
+	// Use basePath+separator to prevent "/data" matching "/data_backup/..."
+	cleanPath := filepath.Clean(path)
+	if !strings.HasPrefix(cleanPath, b.basePath+string(filepath.Separator)) && cleanPath != b.basePath {
+		return "", errors.New("key resolves to path outside base directory")
+	}
+
+	return cleanPath, nil
 }
 
 // Storage errors
@@ -216,7 +251,7 @@ func NewStore(backend Backend) *Store {
 }
 
 // GetJSON retrieves and unmarshals a JSON value
-func (s *Store) GetJSON(ctx context.Context, key string, v interface{}) error {
+func (s *Store) GetJSON(ctx context.Context, key string, v any) error {
 	data, err := s.backend.Get(ctx, key)
 	if err != nil {
 		return err
@@ -225,7 +260,7 @@ func (s *Store) GetJSON(ctx context.Context, key string, v interface{}) error {
 }
 
 // SetJSON marshals and stores a JSON value
-func (s *Store) SetJSON(ctx context.Context, key string, v interface{}) error {
+func (s *Store) SetJSON(ctx context.Context, key string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal failed: %w", err)
@@ -287,8 +322,11 @@ func NewCachedStore(store Store, ttl time.Duration) *CachedStore {
 func (s *CachedStore) Get(ctx context.Context, key string) ([]byte, error) {
 	// Check cache
 	if entry, ok := s.cache.Load(key); ok {
-		if time.Now().Before(entry.(CachedEntry).expiresAt) {
-			return entry.(CachedEntry).data, nil
+		if cached, ok := entry.(CachedEntry); ok && time.Now().Before(cached.expiresAt) {
+			// Return copy to prevent caller from mutating cached data
+			result := make([]byte, len(cached.data))
+			copy(result, cached.data)
+			return result, nil
 		}
 		s.cache.Delete(key)
 	}
@@ -299,13 +337,18 @@ func (s *CachedStore) Get(ctx context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 
-	// Cache it
+	// Cache a copy to prevent caller from mutating cached data
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
 	s.cache.Store(key, CachedEntry{
-		data:      data,
+		data:      dataCopy,
 		expiresAt: time.Now().Add(s.ttl),
 	})
 
-	return data, nil
+	// Return copy to prevent caller from mutating cached data
+	result := make([]byte, len(data))
+	copy(result, data)
+	return result, nil
 }
 
 // Invalidate removes a key from cache

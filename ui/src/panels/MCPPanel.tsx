@@ -11,7 +11,9 @@ import {
   Power,
 } from 'lucide-react'
 import { useSettings, MCPServerSetting } from '../hooks/useSettings'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useAppStore } from '../store/appStore'
+import { api } from '../services'
 import { logger } from '../utils'
 
 export default function MCPPanel() {
@@ -19,6 +21,7 @@ export default function MCPPanel() {
   const addToast = useAppStore(state => state.addToast)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingServer, setEditingServer] = useState<MCPServerSetting | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MCPServerSetting | null>(null)
   const [newServer, setNewServer] = useState<Omit<MCPServerSetting, 'id' | 'status'>>({
     name: '',
     command: '',
@@ -37,6 +40,13 @@ export default function MCPPanel() {
 
     setLoading(true)
     try {
+      await api.mcp.addServer({
+        name: newServer.name,
+        command: newServer.command,
+        args: newServer.args,
+        env: newServer.env,
+      })
+
       const server: MCPServerSetting = {
         id: `mcp-${Date.now()}`,
         ...newServer,
@@ -63,7 +73,7 @@ export default function MCPPanel() {
 
   const handleEditServer = async () => {
     if (!editingServer) return
-    
+
     setLoading(true)
     try {
       updateMCPServer(editingServer.name, editingServer)
@@ -77,10 +87,13 @@ export default function MCPPanel() {
     }
   }
 
-  const handleDeleteServer = async (name: string) => {
+  const handleDeleteServer = async (server: MCPServerSetting) => {
     try {
-      removeMCPServer(name)
-      addToast('success', 'Server Removed', `Server "${name}" has been removed`)
+      await api.mcp.removeServer(server.id)
+
+      removeMCPServer(server.name)
+      setDeleteTarget(null)
+      addToast('success', 'Server Removed', `Server "${server.name}" has been removed`)
     } catch (err) {
       logger.error('MCP', 'Failed to remove server:', err)
       addToast('error', 'Failed to Remove Server', err instanceof Error ? err.message : 'Unknown error')
@@ -88,9 +101,26 @@ export default function MCPPanel() {
   }
 
   const handleToggleServer = async (server: MCPServerSetting) => {
-    updateMCPServer(server.name, { 
-      status: server.status === 'connected' ? 'disconnected' : 'connected' 
-    })
+    const isStarting = server.status !== 'connected'
+
+    try {
+      if (isStarting) {
+        const result = await api.mcp.startServer(server.id)
+        updateMCPServer(server.name, { status: result.status as MCPServerSetting['status'] })
+      } else {
+        const result = await api.mcp.stopServer(server.id)
+        updateMCPServer(server.name, { status: result.status as MCPServerSetting['status'] })
+      }
+
+      addToast(
+        'success',
+        isStarting ? 'Server Started' : 'Server Stopped',
+        `Server "${server.name}" has been ${isStarting ? 'started' : 'stopped'}`
+      )
+    } catch (err) {
+      logger.error('MCP', 'Failed to toggle server:', err)
+      addToast('error', 'Failed to Toggle Server', err instanceof Error ? err.message : 'Unknown error')
+    }
   }
 
   const handleParseArgs = (argsString: string): string[] => {
@@ -125,11 +155,11 @@ export default function MCPPanel() {
           <button
             onClick={() => {
               addToast('info', 'Refresh', 'Reloading MCP server configurations...')
-              // In Tauri environment, this would reload server configs from backend
               logger.info('MCP', 'Manual refresh triggered')
             }}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw size={16} className="text-text-secondary" />
           </button>
@@ -191,7 +221,7 @@ export default function MCPPanel() {
                 key={server.id}
                 server={server}
                 onEdit={() => setEditingServer(server)}
-                onDelete={() => handleDeleteServer(server.name)}
+                onDelete={() => setDeleteTarget(server)}
                 onToggle={() => handleToggleServer(server)}
               />
             ))}
@@ -202,7 +232,7 @@ export default function MCPPanel() {
       {/* Add Server Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Add MCP Server">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Plus size={18} className="text-accent" />
@@ -312,7 +342,7 @@ export default function MCPPanel() {
       {/* Edit Server Modal */}
       {editingServer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Edit MCP Server">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Edit2 size={18} className="text-accent" />
@@ -400,6 +430,16 @@ export default function MCPPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Remove MCP Server"
+          message={`Are you sure you want to remove "${deleteTarget.name}"? This action cannot be undone.`}
+          confirmLabel="Remove"
+          onConfirm={() => handleDeleteServer(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   )

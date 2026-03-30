@@ -45,7 +45,9 @@ func TestUnregisterResource(t *testing.T) {
 		MimeType: "text/plain",
 	}
 
-	rm.RegisterResource(resource)
+	if err := rm.RegisterResource(resource); err != nil {
+		t.Fatalf("RegisterResource failed: %v", err)
+	}
 	rm.UnregisterResource("file:///test.txt")
 
 	if len(rm.resources) != 0 {

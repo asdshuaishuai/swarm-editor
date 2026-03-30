@@ -451,3 +451,62 @@ type AgentContribution struct {
 	Vote    string          `json:"vote,omitempty"` // "approve", "reject", "abstain"
 	Weight  float64         `json:"weight,omitempty"`
 }
+
+// ==================== MCP Types ====================
+
+// MCPStartServerParams parameters for starting an MCP server
+type MCPStartServerParams struct {
+	ServerID string `json:"serverId"`
+}
+
+// MCPStopServerParams parameters for stopping an MCP server
+type MCPStopServerParams struct {
+	ServerID string `json:"serverId"`
+}
+
+// MCPServerStatus represents the status of an MCP server
+type MCPServerStatus struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	Status   string `json:"status"` // "connected", "disconnected", "connecting", "error"
+	Tools    []Tool `json:"tools,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// Tool represents an MCP tool definition
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
+// MCPCallToolParams parameters for calling an MCP tool
+type MCPCallToolParams struct {
+	ServerID  string         `json:"serverId"`
+	ToolName  string         `json:"toolName"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+// MCPCallToolResult result of calling an MCP tool
+type MCPCallToolResult struct {
+	Content []MCPContent `json:"content"`
+	IsError bool         `json:"isError"`
+}
+
+// MCPContent represents content in an MCP result
+type MCPContent struct {
+	Type     string `json:"type"` // "text", "image", "resource"
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+}
+
+// MCPListToolsParams parameters for listing MCP tools
+type MCPListToolsParams struct {
+	ServerID string `json:"serverId"`
+}
+
+// MCPListToolsResult result of listing MCP tools
+type MCPListToolsResult struct {
+	Tools []Tool `json:"tools"`
+}

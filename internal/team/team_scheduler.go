@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/swarm-editor/swarm-editor/internal/a2a"
-	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 )
 
@@ -23,6 +23,9 @@ const (
 	SchedulingModeBestFit       SchedulingMode = "best_fit"      // Best qualified member gets task
 	SchedulingModeCollaborative SchedulingMode = "collaborative" // Team decides together
 	SchedulingModeAuction       SchedulingMode = "auction"       // Members bid on tasks
+
+	// maxConcurrentTasksPerAgent limits how many tasks an agent can handle simultaneously
+	maxConcurrentTasksPerAgent = 2
 )
 
 // TeamSchedulerConfig configures team scheduling
@@ -173,6 +176,14 @@ func (s *TeamScheduler) Stop() {
 
 // SubmitTask submits a task for scheduling
 func (s *TeamScheduler) SubmitTask(task *ScheduledTask) error {
+	// HIGH: Validate task before processing (nil/empty ID panic prevention)
+	if task == nil {
+		return fmt.Errorf("task cannot be nil")
+	}
+	if task.ID == "" {
+		return fmt.Errorf("task ID cannot be empty")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -203,23 +214,31 @@ func (s *TeamScheduler) schedulingLoop() {
 // scheduleNext schedules the next pending task
 func (s *TeamScheduler) scheduleNext() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if len(s.runningTasks) >= s.config.MaxParallel {
+		s.mu.Unlock()
 		return
 	}
 
 	task := s.getNextTask()
 	if task == nil {
+		s.mu.Unlock()
 		return
 	}
 
 	agents := s.selectAgents(task)
 	if len(agents) == 0 {
+		s.mu.Unlock()
 		return
 	}
 
-	s.assignTask(task, agents)
+	callback := s.assignTask(task, agents)
+	s.mu.Unlock()
+
+	// Invoke callback outside lock to prevent deadlock
+	if callback != nil {
+		callback()
+	}
 }
 
 // getNextTask gets the next highest priority task
@@ -291,7 +310,7 @@ func (s *TeamScheduler) getAvailableAgents(requiredRole MemberRole) []string {
 
 		// Check if agent is not overloaded
 		load := s.agentLoad[id]
-		if load < 2 { // Max 2 concurrent tasks per agent
+		if load < maxConcurrentTasksPerAgent {
 			available = append(available, id)
 		}
 	}
@@ -405,7 +424,7 @@ func (s *TeamScheduler) selectCollaborative(agents []string, task *ScheduledTask
 	}
 
 	result := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		result[i] = scored[i].id
 	}
 
@@ -471,6 +490,7 @@ func (s *TeamScheduler) calculateAgentScore(agentID string, task *ScheduledTask)
 }
 
 // calculatePeerScore calculates collaboration score with peers
+// IMPORTANT: Must be called while holding s.mu lock
 func (s *TeamScheduler) calculatePeerScore(agentID string) float64 {
 	if peerScores, ok := s.peerScores[agentID]; ok {
 		total := 0.0
@@ -484,8 +504,9 @@ func (s *TeamScheduler) calculatePeerScore(agentID string) float64 {
 	return 0.0
 }
 
-// assignTask assigns a task to selected agents
-func (s *TeamScheduler) assignTask(task *ScheduledTask, agents []string) {
+// assignTask assigns a task to selected agents.
+// Returns a callback to invoke after releasing the lock to prevent deadlock.
+func (s *TeamScheduler) assignTask(task *ScheduledTask, agents []string) func() {
 	// Remove from pending
 	delete(s.pendingTasks, task.ID)
 
@@ -512,21 +533,40 @@ func (s *TeamScheduler) assignTask(task *ScheduledTask, agents []string) {
 				Priority:    task.Priority,
 			})
 
-		go s.router.Send(msg)
+		s.wg.Add(1)
+		go func(m *a2a.Message) {
+			defer func() {
+				s.wg.Done()
+				if r := recover(); r != nil {
+					log.Printf("[TeamScheduler] router.Send panic for task %s: %v", task.ID, r)
+				}
+			}()
+			if err := s.router.Send(m); err != nil {
+				log.Printf("[TeamScheduler] Failed to send task assignment message: %v", err)
+			}
+		}(msg)
 	}
 
-	if s.onTaskAssigned != nil {
-		s.onTaskAssigned(task.ID, agents[0])
+	// Snapshot callback under lock, return for invocation outside lock
+	if s.onTaskAssigned != nil && len(agents) > 0 {
+		cb := s.onTaskAssigned
+		taskID := task.ID
+		agentID := agents[0]
+		return func() { cb(taskID, agentID) }
 	}
+	return nil
 }
+
+// maxCompletedTasks is the maximum number of completed tasks to keep
+const maxCompletedTasks = 1000
 
 // CompleteTask marks a task as completed
 func (s *TeamScheduler) CompleteTask(taskID string, result *ScheduledTaskResult) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	task, ok := s.runningTasks[taskID]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 
@@ -537,6 +577,11 @@ func (s *TeamScheduler) CompleteTask(taskID string, result *ScheduledTaskResult)
 	// Move to completed
 	delete(s.runningTasks, taskID)
 	s.completedTasks[taskID] = task
+
+	// Cleanup old completed tasks if exceeding limit
+	if len(s.completedTasks) > maxCompletedTasks {
+		s.cleanupOldCompletedTasksLocked()
+	}
 
 	// Update agent load and success rate
 	for _, id := range task.AssignedTo {
@@ -570,8 +615,43 @@ func (s *TeamScheduler) CompleteTask(taskID string, result *ScheduledTaskResult)
 		}
 	}
 
-	if s.onTaskComplete != nil {
-		s.onTaskComplete(taskID, result)
+	// Snapshot callback under lock
+	onComplete := s.onTaskComplete
+	s.mu.Unlock()
+
+	// Invoke callback outside lock to prevent deadlock
+	if onComplete != nil {
+		onComplete(taskID, result)
+	}
+}
+
+// cleanupOldCompletedTasksLocked removes oldest completed tasks when limit is exceeded
+// Must be called with s.mu held
+func (s *TeamScheduler) cleanupOldCompletedTasksLocked() {
+	// Remove oldest 10% of tasks when limit exceeded
+	removeCount := len(s.completedTasks) / 10
+	if removeCount < 1 {
+		removeCount = 1
+	}
+
+	// Find oldest tasks by CompletedAt
+	type taskAge struct {
+		id        string
+		completed time.Time
+	}
+	tasks := make([]taskAge, 0, len(s.completedTasks))
+	for id, task := range s.completedTasks {
+		tasks = append(tasks, taskAge{id: id, completed: task.CompletedAt})
+	}
+
+	// Sort by completion time (oldest first)
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].completed.Before(tasks[j].completed)
+	})
+
+	// Remove oldest tasks
+	for i := 0; i < removeCount && i < len(tasks); i++ {
+		delete(s.completedTasks, tasks[i].id)
 	}
 }
 
@@ -606,6 +686,9 @@ func (s *TeamScheduler) HandoffTask(taskID, fromAgent, toAgent, reason string) e
 
 	// Update loads
 	s.agentLoad[fromAgent]--
+	if s.agentLoad[fromAgent] < 0 {
+		s.agentLoad[fromAgent] = 0
+	}
 	s.agentLoad[toAgent]++
 
 	return nil
@@ -688,6 +771,9 @@ type AgentToAgentCoordination struct {
 
 	// Active collaborations
 	collaborations map[string]*Collaboration
+
+	// wg tracks fire-and-forget goroutines spawned for A2A message sends
+	wg sync.WaitGroup
 }
 
 // Collaboration represents an active collaboration between agents
@@ -711,6 +797,13 @@ func NewAgentToAgentCoordination(router *a2a.Router, team *Team) *AgentToAgentCo
 
 // RequestHelp allows an agent to request help from teammates
 func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, taskID, reason string, requiredSkills []string) error {
+	// Respect caller's cancellation before acquiring lock
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -723,11 +816,7 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 		}
 
 		// Check if member has required skills
-		hasSkill := len(requiredSkills) == 0 // If no skills required, anyone can help
-		if member.AgentID != nil {
-			// Check agent capabilities
-			_ = acp.AgentID("") // Placeholder for capability check
-		}
+		hasSkill := len(requiredSkills) == 0 || hasRequiredSkills(member.Skills, requiredSkills)
 
 		if hasSkill {
 			helpers = append(helpers, id)
@@ -749,7 +838,20 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 				Urgency: 3, // Medium urgency
 			})
 
+		c.wg.Add(1)
 		go func(m *a2a.Message) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[TeamScheduler] RequestHelp router.Send panic: %v", r)
+				}
+				c.wg.Done()
+			}()
+			// Respect caller's cancellation before sending
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			if err := c.router.Send(m); err != nil {
 				log.Printf("AgentToAgentCoordination: failed to send help request to %s: %v", m.To, err)
 			}
@@ -765,7 +867,7 @@ func (c *AgentToAgentCoordination) StartCollaboration(collaborationType, taskID 
 	defer c.mu.Unlock()
 
 	collab := &Collaboration{
-		ID:        fmt.Sprintf("collab_%d", time.Now().UnixNano()),
+		ID:        fmt.Sprintf("collab_%s", uuid.New().String()[:8]),
 		TaskID:    taskID,
 		Agents:    agents,
 		Type:      collaborationType,
@@ -783,7 +885,14 @@ func (c *AgentToAgentCoordination) StartCollaboration(collaborationType, taskID 
 				State:     nil, // Would contain collaboration details
 			})
 
+		c.wg.Add(1)
 		go func(m *a2a.Message) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[TeamScheduler] StartCollaboration router.Send panic: %v", r)
+				}
+				c.wg.Done()
+			}()
 			if err := c.router.Send(m); err != nil {
 				log.Printf("AgentToAgentCoordination: failed to send collaboration sync to %s: %v", m.To, err)
 			}
@@ -802,4 +911,35 @@ func (c *AgentToAgentCoordination) EndCollaboration(collaborationID string) {
 		collab.Status = "completed"
 		delete(c.collaborations, collaborationID)
 	}
+}
+
+// Close waits for all pending A2A message goroutines to finish.
+// Call during shutdown to prevent goroutine leaks.
+func (c *AgentToAgentCoordination) Close() {
+	c.wg.Wait()
+}
+
+// hasRequiredSkills checks if a member has all required skills
+func hasRequiredSkills(memberSkills, requiredSkills []string) bool {
+	if len(requiredSkills) == 0 {
+		return true
+	}
+	if len(memberSkills) == 0 {
+		return false
+	}
+
+	// Create a set of member skills for efficient lookup
+	skillSet := make(map[string]bool, len(memberSkills))
+	for _, skill := range memberSkills {
+		skillSet[skill] = true
+	}
+
+	// Check if all required skills are present
+	for _, required := range requiredSkills {
+		if !skillSet[required] {
+			return false
+		}
+	}
+
+	return true
 }

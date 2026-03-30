@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   useSettings,
   useTheme,
-  useTauriEvents,
-  useTauriEventStatus,
+  useACPEvents,
+  useACPEventStatus,
 } from './index'
 
 describe('hooks/index.ts', () => {
@@ -17,13 +17,13 @@ describe('hooks/index.ts', () => {
     expect(typeof useTheme).toBe('function')
   })
 
-  it('should export useTauriEvents', () => {
-    expect(useTauriEvents).toBeDefined()
-    expect(typeof useTauriEvents).toBe('function')
+  it('should export useACPEvents', () => {
+    expect(useACPEvents).toBeDefined()
+    expect(typeof useACPEvents).toBe('function')
   })
 
-  it('should export useTauriEventStatus', () => {
-    expect(useTauriEventStatus).toBeDefined()
-    expect(typeof useTauriEventStatus).toBe('function')
+  it('should export useACPEventStatus', () => {
+    expect(useACPEventStatus).toBeDefined()
+    expect(typeof useACPEventStatus).toBe('function')
   })
 })

@@ -997,12 +997,10 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 ///
 /// This command supports code execution through agents. When a Go backend is connected
 /// and an agent_id is provided, it attempts to execute via the swarm system.
-/// Falls back to mock execution for development/testing when backend is unavailable.
+/// Execute code via ACP session with agent
 ///
-/// Production implementation would:
-/// 1. Create/use an ACP session with the specified agent
-/// 2. Send the code as a prompt to the agent
-/// 3. Return the agent's response as the output
+/// Creates an ACP session, sends code for execution, and returns results.
+/// Requires Go backend connection for real execution.
 #[tauri::command]
 async fn execute_code(
     file_path: String,
@@ -1011,7 +1009,6 @@ async fn execute_code(
     agent_id: Option<String>,
     swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
 ) -> Result<ExecuteResult, String> {
-    // Log execution attempt
     log::info!(
         "Code execution request: language={}, agent={:?}, file={}, backend_connected={}",
         language,
@@ -1020,25 +1017,35 @@ async fn execute_code(
         swarm_bridge.is_connected()
     );
 
-    // If SwarmBridge is connected, we could potentially use ACP session/prompt
-    // For now, return a mock that indicates the architecture is ready
+    // Try real execution via SwarmBridge if connected
     if swarm_bridge.is_connected() {
-        // In production, this would use ACP session_prompt to send code to agent
-        // See: acp::Client::session_prompt()
-        log::info!("Backend connected - code execution via ACP would happen here");
+        match swarm_bridge
+            .execute_code(&language, &content, Some(&file_path), agent_id.as_deref())
+            .await
+        {
+            Ok(result) => {
+                return Ok(ExecuteResult {
+                    success: result.success,
+                    output: result.output.unwrap_or_default(),
+                    error: result.error,
+                });
+            }
+            Err(e) => {
+                log::warn!("SwarmBridge execute_code failed: {}, falling back to mock", e);
+            }
+        }
     }
 
-    // Mock execution with clear indication of development mode
+    // Fallback: Backend not connected - return error, not fake success
+    log::warn!("Cannot execute code: Go backend not connected");
     Ok(ExecuteResult {
-        success: true,
-        output: format!(
-            "// Code Execution Result\n// Language: {}\n// Agent: {:?}\n// File: {}\n\n// Submitted code:\n{}\n\n// Note: Connect to Go backend and configure agents for real execution.\n// Use the Swarm system for coordinated multi-agent code execution.",
+        success: false,
+        output: String::new(),
+        error: Some(format!(
+            "Code execution requires connection to Go backend. Please connect to the backend first. (language: {}, file: {})",
             language,
-            agent_id,
-            file_path,
-            content
-        ),
-        error: None,
+            file_path
+        )),
     })
 }
 
@@ -1373,13 +1380,608 @@ async fn execute_swarm_task(
 
 /// 检查后端连接状态
 #[tauri::command]
-fn get_backend_status(
+async fn get_backend_status(
     swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+    connection_manager: tauri::State<'_, swarm::ConnectionManager>,
 ) -> Result<serde_json::Value, String> {
+    let state = connection_manager.state().await;
+    let retry_count = connection_manager.retry_count().await;
+
     Ok(serde_json::json!({
         "connected": swarm_bridge.is_connected(),
+        "state": state,
+        "retryCount": retry_count,
+        "reconnectEnabled": connection_manager.is_reconnect_enabled(),
         "backendType": "go"
     }))
+}
+
+/// 手动连接到后端
+#[tauri::command]
+async fn connect_backend(
+    connection_manager: tauri::State<'_, swarm::ConnectionManager>,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    // First, set up the notification handler for event forwarding
+    let app_handle_for_events = app.clone();
+    swarm_bridge.set_notification_handler(move |method, params| {
+        log::debug!("Received notification from Go backend: {}", method);
+
+        // Forward session/update events to frontend
+        if method == "session/update" || method == "sessionUpdate" {
+            if let Some(params_value) = params {
+                let _ = app_handle_for_events.emit("session-update", params_value);
+            }
+        }
+
+        // Forward swarm events to frontend
+        if method.starts_with("swarm/") || method.starts_with("swarm") {
+            if let Some(params_value) = params {
+                // Convert method name to event name: swarm/taskUpdate -> swarm-task-update
+                let event_name = method
+                    .replace("/", "-")
+                    .replace("_", "-")
+                    .to_lowercase();
+                let _ = app_handle_for_events.emit(&event_name, params_value);
+            }
+        }
+
+        // Forward permission requests
+        if method == "session/request_permission" || method == "sessionRequestPermission" {
+            if let Some(params_value) = params {
+                let _ = app_handle_for_events.emit("permission-request", params_value);
+            }
+        }
+
+        // Forward agent status changes
+        if method == "agent/status" || method == "agentStatus" {
+            if let Some(params_value) = params {
+                let _ = app_handle_for_events.emit("agent-status-change", params_value);
+            }
+        }
+
+        // Forward log events
+        if method == "log" {
+            if let Some(params_value) = params {
+                let _ = app_handle_for_events.emit("log", params_value);
+            }
+        }
+    }).await;
+
+    // Now connect
+    match connection_manager.connect().await {
+        Ok(_) => {
+            // Emit connected event
+            let _ = app.emit("backend-connected", serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }));
+            Ok("Connected to Go backend".to_string())
+        }
+        Err(e) => {
+            // Emit connecting event with error
+            let _ = app.emit("backend-connecting", serde_json::json!({
+                "message": "Connection failed",
+                "error": e.clone()
+            }));
+            Err(e)
+        }
+    }
+}
+
+/// 手动断开后端连接
+#[tauri::command]
+async fn disconnect_backend(
+    connection_manager: tauri::State<'_, swarm::ConnectionManager>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    connection_manager.disconnect().await?;
+    // Emit disconnected event
+    let _ = app.emit("backend-disconnected", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "reason": "manual_disconnect"
+    }));
+    Ok("Disconnected from Go backend".to_string())
+}
+
+/// 启用自动重连
+#[tauri::command]
+fn enable_reconnect(connection_manager: tauri::State<'_, swarm::ConnectionManager>) {
+    connection_manager.enable_reconnect();
+}
+
+/// 禁用自动重连
+#[tauri::command]
+fn disable_reconnect(connection_manager: tauri::State<'_, swarm::ConnectionManager>) {
+    connection_manager.disable_reconnect();
+}
+
+// ============================================================================
+// Agent Chat 会话管理
+// ============================================================================
+
+use std::sync::Arc;
+use tokio::sync::RwLock as TokioRwLock;
+use acp::{Client, ClientBuilder};
+
+/// Agent 会话状态
+#[derive(Clone)]
+pub struct AgentSession {
+    pub agent_id: String,
+    pub session_id: String,
+    pub client: Arc<Client>,
+}
+
+/// 会话管理器
+pub struct SessionManager {
+    sessions: TokioRwLock<HashMap<String, AgentSession>>,
+}
+
+impl SessionManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: TokioRwLock::new(HashMap::new()),
+        }
+    }
+}
+
+/// 创建 Agent 会话
+#[tauri::command]
+async fn create_agent_session(
+    agent_id: String,
+    session_manager: tauri::State<'_, SessionManager>,
+) -> Result<serde_json::Value, String> {
+    let config = load_config();
+    let agent_config = config
+        .agents
+        .get(&agent_id)
+        .ok_or_else(|| format!("Agent not found: {}", agent_id))?;
+
+    // 构建环境变量
+    let mut builder = ClientBuilder::new(&agent_config.command);
+    builder = builder.args(&agent_config.args);
+
+    for (key, value) in &agent_config.env {
+        let resolved = if value.starts_with("${") && value.ends_with("}") {
+            let var_name = &value[2..value.len() - 1];
+            std::env::var(var_name).unwrap_or_default()
+        } else {
+            value.clone()
+        };
+        builder = builder.env(key, &resolved);
+    }
+
+    // 连接 Agent
+    let client = builder
+        .connect()
+        .await
+        .map_err(|e| format!("Failed to connect to agent: {}", e))?;
+
+    // 初始化 ACP
+    let init_result = client
+        .initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize agent: {}", e))?;
+
+    log::info!(
+        "Agent {} initialized: {}",
+        agent_id,
+        init_result.agent_info.name
+    );
+
+    // 创建会话
+    let session_result = client
+        .session_new(acp::types::SessionNewParams {
+            session_id: None,
+            mode: Some(acp::types::SessionMode::Default),
+            config_options: None,
+            swarm_config: None,
+            pair_partner: None,
+            team_id: None,
+        })
+        .await
+        .map_err(|e| format!("Failed to create session: {}", e))?;
+
+    let session_id = session_result.session_id;
+    let client_arc = Arc::new(client);
+
+    // 保存会话
+    {
+        let mut sessions = session_manager.sessions.write().await;
+        sessions.insert(
+            session_id.clone(),
+            AgentSession {
+                agent_id: agent_id.clone(),
+                session_id: session_id.clone(),
+                client: Arc::clone(&client_arc),
+            },
+        );
+    }
+
+    Ok(serde_json::json!({
+        "sessionId": session_id,
+        "agentId": agent_id,
+        "agentName": agent_config.name
+    }))
+}
+
+/// 发送消息到 Agent 会话
+#[tauri::command]
+async fn send_agent_message(
+    session_id: String,
+    message: String,
+    session_manager: tauri::State<'_, SessionManager>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    let session = {
+        let sessions = session_manager.sessions.read().await;
+        sessions
+            .get(&session_id)
+            .ok_or_else(|| format!("Session not found: {}", session_id))?
+            .clone()
+    };
+
+    // 构建提示内容
+    let prompt = vec![acp::types::ContentBlock {
+        content_type: "text".to_string(),
+        text: Some(message),
+        image: None,
+        audio: None,
+        resource: None,
+        resource_link: None,
+    }];
+
+    // 发送提示
+    let result = session
+        .client
+        .session_prompt(acp::types::SessionPromptParams {
+            session_id: session.session_id.clone(),
+            prompt,
+        })
+        .await
+        .map_err(|e| format!("Failed to send prompt: {}", e))?;
+
+    // 发送事件到前端
+    let _ = app.emit(
+        "agent-message",
+        serde_json::json!({
+            "sessionId": session_id,
+            "stopReason": format!("{:?}", result.stop_reason)
+        }),
+    );
+
+    Ok(serde_json::json!({
+        "sessionId": session_id,
+        "stopReason": format!("{:?}", result.stop_reason)
+    }))
+}
+
+/// 关闭 Agent 会话
+#[tauri::command]
+async fn close_agent_session(
+    session_id: String,
+    session_manager: tauri::State<'_, SessionManager>,
+) -> Result<(), String> {
+    let session = {
+        let mut sessions = session_manager.sessions.write().await;
+        sessions
+            .remove(&session_id)
+            .ok_or_else(|| format!("Session not found: {}", session_id))?
+    };
+
+    session
+        .client
+        .close()
+        .await
+        .map_err(|e| format!("Failed to close session: {}", e))?;
+
+    log::info!("Closed session {} for agent {}", session_id, session.agent_id);
+    Ok(())
+}
+
+// ============================================================================
+// Team Management (File-based persistence)
+// ============================================================================
+
+/// Team information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct TeamInfo {
+    id: String,
+    name: String,
+    description: String,
+    owner: String,
+    members: Vec<TeamMemberInfo>,
+    agents: Vec<String>,
+    workspaces: Vec<String>,
+    created_at: String,
+}
+
+/// Team member information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct TeamMemberInfo {
+    id: String,
+    name: String,
+    email: Option<String>,
+    role: String,
+    online: bool,
+}
+
+/// Team configuration stored in file
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+struct TeamsConfig {
+    teams: Vec<TeamInfo>,
+}
+
+fn get_teams_config_path() -> std::path::PathBuf {
+    get_config_dir().join("teams.json")
+}
+
+fn load_teams_config() -> TeamsConfig {
+    let path = get_teams_config_path();
+    if !path.exists() {
+        return TeamsConfig::default();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => TeamsConfig::default(),
+    }
+}
+
+fn save_teams_config(config: &TeamsConfig) -> Result<(), String> {
+    let path = get_teams_config_path();
+    let content = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize teams: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write teams config: {}", e))
+}
+
+/// Get all teams
+#[tauri::command]
+fn get_teams() -> Result<Vec<TeamInfo>, String> {
+    let config = load_teams_config();
+    Ok(config.teams)
+}
+
+/// Create a new team
+#[tauri::command]
+fn create_team(name: String, owner: String) -> Result<TeamInfo, String> {
+    if name.trim().is_empty() {
+        return Err("Team name is required".to_string());
+    }
+
+    let mut config = load_teams_config();
+
+    let team = TeamInfo {
+        id: format!("team-{}", chrono::Utc::now().timestamp_millis()),
+        name: name.trim().to_string(),
+        description: String::new(),
+        owner: owner.clone(),
+        members: vec![TeamMemberInfo {
+            id: owner.clone(),
+            name: owner.clone(),
+            email: None,
+            role: "owner".to_string(),
+            online: true,
+        }],
+        agents: vec![],
+        workspaces: vec![],
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    config.teams.push(team.clone());
+    save_teams_config(&config)?;
+
+    log::info!("Created team: {} ({})", team.name, team.id);
+    Ok(team)
+}
+
+/// Delete a team
+#[tauri::command]
+fn delete_team(team_id: String) -> Result<(), String> {
+    let mut config = load_teams_config();
+    let initial_len = config.teams.len();
+    config.teams.retain(|t| t.id != team_id);
+
+    if config.teams.len() == initial_len {
+        return Err(format!("Team not found: {}", team_id));
+    }
+
+    save_teams_config(&config)?;
+    log::info!("Deleted team: {}", team_id);
+    Ok(())
+}
+
+/// Add agent to team
+#[tauri::command]
+fn add_agent_to_team(team_id: String, agent_id: String) -> Result<TeamInfo, String> {
+    let mut config = load_teams_config();
+
+    let team = config.teams.iter_mut().find(|t| t.id == team_id)
+        .ok_or_else(|| format!("Team not found: {}", team_id))?;
+
+    if team.agents.contains(&agent_id) {
+        return Err(format!("Agent {} already in team", agent_id));
+    }
+
+    team.agents.push(agent_id);
+    let updated = team.clone();
+    save_teams_config(&config)?;
+
+    Ok(updated)
+}
+
+/// Remove agent from team
+#[tauri::command]
+fn remove_agent_from_team(team_id: String, agent_id: String) -> Result<TeamInfo, String> {
+    let mut config = load_teams_config();
+
+    let team = config.teams.iter_mut().find(|t| t.id == team_id)
+        .ok_or_else(|| format!("Team not found: {}", team_id))?;
+
+    team.agents.retain(|a| a != &agent_id);
+    let updated = team.clone();
+    save_teams_config(&config)?;
+
+    Ok(updated)
+}
+
+// ============================================================================
+// MCP Server 管理
+// ============================================================================
+
+/// MCP Server 信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPServerInfo {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub tools: Vec<MCPToolInfo>,
+    pub resources: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPToolInfo {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
+
+/// Get MCP servers status
+#[tauri::command]
+fn get_mcp_servers() -> Result<Vec<MCPServerInfo>, String> {
+    let config = load_config();
+    let mut servers = Vec::new();
+
+    for server in &config.default_mcp_settings.custom_mcp_servers {
+        servers.push(MCPServerInfo {
+            id: server.name.clone(),
+            name: server.name.clone(),
+            status: "disconnected".to_string(),
+            tools: Vec::new(),
+            resources: Vec::new(),
+            error: None,
+        });
+    }
+
+    Ok(servers)
+}
+
+/// Start MCP server (placeholder - would need actual process management)
+#[tauri::command]
+fn start_mcp_server(server_id: String) -> Result<MCPServerInfo, String> {
+    let config = load_config();
+    let server = config.default_mcp_settings.custom_mcp_servers.iter()
+        .find(|s| s.name == server_id)
+        .ok_or_else(|| format!("MCP server not found: {}", server_id))?;
+
+    // In a real implementation, this would start the MCP server process
+    // and establish a JSON-RPC connection
+
+    Ok(MCPServerInfo {
+        id: server.name.clone(),
+        name: server.name.clone(),
+        status: "connecting".to_string(),
+        tools: Vec::new(),
+        resources: Vec::new(),
+        error: None,
+    })
+}
+
+/// Stop MCP server
+#[tauri::command]
+fn stop_mcp_server(server_id: String) -> Result<MCPServerInfo, String> {
+    let config = load_config();
+    let server = config.default_mcp_settings.custom_mcp_servers.iter()
+        .find(|s| s.name == server_id)
+        .ok_or_else(|| format!("MCP server not found: {}", server_id))?;
+
+    Ok(MCPServerInfo {
+        id: server.name.clone(),
+        name: server.name.clone(),
+        status: "disconnected".to_string(),
+        tools: Vec::new(),
+        resources: Vec::new(),
+        error: None,
+    })
+}
+
+/// Call MCP tool
+#[tauri::command]
+async fn call_mcp_tool(
+    server_id: String,
+    tool_name: String,
+    args: serde_json::Value,
+    swarm_bridge: tauri::State<'_, swarm::SwarmBridge>,
+) -> Result<serde_json::Value, String> {
+    // Try to call via Go backend
+    if swarm_bridge.is_connected() {
+        // Convert args to HashMap
+        let arguments: std::collections::HashMap<String, serde_json::Value> = if args.is_null() {
+            std::collections::HashMap::new()
+        } else if let Some(obj) = args.as_object() {
+            obj.clone().into_iter().collect()
+        } else {
+            return Err("Arguments must be a JSON object".to_string());
+        };
+
+        match swarm_bridge.call_mcp_tool(&server_id, &tool_name, arguments).await {
+            Ok(result) => {
+                // Convert MCPCallToolResult to JSON
+                return Ok(serde_json::to_value(result)
+                    .map_err(|e| format!("Failed to serialize result: {}", e))?);
+            }
+            Err(e) => {
+                log::warn!("Go backend call_mcp_tool failed: {}, falling back to error", e);
+            }
+        }
+    }
+
+    // Fallback when not connected
+    Err(format!(
+        "MCP tool call requires Go backend connection: server={}, tool={}. Please connect to the backend first.",
+        server_id, tool_name
+    ))
+}
+
+/// Add MCP server configuration
+#[tauri::command]
+fn add_mcp_server(config: MCPServerConfig) -> Result<MCPServerInfo, String> {
+    let mut app_config = load_config();
+
+    // Check if server already exists
+    if app_config.default_mcp_settings.custom_mcp_servers.iter().any(|s| s.name == config.name) {
+        return Err(format!("MCP server already exists: {}", config.name));
+    }
+
+    app_config.default_mcp_settings.custom_mcp_servers.push(config.clone());
+    save_config(&app_config)?;
+
+    Ok(MCPServerInfo {
+        id: config.name.clone(),
+        name: config.name,
+        status: "disconnected".to_string(),
+        tools: Vec::new(),
+        resources: Vec::new(),
+        error: None,
+    })
+}
+
+/// Remove MCP server configuration
+#[tauri::command]
+fn remove_mcp_server(server_id: String) -> Result<(), String> {
+    let mut config = load_config();
+
+    let initial_len = config.default_mcp_settings.custom_mcp_servers.len();
+    config.default_mcp_settings.custom_mcp_servers.retain(|s| s.name != server_id);
+
+    if config.default_mcp_settings.custom_mcp_servers.len() == initial_len {
+        return Err(format!("MCP server not found: {}", server_id));
+    }
+
+    save_config(&config)?;
+    Ok(())
 }
 
 // ============================================================================
@@ -1404,13 +2006,19 @@ pub fn run() {
 
     log::info!("Go backend binary path: {}", binary_path);
 
-    let swarm_bridge = swarm::SwarmBridge::new(&binary_path);
+    let swarm_bridge = std::sync::Arc::new(swarm::SwarmBridge::new(&binary_path));
+    let swarm_bridge = std::sync::Arc::new(swarm::SwarmBridge::new(&binary_path));
+    let connection_manager = swarm::ConnectionManager::new(std::sync::Arc::clone(&swarm_bridge));
+
+    let session_manager = SessionManager::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ProcessManager::new())
         .manage(SwarmManager::new())
         .manage(swarm_bridge)
+        .manage(connection_manager)
+        .manage(session_manager)
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -1430,40 +2038,17 @@ pub fn run() {
                 }
             }
 
-            // Connect to Go backend asynchronously
+            // Get the app handle for event emission
             let app_handle = app.handle().clone();
+
+            // Start the connection manager background task
+            // Note: Actual connection is deferred to frontend calling connect_backend
+            // This allows the frontend to be ready before we start receiving events
             tauri::async_runtime::spawn(async move {
-                let state = app_handle.state::<swarm::SwarmBridge>();
-                match state.connect().await {
-                    Ok(_) => {
-                        log::info!("Connected to Go backend");
-
-                        // Set up notification handler to emit events to frontend
-                        let app_handle_clone = app_handle.clone();
-                        state
-                            .set_notification_handler(move |method, params| {
-                                log::info!("Notification from Go backend: {} {:?}", method, params);
-
-                                // Emit event to frontend based on notification type
-                                if let Some(params_value) = params {
-                                    let event_name = match method {
-                                        "swarm/task_update" => "swarm-task-update",
-                                        "swarm/status_change" => "swarm-status-change",
-                                        "agent/status_change" => "agent-status-change",
-                                        "permission/request" => "permission-request",
-                                        _ => "backend-notification",
-                                    };
-
-                                    if let Err(e) = app_handle_clone.emit(event_name, params_value)
-                                    {
-                                        log::error!("Failed to emit event {}: {}", event_name, e);
-                                    }
-                                }
-                            })
-                            .await;
-                    }
-                    Err(e) => log::error!("Failed to connect to Go backend: {}", e),
-                }
+                // Emit initial connecting event
+                let _ = app_handle.emit("backend-connecting", serde_json::json!({
+                    "message": "Ready to connect. Frontend should call connect_backend to establish connection."
+                }));
             });
 
             Ok(())
@@ -1492,8 +2077,29 @@ pub fn run() {
             delete_swarm,
             submit_swarm_task,
             execute_swarm_task,
-            // 后端状态
+            // 后端连接管理
             get_backend_status,
+            connect_backend,
+            disconnect_backend,
+            enable_reconnect,
+            disable_reconnect,
+            // Agent Chat
+            create_agent_session,
+            send_agent_message,
+            close_agent_session,
+            // Team 管理
+            get_teams,
+            create_team,
+            delete_team,
+            add_agent_to_team,
+            remove_agent_from_team,
+            // MCP Server 管理
+            get_mcp_servers,
+            start_mcp_server,
+            stop_mcp_server,
+            call_mcp_tool,
+            add_mcp_server,
+            remove_mcp_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

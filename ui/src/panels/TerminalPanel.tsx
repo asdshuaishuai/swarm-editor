@@ -143,6 +143,7 @@ export default function TerminalPanel({
             onClick={onClear}
             className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
             title="Clear Output"
+            aria-label="Clear Output"
           >
             <Trash2 size={14} />
           </button>
@@ -150,6 +151,8 @@ export default function TerminalPanel({
             onClick={toggleCollapse}
             className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
             title={isCollapsed ? 'Expand' : 'Collapse'}
+            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+            aria-expanded={!isCollapsed}
           >
             {isCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
@@ -158,6 +161,7 @@ export default function TerminalPanel({
               onClick={onClose}
               className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
               title="Close"
+              aria-label="Close"
             >
               <X size={14} />
             </button>

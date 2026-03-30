@@ -43,60 +43,23 @@ export default function AgentScannerPanel() {
     setScanning(true)
     try {
       logger.info('AgentScanner', 'Starting agent scan...')
-      
-      // In Tauri environment, call backend to scan
-      if (api.isTauriEnv()) {
-        const result = await api.agent.refreshAgents()
-        const discovered: DiscoveredAgent[] = result.map(agent => ({
-          id: agent.id,
-          name: agent.name,
-          type: agent.type,
-          endpoint: agent.command,
-          capabilities: agent.capabilities,
-          lastSeen: agent.lastActive || new Date().toISOString(),
-          status: agent.status === 'running' ? 'available' : 'unreachable',
-        }))
-        setDiscoveredAgents(discovered)
-      } else {
-        // Mock discovery for development
-        const mockDiscovered: DiscoveredAgent[] = [
-          {
-            id: 'claude-code-local',
-            name: 'Claude Code (Local)',
-            type: 'coder',
-            endpoint: 'claude',
-            capabilities: ['role:coder', 'role:architect', 'coordinator', 'worker'],
-            lastSeen: new Date().toISOString(),
-            status: 'available',
-            latency: 45,
-          },
-          {
-            id: 'copilot-local',
-            name: 'GitHub Copilot (Local)',
-            type: 'coder',
-            endpoint: 'copilot',
-            capabilities: ['role:coder', 'worker'],
-            lastSeen: new Date().toISOString(),
-            status: 'available',
-            latency: 32,
-          },
-          {
-            id: 'cursor-remote',
-            name: 'Cursor AI (Remote)',
-            type: 'architect',
-            endpoint: 'ws://localhost:8765',
-            capabilities: ['role:architect', 'role:reviewer', 'coordinator'],
-            lastSeen: new Date(Date.now() - 60000).toISOString(),
-            status: 'unreachable',
-          },
-        ]
-        setDiscoveredAgents(mockDiscovered)
-        setLastScan(new Date())
-        addToast('success', 'Scan Complete', `Found ${mockDiscovered.length} agents`)
-      }
+
+      const result = await api.agent.refreshAgents()
+      const discovered: DiscoveredAgent[] = result.map(agent => ({
+        id: agent.id,
+        name: agent.name,
+        type: agent.type,
+        endpoint: agent.command || '',
+        capabilities: agent.capabilities || [],
+        lastSeen: agent.lastActive || new Date().toISOString(),
+        status: agent.status === 'running' ? 'available' : 'unreachable',
+      }))
+      setDiscoveredAgents(discovered)
+      setLastScan(new Date())
+      addToast('success', '扫描完成', `发现 ${discovered.length} 个 Agent`)
     } catch (err) {
       logger.error('AgentScanner', 'Scan failed:', err)
-      addToast('error', 'Scan Failed', err instanceof Error ? err.message : 'Unknown error')
+      addToast('error', '扫描失败', err instanceof Error ? err.message : '未知错误')
     } finally {
       setScanning(false)
     }
@@ -121,9 +84,7 @@ export default function AgentScannerPanel() {
     try {
       logger.info('AgentScanner', `Connecting to agent: ${agent.name}`)
       
-      if (api.isTauriEnv()) {
-        await api.agent.startAgent(agent.id)
-      }
+      await api.agent.startAgent(agent.id)
       
       addToast('success', 'Agent Connected', `Successfully connected to ${agent.name}`)
       // Refresh the list
@@ -200,7 +161,7 @@ export default function AgentScannerPanel() {
             <span className="text-xs text-text-secondary">Every</span>
             <select
               value={scanInterval}
-              onChange={(e) => updateSetting('agentScanInterval', parseInt(e.target.value) * 1000)}
+              onChange={(e) => updateSetting('agentScanInterval', (parseInt(e.target.value) || 30) * 1000)}
               className="input-mac text-xs py-1"
             >
               <option value={10}>10s</option>
@@ -253,9 +214,9 @@ export default function AgentScannerPanel() {
 
                   {/* Capabilities */}
                   <div className="flex flex-wrap gap-1 mb-3">
-                    {agent.capabilities.slice(0, 4).map((cap, i) => (
+                    {agent.capabilities.slice(0, 4).map((cap) => (
                       <span
-                        key={i}
+                        key={`${agent.id}-${cap}`}
                         className="px-2 py-0.5 bg-glass/50 rounded-mac text-xs text-text-secondary"
                       >
                         {cap}

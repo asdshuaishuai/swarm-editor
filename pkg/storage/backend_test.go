@@ -310,6 +310,44 @@ func TestCachedStoreExpiration(t *testing.T) {
 	}
 }
 
+// TestCachedStoreGetReturnsCopy verifies that CachedStore.Get returns a copy
+// of the cached data, not a reference to the internal slice.
+func TestCachedStoreGetReturnsCopy(t *testing.T) {
+	backend := NewMemoryBackend()
+	store := NewStore(backend)
+	cached := NewCachedStore(*store, 100*time.Millisecond)
+	ctx := context.Background()
+
+	// Set a value
+	original := []byte("original_value")
+	_ = backend.Set(ctx, "key", original)
+
+	// First Get should hit backend and cache the value
+	v1, err := cached.Get(ctx, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mutate the returned slice
+	v1[0] = 'X'
+
+	// Second Get should return a copy, not the mutated slice
+	v2, err := cached.Get(ctx, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// v2 should be "original_value", not "Xriginal_value"
+	if string(v2) != "original_value" {
+		t.Errorf("CachedStore.Get should return a copy, got '%s'", string(v2))
+	}
+
+	// Also verify that the first mutation didn't affect the cached data
+	if string(v1) != "Xriginal_value" {
+		t.Errorf("mutation should have affected v1, got '%s'", string(v1))
+	}
+}
+
 // Test FileBackend with invalid directory
 func TestFileBackendInvalidDir(t *testing.T) {
 	// Try to create a FileBackend with a file instead of directory

@@ -22,16 +22,27 @@ func ContextWithDeadline(parent context.Context, deadline time.Time) (context.Co
 	return context.WithDeadline(parent, deadline)
 }
 
-// MergeContexts creates a context that is cancelled when either parent is cancelled
+// MergeContexts creates a context that is cancelled when either parent is cancelled.
+// IMPORTANT: The returned cancel function MUST be called to prevent goroutine leaks
+// if neither parent context will be cancelled during the lifetime of the program.
 func MergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx1)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Panic in context merging is unusual but we must still call cancel
+				// to prevent context leak
+				cancel()
+			}
+		}()
 		select {
 		case <-ctx1.Done():
 			cancel()
 		case <-ctx2.Done():
 			cancel()
+		case <-ctx.Done():
+			// Caller cancelled via the returned cancel func
 		}
 	}()
 
@@ -39,7 +50,7 @@ func MergeContexts(ctx1, ctx2 context.Context) (context.Context, context.CancelF
 }
 
 // ContextWithValue is a type-safe helper for context values
-func ContextWithValue(parent context.Context, key string, value interface{}) context.Context {
+func ContextWithValue(parent context.Context, key string, value any) context.Context {
 	return context.WithValue(parent, contextKey(key), value)
 }
 

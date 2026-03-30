@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -226,18 +226,43 @@ func (c *Coordinator) RegisterAgent(id string, capabilities []string) {
 	}
 }
 
-// UnregisterAgent unregisters an agent
+// UnregisterAgent unregisters an agent and releases it from running tasks
 func (c *Coordinator) UnregisterAgent(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	delete(c.agents, id)
+
+	// Release agent from any running tasks to prevent permanent stuck
+	for _, task := range c.runningTasks {
+		var remaining []string
+		for _, aid := range task.AssignedTo {
+			if aid != id {
+				remaining = append(remaining, aid)
+			}
+		}
+		if len(remaining) < len(task.AssignedTo) {
+			task.AssignedTo = remaining
+			if len(task.AssignedTo) == 0 {
+				task.Status = "failed"
+				task.CompletedAt = time.Now()
+				delete(c.runningTasks, task.ID)
+				c.completedTasks[task.ID] = task
+				log.Printf("[A2A] Task %q failed: all agents unregistered", task.ID)
+			}
+		}
+	}
 }
 
 // SubmitTask submits a task for coordination
 func (c *Coordinator) SubmitTask(ctx context.Context, task *CoordinationTask) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Check if coordinator is running
+	if !c.running {
+		return fmt.Errorf("coordinator is not running")
+	}
 
 	task.Status = "pending"
 	c.pendingTasks[task.ID] = task
@@ -249,15 +274,45 @@ func (c *Coordinator) SubmitTask(ctx context.Context, task *CoordinationTask) er
 func (c *Coordinator) schedulingLoop() {
 	defer c.wg.Done()
 
+	// Snapshot context to avoid data race on c.ctx
+	ctx := c.ctx
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			c.checkTaskTimeouts()
 			c.scheduleNext()
+		}
+	}
+}
+
+// checkTaskTimeouts moves tasks that have exceeded TaskTimeout from running to failed.
+// Without this, agent disconnects or message loss would permanently occupy MaxConcurrent slots.
+func (c *Coordinator) checkTaskTimeouts() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for id, task := range c.runningTasks {
+		if !task.StartedAt.IsZero() && now.Sub(task.StartedAt) > c.config.TaskTimeout {
+			log.Printf("[A2A] Task %q timed out after %v (max %v)", id, now.Sub(task.StartedAt), c.config.TaskTimeout)
+			task.Status = "failed"
+			task.CompletedAt = now
+			delete(c.runningTasks, id)
+			c.completedTasks[id] = task
+
+			// Release agents back to idle
+			for _, agentID := range task.AssignedTo {
+				if agent, ok := c.agents[agentID]; ok && agent.Status == "busy" {
+					agent.Status = "idle"
+					agent.CurrentTask = ""
+				}
+			}
 		}
 	}
 }
@@ -265,26 +320,34 @@ func (c *Coordinator) schedulingLoop() {
 // scheduleNext schedules the next pending task
 func (c *Coordinator) scheduleNext() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if len(c.runningTasks) >= c.config.MaxConcurrent {
+		c.mu.Unlock()
 		return
 	}
 
 	// Get next task by priority
 	task := c.getNextTask()
 	if task == nil {
+		c.mu.Unlock()
 		return
 	}
 
 	// Select agent(s) based on strategy
 	agents := c.selectAgents(task)
 	if len(agents) == 0 {
+		c.mu.Unlock()
 		return
 	}
 
 	// Initiate task assignment via A2A
-	c.initiateTaskAssignment(task, agents)
+	callback := c.initiateTaskAssignment(task, agents)
+	c.mu.Unlock()
+
+	// Invoke callback outside lock to prevent deadlock
+	if callback != nil {
+		callback()
+	}
 }
 
 // getNextTask gets the next highest priority task
@@ -560,8 +623,9 @@ func (c *Coordinator) hasRequiredRole(agent *AgentState, requiredRole string) bo
 	return false
 }
 
-// initiateTaskAssignment initiates task assignment via A2A negotiation
-func (c *Coordinator) initiateTaskAssignment(task *CoordinationTask, agents []string) {
+// initiateTaskAssignment initiates task assignment via A2A negotiation.
+// Returns a callback to invoke after releasing the lock to prevent deadlock.
+func (c *Coordinator) initiateTaskAssignment(task *CoordinationTask, agents []string) func() {
 	// Remove from pending
 	delete(c.pendingTasks, task.ID)
 
@@ -588,23 +652,37 @@ func (c *Coordinator) initiateTaskAssignment(task *CoordinationTask, agents []st
 		// Set callback for task assigned
 		msg.WithCorrelation(task.ID)
 
+		c.wg.Add(1)
 		go func(m *Message) {
+			defer func() {
+				c.wg.Done()
+				if r := recover(); r != nil {
+					log.Printf("[A2A] Send task request panic: %v", r)
+				}
+			}()
 			if err := c.router.Send(m); err != nil {
 				log.Printf("Coordinator: failed to send task request to %s: %v", m.To, err)
 			}
 		}(msg)
 
-		// Update agent state
+		// Update agent state for each assigned agent
 		if agent, ok := c.agents[agentID]; ok {
 			agent.Status = "busy"
 			agent.CurrentTask = task.ID
-			agent.Load = math.Min(1.0, agent.Load+0.3)
+			agent.Load = min(1.0, agent.Load+0.3)
 		}
 	}
 
-	if c.onTaskAssigned != nil {
-		c.onTaskAssigned(task, agents[0])
+	// Snapshot callback under lock, return for invocation outside lock to prevent deadlock
+	onTaskAssigned := c.onTaskAssigned
+	assignedAgent := ""
+	if len(agents) > 0 {
+		assignedAgent = agents[0]
 	}
+	if onTaskAssigned != nil && assignedAgent != "" {
+		return func() { onTaskAssigned(task, assignedAgent) }
+	}
+	return nil
 }
 
 // ============================================================================
@@ -660,7 +738,7 @@ func (c *Coordinator) handleTaskReject(msg *Message) error {
 	if agent, ok := c.agents[agentID]; ok {
 		agent.Status = "idle"
 		agent.CurrentTask = ""
-		agent.Load = math.Max(0, agent.Load-0.3)
+		agent.Load = max(0, agent.Load-0.3)
 	}
 
 	// Remove from assigned list
@@ -710,10 +788,10 @@ func (c *Coordinator) handleTaskComplete(msg *Message) error {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	task, ok := c.runningTasks[payload.TaskID]
 	if !ok {
+		c.mu.Unlock()
 		return nil
 	}
 
@@ -725,6 +803,7 @@ func (c *Coordinator) handleTaskComplete(msg *Message) error {
 	}
 	task.Results[agentID] = &TaskResult{
 		TaskID:       payload.TaskID,
+		AgentID:      agentID,
 		Content:      string(payload.Result),
 		FilesChanged: payload.FilesChanged,
 		Duration:     payload.Duration,
@@ -734,7 +813,7 @@ func (c *Coordinator) handleTaskComplete(msg *Message) error {
 	if agent, ok := c.agents[agentID]; ok {
 		agent.Status = "idle"
 		agent.CurrentTask = ""
-		agent.Load = math.Max(0, agent.Load-0.3)
+		agent.Load = max(0, agent.Load-0.3)
 		agent.SuccessRate = (agent.SuccessRate*9 + 1) / 10 // Rolling average
 		agent.TaskHistory = append(agent.TaskHistory, payload.TaskID)
 		if len(agent.TaskHistory) > 100 {
@@ -758,16 +837,22 @@ func (c *Coordinator) handleTaskComplete(msg *Message) error {
 		// Leave strong pheromone trail on success
 		c.leavePheromone(task.RequiredRole, task.ID)
 
-		if c.onTaskComplete != nil {
-			var result *TaskResult
-			for _, r := range task.Results {
-				result = r
-				break
-			}
-			c.onTaskComplete(task, result)
+		// Snapshot callback under lock, invoke outside lock to prevent deadlock
+		onTaskComplete := c.onTaskComplete
+		var taskResult *TaskResult
+		for _, r := range task.Results {
+			taskResult = r
+			break
 		}
+		c.mu.Unlock()
+
+		if onTaskComplete != nil {
+			onTaskComplete(task, taskResult)
+		}
+		return nil
 	}
 
+	c.mu.Unlock()
 	return nil
 }
 
@@ -792,7 +877,7 @@ func (c *Coordinator) handleTaskFailed(msg *Message) error {
 	if agent, ok := c.agents[agentID]; ok {
 		agent.Status = "idle"
 		agent.CurrentTask = ""
-		agent.Load = math.Max(0, agent.Load-0.3)
+		agent.Load = max(0, agent.Load-0.3)
 		agent.SuccessRate = (agent.SuccessRate * 9) / 10 // Rolling average
 	}
 
@@ -818,6 +903,11 @@ func (c *Coordinator) handleTaskFailed(msg *Message) error {
 		task.Status = "failed"
 		delete(c.runningTasks, task.ID)
 		c.completedTasks[task.ID] = task
+
+		// Clean up old completed tasks if limit is set
+		if c.config.MaxCompletedTasks > 0 && len(c.completedTasks) > c.config.MaxCompletedTasks {
+			c.cleanupOldCompletedTasks()
+		}
 	}
 
 	return nil
@@ -830,16 +920,33 @@ func (c *Coordinator) handleHelpRequest(msg *Message) error {
 		return err
 	}
 
+	// Snapshot agent fields under lock to prevent data race
+	type agentSnapshot struct {
+		status       string
+		capabilities []string
+	}
+	c.mu.RLock()
+	agents := make(map[string]agentSnapshot, len(c.agents))
+	for id, agent := range c.agents {
+		caps := make([]string, len(agent.Capabilities))
+		copy(caps, agent.Capabilities)
+		agents[id] = agentSnapshot{
+			status:       agent.Status,
+			capabilities: caps,
+		}
+	}
+	c.mu.RUnlock()
+
 	// Find available agents with required skills
 	var helpers []string
-	for id, agent := range c.agents {
-		if agent.Status != "idle" {
+	for id, agent := range agents {
+		if agent.status != "idle" {
 			continue
 		}
 
 		hasSkill := false
 		for _, skill := range payload.Skills {
-			for _, cap := range agent.Capabilities {
+			for _, cap := range agent.capabilities {
 				if cap == skill {
 					hasSkill = true
 					break
@@ -865,7 +972,14 @@ func (c *Coordinator) handleHelpRequest(msg *Message) error {
 				Available: true,
 			})
 
+		c.wg.Add(1)
 		go func(m *Message) {
+			defer func() {
+				c.wg.Done()
+				if r := recover(); r != nil {
+					log.Printf("[A2A] Help offer send panic: %v", r)
+				}
+			}()
 			if err := c.router.Send(m); err != nil {
 				log.Printf("Coordinator: failed to send help offer to %s: %v", m.To, err)
 			}
@@ -905,6 +1019,11 @@ func (c *Coordinator) handleProposal(msg *Message) error {
 		for _, agentID := range task.AssignedTo {
 			if agentID == msg.From {
 				task.Negotiations = append(task.Negotiations, negotiation)
+				// Limit negotiation history to prevent unbounded growth
+				const maxNegotiations = 100
+				if len(task.Negotiations) > maxNegotiations {
+					task.Negotiations = task.Negotiations[len(task.Negotiations)-maxNegotiations:]
+				}
 				break
 			}
 		}
@@ -928,7 +1047,15 @@ func (c *Coordinator) handleAgreement(msg *Message) error {
 		for _, neg := range task.Negotiations {
 			if neg.ID == payload.ProposalID {
 				neg.Status = "accepted"
-				neg.Responders = append(neg.Responders, payload.AgentID)
+				// Deduplicate: skip if agent already responded
+				alreadyResponded := slices.Contains(neg.Responders, payload.AgentID)
+				if !alreadyResponded {
+					neg.Responders = append(neg.Responders, payload.AgentID)
+					// Limit responders to prevent unbounded growth
+					if len(neg.Responders) > 50 {
+						neg.Responders = neg.Responders[len(neg.Responders)-50:]
+					}
+				}
 			}
 		}
 	}
@@ -950,7 +1077,7 @@ func (c *Coordinator) handlePheromone(msg *Message) error {
 
 	if existing, ok := c.pheromones[key]; ok {
 		// Reinforce existing trail
-		existing.Strength = math.Min(1.0, existing.Strength+payload.Strength)
+		existing.Strength = min(1.0, existing.Strength+payload.Strength)
 		existing.UpdatedAt = time.Now()
 	} else {
 		// Create new trail
@@ -976,7 +1103,7 @@ func (c *Coordinator) leavePheromone(pheromoneType, location string) {
 	key := pheromoneType + ":" + location
 
 	if existing, ok := c.pheromones[key]; ok {
-		existing.Strength = math.Min(1.0, existing.Strength+0.2)
+		existing.Strength = min(1.0, existing.Strength+0.2)
 		existing.UpdatedAt = time.Now()
 	} else {
 		c.pheromones[key] = &PheromoneTrail{
@@ -994,12 +1121,15 @@ func (c *Coordinator) leavePheromone(pheromoneType, location string) {
 func (c *Coordinator) pheromoneDecayLoop() {
 	defer c.wg.Done()
 
+	// Snapshot context to avoid data race on c.ctx
+	ctx := c.ctx
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			c.decayPheromones()
@@ -1045,7 +1175,7 @@ func (c *Coordinator) cleanupOldCompletedTasks() {
 
 	// Remove oldest tasks until we're under the limit
 	toRemove := len(c.completedTasks) - c.config.MaxCompletedTasks
-	for i := 0; i < toRemove && i < len(tasks); i++ {
+	for i := range min(toRemove, len(tasks)) {
 		delete(c.completedTasks, tasks[i].id)
 	}
 }
@@ -1062,9 +1192,10 @@ func (c *Coordinator) GetStats() *CoordinatorStats {
 	idleAgents := 0
 	busyAgents := 0
 	for _, agent := range c.agents {
-		if agent.Status == "idle" {
+		switch agent.Status {
+		case "idle":
 			idleAgents++
-		} else if agent.Status == "busy" {
+		case "busy":
 			busyAgents++
 		}
 	}
@@ -1127,8 +1258,11 @@ func (c *Coordinator) RequestHelp(ctx context.Context, taskID, reason string, sk
 }
 
 // BroadcastKnowledge shares knowledge with all agents
-func (c *Coordinator) BroadcastKnowledge(ctx context.Context, knowledgeType, title string, content interface{}, relevance []string) error {
-	contentJSON, _ := json.Marshal(content)
+func (c *Coordinator) BroadcastKnowledge(ctx context.Context, knowledgeType, title string, content any, relevance []string) error {
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("failed to marshal knowledge content: %w", err)
+	}
 
 	msg := NewMessage(MessageTypeKnowledgeShare, "coordinator", "broadcast").
 		WithPayload(&KnowledgeSharePayload{

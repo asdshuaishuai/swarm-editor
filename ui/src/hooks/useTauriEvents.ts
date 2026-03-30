@@ -1,171 +1,201 @@
 import { useEffect, useRef } from 'react'
-import { tauri, type UnlistenFn } from '../services/tauri'
-import { useAppStore } from '../store/appStore'
+import { events, getWebSocketClient, type PermissionRequestEvent, type AgentInfo } from '../services'
+import { useAppStore, agentInfoToAgent } from '../store/appStore'
 import { logger } from '../utils'
+import type { Swarm } from '../types'
 
 /**
- * Hook to subscribe to Tauri backend events and update the Zustand store.
+ * Hook to subscribe to WebSocket backend events and update the Zustand store.
  *
  * This hook handles:
- * - swarm-task-update: Updates task progress and results
- * - swarm-status-change: Updates swarm state
- * - agent-status-change: Updates individual agent status
- * - permission-request: Handles permission prompts
- * - log: Streams log messages
+ * - swarm_task_update: Updates task progress and results
+ * - swarm_status_change: Updates swarm state
+ * - agent_status_change: Updates individual agent status
+ * - permission_request: Handles permission prompts
+ * - agent_stats: Periodic agent statistics updates
+ * - swarm_stats: Periodic swarm statistics updates
+ *
+ * Uses useAppStore.getState() inside callbacks to avoid stale closures.
+ * Effect has no reactive dependencies — runs once on mount, cleaned up on unmount.
  */
-export function useTauriEvents() {
-  const unlistenFns = useRef<UnlistenFn[]>([])
-  const store = useAppStore()
+export function useACPEvents() {
+  const unsubscribers = useRef<(() => void)[]>([])
 
   useEffect(() => {
-    // Only subscribe if running in Tauri environment
-    if (!tauri.isTauriEnv()) {
-      return
-    }
+    const client = getWebSocketClient()
+    // Capture store getter once at effect start for consistent type access
+    const getStore = () => useAppStore.getState()
 
-    const subscribe = async () => {
-      try {
-        // Subscribe to swarm task updates
-        const unlistenTaskUpdate = await tauri.events.onSwarmTaskUpdate((event) => {
-          logger.debug('Tauri Event', 'swarm-task-update:', event)
+    // Subscribe to swarm task updates
+    const unsubTaskUpdate = events.onSwarmTaskUpdate((event) => {
+      logger.debug('WS Event', 'swarm_task_update:', event)
 
-          // Update swarm stats if we have the swarm in state
-          const swarms = store.swarms
-          const swarmIndex = swarms.findIndex(s => s.id === event.swarm_id)
+      const swarms = getStore().swarms
+      const swarmIndex = swarms.findIndex(s => s.id === event.swarmId)
 
-          if (swarmIndex >= 0) {
-            const swarm = swarms[swarmIndex]
-            const updatedSwarm = {
-              ...swarm,
-              stats: {
-                ...swarm.stats,
-                completedTasks: event.status === 'completed'
-                  ? swarm.stats.completedTasks + 1
-                  : swarm.stats.completedTasks,
-                pendingTasks: event.status === 'pending'
-                  ? swarm.stats.pendingTasks + 1
-                  : swarm.stats.pendingTasks,
-              },
-            }
+      if (swarmIndex >= 0) {
+        const swarm = swarms[swarmIndex]
+        const updatedSwarm = {
+          ...swarm,
+          stats: {
+            ...swarm.stats,
+            completedTasks: event.status === 'completed'
+              ? (swarm.stats?.completedTasks || 0) + 1
+              : swarm.stats?.completedTasks || 0,
+            pendingTasks: event.status === 'pending'
+              ? (swarm.stats?.pendingTasks || 0) + 1
+              : swarm.stats?.pendingTasks || 0,
+          },
+        }
 
-            // Update the swarm in the store
-            const updatedSwarms = [...swarms]
-            updatedSwarms[swarmIndex] = updatedSwarm
-            store.setSwarms(updatedSwarms)
-          }
-        })
-        unlistenFns.current.push(unlistenTaskUpdate)
-
-        // Subscribe to swarm status changes
-        const unlistenSwarmStatus = await tauri.events.onSwarmStatusChange((event) => {
-          logger.debug('Tauri Event', 'swarm-status-change:', event)
-
-          // Update swarm state
-          const swarms = store.swarms
-          const swarmIndex = swarms.findIndex(s => s.id === event.swarm_id)
-
-          if (swarmIndex >= 0) {
-            const swarm = swarms[swarmIndex]
-            const updatedSwarm = {
-              ...swarm,
-              state: event.new_state as typeof swarm.state,
-              stats: {
-                ...swarm.stats,
-                state: event.new_state,
-              },
-            }
-
-            const updatedSwarms = [...swarms]
-            updatedSwarms[swarmIndex] = updatedSwarm
-            store.setSwarms(updatedSwarms)
-
-            // Update active swarm if this is the one being displayed
-            if (store.activeSwarm?.id === event.swarm_id) {
-              store.setActiveSwarm(updatedSwarm)
-            }
-          }
-        })
-        unlistenFns.current.push(unlistenSwarmStatus)
-
-        // Subscribe to agent status changes
-        const unlistenAgentStatus = await tauri.events.onAgentStatusChange((event) => {
-          logger.debug('Tauri Event', 'agent-status-change:', event)
-
-          // Update agent in store
-          const agents = store.agents
-          const agentIndex = agents.findIndex(a => a.id === event.agent_id)
-
-          if (agentIndex >= 0) {
-            // Use updateAgent to update the agent's state
-            if (store.updateAgent) {
-              store.updateAgent(event.agent_id, { state: event.status as typeof agents[0]['state'] })
-            } else {
-              const agent = agents[agentIndex]
-              const updatedAgent = {
-                ...agent,
-                state: event.status as typeof agent.state,
-              }
-
-              const updatedAgents = [...agents]
-              updatedAgents[agentIndex] = updatedAgent
-              store.setAgents(updatedAgents)
-            }
-          }
-        })
-        unlistenFns.current.push(unlistenAgentStatus)
-
-        // Subscribe to permission requests
-        const unlistenPermission = await tauri.events.onPermissionRequest((event) => {
-          logger.debug('Tauri Event', 'permission-request:', event)
-
-          // Add permission request to the store's queue
-          store.addPermissionRequest(event)
-        })
-        unlistenFns.current.push(unlistenPermission)
-
-        // Subscribe to log events
-        const unlistenLog = await tauri.events.onLog((event) => {
-          logger.debug('Tauri Event', 'log:', event)
-
-          // Log events could be stored in a dedicated log state
-          // For now, we just log them at the appropriate level
-          const logMethod = event.level.toLowerCase() as 'debug' | 'info' | 'warn' | 'error'
-          logger[logMethod](event.source, event.message)
-        })
-        unlistenFns.current.push(unlistenLog)
-
-        logger.info('Tauri Events', 'All event listeners registered')
-      } catch (error) {
-        logger.error('Tauri Events', 'Failed to subscribe to events:', error)
+        const updatedSwarms = [...swarms]
+        updatedSwarms[swarmIndex] = updatedSwarm
+        getStore().setSwarms(updatedSwarms)
       }
-    }
+    })
+    unsubscribers.current.push(unsubTaskUpdate)
 
-    subscribe()
+    // Subscribe to swarm status changes
+    const unsubSwarmStatus = events.onSwarmStatusChange((event) => {
+      logger.debug('WS Event', 'swarm_status_change:', event)
 
-    // Cleanup: unsubscribe from all events
+      const swarms = getStore().swarms
+      const activeSwarm = getStore().activeSwarm
+      const swarmIndex = swarms.findIndex(s => s.id === event.swarmId)
+
+      if (swarmIndex >= 0) {
+        const swarm = swarms[swarmIndex]
+        const updatedSwarm = {
+          ...swarm,
+          status: event.status,
+        }
+
+        const updatedSwarms = [...swarms]
+        updatedSwarms[swarmIndex] = updatedSwarm
+        getStore().setSwarms(updatedSwarms)
+
+        if (activeSwarm?.id === event.swarmId) {
+          getStore().setActiveSwarm(updatedSwarm)
+        }
+      }
+    })
+    unsubscribers.current.push(unsubSwarmStatus)
+
+    // Subscribe to agent status changes
+    const unsubAgentStatus = events.onAgentStatusChange((event) => {
+      logger.debug('WS Event', 'agent_status_change:', event)
+
+      const agents = getStore().agents
+      const agentIndex = agents.findIndex(a => a.id === event.agentId)
+
+      if (agentIndex >= 0) {
+        const agent = agents[agentIndex]
+        const updatedAgent = {
+          ...agent,
+          state: event.state as typeof agent.state,
+        }
+
+        const updatedAgents = [...agents]
+        updatedAgents[agentIndex] = updatedAgent
+        getStore().setAgents(updatedAgents)
+      }
+    })
+    unsubscribers.current.push(unsubAgentStatus)
+
+    // Subscribe to permission requests
+    const unsubPermission = events.onPermissionRequest((event) => {
+      logger.debug('WS Event', 'permission_request:', event)
+      getStore().addPermissionRequest(event as PermissionRequestEvent)
+    })
+    unsubscribers.current.push(unsubPermission)
+
+    // Subscribe to agent stats updates
+    const unsubAgentStats = events.onAgentStats((agentInfos) => {
+      logger.debug('WS Event', 'agent_stats:', agentInfos.length, 'agents')
+      // Map AgentInfo[] from API to Agent[] using proper type conversion
+      getStore().setAgents((agentInfos as AgentInfo[]).map(agentInfoToAgent))
+    })
+    unsubscribers.current.push(unsubAgentStats)
+
+    // Subscribe to swarm stats updates
+    const unsubSwarmStats = events.onSwarmStats((swarmInfos) => {
+      logger.debug('WS Event', 'swarm_stats:', swarmInfos.length, 'swarms')
+      // Map SwarmInfo[] from API to Swarm[] expected by store
+      const swarms = (swarmInfos as Array<{ id: string; name: string; topology: string; strategy: string; status?: string; state?: string; agentCount?: number; taskCount?: number; stats?: { pendingTasks?: number; completedTasks?: number; agentCount?: number; idleAgents?: number; executingAgents?: number } }>).map((info) => ({
+        id: info.id,
+        name: info.name,
+        topology: (info.topology || 'star') as Swarm['topology'],
+        strategy: (info.strategy || 'parallel') as Swarm['strategy'],
+        state: ((info.state || info.status || 'stopped') as Swarm['state']),
+        agents: [],
+        stats: {
+          agentCount: info.stats?.agentCount ?? info.agentCount ?? 0,
+          idleAgents: info.stats?.idleAgents ?? 0,
+          executingAgents: info.stats?.executingAgents ?? 0,
+          pendingTasks: info.stats?.pendingTasks ?? info.taskCount ?? 0,
+          completedTasks: info.stats?.completedTasks ?? 0,
+          topology: info.topology || 'star',
+          strategy: info.strategy || 'parallel',
+          state: info.state || info.status || 'stopped',
+        },
+      }))
+      getStore().setSwarms(swarms)
+    })
+    unsubscribers.current.push(unsubSwarmStats)
+
+    // Subscribe to agent messages
+    const unsubAgentMessage = events.onAgentMessage((event) => {
+      logger.debug('WS Event', 'agent_message:', event)
+    })
+    unsubscribers.current.push(unsubAgentMessage)
+
+    // Handle connection state changes — handlers read current state via getStore()
+    client.on('connect', () => {
+      logger.info('WebSocket', 'Connected to backend')
+      getStore().setConnected(true)
+    })
+
+    client.on('disconnect', () => {
+      logger.warn('WebSocket', 'Disconnected from backend')
+      getStore().setConnected(false)
+      getStore().addToast('warning', 'Connection lost', 'Attempting to reconnect...')
+    })
+    // Note: client.on() does not return an unsub function for connect/disconnect,
+    // so these handlers are not tracked in unsubscribers. They are replaced
+    // (not accumulated) on subsequent effect runs since this effect has no
+    // reactive dependencies and runs only once.
+
+    logger.info('WebSocket Events', 'All event listeners registered')
+
+    // Cleanup: unsubscribe from all event subscriptions
     return () => {
-      unlistenFns.current.forEach((unlisten) => {
+      unsubscribers.current.forEach((unsub) => {
         try {
-          unlisten()
+          unsub()
         } catch (error) {
-          logger.error('Tauri Events', 'Error during cleanup:', error)
+          logger.error('WebSocket Events', 'Error during cleanup:', error)
         }
       })
-      unlistenFns.current = []
-      logger.info('Tauri Events', 'All event listeners cleaned up')
+      unsubscribers.current = []
+      logger.info('WebSocket Events', 'All event listeners cleaned up')
     }
-  }, [store])
+  }, [])
 }
 
 /**
  * Hook that provides event subscription status and utilities.
  * Useful for components that need to know if events are connected.
  */
-export function useTauriEventStatus() {
+export function useACPEventStatus() {
   const connected = useAppStore((state) => state.connected)
+  const client = getWebSocketClient()
 
   return {
     connected,
-    isTauriEnv: tauri.isTauriEnv(),
+    isConnected: client.isConnected(),
   }
 }
+
+// Backward compatibility aliases
+export { useACPEvents as useTauriEvents }
+export { useACPEventStatus as useTauriEventStatus }

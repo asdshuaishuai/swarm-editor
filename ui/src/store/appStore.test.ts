@@ -804,12 +804,12 @@ describe('appStore', () => {
       useAppStore.setState({ permissionQueue: [], activePermission: null })
 
       const request = {
-        request_id: 'perm-1',
-        session_id: 'session-1',
-        tool_call_id: 'tool-1',
-        tool_name: 'test-tool',
+        id: 'perm-1',
+        sessionId: 'session-1',
+        type: 'test-tool',
         description: 'Test permission',
-        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' as const }],
+        options: [{ id: 'opt-1', label: 'Allow', description: 'Allow this action' }],
+        metadata: { toolCallId: 'tool-1' },
       }
 
       act(() => {
@@ -835,12 +835,12 @@ describe('appStore', () => {
       useAppStore.setState({ permissionQueue: [], activePermission: existingRequest })
 
       const request = {
-        request_id: 'perm-1',
-        session_id: 'session-1',
-        tool_call_id: 'tool-1',
-        tool_name: 'test-tool',
+        id: 'perm-1',
+        sessionId: 'session-1',
+        type: 'test-tool',
         description: 'Test permission',
-        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' as const }],
+        options: [{ id: 'opt-1', label: 'Allow', description: 'Allow this action' }],
+        metadata: { toolCallId: 'tool-1' },
       }
 
       act(() => {
@@ -860,7 +860,7 @@ describe('appStore', () => {
         toolCallId: 'tool-1',
         toolName: 'test-tool',
         description: 'Test permission',
-        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+        options: [{ id: 'opt-1', label: 'Allow', description: 'Allow this action' }],
         timestamp: Date.now(),
       }
       useAppStore.setState({
@@ -908,7 +908,7 @@ describe('appStore', () => {
         toolCallId: 'tool-1',
         toolName: 'test-tool',
         description: 'Test permission 1',
-        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+        options: [{ id: 'opt-1', label: 'Allow', description: 'Allow this action' }],
         timestamp: Date.now(),
       }
       const request2: PermissionRequest = {
@@ -918,7 +918,7 @@ describe('appStore', () => {
         toolCallId: 'tool-2',
         toolName: 'test-tool-2',
         description: 'Test permission 2',
-        options: [{ option_id: 'opt-2', name: 'Allow', kind: 'allow' }],
+        options: [{ id: 'opt-2', label: 'Allow', description: 'Allow this action' }],
         timestamp: Date.now(),
       }
       useAppStore.setState({
@@ -943,7 +943,7 @@ describe('appStore', () => {
         toolCallId: 'tool-1',
         toolName: 'test-tool',
         description: 'Test permission 1',
-        options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
+        options: [{ id: 'opt-1', label: 'Allow', description: 'Allow this action' }],
         timestamp: Date.now(),
       }
       const request2: PermissionRequest = {
@@ -1248,7 +1248,7 @@ describe('appStore', () => {
       expect(useAppStore.getState().connectionError).toBeNull()
     })
 
-    it('sets connectionError to undefined when disconnected', () => {
+    it('preserves connectionError when disconnected', () => {
       useAppStore.setState({ connectionError: 'Some error' })
 
       act(() => {
@@ -1256,7 +1256,8 @@ describe('appStore', () => {
       })
 
       expect(useAppStore.getState().connected).toBe(false)
-      expect(useAppStore.getState().connectionError).toBeUndefined()
+      // Error is preserved so UI can show it after disconnection
+      expect(useAppStore.getState().connectionError).toBe('Some error')
     })
   })
 

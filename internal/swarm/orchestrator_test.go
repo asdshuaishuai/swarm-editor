@@ -13,12 +13,10 @@ import (
 
 func TestNewSwarm(t *testing.T) {
 	config := SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test Swarm",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		ConsensusThreshold: 0.6,
-		VotingTimeout:      30 * time.Second,
+		ID:       "swarm-1",
+		Name:     "Test Swarm",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
 	}
 
 	swarm := NewSwarm(config)
@@ -45,29 +43,6 @@ func TestNewSwarm(t *testing.T) {
 
 	if swarm.State != SwarmStateInitializing {
 		t.Errorf("Expected State '%s', got '%s'", SwarmStateInitializing, swarm.State)
-	}
-
-	if swarm.consensusThreshold != 0.6 {
-		t.Errorf("Expected consensusThreshold 0.6, got %f", swarm.consensusThreshold)
-	}
-}
-
-func TestNewSwarmDefaults(t *testing.T) {
-	config := SwarmConfig{
-		ID:       "swarm-1",
-		Name:     "Test Swarm",
-		Topology: TopologyStar,
-		Strategy: StrategyParallel,
-	}
-
-	swarm := NewSwarm(config)
-
-	if swarm.consensusThreshold != 0.51 {
-		t.Errorf("Expected default consensusThreshold 0.51, got %f", swarm.consensusThreshold)
-	}
-
-	if swarm.votingTimeout != 30*time.Second {
-		t.Errorf("Expected default votingTimeout 30s, got %v", swarm.votingTimeout)
 	}
 }
 
@@ -437,82 +412,6 @@ func TestSwarmSelectAgentForSequentialNoIdle(t *testing.T) {
 	}
 }
 
-func TestSwarmVote(t *testing.T) {
-	swarm := NewSwarm(SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		ConsensusThreshold: 0.6,
-	})
-
-	// Add agents
-	for i := 0; i < 3; i++ {
-		a := agent.NewAgent("agent-"+string(rune('0'+i)), agent.AgentTypeCoder)
-		swarm.AddAgent(a)
-	}
-
-	ctx := context.Background()
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test Proposal",
-		Description: "A test proposal for voting",
-	}
-
-	result, err := swarm.Vote(ctx, proposal)
-	if err != nil {
-		t.Fatalf("Vote failed: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Result should not be nil")
-	}
-
-	if result.ProposalID != "prop-1" {
-		t.Errorf("Expected ProposalID 'prop-1', got '%s'", result.ProposalID)
-	}
-
-	if len(result.Votes) != 3 {
-		t.Errorf("Expected 3 votes, got %d", len(result.Votes))
-	}
-}
-
-func TestSwarmCalculateConsensus(t *testing.T) {
-	swarm := NewSwarm(SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		ConsensusThreshold: 0.6,
-	})
-
-	proposal := &Proposal{ID: "prop-1"}
-
-	// Test full consensus
-	votes := map[acp.AgentID]SwarmVote{
-		"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-		"agent-2": {AgentID: "agent-2", Approve: true, Weight: 1.0},
-		"agent-3": {AgentID: "agent-3", Approve: true, Weight: 1.0},
-	}
-
-	result := swarm.calculateConsensus(proposal, votes)
-	if result.Status != "agreed" {
-		t.Errorf("Expected status 'agreed', got '%s'", result.Status)
-	}
-
-	// Test disagreement
-	votes = map[acp.AgentID]SwarmVote{
-		"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-		"agent-2": {AgentID: "agent-2", Approve: false, Weight: 1.0},
-		"agent-3": {AgentID: "agent-3", Approve: false, Weight: 1.0},
-	}
-
-	result = swarm.calculateConsensus(proposal, votes)
-	if result.Status != "disagreed" {
-		t.Errorf("Expected status 'disagreed', got '%s'", result.Status)
-	}
-}
-
 func TestSwarmOnTaskComplete(t *testing.T) {
 	swarm := NewSwarm(SwarmConfig{
 		ID:       "swarm-1",
@@ -533,33 +432,6 @@ func TestSwarmOnTaskComplete(t *testing.T) {
 	// Trigger callback
 	if swarm.onTaskComplete != nil {
 		swarm.onTaskComplete(&Task{ID: "test"})
-	}
-
-	if !called {
-		t.Error("Callback should have been called")
-	}
-}
-
-func TestSwarmOnConsensus(t *testing.T) {
-	swarm := NewSwarm(SwarmConfig{
-		ID:       "swarm-1",
-		Name:     "Test",
-		Topology: TopologyStar,
-		Strategy: StrategyParallel,
-	})
-
-	called := false
-	swarm.OnConsensus(func(result *SwarmConsensusResult) {
-		called = true
-	})
-
-	if swarm.onConsensus == nil {
-		t.Error("onConsensus should be set")
-	}
-
-	// Trigger callback
-	if swarm.onConsensus != nil {
-		swarm.onConsensus(&SwarmConsensusResult{ProposalID: "test"})
 	}
 
 	if !called {
@@ -735,62 +607,6 @@ func TestProposalJSON(t *testing.T) {
 	}
 }
 
-// SwarmVote tests
-
-func TestSwarmVoteJSON(t *testing.T) {
-	vote := SwarmVote{
-		AgentID: "agent-1",
-		Approve: true,
-		Comment: "Looks good",
-		Weight:  1.5,
-	}
-
-	data, err := json.Marshal(vote)
-	if err != nil {
-		t.Fatalf("Failed to marshal: %v", err)
-	}
-
-	var parsed SwarmVote
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal: %v", err)
-	}
-
-	if parsed.AgentID != "agent-1" {
-		t.Errorf("AgentID mismatch")
-	}
-}
-
-// SwarmConsensusResult tests
-
-func TestSwarmConsensusResultJSON(t *testing.T) {
-	result := &SwarmConsensusResult{
-		ProposalID:   "prop-1",
-		Status:       "agreed",
-		ApprovalRate: 0.85,
-		Votes: map[acp.AgentID]SwarmVote{
-			"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-		},
-	}
-
-	data, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("Failed to marshal: %v", err)
-	}
-
-	var parsed SwarmConsensusResult
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal: %v", err)
-	}
-
-	if parsed.ProposalID != "prop-1" {
-		t.Errorf("ProposalID mismatch")
-	}
-
-	if parsed.Status != "agreed" {
-		t.Errorf("Status mismatch")
-	}
-}
-
 // SwarmStats tests
 
 func TestSwarmStatsJSON(t *testing.T) {
@@ -824,14 +640,12 @@ func TestSwarmStatsJSON(t *testing.T) {
 
 func TestSwarmConfigJSON(t *testing.T) {
 	config := SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test Swarm",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		AgentCount:         5,
-		AgentTypes:         []agent.AgentType{agent.AgentTypeCoder, agent.AgentTypeReviewer},
-		ConsensusThreshold: 0.6,
-		VotingTimeout:      30 * time.Second,
+		ID:         "swarm-1",
+		Name:       "Test Swarm",
+		Topology:   TopologyStar,
+		Strategy:   StrategyParallel,
+		AgentCount: 5,
+		AgentTypes: []agent.AgentType{agent.AgentTypeCoder, agent.AgentTypeReviewer},
 	}
 
 	data, err := json.Marshal(config)
@@ -1079,26 +893,66 @@ func TestSwarmDoubleStart(t *testing.T) {
 	swarm.Stop()
 }
 
-func TestSwarmCalculateConsensusZeroWeight(t *testing.T) {
+func TestSwarmCalculateWorkerScore(t *testing.T) {
 	swarm := NewSwarm(SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		ConsensusThreshold: 0.6,
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
 	})
 
-	proposal := &Proposal{ID: "prop-1"}
+	// Add a coordinator
+	coord := agent.NewAgent("coordinator", agent.AgentTypeOrchestrator)
+	swarm.SetCoordinator(coord)
 
-	// Test with zero total weight
-	votes := map[acp.AgentID]SwarmVote{}
+	// Add agents with different types
+	coder := agent.NewAgent("coder-1", agent.AgentTypeCoder)
+	coder.SetState(agent.StateIdle)
+	swarm.AddAgent(coder)
 
-	result := swarm.calculateConsensus(proposal, votes)
-	if result.Status != "disagreed" {
-		t.Errorf("Expected status 'disagreed' for zero weight, got '%s'", result.Status)
+	tester := agent.NewAgent("tester-1", agent.AgentTypeTester)
+	tester.SetState(agent.StateIdle)
+	swarm.AddAgent(tester)
+
+	busyAgent := agent.NewAgent("busy-1", agent.AgentTypeCoder)
+	busyAgent.SetState(agent.StateExecuting)
+	swarm.AddAgent(busyAgent)
+
+	// Task for coding - should match coder due to "code" keyword
+	codeTask := &Task{
+		ID:          "task-1",
+		Description: "Write code for the feature",
+		Prompt:      acp.Prompt{{Type: "text", Text: "test"}},
 	}
-	if result.ApprovalRate != 0 {
-		t.Errorf("Expected 0 approval rate for zero weight, got %f", result.ApprovalRate)
+
+	selected := swarm.AssignTaskToWorker(codeTask)
+	if selected == nil {
+		t.Fatal("Expected a worker to be selected")
+	}
+	// Coder should be selected for code task
+	if selected.Type != agent.AgentTypeCoder {
+		t.Errorf("Expected coder to be selected for code task, got %s", selected.Type)
+	}
+
+	// Task for testing - should match tester due to "test" keyword (no "code" or "implement")
+	testTask := &Task{
+		ID:          "task-2",
+		Description: "Validate the functionality with unit tests",
+		Prompt:      acp.Prompt{{Type: "text", Text: "test"}},
+	}
+
+	selected = swarm.AssignTaskToWorker(testTask)
+	if selected == nil {
+		t.Fatal("Expected a worker to be selected")
+	}
+	// Tester should be selected for test task
+	if selected.Type != agent.AgentTypeTester {
+		t.Errorf("Expected tester to be selected for test task, got %s", selected.Type)
+	}
+
+	// Busy agent should never be selected
+	if selected.ID == busyAgent.ID {
+		t.Error("Busy agent should not be selected")
 	}
 }
 
@@ -1231,53 +1085,6 @@ func TestSwarmExecuteNilTask(t *testing.T) {
 	}
 	if result != nil {
 		t.Error("ExecuteTask should return nil result for nil task")
-	}
-}
-
-func TestSwarmVoteNilProposal(t *testing.T) {
-	swarm := NewSwarm(SwarmConfig{
-		ID:       "swarm-1",
-		Name:     "Test",
-		Topology: TopologyStar,
-		Strategy: StrategyParallel,
-	})
-
-	// Add an agent
-	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-	swarm.AddAgent(a)
-
-	ctx := context.Background()
-
-	// Should return error for nil proposal
-	result, err := swarm.Vote(ctx, nil)
-	if err == nil {
-		t.Error("Vote should return error for nil proposal")
-	}
-	if result != nil {
-		t.Error("Vote should return nil result for nil proposal")
-	}
-}
-
-func TestSwarmCalculateConsensusNilProposal(t *testing.T) {
-	swarm := NewSwarm(SwarmConfig{
-		ID:                 "swarm-1",
-		Name:               "Test",
-		Topology:           TopologyStar,
-		Strategy:           StrategyParallel,
-		ConsensusThreshold: 0.6,
-	})
-
-	votes := map[acp.AgentID]SwarmVote{
-		"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-	}
-
-	// Should handle nil proposal gracefully
-	result := swarm.calculateConsensus(nil, votes)
-	if result == nil {
-		t.Fatal("Result should not be nil")
-	}
-	if result.Status != "disagreed" {
-		t.Errorf("Expected status 'disagreed' for nil proposal, got '%s'", result.Status)
 	}
 }
 

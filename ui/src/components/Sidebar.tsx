@@ -17,7 +17,12 @@ const navItems = [
 ]
 
 export default function Sidebar() {
-  const { sidebarCollapsed, activePanel, toggleSidebar, setActivePanel, connected, agents } = useAppStore()
+  const sidebarCollapsed = useAppStore(state => state.sidebarCollapsed)
+  const activePanel = useAppStore(state => state.activePanel)
+  const toggleSidebar = useAppStore(state => state.toggleSidebar)
+  const setActivePanel = useAppStore(state => state.setActivePanel)
+  const connected = useAppStore(state => state.connected)
+  const agents = useAppStore(state => state.agents)
 
   return (
     <div

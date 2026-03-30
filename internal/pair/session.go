@@ -4,9 +4,11 @@ package pair
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 )
@@ -25,6 +27,14 @@ type Role string
 const (
 	RoleDriver    Role = "driver"    // Writing code
 	RoleNavigator Role = "navigator" // Reviewing, suggesting
+)
+
+// Maximum sizes for history slices to prevent unbounded growth
+const (
+	maxTurnHistory = 100 // Maximum turns to retain
+	maxEdits       = 500 // Maximum edits to retain
+	maxMessages    = 200 // Maximum messages to retain
+	maxSuggestions = 200 // Maximum suggestions to retain
 )
 
 // PairSessionState represents the state of a pair session
@@ -194,6 +204,10 @@ func (p *PairSession) Start(ctx context.Context) error {
 		return errors.New("session cannot be started from current state")
 	}
 
+	if p.Driver == nil {
+		return errors.New("cannot start session: driver not set")
+	}
+
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.State = PairStateActive
 
@@ -231,10 +245,15 @@ func (p *PairSession) End() {
 // SwitchRoles switches the driver/navigator roles
 func (p *PairSession) SwitchRoles() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if p.State != PairStateActive {
+		p.mu.Unlock()
 		return ErrSessionNotActive
+	}
+
+	if p.Driver == nil || p.Navigator == nil {
+		p.mu.Unlock()
+		return errors.New("cannot switch roles: driver or navigator not set")
 	}
 
 	p.State = PairStateSwitching
@@ -248,9 +267,14 @@ func (p *PairSession) SwitchRoles() error {
 	p.SwitchCount++
 	p.State = PairStateActive
 
-	// Notify callback
-	if p.onSwitch != nil {
-		p.onSwitch(RoleDriver, RoleNavigator, p.Driver.ID)
+	// Snapshot callback under lock, invoke outside lock to prevent deadlock
+	// After swap, p.Driver is the agent who WAS Navigator (now becoming Driver)
+	onSwitch := p.onSwitch
+	newDriverID := p.Driver.ID
+	p.mu.Unlock()
+
+	if onSwitch != nil {
+		onSwitch(RoleNavigator, RoleDriver, newDriverID)
 	}
 
 	return nil
@@ -263,7 +287,18 @@ func (p *PairSession) ProposeEdit(edit *CodeEdit) error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+
+	if p.State != PairStateActive {
+		state := p.State // capture before unlock to avoid data race
+		p.mu.Unlock()
+		return fmt.Errorf("cannot propose edit: session is %s", state)
+	}
+
+	// Guard against nil Driver (defensive programming)
+	if p.Driver == nil {
+		p.mu.Unlock()
+		return errors.New("cannot propose edit: driver not set")
+	}
 
 	edit.ID = generateEditID()
 	edit.Timestamp = time.Now()
@@ -272,8 +307,17 @@ func (p *PairSession) ProposeEdit(edit *CodeEdit) error {
 
 	p.Edits = append(p.Edits, *edit)
 
-	if p.onEdit != nil {
-		p.onEdit(edit)
+	// Trim old edits if exceeding limit
+	if len(p.Edits) > maxEdits {
+		p.Edits = p.Edits[len(p.Edits)-maxEdits:]
+	}
+
+	// Snapshot callback under lock, invoke outside lock to prevent deadlock
+	onEdit := p.onEdit
+	p.mu.Unlock()
+
+	if onEdit != nil {
+		onEdit(edit)
 	}
 
 	return nil
@@ -299,6 +343,11 @@ func (p *PairSession) RejectEdit(editID string, reason string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Guard against nil Navigator (defensive programming)
+	if p.Navigator == nil {
+		return errors.New("cannot reject edit: navigator not set")
+	}
+
 	for i := range p.Edits {
 		if p.Edits[i].ID == editID {
 			p.Edits[i].Approved = false
@@ -317,7 +366,18 @@ func (p *PairSession) MakeSuggestion(suggestion *Suggestion) error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+
+	if p.State != PairStateActive {
+		state := p.State // capture before unlock to avoid data race
+		p.mu.Unlock()
+		return fmt.Errorf("cannot make suggestion: session is %s", state)
+	}
+
+	// Guard against nil Navigator (defensive programming)
+	if p.Navigator == nil {
+		p.mu.Unlock()
+		return errors.New("cannot make suggestion: navigator not set")
+	}
 
 	suggestion.ID = generateSuggestionID()
 	suggestion.FromAgent = p.Navigator.ID
@@ -326,8 +386,17 @@ func (p *PairSession) MakeSuggestion(suggestion *Suggestion) error {
 
 	p.Suggestions = append(p.Suggestions, *suggestion)
 
-	if p.onSuggestion != nil {
-		p.onSuggestion(suggestion)
+	// Trim old suggestions if exceeding limit
+	if len(p.Suggestions) > maxSuggestions {
+		p.Suggestions = p.Suggestions[len(p.Suggestions)-maxSuggestions:]
+	}
+
+	// Snapshot callback under lock, invoke outside lock to prevent deadlock
+	onSuggestion := p.onSuggestion
+	p.mu.Unlock()
+
+	if onSuggestion != nil {
+		onSuggestion(suggestion)
 	}
 
 	return nil
@@ -337,6 +406,11 @@ func (p *PairSession) MakeSuggestion(suggestion *Suggestion) error {
 func (p *PairSession) AcceptSuggestion(suggestionID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// Guard against nil Driver (defensive programming)
+	if p.Driver == nil {
+		return errors.New("cannot accept suggestion: driver not set")
+	}
 
 	for i := range p.Suggestions {
 		if p.Suggestions[i].ID == suggestionID {
@@ -354,6 +428,11 @@ func (p *PairSession) RejectSuggestion(suggestionID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Guard against nil Driver (defensive programming)
+	if p.Driver == nil {
+		return errors.New("cannot reject suggestion: driver not set")
+	}
+
 	for i := range p.Suggestions {
 		if p.Suggestions[i].ID == suggestionID {
 			p.Suggestions[i].Status = SuggestionRejected
@@ -366,9 +445,19 @@ func (p *PairSession) RejectSuggestion(suggestionID string) error {
 }
 
 // SendMessage sends a message between partners
-func (p *PairSession) SendMessage(from acp.AgentID, content string) {
+func (p *PairSession) SendMessage(from acp.AgentID, content string) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+
+	if p.State != PairStateActive {
+		state := p.State // capture before unlock to avoid data race
+		p.mu.Unlock()
+		return fmt.Errorf("cannot send message: session is %s", state)
+	}
+
+	if p.Driver == nil || p.Navigator == nil {
+		p.mu.Unlock()
+		return errors.New("cannot send message: driver or navigator not set")
+	}
 
 	var to acp.AgentID
 	if from == p.Driver.ID {
@@ -386,6 +475,14 @@ func (p *PairSession) SendMessage(from acp.AgentID, content string) {
 	}
 
 	p.Messages = append(p.Messages, msg)
+
+	// Trim old messages if exceeding limit
+	if len(p.Messages) > maxMessages {
+		p.Messages = p.Messages[len(p.Messages)-maxMessages:]
+	}
+
+	p.mu.Unlock()
+	return nil
 }
 
 // SetFile sets the current file being edited
@@ -550,20 +647,25 @@ func (p *PairSession) startTurnLocked(agentID acp.AgentID) {
 	}
 	p.TurnHistory = append(p.TurnHistory, turn)
 	p.CurrentTurn++
+
+	// Trim old turn history if exceeding limit
+	if len(p.TurnHistory) > maxTurnHistory {
+		p.TurnHistory = p.TurnHistory[len(p.TurnHistory)-maxTurnHistory:]
+	}
 }
 
 func generatePairID() string {
-	return "pair_" + time.Now().Format("20060102_150405.999999999")
+	return "pair_" + uuid.New().String()[:8]
 }
 
 func generateEditID() string {
-	return "edit_" + time.Now().Format("150405.999999999")
+	return "edit_" + uuid.New().String()[:8]
 }
 
 func generateSuggestionID() string {
-	return "sugg_" + time.Now().Format("150405.999999999")
+	return "sugg_" + uuid.New().String()[:8]
 }
 
 func generateMessageID() string {
-	return "msg_" + time.Now().Format("150405.999999999")
+	return "msg_" + uuid.New().String()[:8]
 }

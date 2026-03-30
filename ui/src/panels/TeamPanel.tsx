@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import {
   Users,
@@ -13,6 +13,8 @@ import {
   X,
 } from 'lucide-react'
 import { Team, TeamMember, MemberRole } from '../types'
+import { api } from '../services'
+import { logger } from '../utils'
 
 const roleIcons: Record<MemberRole, React.ReactNode> = {
   owner: <Crown size={14} className="text-warning" />,
@@ -23,34 +25,125 @@ const roleIcons: Record<MemberRole, React.ReactNode> = {
 }
 
 export default function TeamPanel() {
-  const { teams, activeTeam, setActiveTeam, addTeam } = useAppStore()
+  const teams = useAppStore(state => state.teams)
+  const activeTeam = useAppStore(state => state.activeTeam)
+  const setActiveTeam = useAppStore(state => state.setActiveTeam)
+  const addTeam = useAppStore(state => state.addTeam)
+  const addToast = useAppStore(state => state.addToast)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const mountedRef = useRef(true)
 
-  const handleCreateTeam = () => {
+  // Track mounted state to prevent setState on unmounted component
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // Load teams from backend on mount
+  useEffect(() => {
+    let cancelled = false
+    const loadTeams = async () => {
+      setLoading(true)
+      try {
+        const teamInfos = await api.team.getTeams()
+        if (cancelled) return
+        // Use getState() to avoid stale closure over teams/agents
+        const { teams: currentTeams, agents: currentAgents } = useAppStore.getState()
+        // Convert TeamInfo[] to Team[] and update store
+        for (const teamInfo of teamInfos) {
+          const existingTeam = currentTeams.find(t => t.id === teamInfo.id)
+          if (!existingTeam) {
+            const team: Team = {
+              id: teamInfo.id,
+              name: teamInfo.name,
+              description: teamInfo.description || '',
+              owner: teamInfo.ownerId,
+              members: teamInfo.members.map(m => ({
+                id: m.id,
+                name: m.name,
+                email: '', // TeamMemberInfo doesn't have email
+                role: m.role as MemberRole,
+                joinedAt: teamInfo.createdAt,
+                online: m.online,
+              })),
+              agents: currentAgents.filter(a => teamInfo.agents.includes(a.id)),
+              workspaces: [],
+              stats: {
+                memberCount: teamInfo.members.length,
+                onlineMembers: teamInfo.members.filter(m => m.online).length,
+                agentCount: teamInfo.agents.length,
+                idleAgents: 0,
+                workspaceCount: 0, // TeamInfo doesn't have workspaces
+              },
+            }
+            useAppStore.getState().addTeam(team)
+          }
+        }
+      } catch (err) {
+        if (cancelled) return
+        logger.error('Team', 'Failed to load teams:', err)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadTeams()
+    return () => { cancelled = true }
+  }, []) // Only run on mount
+
+  const handleCreateTeam = async () => {
     if (!newTeamName.trim()) return
 
-    const newTeam = {
-      id: `team-${Date.now()}`,
-      name: newTeamName.trim(),
-      description: '',
-      owner: 'local-user',
-      members: [],
-      agents: [],
-      workspaces: [],
-      stats: {
-        memberCount: 1,
-        onlineMembers: 1,
-        agentCount: 0,
-        idleAgents: 0,
-        workspaceCount: 0,
-      },
-    }
+    try {
+      setCreating(true)
 
-    addTeam(newTeam)
-    setActiveTeam(newTeam)
-    setShowCreateModal(false)
-    setNewTeamName('')
+      const teamInfo = await api.team.createTeam(newTeamName.trim(), 'local-user')
+
+      if (!mountedRef.current) return
+
+      const team: Team = {
+        id: teamInfo.id,
+        name: teamInfo.name,
+        description: teamInfo.description || '',
+        owner: teamInfo.ownerId,
+        members: teamInfo.members.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: '',
+          role: m.role as MemberRole,
+          joinedAt: teamInfo.createdAt,
+          online: m.online,
+        })),
+        agents: [],
+        workspaces: [],
+        stats: {
+          memberCount: teamInfo.members.length,
+          onlineMembers: teamInfo.members.filter(m => m.online).length,
+          agentCount: 0,
+          idleAgents: 0,
+          workspaceCount: 0,
+        },
+      }
+
+      addTeam(team)
+      setActiveTeam(team)
+      addToast('success', 'Team created', `Team "${teamInfo.name}" is ready`)
+
+      setShowCreateModal(false)
+      setNewTeamName('')
+    } catch (err) {
+      logger.error('Team', 'Failed to create team:', err)
+      if (!mountedRef.current) return
+      addToast('error', 'Failed to create team', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      if (mountedRef.current) {
+        setCreating(false)
+      }
+    }
   }
 
   return (
@@ -77,7 +170,14 @@ export default function TeamPanel() {
 
       {/* Team List */}
       <div className="flex-1 overflow-y-auto">
-        {teams.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-64 text-text-tertiary">
+            <div className="animate-spin mb-4">
+              <Users size={32} className="text-accent" />
+            </div>
+            <p className="text-sm" aria-live="polite">Loading teams...</p>
+          </div>
+        ) : teams.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-text-tertiary">
             <div className="p-4 bg-glass rounded-mac-xl mb-4">
               <Users size={48} className="opacity-50" />
@@ -102,7 +202,7 @@ export default function TeamPanel() {
       {/* Create Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[380px] shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[380px] shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Create New Team">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Users size={18} className="text-accent" />
@@ -141,8 +241,9 @@ export default function TeamPanel() {
               <button
                 onClick={handleCreateTeam}
                 className="btn-primary"
+                disabled={creating}
               >
-                Create Team
+                {creating ? 'Creating...' : 'Create Team'}
               </button>
             </div>
           </div>
@@ -195,7 +296,7 @@ function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
 
         <div className="flex items-center gap-4 text-xs ml-10">
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-success" />
+            <div className="w-2 h-2 rounded-full bg-success" aria-hidden="true" />
             <span className="text-text-secondary">{team.stats.onlineMembers} online</span>
           </div>
           <div className="flex items-center gap-1.5 text-text-secondary">

@@ -747,6 +747,39 @@ func TestPairStoreRestoreNilBoth(t *testing.T) {
 	}
 }
 
+func TestPairStoreSaveRejectsInvalidID(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeCoder)
+
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{"path traversal", "../../etc/passwd"},
+		{"empty", ""},
+		{"slash", "foo/bar"},
+		{"backslash", "foo\\bar"},
+		{"null byte", "foo\x00bar"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := NewPairSession(driver, navigator)
+			session.ID = tt.id
+			err := store.Save(session)
+			if err == nil {
+				t.Errorf("Save(%q) expected error, got nil", tt.id)
+			}
+		})
+	}
+}
+
 func TestValidateSessionID(t *testing.T) {
 	// Create a valid max-length ID
 	maxLenID := ""

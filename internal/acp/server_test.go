@@ -112,6 +112,22 @@ func (m *MockHandler) SwarmGetStatus(ctx context.Context, params *SwarmGetStatus
 	return &SwarmStatusResult{SwarmID: params.SwarmID, State: "active"}, nil
 }
 
+func (m *MockHandler) MCPStartServer(ctx context.Context, params *MCPStartServerParams) (*MCPServerStatus, error) {
+	return &MCPServerStatus{ServerID: params.ServerID, Status: "connected"}, nil
+}
+
+func (m *MockHandler) MCPStopServer(ctx context.Context, params *MCPStopServerParams) (*MCPServerStatus, error) {
+	return &MCPServerStatus{ServerID: params.ServerID, Status: "disconnected"}, nil
+}
+
+func (m *MockHandler) MCPCallTool(ctx context.Context, params *MCPCallToolParams) (*MCPCallToolResult, error) {
+	return &MCPCallToolResult{Content: []MCPContent{{Type: "text", Text: "mock result"}}}, nil
+}
+
+func (m *MockHandler) MCPListTools(ctx context.Context, params *MCPListToolsParams) (*MCPListToolsResult, error) {
+	return &MCPListToolsResult{Tools: []Tool{}}, nil
+}
+
 // MockTransport implements Transport for testing with proper context handling
 type MockTransport struct {
 	mu          sync.Mutex
@@ -1495,10 +1511,11 @@ func TestClientHandleNotificationPermissionRequestWithSendError(t *testing.T) {
 }
 
 func TestClientHandleNotificationPermissionRequestHandlerError(t *testing.T) {
+	var sentMsg *Message
 	transport := &MockTransport{
 		sendFunc: func(msg *Message) error {
-			// Should not be called when handler errors
-			t.Error("Send should not be called when handler errors")
+			// MEDIUM fix: Should send error response when handler errors
+			sentMsg = msg
 			return nil
 		},
 	}
@@ -1523,6 +1540,15 @@ func TestClientHandleNotificationPermissionRequestHandlerError(t *testing.T) {
 
 	// Should not panic when handler errors
 	client.handleNotification(msg)
+
+	// Verify error response was sent (MEDIUM fix: send error on handler failure)
+	if sentMsg == nil {
+		t.Error("Error response should have been sent when handler errors")
+	} else if sentMsg.Error == nil {
+		t.Error("Response should contain error")
+	} else if sentMsg.Error.Code != -32603 {
+		t.Errorf("Error code should be -32603 (Internal error), got %d", sentMsg.Error.Code)
+	}
 }
 
 func TestClientHandleNotificationPermissionRequestInvalidParams(t *testing.T) {
@@ -1719,4 +1745,55 @@ func TestServerHandleNotificationVariousTypes(t *testing.T) {
 			server.handleNotification(tt.msg)
 		})
 	}
+}
+
+// TestClientOnUpdateHandlerRace verifies that OnUpdate() properly
+// acquires c.mu when setting the handler, preventing race with handleNotification.
+// Without the fix, this test would fail under -race.
+func TestClientOnUpdateHandlerRace(t *testing.T) {
+	transport := &MockTransport{}
+	client := NewClient(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start client in background
+	_ = client.Start(ctx)
+
+	// Set handler concurrently (would race without lock)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client.OnUpdate(func(sessionID SessionID, update *Update) {})
+		}()
+	}
+	wg.Wait()
+
+	cancel()
+}
+
+// TestClientOnPermissionRequestHandlerRace verifies that OnPermissionRequest()
+// properly acquires c.mu when setting the handler.
+func TestClientOnPermissionRequestHandlerRace(t *testing.T) {
+	transport := &MockTransport{}
+	client := NewClient(transport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_ = client.Start(ctx)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client.OnPermissionRequest(func(sessionID SessionID, request *SessionRequestPermissionParams) (*PermissionOutcome, error) {
+				return &PermissionOutcome{Outcome: "selected", OptionID: "allow"}, nil
+			})
+		}()
+	}
+	wg.Wait()
+
+	cancel()
 }

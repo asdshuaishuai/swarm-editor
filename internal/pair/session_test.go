@@ -141,14 +141,25 @@ func TestPairSessionSwitchRolesCallback(t *testing.T) {
 	session.Start(context.Background())
 
 	called := false
+	var gotFrom, gotTo Role
+	var gotAgentID acp.AgentID
 	session.OnSwitch(func(from, to Role, agentID acp.AgentID) {
 		called = true
+		gotFrom = from
+		gotTo = to
+		gotAgentID = agentID
 	})
 
 	session.SwitchRoles()
 
 	if !called {
 		t.Error("OnSwitch callback should have been called")
+	}
+	if gotFrom != RoleNavigator || gotTo != RoleDriver {
+		t.Errorf("OnSwitch from=%q to=%q, want from=%q to=%q", gotFrom, gotTo, RoleNavigator, RoleDriver)
+	}
+	if gotAgentID != navigator.ID {
+		t.Errorf("OnSwitch agentID=%q, want %q (the agent who became Driver)", gotAgentID, navigator.ID)
 	}
 }
 
@@ -971,5 +982,113 @@ func TestPairSessionStatsWithNilAgents(t *testing.T) {
 
 	if stats.NavigatorID != "" {
 		t.Errorf("Expected empty NavigatorID when navigator is nil, got '%s'", stats.NavigatorID)
+	}
+}
+
+// TestSwitchRolesCallbackOutsideLock verifies that the onSwitch callback
+// is invoked outside the session lock. If the callback were called under lock,
+// attempting to acquire the lock in the callback would deadlock.
+func TestSwitchRolesCallbackOutsideLock(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var callbackRan bool
+	session.OnSwitch(func(from, to Role, agentID acp.AgentID) {
+		// This would deadlock if the callback were called under p.mu.Lock()
+		state := session.GetState()
+		if state != PairStateActive {
+			t.Errorf("expected state active during callback, got %s", state)
+		}
+		callbackRan = true
+	})
+
+	if err := session.SwitchRoles(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !callbackRan {
+		t.Error("onSwitch callback should have been called")
+	}
+}
+
+// TestSwitchRolesFromInactiveDoesNotDeadlock verifies that calling SwitchRoles
+// on a non-active session releases the lock instead of deadlocking.
+func TestSwitchRolesFromInactiveDoesNotDeadlock(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+
+	// Session is in Created state, not Active
+	err := session.SwitchRoles()
+	if err != ErrSessionNotActive {
+		t.Errorf("expected ErrSessionNotActive, got %v", err)
+	}
+
+	// Verify the session is still usable (lock was released)
+	session.End()
+	if session.State != PairStateEnded {
+		t.Errorf("expected PairStateEnded, got %s", session.State)
+	}
+}
+
+// TestProposeEditCallbackOutsideLock verifies that the onEdit callback
+// is invoked outside the session lock.
+func TestProposeEditCallbackOutsideLock(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+
+	var callbackRan bool
+	session.OnEdit(func(edit *CodeEdit) {
+		// This would deadlock if the callback were called under p.mu.Lock()
+		edits := session.GetEdits()
+		if len(edits) == 0 {
+			t.Error("expected edits to be visible in callback")
+		}
+		callbackRan = true
+	})
+
+	session.Start(context.Background())
+
+	edit := &CodeEdit{File: "test.go"}
+	if err := session.ProposeEdit(edit); err != nil {
+		t.Fatal(err)
+	}
+
+	if !callbackRan {
+		t.Error("onEdit callback should have been called")
+	}
+}
+
+// TestMakeSuggestionCallbackOutsideLock verifies that the onSuggestion callback
+// is invoked outside the session lock.
+func TestMakeSuggestionCallbackOutsideLock(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+	session.Start(context.Background())
+
+	var callbackRan bool
+	session.OnSuggestion(func(suggestion *Suggestion) {
+		// This would deadlock if the callback were called under p.mu.Lock()
+		suggestions := session.GetSuggestions()
+		if len(suggestions) == 0 {
+			t.Error("expected suggestions to be visible in callback")
+		}
+		callbackRan = true
+	})
+
+	suggestion := &Suggestion{Type: SuggestionCode, Content: "Use const"}
+	if err := session.MakeSuggestion(suggestion); err != nil {
+		t.Fatal(err)
+	}
+
+	if !callbackRan {
+		t.Error("onSuggestion callback should have been called")
 	}
 }

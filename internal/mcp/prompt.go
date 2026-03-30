@@ -10,11 +10,11 @@ import (
 
 // Prompt represents an MCP prompt template
 type Prompt struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Arguments   []PromptArg    `json:"arguments"`
-	Template    string         `json:"-"`
-	Handler     PromptHandler  `json:"-"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Arguments   []PromptArg   `json:"arguments"`
+	Template    string        `json:"-"`
+	Handler     PromptHandler `json:"-"`
 }
 
 // PromptArg represents a prompt argument
@@ -26,7 +26,7 @@ type PromptArg struct {
 
 // PromptMessage represents a message in a prompt
 type PromptMessage struct {
-	Role    string      `json:"role"`
+	Role    string         `json:"role"`
 	Content MessageContent `json:"content"`
 }
 
@@ -230,7 +230,7 @@ Include:
 
 // RegisterBuiltInPrompts registers all built-in prompts
 func RegisterBuiltInPrompts(pm *PromptManager) {
-	pm.RegisterPrompt(CodeReviewPrompt)
-	pm.RegisterPrompt(TestGenerationPrompt)
-	pm.RegisterPrompt(DocumentCodePrompt)
+	_ = pm.RegisterPrompt(CodeReviewPrompt)
+	_ = pm.RegisterPrompt(TestGenerationPrompt)
+	_ = pm.RegisterPrompt(DocumentCodePrompt)
 }

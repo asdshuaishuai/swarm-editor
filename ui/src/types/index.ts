@@ -8,6 +8,8 @@ export interface Agent {
   capabilities: AgentCapabilities
   createdAt: string
   lastActive: string
+  status?: AgentState
+  currentTask?: string
 }
 
 export type AgentType = 'coder' | 'reviewer' | 'architect' | 'tester' | 'navigator' | 'driver' | 'orchestrator'
@@ -44,6 +46,8 @@ export interface Swarm {
   state: SwarmState
   agents: Agent[]
   stats: SwarmStats
+  coordinatorId?: string
+  createdAt?: string
 }
 
 export type TopologyType = 'star' | 'mesh' | 'tree' | 'ring' | 'hybrid'

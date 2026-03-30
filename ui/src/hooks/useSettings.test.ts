@@ -9,9 +9,7 @@ void defaultSettings
 
 // Mock the services module
 vi.mock('../services', () => ({
-  api: {
-    isTauriEnv: vi.fn(() => false),
-  },
+  api: {},
 }))
 
 // Mock localStorage
@@ -450,12 +448,8 @@ describe('useSettings', () => {
     })
   })
 
-  describe('Tauri environment sync', () => {
-    it('should sync with backend when in Tauri environment', async () => {
-      // Mock Tauri environment
-      const { api } = await import('../services')
-      vi.mocked(api.isTauriEnv).mockReturnValue(true)
-
+  describe('Backend sync', () => {
+    it('should sync with backend on setting update', async () => {
       const { result } = renderHook(() => useSettings())
 
       // Trigger a critical setting update that calls syncWithBackend
@@ -467,9 +461,6 @@ describe('useSettings', () => {
     })
 
     it('should set loading state during sync', async () => {
-      const { api } = await import('../services')
-      vi.mocked(api.isTauriEnv).mockReturnValue(true)
-
       const { result } = renderHook(() => useSettings())
 
       await act(async () => {

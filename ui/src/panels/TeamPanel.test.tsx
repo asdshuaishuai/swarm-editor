@@ -1,10 +1,26 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeamPanel from './TeamPanel'
 import { useAppStore } from '../store/appStore'
 
 vi.mock('../store/appStore', () => ({
   useAppStore: vi.fn(),
+}))
+
+vi.mock('../services', () => ({
+  api: {
+    team: {
+      getTeams: vi.fn().mockResolvedValue([]),
+      createTeam: vi.fn().mockResolvedValue({
+        id: 'team-new',
+        name: 'Test Team',
+        ownerId: 'local-user',
+        members: [],
+        agents: [],
+        createdAt: new Date().toISOString(),
+      }),
+    },
+  },
 }))
 
 describe('TeamPanel', () => {
@@ -19,6 +35,8 @@ describe('TeamPanel', () => {
         activeTeam: null,
         setActiveTeam: mockSetActiveTeam,
         addTeam: mockAddTeam,
+        agents: [],
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
@@ -34,9 +52,11 @@ describe('TeamPanel', () => {
     expect(screen.getByText('New Team')).toBeInTheDocument()
   })
 
-  it('shows empty state when no teams', () => {
+  it('shows empty state when no teams', async () => {
     render(<TeamPanel />)
-    expect(screen.getByText('No teams created')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('No teams created')).toBeInTheDocument()
+    })
     expect(screen.getByText('Create a team to collaborate with others')).toBeInTheDocument()
   })
 
@@ -69,14 +89,15 @@ describe('TeamPanel', () => {
     expect(screen.getByPlaceholderText('My Team')).toBeInTheDocument()
   })
 
-  it('closes modal on Create Team click', () => {
+  it('closes modal on Create Team click', async () => {
     render(<TeamPanel />)
     fireEvent.click(screen.getByText('New Team'))
-    // Fill in the team name first (required for submission)
     const input = screen.getByPlaceholderText('My Team')
     fireEvent.change(input, { target: { value: 'Test Team' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Team' }))
-    expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Create New Team')).not.toBeInTheDocument()
+    })
   })
 
   it('does not create team with empty name', () => {
@@ -123,42 +144,57 @@ describe('TeamPanel with teams', () => {
         teams: [mockTeam],
         activeTeam: null,
         setActiveTeam: mockSetActiveTeam,
+        agents: [],
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
   })
 
-  it('shows team cards', () => {
+  it('shows team cards', async () => {
     render(<TeamPanel />)
-    expect(screen.getByText('Test Team')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
     expect(screen.getByText('A test team')).toBeInTheDocument()
   })
 
-  it('shows team stats', () => {
+  it('shows team stats', async () => {
     render(<TeamPanel />)
-    expect(screen.getByText('5 members')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('5 members')).toBeInTheDocument()
+    })
     expect(screen.getByText('3 agents')).toBeInTheDocument()
     expect(screen.getByText('2 online')).toBeInTheDocument()
     expect(screen.getByText('1 idle')).toBeInTheDocument()
     expect(screen.getByText('4 workspaces')).toBeInTheDocument()
   })
 
-  it('selects team when card clicked', () => {
+  it('selects team when card clicked', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Test Team'))
     expect(mockSetActiveTeam).toHaveBeenCalledWith(mockTeam)
   })
 
-  it('expands team card to show members', () => {
+  it('expands team card to show members', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Test Team'))
     expect(screen.getByText('Members')).toBeInTheDocument()
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
   })
 
-  it('shows action buttons when expanded', () => {
+  it('shows action buttons when expanded', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Test Team'))
     expect(screen.getByText('Invite')).toBeInTheDocument()
     expect(screen.getByText('Workspaces')).toBeInTheDocument()
@@ -194,21 +230,29 @@ describe('MemberRow', () => {
         teams: [mockTeam],
         activeTeam: null,
         setActiveTeam: vi.fn(),
+        agents: [],
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
   })
 
-  it('displays member names', () => {
+  it('displays member names', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Team'))
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.getByText('Charlie')).toBeInTheDocument()
   })
 
-  it('displays member roles', () => {
+  it('displays member roles', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Team'))
     expect(screen.getByText('owner')).toBeInTheDocument()
     expect(screen.getByText('developer')).toBeInTheDocument()
@@ -237,18 +281,22 @@ describe('TeamCard with active state', () => {
     vi.clearAllMocks()
   })
 
-  it('shows active styling when team is selected', () => {
+  it('shows active styling when team is selected', async () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         teams: [mockTeam],
         activeTeam: mockTeam,
         setActiveTeam: vi.fn(),
+        agents: [],
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
 
     render(<TeamPanel />)
-    // Find the card container (has rounded-mac-xl class)
+    await waitFor(() => {
+      expect(screen.getByText('Active Team')).toBeInTheDocument()
+    })
     const teamCard = screen.getByText('Active Team').closest('.rounded-mac-xl')
     expect(teamCard).toHaveClass('border-accent')
     expect(teamCard).toHaveClass('bg-accent-muted')
@@ -285,23 +333,30 @@ describe('TeamCard with many members', () => {
         teams: [mockTeamWithManyMembers],
         activeTeam: null,
         setActiveTeam: vi.fn(),
+        agents: [],
+        addToast: vi.fn(),
       }
       return selector ? selector(state) : state
     })
   })
 
-  it('shows +N more members button when more than 5 members', () => {
+  it('shows +N more members button when more than 5 members', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Large Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Large Team'))
     expect(screen.getByText('+2 more members')).toBeInTheDocument()
   })
 
-  it('shows only first 5 members', () => {
+  it('shows only first 5 members', async () => {
     render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Large Team')).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByText('Large Team'))
     expect(screen.getByText('Member 1')).toBeInTheDocument()
     expect(screen.getByText('Member 5')).toBeInTheDocument()
-    // Member 6 and 7 should not be visible individually
     expect(screen.queryByText('Member 6')).not.toBeInTheDocument()
     expect(screen.queryByText('Member 7')).not.toBeInTheDocument()
   })

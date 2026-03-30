@@ -55,14 +55,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected Team.MaxTeams 50, got %d", cfg.Team.MaxTeams)
 	}
 
-	// LLM config
-	if cfg.LLM.DefaultProvider != "claude" {
-		t.Errorf("Expected LLM.DefaultProvider 'claude', got '%s'", cfg.LLM.DefaultProvider)
-	}
-	if len(cfg.LLM.Providers) != 2 {
-		t.Errorf("Expected 2 LLM providers, got %d", len(cfg.LLM.Providers))
-	}
-
 	// Storage config
 	if cfg.Storage.Type != "sqlite" {
 		t.Errorf("Expected Storage.Type 'sqlite', got '%s'", cfg.Storage.Type)
@@ -76,26 +68,6 @@ func TestDefaultConfig(t *testing.T) {
 	// UI config
 	if cfg.UI.Theme != "dark" {
 		t.Errorf("Expected UI.Theme 'dark', got '%s'", cfg.UI.Theme)
-	}
-}
-
-func TestDefaultConfigProviders(t *testing.T) {
-	cfg := DefaultConfig()
-
-	claude, ok := cfg.LLM.Providers["claude"]
-	if !ok {
-		t.Fatal("Expected claude provider")
-	}
-	if claude.Model != "claude-sonnet-4-6" {
-		t.Errorf("Expected claude model 'claude-sonnet-4-6', got '%s'", claude.Model)
-	}
-
-	openai, ok := cfg.LLM.Providers["openai"]
-	if !ok {
-		t.Fatal("Expected openai provider")
-	}
-	if openai.Model != "gpt-4" {
-		t.Errorf("Expected openai model 'gpt-4', got '%s'", openai.Model)
 	}
 }
 
@@ -233,4 +205,64 @@ func TestUIConfigDefaults(t *testing.T) {
 	if cfg.UI.SidebarWidth != 280 {
 		t.Errorf("Expected UI.SidebarWidth 280, got %d", cfg.UI.SidebarWidth)
 	}
+}
+
+func TestValidate_InvalidDuration(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Set an invalid duration
+	cfg.ACP.Timeout = "not-a-duration"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid duration")
+	}
+	if err.Error() != `invalid duration for "acp.timeout": "not-a-duration" (time: invalid duration "not-a-duration")` {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestValidate_EmptyDurationAllowed(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Empty duration should not fail validation
+	cfg.ACP.Timeout = ""
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("empty duration should be valid, got: %v", err)
+	}
+}
+
+func TestValidate_AllDurationsParsed(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Default config should pass (all durations are valid)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should validate, got: %v", err)
+	}
+
+	// Set invalid durations in multiple places
+	cfg.Agent.HeartbeatInterval = "30xs"
+	cfg.Swarm.TaskTimeout = "abc"
+	cfg.Pair.DefaultSessionTimeout = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid durations")
+	}
+	// Should fail on the first invalid one
+	if !contains(err.Error(), "agent.heartbeat_interval") {
+		t.Errorf("expected error about agent.heartbeat_interval, got: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

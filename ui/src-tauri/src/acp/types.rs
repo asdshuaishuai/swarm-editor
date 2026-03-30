@@ -680,6 +680,106 @@ pub struct SwarmStatusResult {
     pub strategy: String,
 }
 
+/// Code execute result (from ACP session)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeExecuteResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Session close params
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionCloseParams {
+    #[serde(rename = "sessionId")]
+    pub session_id: SessionId,
+}
+
+// ==================== MCP Types ====================
+
+/// MCP start server params
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPStartServerParams {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+}
+
+/// MCP stop server params
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPStopServerParams {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+}
+
+/// MCP server status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPServerStatus {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+    pub name: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Tool definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "inputSchema", skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<Value>,
+}
+
+/// MCP call tool params
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPCallToolParams {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    pub arguments: std::collections::HashMap<String, Value>,
+}
+
+/// MCP call tool result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPCallToolResult {
+    pub content: Vec<MCPContent>,
+    #[serde(rename = "isError")]
+    pub is_error: bool,
+}
+
+/// MCP content
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPContent {
+    #[serde(rename = "type")]
+    pub content_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+/// MCP list tools params
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPListToolsParams {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+}
+
+/// MCP list tools result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MCPListToolsResult {
+    pub tools: Vec<ToolDefinition>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

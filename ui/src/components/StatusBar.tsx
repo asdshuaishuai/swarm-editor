@@ -2,7 +2,11 @@ import { useAppStore } from '../store/appStore'
 import { Wifi, WifiOff, Loader2, Zap } from 'lucide-react'
 
 export default function StatusBar() {
-  const { connected, connecting, agents, activeSwarm, activeTeam } = useAppStore()
+  const connected = useAppStore(state => state.connected)
+  const connecting = useAppStore(state => state.connecting)
+  const agents = useAppStore(state => state.agents)
+  const activeSwarm = useAppStore(state => state.activeSwarm)
+  const activeTeam = useAppStore(state => state.activeTeam)
 
   return (
     <div className="flex items-center justify-between px-4 py-1.5 bg-mac-bg border-t border-glass-border text-xs">

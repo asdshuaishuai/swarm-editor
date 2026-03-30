@@ -908,7 +908,10 @@ describe('SwarmPanel successful operations', () => {
       topology: 'star',
       strategy: 'parallel',
       state: 'stopped',
+      status: 'stopped',
       agents: ['agent-1'],
+      agentCount: 1,
+      taskCount: 0,
       stats: {
         agentCount: 1,
         idleAgents: 1,
@@ -957,7 +960,10 @@ describe('SwarmPanel successful operations', () => {
       topology: 'star',
       strategy: 'parallel',
       state: 'active',
+      status: 'active',
       agents: [],
+      agentCount: 1,
+      taskCount: 0,
       stats: {
         agentCount: 1,
         idleAgents: 1,
@@ -1012,7 +1018,10 @@ describe('SwarmPanel successful operations', () => {
       topology: 'star',
       strategy: 'parallel',
       state: 'stopped',
+      status: 'stopped',
       agents: [],
+      agentCount: 1,
+      taskCount: 0,
       stats: {
         agentCount: 1,
         idleAgents: 1,
@@ -1071,7 +1080,10 @@ describe('SwarmPanel successful operations', () => {
         topology: 'star',
         strategy: 'parallel',
         state: 'active',
+        status: 'active',
         agents: ['agent-1', 'agent-2'], // These IDs should match store agents
+        agentCount: 2,
+        taskCount: 0,
         stats: {
           agentCount: 2,
           idleAgents: 1,

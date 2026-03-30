@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"sync"
 	"time"
 
@@ -21,6 +22,11 @@ const (
 	AgentTypeNavigator    AgentType = "navigator"
 	AgentTypeDriver       AgentType = "driver"
 	AgentTypeOrchestrator AgentType = "orchestrator"
+	AgentTypePlanner      AgentType = "planner" // Plans and breaks down tasks (Cursor-like)
+	AgentTypeWorker       AgentType = "worker"  // Executes planned subtasks
+
+	// maxToolHistorySize limits the number of recent tool executions stored per agent
+	maxToolHistorySize = 100
 )
 
 // AgentState represents the current state of an agent
@@ -51,6 +57,15 @@ type Agent struct {
 	created    time.Time
 	lastActive time.Time
 
+	// Three-layer memory system (CrewAI-inspired)
+	// ShortTerm: recent context, bounded, session-scoped
+	// LongTerm: persistent patterns, cross-session
+	shortMemory *ShortTermMemory
+	longMemory  *LongTermMemory
+
+	// ACP Connection for external agent communication
+	conn *acp.AgentConnection
+
 	// Callbacks
 	onUpdate   func(update *acp.Update)
 	onToolCall func(tool *ToolCall)
@@ -62,7 +77,7 @@ type AgentContext struct {
 	OpenFiles        []string
 	RecentEdits      []EditRecord
 	TaskHistory      []TaskRecord
-	Memory           map[string]interface{}
+	Memory           map[string]any
 }
 
 // ToolExecution records a tool execution
@@ -111,8 +126,10 @@ func NewAgent(name string, agentType AgentType) *Agent {
 		created:    time.Now(),
 		lastActive: time.Now(),
 		context: &AgentContext{
-			Memory: make(map[string]interface{}),
+			Memory: make(map[string]any),
 		},
+		shortMemory: NewShortTermMemory(100),
+		longMemory:  NewLongTermMemory(0), // unlimited
 		Capabilities: acp.AgentCapabilities{
 			PromptCapabilities: acp.PromptCapabilities{
 				Image:           true,
@@ -171,7 +188,7 @@ func (a *Agent) RecordToolExecution(exec *ToolExecution) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.toolHistory = append(a.toolHistory, *exec)
-	if len(a.toolHistory) > 100 {
+	if len(a.toolHistory) > maxToolHistorySize {
 		a.toolHistory = a.toolHistory[1:]
 	}
 }
@@ -210,16 +227,114 @@ func (a *Agent) SendUpdate(update *acp.Update) {
 	}
 }
 
-// Execute executes a prompt with the agent
+// Execute executes a prompt by delegating to an external ACP agent
 func (a *Agent) Execute(ctx context.Context, prompt acp.Prompt) (*ExecutionResult, error) {
 	a.SetState(StateThinking)
 	defer a.SetState(StateIdle)
 
-	// This would be implemented by the actual LLM integration
-	return &ExecutionResult{
+	// Check if ACP connection is available (under lock)
+	a.mu.RLock()
+	conn := a.conn
+	a.mu.RUnlock()
+
+	if conn == nil {
+		return nil, acp.ErrNoConnection
+	}
+
+	// Get or create session atomically under write lock
+	// Release lock before blocking SendPrompt to avoid holding lock during I/O
+	var sessionID acp.SessionID
+	a.mu.Lock()
+	if a.session != nil {
+		sessionID = *a.session
+		a.mu.Unlock()
+	} else {
+		// Release lock during I/O to allow concurrent state reads
+		a.mu.Unlock()
+		session, err := conn.CreateSession(ctx, acp.ModeDefault)
+		if err != nil {
+			return nil, err
+		}
+		sessionID = session.ID
+		a.mu.Lock()
+		// Double-check: another goroutine may have created a session while we were blocked
+		if a.session == nil {
+			a.session = &sessionID
+		} else {
+			// Use the existing session; our newly created session is orphaned.
+			// Log but don't leak - the remote agent will clean it up on inactivity.
+			log.Printf("[Agent] Orphaned session %s for agent %s (existing session %s), will be garbage collected",
+				sessionID, a.ID, *a.session)
+			sessionID = *a.session
+		}
+		a.mu.Unlock()
+	}
+
+	// Send prompt to external agent via ACP
+	result, err := conn.SendPrompt(ctx, sessionID, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert ACP result to execution result
+	execResult := &ExecutionResult{
 		AgentID:    a.ID,
-		StopReason: acp.StopEndTurn,
-	}, nil
+		StopReason: result.StopReason,
+		Output:     "",
+	}
+
+	// Update last active time
+	a.mu.Lock()
+	a.lastActive = time.Now()
+	a.mu.Unlock()
+
+	return execResult, nil
+}
+
+// SetConnection sets the ACP connection for this agent
+func (a *Agent) SetConnection(conn *acp.AgentConnection) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.conn = conn
+}
+
+// GetConnection returns the ACP connection for this agent
+func (a *Agent) GetConnection() *acp.AgentConnection {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.conn
+}
+
+// ShortMemory returns the agent's short-term memory.
+// Use for recent context within the current session.
+func (a *Agent) ShortMemory() *ShortTermMemory {
+	return a.shortMemory
+}
+
+// LongMemory returns the agent's long-term memory.
+// Use for persistent patterns and knowledge across sessions.
+func (a *Agent) LongMemory() *LongTermMemory {
+	return a.longMemory
+}
+
+// Remember stores a value in short-term memory (convenience method).
+func (a *Agent) Remember(key string, value any) {
+	a.shortMemory.Set(key, value)
+}
+
+// Recall retrieves a value from short-term memory (convenience method).
+func (a *Agent) Recall(key string) (any, bool) {
+	return a.shortMemory.Get(key)
+}
+
+// Learn stores a value in long-term memory (convenience method).
+func (a *Agent) Learn(key string, value any) {
+	a.longMemory.Set(key, value)
+}
+
+// Know retrieves a value from long-term memory (convenience method).
+func (a *Agent) Know(key string) (any, bool) {
+	return a.longMemory.Get(key)
 }
 
 // ExecutionResult represents the result of agent execution

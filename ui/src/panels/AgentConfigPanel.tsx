@@ -10,6 +10,9 @@ import {
 } from 'lucide-react'
 import { AgentConfig, AgentSwarmConfig } from '../types'
 import { logger } from '../utils'
+import { api } from '../services'
+import { useAppStore } from '../store/appStore'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 interface AgentConfigPanelProps {
   initialAgents?: AgentConfig[]
@@ -30,7 +33,11 @@ export default function AgentConfigPanel({
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>(initialAgents)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
+  const addToast = useAppStore(state => state.addToast)
   const [agentStatuses, setAgentStatuses] = useState<Map<string, 'idle' | 'testing' | 'connected' | 'error'>>(new Map())
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [newAgent, setNewAgent] = useState<Partial<AgentConfig>>({
     id: '',
     name: '',
@@ -47,57 +54,129 @@ export default function AgentConfigPanel({
     },
   })
 
-  const handleSaveAgent = () => {
-    // Save agent configuration
+  // Initialize newAgent when editingAgent changes
+  useEffect(() => {
     if (editingAgent) {
-      // Update existing agent
-      setAgentConfigs((prev) =>
-        prev.map((a) => (a.id === editingAgent.id ? { ...a, ...newAgent } as AgentConfig : a))
-      )
-    } else {
-      // Add new agent
-      const agent: AgentConfig = {
-        id: newAgent.id || `agent-${Date.now()}`,
-        name: newAgent.name || '',
-        command: newAgent.command || '',
-        args: newAgent.args || [],
+      setNewAgent({
+        id: editingAgent.id,
+        name: editingAgent.name,
+        command: editingAgent.command,
+        description: editingAgent.description,
+        enabled: editingAgent.enabled,
+        args: editingAgent.args,
+        env: editingAgent.env,
+        swarmConfig: editingAgent.swarmConfig,
+        tags: editingAgent.tags,
+        timeout: editingAgent.timeout,
+      })
+    }
+  }, [editingAgent])
+
+  const handleSaveAgent = async () => {
+    // Validate required fields
+    if (!newAgent.id || !newAgent.name || !newAgent.command) {
+      setSaveError('ID, Name, and Command are required fields')
+      return
+    }
+
+    setIsSaving(true)
+    setSaveError(null)
+
+    try {
+      const agentConfig: AgentConfig = {
+        id: newAgent.id!,
+        name: newAgent.name!,
+        command: newAgent.command!,
+        description: newAgent.description,
         enabled: newAgent.enabled ?? true,
+        args: newAgent.args,
+        env: newAgent.env,
         swarmConfig: newAgent.swarmConfig,
         tags: newAgent.tags,
       }
-      setAgentConfigs((prev) => [...prev, agent])
+
+      if (editingAgent) {
+        // Update existing agent via API
+        const updated = await api.agent.updateAgent(agentConfig)
+        const config: AgentConfig = {
+          id: updated.id,
+          name: updated.name,
+          description: updated.description,
+          enabled: updated.enabled ?? true,
+          command: updated.command || '',
+          args: [],
+          env: {},
+        }
+        setAgentConfigs((prev) =>
+          prev.map((a) => (a.id === editingAgent.id ? config : a))
+        )
+        logger.info('AgentConfig', 'Agent updated successfully:', updated.id)
+      } else {
+        // Add new agent via API
+        const added = await api.agent.addAgent(agentConfig)
+        const config: AgentConfig = {
+          id: added.id,
+          name: added.name,
+          description: added.description,
+          enabled: added.enabled ?? true,
+          command: added.command || '',
+          args: [],
+          env: {},
+        }
+        setAgentConfigs((prev) => [...prev, config])
+        logger.info('AgentConfig', 'Agent added successfully:', added.id)
+      }
+
+      // Close modal and reset form
+      setShowAddModal(false)
+      setEditingAgent(null)
+      setNewAgent({
+        id: '',
+        name: '',
+        command: '',
+        args: [],
+        env: {},
+        enabled: true,
+        swarmConfig: {
+          canBeCoordinator: true,
+          canBeWorker: true,
+          preferredRoles: ['coder'],
+          maxConcurrent: 3,
+          priority: 5,
+        },
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      logger.error('AgentConfig', 'Failed to save agent:', error)
+      setSaveError(errorMessage)
+    } finally {
+      setIsSaving(false)
     }
-    setShowAddModal(false)
-    setEditingAgent(null)
-    setNewAgent({
-      id: '',
-      name: '',
-      command: '',
-      args: [],
-      env: {},
-      enabled: true,
-      swarmConfig: {
-        canBeCoordinator: true,
-        canBeWorker: true,
-        preferredRoles: ['coder'],
-        maxConcurrent: 3,
-        priority: 5,
-      },
-    })
   }
 
-  const handleDeleteAgent = (agentId: string) => {
-    setAgentConfigs((prev) => prev.filter((a) => a.id !== agentId))
+  const handleDeleteAgent = async () => {
+    if (!deleteTarget) return
+
+    const targetId = deleteTarget.id
+    const targetName = deleteTarget.name
+    setDeleteTarget(null)
+
+    try {
+      await api.agent.deleteAgent(targetId)
+      setAgentConfigs((prev) => prev.filter((a) => a.id !== targetId))
+      logger.info('AgentConfig', 'Agent deleted successfully:', targetId)
+      addToast('success', 'Agent deleted', `"${targetName}" has been removed`)
+    } catch (error) {
+      logger.error('AgentConfig', 'Failed to delete agent:', error)
+      addToast('error', 'Failed to delete agent', error instanceof Error ? error.message : 'Unknown error')
+    }
   }
 
   const handleTestConnection = async (agentId: string) => {
     // Set testing status
     setAgentStatuses((prev) => new Map(prev).set(agentId, 'testing'))
 
-    // Simulate connection test (in real implementation, this would call the backend)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-
       // For testing: simulate agent not found scenario
       if (simulateAgentNotFound) {
         throw new Error('Agent not found')
@@ -115,8 +194,16 @@ export default function AgentConfigPanel({
         throw new Error('Connection failed')
       }
 
-      // Simulate success (in real implementation, this would depend on actual connection)
-      setAgentStatuses((prev) => new Map(prev).set(agentId, 'connected'))
+      // Try to start the agent - this validates the command and connection
+      const result = await api.agent.startAgent(agentId)
+
+      // Check if agent started successfully
+      if (result.status === 'running') {
+        setAgentStatuses((prev) => new Map(prev).set(agentId, 'connected'))
+        logger.info('AgentConfig', 'Agent connection test successful:', agentId)
+      } else {
+        throw new Error(`Agent failed to start: ${result.status}`)
+      }
     } catch (error) {
       // Log error for debugging (defensive code)
       logger.error('AgentConfig', 'Connection test failed:', error)
@@ -172,7 +259,7 @@ export default function AgentConfigPanel({
               status={agentStatuses.get(agent.id) || 'idle'}
               onEdit={() => setEditingAgent(agent)}
               onTest={() => handleTestConnection(agent.id)}
-              onDelete={() => handleDeleteAgent(agent.id)}
+              onDelete={() => setDeleteTarget({ id: agent.id, name: agent.name })}
             />
           ))
         )}
@@ -181,7 +268,7 @@ export default function AgentConfigPanel({
       {/* Add/Edit Modal */}
       {(showAddModal || editingAgent) && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl">
+          <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[500px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Agent configuration">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                 <Bot size={18} className="text-accent" />
@@ -409,25 +496,54 @@ export default function AgentConfigPanel({
               </div>
             </div>
 
+            {/* Error Message */}
+            {saveError && (
+              <div className="p-3 bg-error/10 border border-error/30 rounded-mac text-sm text-error">
+                {saveError}
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-glass-border">
               <button
                 onClick={() => {
                   setShowAddModal(false)
                   setEditingAgent(null)
+                  setSaveError(null)
                 }}
                 className="btn-secondary"
+                disabled={isSaving}
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveAgent}
                 className="btn-primary"
+                disabled={isSaving}
               >
-                {editingAgent ? 'Save Changes' : 'Add Agent'}
+                {isSaving ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>{editingAgent ? 'Saving...' : 'Adding...'}</span>
+                  </>
+                ) : (
+                  <span>{editingAgent ? 'Save Changes' : 'Add Agent'}</span>
+                )}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Agent"
+          message={`Are you sure you want to delete agent "${deleteTarget.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={handleDeleteAgent}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   )
@@ -482,6 +598,7 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
             onClick={onTest}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Test Connection"
+            aria-label="Test Connection"
           >
             {status === 'testing' ? (
               <Loader2 size={16} className="animate-spin text-accent" />
@@ -493,6 +610,7 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
             onClick={onEdit}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
             title="Edit"
+            aria-label="Edit"
           >
             <Edit3 size={16} className="text-text-secondary" />
           </button>
@@ -500,6 +618,7 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
             onClick={onDelete}
             className="p-2 hover:bg-error/10 rounded-mac transition-colors group"
             title="Delete"
+            aria-label="Delete"
           >
             <Trash2 size={16} className="text-text-secondary group-hover:text-error" />
           </button>
@@ -544,6 +663,7 @@ export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: contr
           ))}
         </div>
       )}
+
     </div>
   )
 }

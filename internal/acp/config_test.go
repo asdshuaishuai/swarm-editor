@@ -70,7 +70,9 @@ func TestConfigAddAgent(t *testing.T) {
 
 func TestConfigRemoveAgent(t *testing.T) {
 	cfg := NewConfig()
-	cfg.AddAgent(&AgentConfig{ID: "test-agent", Command: "/usr/bin/test"})
+	if err := cfg.AddAgent(&AgentConfig{ID: "test-agent", Command: "/usr/bin/test"}); err != nil {
+		t.Fatalf("AddAgent failed: %v", err)
+	}
 
 	err := cfg.RemoveAgent("test-agent")
 	if err != nil {
@@ -620,16 +622,6 @@ func TestMCPServerConfigJSON(t *testing.T) {
 
 // Edge case tests
 
-func TestConfigSaveEmptyPath(t *testing.T) {
-	// This test uses the default ConfigDir, which we need to clean up
-	cfg := NewConfig()
-
-	// Just verify it doesn't panic
-	_ = cfg
-
-	// Note: We don't actually call Save("") because it would write to HOME
-	// In a real test, we'd mock the filesystem
-}
 
 func TestConfigGetAgentsByTagNoTags(t *testing.T) {
 	cfg := NewConfig()

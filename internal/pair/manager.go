@@ -3,6 +3,7 @@ package pair
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
@@ -38,21 +39,26 @@ func NewManager(registry *agent.Registry) *Manager {
 
 // CreateSession creates a new pair programming session
 func (m *Manager) CreateSession(driverID, navigatorID acp.AgentID) (*PairSession, error) {
-	// Check if driver and navigator are the same agent
+	// Check if driver and navigator are the same agent (no lock needed)
 	if driverID == navigatorID {
 		return nil, ErrSameAgent
 	}
 
-	// Check if driver is already in a session
-	if existingSession := m.GetAgentSession(driverID); existingSession != nil {
+	// Acquire write lock for the entire check-and-insert sequence to prevent TOCTOU race
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if driver is already in a session (under write lock)
+	if m.isAgentInSessionLocked(driverID) {
 		return nil, ErrAgentInSession
 	}
 
-	// Check if navigator is already in a session
-	if existingSession := m.GetAgentSession(navigatorID); existingSession != nil {
+	// Check if navigator is already in a session (under write lock)
+	if m.isAgentInSessionLocked(navigatorID) {
 		return nil, ErrAgentInSession
 	}
 
+	// Registry lookup is safe to do under our lock (registry has its own locking)
 	driver, ok := m.registry.Get(driverID)
 	if !ok {
 		return nil, ErrDriverNotFound
@@ -64,12 +70,20 @@ func (m *Manager) CreateSession(driverID, navigatorID acp.AgentID) (*PairSession
 	}
 
 	session := NewPairSession(driver, navigator)
-
-	m.mu.Lock()
 	m.sessions[session.ID] = session
-	m.mu.Unlock()
 
 	return session, nil
+}
+
+// isAgentInSessionLocked checks if an agent is already in a session
+// MUST be called with m.mu held (write or read lock)
+func (m *Manager) isAgentInSessionLocked(agentID acp.AgentID) bool {
+	for _, session := range m.sessions {
+		if session.Driver.ID == agentID || session.Navigator.ID == agentID {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSession retrieves a session by ID
@@ -129,6 +143,8 @@ func (m *Manager) AutoPair(ctx context.Context) ([]*PairSession, error) {
 		}
 
 		if err := session.Start(ctx); err != nil {
+			log.Printf("[Pair] Failed to start session %s: %v", session.ID, err)
+			m.EndSession(session.ID)
 			continue
 		}
 
@@ -138,14 +154,51 @@ func (m *Manager) AutoPair(ctx context.Context) ([]*PairSession, error) {
 	return created, nil
 }
 
-// GetAgentSession returns the session an agent is participating in
-func (m *Manager) GetAgentSession(agentID acp.AgentID) *PairSession {
+// GetAgentSessionID returns the session ID if the agent is participating in a session
+// Returns empty string if the agent is not in any session
+func (m *Manager) GetAgentSessionID(agentID acp.AgentID) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for _, session := range m.sessions {
 		if session.Driver.ID == agentID || session.Navigator.ID == agentID {
-			return session
+			return session.ID
+		}
+	}
+	return ""
+}
+
+// GetAgentSessionInfo returns a snapshot of session info for an agent
+// This is safe to use as it doesn't return the session pointer
+type AgentSessionInfo struct {
+	SessionID   string
+	State       PairSessionState
+	Role        Role
+	PartnerID   acp.AgentID
+	CurrentFile string
+}
+
+// GetAgentSessionInfo returns information about the session an agent is in
+// Returns nil if the agent is not in any session
+func (m *Manager) GetAgentSessionInfo(agentID acp.AgentID) *AgentSessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, session := range m.sessions {
+		if session.Driver.ID == agentID || session.Navigator.ID == agentID {
+			info := &AgentSessionInfo{
+				SessionID: session.ID,
+				State:     session.GetState(),
+			}
+			// Determine role and partner
+			if session.Driver.ID == agentID {
+				info.Role = RoleDriver
+				info.PartnerID = session.Navigator.ID
+			} else {
+				info.Role = RoleNavigator
+				info.PartnerID = session.Driver.ID
+			}
+			return info
 		}
 	}
 	return nil
@@ -164,12 +217,13 @@ func (m *Manager) GetStats() []*PairStats {
 }
 
 // BroadcastToSession sends a message to all participants in a session
+// This method is safe: SendMessage has its own locking, so we call it under read lock
+// to ensure the session still exists
 func (m *Manager) BroadcastToSession(sessionID string, from acp.AgentID, message string) {
 	m.mu.RLock()
-	session, ok := m.sessions[sessionID]
-	m.mu.RUnlock()
+	defer m.mu.RUnlock()
 
-	if ok {
+	if session, ok := m.sessions[sessionID]; ok {
 		session.SendMessage(from, message)
 	}
 }

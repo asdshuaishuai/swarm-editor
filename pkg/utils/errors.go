@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // Common errors
@@ -52,7 +53,7 @@ func WrapError(err error, message string) error {
 }
 
 // WrapErrorf wraps an error with formatted context
-func WrapErrorf(err error, format string, args ...interface{}) error {
+func WrapErrorf(err error, format string, args ...any) error {
 	if err == nil {
 		return nil
 	}
@@ -107,18 +108,24 @@ func NewStackError(err error) *StackError {
 
 // MultiError combines multiple errors into one
 type MultiError struct {
+	mu     sync.Mutex
 	errors []error
 }
 
 // Add adds an error to the multi-error
 func (m *MultiError) Add(err error) {
 	if err != nil {
+		m.mu.Lock()
 		m.errors = append(m.errors, err)
+		m.mu.Unlock()
 	}
 }
 
 // Error implements error interface
 func (m *MultiError) Error() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if len(m.errors) == 0 {
 		return ""
 	}
@@ -137,18 +144,26 @@ func (m *MultiError) Error() string {
 	return sb.String()
 }
 
-// Errors returns all errors
+// Errors returns a copy of all errors
 func (m *MultiError) Errors() []error {
-	return m.errors
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]error, len(m.errors))
+	copy(result, m.errors)
+	return result
 }
 
 // HasErrors returns true if there are any errors
 func (m *MultiError) HasErrors() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return len(m.errors) > 0
 }
 
 // ToError returns the multi-error if there are errors, nil otherwise
 func (m *MultiError) ToError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if len(m.errors) == 0 {
 		return nil
 	}
@@ -166,7 +181,7 @@ func IsAny(err error, targets ...error) bool {
 }
 
 // AsAny checks if err can be cast to any of the target types
-func AsAny(err error, targets ...interface{}) bool {
+func AsAny(err error, targets ...any) bool {
 	for _, target := range targets {
 		if errors.As(err, target) {
 			return true

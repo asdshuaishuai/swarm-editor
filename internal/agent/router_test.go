@@ -609,7 +609,8 @@ func TestRouterConcurrentBroadcast(t *testing.T) {
 				SessionID: sessionID,
 				Type:      MessageTypeBroadcast,
 			}
-			router.Broadcast(context.Background(), msg)
+			// Broadcast error is intentionally ignored in concurrent test
+			_ = router.Broadcast(context.Background(), msg)
 			done <- true
 		}(i)
 	}
@@ -675,5 +676,123 @@ func TestLeastLoadedConcurrentAccess(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 50; i++ {
 		<-done
+	}
+}
+
+func TestRouterMiddlewareChain(t *testing.T) {
+	router := NewRouter()
+
+	var callOrder []string
+
+	// Register handler
+	router.RegisterHandler(MessageTypeTask, func(ctx context.Context, msg *RoutedMessage) error {
+		callOrder = append(callOrder, "handler")
+		return nil
+	})
+
+	// Add middleware in order: A, B
+	router.Use(func(next MessageHandler) MessageHandler {
+		return func(ctx context.Context, msg *RoutedMessage) error {
+			callOrder = append(callOrder, "A")
+			return next(ctx, msg)
+		}
+	})
+	router.Use(func(next MessageHandler) MessageHandler {
+		return func(ctx context.Context, msg *RoutedMessage) error {
+			callOrder = append(callOrder, "B")
+			return next(ctx, msg)
+		}
+	})
+
+	msg := &RoutedMessage{
+		From: "agent-1",
+		To:   "agent-2",
+		Type: MessageTypeTask,
+	}
+
+	err := router.Handle(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+
+	// Middleware should execute in FIFO order: A -> B -> handler
+	// (LIFO wrapping means first-registered wraps outermost = executes first)
+	if len(callOrder) != 3 {
+		t.Fatalf("Expected 3 calls, got %d: %v", len(callOrder), callOrder)
+	}
+	if callOrder[0] != "A" || callOrder[1] != "B" || callOrder[2] != "handler" {
+		t.Errorf("Expected [A, B, handler], got %v", callOrder)
+	}
+}
+
+func TestRouterMiddlewareShortCircuit(t *testing.T) {
+	router := NewRouter()
+
+	handlerCalled := false
+
+	router.RegisterHandler(MessageTypeTask, func(ctx context.Context, msg *RoutedMessage) error {
+		handlerCalled = true
+		return nil
+	})
+
+	// Middleware that short-circuits (doesn't call next)
+	router.Use(func(next MessageHandler) MessageHandler {
+		return func(ctx context.Context, msg *RoutedMessage) error {
+			return errors.New("blocked by middleware")
+		}
+	})
+
+	msg := &RoutedMessage{
+		From: "agent-1",
+		To:   "agent-2",
+		Type: MessageTypeTask,
+	}
+
+	err := router.Handle(context.Background(), msg)
+	if err == nil {
+		t.Fatal("Expected error from middleware")
+	}
+	if err.Error() != "blocked by middleware" {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if handlerCalled {
+		t.Error("Handler should not be called when middleware short-circuits")
+	}
+}
+
+func TestRouterMiddlewareNilMessage(t *testing.T) {
+	router := NewRouter()
+
+	middlewareCalled := false
+	router.Use(func(next MessageHandler) MessageHandler {
+		return func(ctx context.Context, msg *RoutedMessage) error {
+			middlewareCalled = true
+			return nil
+		}
+	})
+
+	err := router.Handle(context.Background(), nil)
+	if err != nil {
+		t.Errorf("Expected nil error for nil message, got: %v", err)
+	}
+	if middlewareCalled {
+		t.Error("Middleware should not be called for nil message")
+	}
+}
+
+func TestGetSessionAgentsCopy(t *testing.T) {
+	router := NewRouter()
+
+	agentIDs := []acp.AgentID{"agent-1", "agent-2"}
+	router.BindSession("session-1", agentIDs)
+
+	// Get agents and modify returned slice
+	agents := router.GetSessionAgents("session-1")
+	agents[0] = "modified"
+
+	// Original should be unchanged
+	original := router.GetSessionAgents("session-1")
+	if original[0] == "modified" {
+		t.Error("GetSessionAgents should return a copy, not the original slice")
 	}
 }

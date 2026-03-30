@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -22,42 +23,42 @@ import (
 // DiscoveryConfig configures the agent discovery service
 type DiscoveryConfig struct {
 	// Scan settings
-	AutoScan         bool          `json:"autoScan"`
-	ScanInterval     time.Duration `json:"scanInterval"`
-	ScanTimeout      time.Duration `json:"scanTimeout"`
-	ConcurrentScans  int           `json:"concurrentScans"`
+	AutoScan        bool          `json:"autoScan"`
+	ScanInterval    time.Duration `json:"scanInterval"`
+	ScanTimeout     time.Duration `json:"scanTimeout"`
+	ConcurrentScans int           `json:"concurrentScans"`
 
 	// Auto-connect settings
-	AutoConnect      bool          `json:"autoConnect"`
-	ConnectTimeout   time.Duration `json:"connectTimeout"`
-	MaxRetries       int           `json:"maxRetries"`
-	RetryDelay       time.Duration `json:"retryDelay"`
+	AutoConnect    bool          `json:"autoConnect"`
+	ConnectTimeout time.Duration `json:"connectTimeout"`
+	MaxRetries     int           `json:"maxRetries"`
+	RetryDelay     time.Duration `json:"retryDelay"`
 
 	// Discovery paths
-	ConfigPaths      []string      `json:"configPaths"`
-	ScanCommands     []string      `json:"scanCommands"`
+	ConfigPaths  []string `json:"configPaths"`
+	ScanCommands []string `json:"scanCommands"`
 
 	// Network discovery
-	EnableNetwork    bool          `json:"enableNetwork"`
-	NetworkPorts     []int         `json:"networkPorts"`
-	BroadcastPort    int           `json:"broadcastPort"`
+	EnableNetwork bool  `json:"enableNetwork"`
+	NetworkPorts  []int `json:"networkPorts"`
+	BroadcastPort int   `json:"broadcastPort"`
 
 	// Registration
-	AllowSelfRegister bool         `json:"allowSelfRegister"`
-	RequireApproval   bool         `json:"requireApproval"`
+	AllowSelfRegister bool `json:"allowSelfRegister"`
+	RequireApproval   bool `json:"requireApproval"`
 }
 
 // DefaultDiscoveryConfig returns default discovery configuration
 func DefaultDiscoveryConfig() DiscoveryConfig {
 	return DiscoveryConfig{
-		AutoScan:         true,
-		ScanInterval:     30 * time.Second,
-		ScanTimeout:      5 * time.Second,
-		ConcurrentScans:  5,
-		AutoConnect:      false,
-		ConnectTimeout:   10 * time.Second,
-		MaxRetries:       3,
-		RetryDelay:       1 * time.Second,
+		AutoScan:        true,
+		ScanInterval:    30 * time.Second,
+		ScanTimeout:     5 * time.Second,
+		ConcurrentScans: 5,
+		AutoConnect:     false,
+		ConnectTimeout:  10 * time.Second,
+		MaxRetries:      3,
+		RetryDelay:      1 * time.Second,
 		ConfigPaths: []string{
 			"~/.swarm-editor/agents.json",
 			"~/.config/swarm-editor/agents.d",
@@ -69,9 +70,9 @@ func DefaultDiscoveryConfig() DiscoveryConfig {
 			"aider",
 			"continue",
 		},
-		EnableNetwork:    true,
-		NetworkPorts:     []int{8080, 8765, 9000},
-		BroadcastPort:    8765,
+		EnableNetwork:     true,
+		NetworkPorts:      []int{8080, 8765, 9000},
+		BroadcastPort:     8765,
 		AllowSelfRegister: true,
 		RequireApproval:   false,
 	}
@@ -243,7 +244,12 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 	// Scan command-line agents
 	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Discovery] scanCommands panic: %v", r)
+			}
+			wg.Done()
+		}()
 		agents := d.scanCommands()
 		mu.Lock()
 		discovered = append(discovered, agents...)
@@ -253,7 +259,12 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 	// Scan config files
 	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Discovery] scanConfigFiles panic: %v", r)
+			}
+			wg.Done()
+		}()
 		agents := d.scanConfigFiles()
 		mu.Lock()
 		discovered = append(discovered, agents...)
@@ -264,7 +275,12 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 	if d.config.EnableNetwork {
 		wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Discovery] scanNetwork panic: %v", r)
+				}
+				wg.Done()
+			}()
 			agents := d.scanNetwork()
 			mu.Lock()
 			discovered = append(discovered, agents...)
@@ -280,14 +296,36 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 		agent.LastSeen = time.Now()
 		d.discovered[agent.ID] = agent
 
-		// Notify callback
+		// Notify callback (tracked by d.wg to prevent leak on Stop)
+		// Pass agent as parameter to avoid loop variable capture bug
 		if d.onDiscovered != nil {
-			go d.onDiscovered(agent)
+			d.wg.Add(1)
+			go func(a *DiscoveredAgent) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Discovery] onDiscovered callback panic: %v", r)
+					}
+					d.wg.Done()
+				}()
+				d.onDiscovered(a)
+			}(agent)
 		}
 
-		// Auto-connect if enabled
+		// Auto-connect if enabled (tracked by d.wg to prevent leak on Stop)
+		// Pass agent as parameter to avoid loop variable capture bug
 		if d.config.AutoConnect && agent.Status == DiscoveryStatusAvailable {
-			go d.Connect(agent)
+			d.wg.Add(1)
+			go func(a *DiscoveredAgent) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Discovery] Auto-connect panic for %s: %v", a.ID, r)
+					}
+					d.wg.Done()
+				}()
+				if _, err := d.Connect(a); err != nil {
+					log.Printf("[Discovery] Auto-connect failed for %s: %v", a.ID, err)
+				}
+			}(agent)
 		}
 	}
 	d.mu.Unlock()
@@ -300,6 +338,14 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 func (d *DiscoveryService) scanCommands() []*DiscoveredAgent {
 	var agents []*DiscoveredAgent
 
+	d.mu.RLock()
+	parentCtx := d.ctx
+	d.mu.RUnlock()
+
+	if parentCtx == nil {
+		return agents
+	}
+
 	for _, cmd := range d.config.ScanCommands {
 		// Check if command exists
 		path, err := exec.LookPath(cmd)
@@ -307,12 +353,12 @@ func (d *DiscoveryService) scanCommands() []*DiscoveredAgent {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(d.ctx, d.config.ScanTimeout)
-		defer cancel()
+		ctx, cancel := context.WithTimeout(parentCtx, d.config.ScanTimeout)
 
 		// Try to get version/capabilities
 		execCmd := exec.CommandContext(ctx, cmd, "--version")
 		output, err := execCmd.CombinedOutput()
+		cancel() // Cancel immediately after use, not deferred in loop
 		if err != nil {
 			continue
 		}
@@ -451,10 +497,24 @@ func (d *DiscoveryService) parseConfigFile(path string) []*DiscoveredAgent {
 func (d *DiscoveryService) scanNetwork() []*DiscoveredAgent {
 	var agents []*DiscoveredAgent
 
+	// Capture ctx under lock to avoid race with Stop()
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	for _, port := range d.config.NetworkPorts {
+		select {
+		case <-ctx.Done():
+			return agents // Early return on context cancellation
+		default:
+		}
+
 		// Check localhost first
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		if agent := d.probeNetworkAgent(addr); agent != nil {
+		if agent := d.probeNetworkAgentWithContext(ctx, addr); agent != nil {
 			agents = append(agents, agent)
 		}
 	}
@@ -464,7 +524,26 @@ func (d *DiscoveryService) scanNetwork() []*DiscoveredAgent {
 
 // probeNetworkAgent probes a network address for an agent
 func (d *DiscoveryService) probeNetworkAgent(addr string) *DiscoveredAgent {
+	// Capture ctx under lock to avoid race with Stop()
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return d.probeNetworkAgentWithContext(ctx, addr)
+}
+
+// probeNetworkAgentWithContext probes a network address with context support
+func (d *DiscoveryService) probeNetworkAgentWithContext(ctx context.Context, addr string) *DiscoveredAgent {
 	start := time.Now()
+
+	// Check context before dialing
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+	}
 
 	// Try to connect
 	conn, err := net.DialTimeout("tcp", addr, d.config.ScanTimeout)
@@ -475,14 +554,20 @@ func (d *DiscoveryService) probeNetworkAgent(addr string) *DiscoveredAgent {
 
 	latency := time.Since(start)
 
-	// TODO: Query agent capabilities via ACP protocol
+	// Query agent capabilities via ACP protocol if available
+	// For non-ACP agents, we use a default "remote" capability
+	capabilities := d.queryAgentCapabilities(addr, latency)
+	if len(capabilities) == 0 {
+		capabilities = []string{"remote"}
+	}
+
 	agent := &DiscoveredAgent{
 		ID:           fmt.Sprintf("net-%s", strings.ReplaceAll(addr, ":", "-")),
 		Name:         fmt.Sprintf("Agent at %s", addr),
 		Type:         "remote",
 		Endpoint:     addr,
 		Command:      "",
-		Capabilities: []string{"remote"},
+		Capabilities: capabilities,
 		Status:       DiscoveryStatusAvailable,
 		Latency:      latency,
 		Metadata: map[string]string{
@@ -491,6 +576,105 @@ func (d *DiscoveryService) probeNetworkAgent(addr string) *DiscoveredAgent {
 	}
 
 	return agent
+}
+
+// queryAgentCapabilities attempts to query an agent's capabilities over TCP
+// Returns empty slice if the agent doesn't support capability queries
+func (d *DiscoveryService) queryAgentCapabilities(addr string, latency time.Duration) []string {
+	// Capture ctx under lock to avoid race with Stop()
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return d.queryAgentCapabilitiesWithContext(ctx, addr, latency)
+}
+
+// queryAgentCapabilitiesWithContext queries agent capabilities with context support
+func (d *DiscoveryService) queryAgentCapabilitiesWithContext(ctx context.Context, addr string, latency time.Duration) []string {
+	var capabilities []string
+
+	// Fast response indicates the agent is responsive
+	if latency < 100*time.Millisecond {
+		capabilities = append(capabilities, "fast_response")
+	}
+
+	// Check context before dialing
+	select {
+	case <-ctx.Done():
+		return capabilities
+	default:
+	}
+
+	// Try to query actual capabilities via ACP over TCP
+	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		// Agent doesn't support TCP connections, return inferred capabilities
+		return capabilities
+	}
+	defer conn.Close()
+
+	// Create ACP client over TCP transport
+	transport := acp.NewTCPTransport(conn)
+	if transport == nil {
+		return capabilities
+	}
+
+	client := acp.NewClient(transport)
+	if client == nil {
+		transport.Close()
+		return capabilities
+	}
+
+	// Start the client's read loop
+	if err := client.Start(queryCtx); err != nil {
+		client.Stop()
+		return capabilities
+	}
+	defer func() {
+		if err := client.Stop(); err != nil {
+			log.Printf("[Discovery] Client stop error: %v", err)
+		}
+	}()
+
+	// Query capabilities via Initialize
+	result, err := client.Initialize(queryCtx, &acp.InitializeParams{
+		ProtocolVersion:    acp.ProtocolVersion,
+		ClientCapabilities: acp.ClientCapabilities{},
+		ClientInfo: acp.ImplementationInfo{
+			Name:    "swarm-editor",
+			Version: "1.0.0",
+		},
+	})
+	if err != nil {
+		return capabilities
+	}
+
+	// Extract capabilities from result
+	if result.AgentCapabilities.TeamCollaboration {
+		capabilities = append(capabilities, "team_collaboration")
+	}
+	if result.AgentCapabilities.PairProgramming {
+		capabilities = append(capabilities, "pair_programming")
+	}
+	if result.AgentCapabilities.SwarmMode != nil {
+		capabilities = append(capabilities, "swarm_mode")
+	}
+	if result.AgentCapabilities.PromptCapabilities.Image {
+		capabilities = append(capabilities, "image_support")
+	}
+	if result.AgentCapabilities.PromptCapabilities.Audio {
+		capabilities = append(capabilities, "audio_support")
+	}
+	if result.AgentCapabilities.MCP.HTTP {
+		capabilities = append(capabilities, "mcp_http")
+	}
+
+	return capabilities
 }
 
 // verifyAgent verifies an agent is reachable
@@ -530,21 +714,49 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 		log.Printf("[Discovery] Connection attempt %d/%d failed: %v", i+1, d.config.MaxRetries, err)
 
 		if i < d.config.MaxRetries-1 {
-			time.Sleep(d.config.RetryDelay)
+			// Capture ctx under lock to avoid race with Stop()
+			d.mu.RLock()
+			ctx := d.ctx
+			d.mu.RUnlock()
+			if ctx == nil {
+				return nil, fmt.Errorf("discovery service stopped")
+			}
+
+			timer := time.NewTimer(d.config.RetryDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+				// Timer fired, continue to next retry
+			}
 		}
 	}
 
 	if err != nil {
+		d.mu.Lock()
 		agent.Status = DiscoveryStatusUnreachable
+		d.mu.Unlock()
 
 		if d.onFailed != nil {
-			go d.onFailed(agent, err)
+			d.wg.Add(1)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Discovery] onFailed callback panic for %q: %v", agent.Name, r)
+					}
+					d.wg.Done()
+				}()
+				d.onFailed(agent, err)
+			}()
 		}
 
 		return nil, fmt.Errorf("failed to connect after %d retries: %w", d.config.MaxRetries, err)
 	}
 
+	d.mu.Lock()
 	agent.Status = DiscoveryStatusAvailable
+	d.mu.Unlock()
 
 	// Register with lifecycle
 	if d.lifecycle != nil {
@@ -552,7 +764,16 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 	}
 
 	if d.onConnected != nil {
-		go d.onConnected(agent, acpAgent)
+		d.wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Discovery] onConnected callback panic for %q: %v", agent.Name, r)
+				}
+				d.wg.Done()
+			}()
+			d.onConnected(agent, acpAgent)
+		}()
 	}
 
 	log.Printf("[Discovery] Successfully connected to agent: %s", agent.Name)
@@ -561,73 +782,141 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 
 // tryConnect attempts a single connection
 func (d *DiscoveryService) tryConnect(agent *DiscoveredAgent) (*Agent, error) {
-	ctx, cancel := context.WithTimeout(d.ctx, d.config.ConnectTimeout)
+	d.mu.RLock()
+	parentCtx := d.ctx
+	d.mu.RUnlock()
+
+	if parentCtx == nil {
+		return nil, fmt.Errorf("discovery service stopped")
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, d.config.ConnectTimeout)
 	defer cancel()
 
-	// Create ACP connection
-	conn, err := d.connManager.Connect(ctx, agent.Endpoint)
+	// Create ACP connection via ConnectionManager
+	conn, err := d.connManager.Connect(ctx, agent.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	// Create agent from connection
+	// Wait for connection to be established (poll for up to ConnectTimeout)
+	waitCtx, waitCancel := context.WithTimeout(ctx, d.config.ConnectTimeout)
+	defer waitCancel()
+
+	pollTicker := time.NewTicker(100 * time.Millisecond)
+	defer pollTicker.Stop()
+
+	for {
+		state := conn.GetState()
+		if state == acp.StateConnected {
+			break
+		}
+		if state == acp.StateError {
+			return nil, fmt.Errorf("connection failed")
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("connection timeout")
+		case <-pollTicker.C:
+			// Continue waiting
+		}
+	}
+
+	// Create agent from connection with proper memory initialization
 	acpAgent := &Agent{
 		ID:           acp.AgentID(agent.ID),
 		Name:         agent.Name,
 		Type:         AgentTypeCoder,
-		Capabilities: parseCapabilities(agent.Capabilities),
+		Capabilities: conn.Capabilities,
+		shortMemory:  NewShortTermMemory(100),
+		longMemory:   NewLongTermMemory(0),
 	}
 
-	_ = conn // Connection is managed by connManager
+	// Associate connection with agent for Execute() to use
+	acpAgent.SetConnection(conn)
+
+	// Register agent with registry
+	if d.registry != nil {
+		if err := d.registry.Register(acpAgent); err != nil {
+			// Log warning but continue - connection is still valid
+			log.Printf("[Discovery] Warning: failed to register agent %s: %v", agent.ID, err)
+		}
+	}
 
 	return acpAgent, nil
 }
 
 // RegisterSelf handles self-registration requests from agents
 func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
+	// Snapshot callback and agent under lock, invoke outside to prevent deadlock
+	var (
+		agent        *DiscoveredAgent
+		onDiscovered func(*DiscoveredAgent)
+		validationErr error
+	)
+
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	{
+		if !d.config.AllowSelfRegister {
+			validationErr = fmt.Errorf("self-registration is not allowed")
+		} else if req.AgentID == "" {
+			validationErr = fmt.Errorf("agent_id is required")
+		} else if req.Name == "" {
+			validationErr = fmt.Errorf("name is required")
+		} else if len(req.AgentID) > 256 {
+			validationErr = fmt.Errorf("agent_id too long (max 256)")
+		} else if len(req.Name) > 256 {
+			validationErr = fmt.Errorf("name too long (max 256)")
+		} else if len(req.Endpoint) > 1024 {
+			validationErr = fmt.Errorf("endpoint too long (max 1024)")
+		} else if _, exists := d.discovered[req.AgentID]; exists {
+			validationErr = fmt.Errorf("agent already registered: %s", req.AgentID)
+		} else if pending, exists := d.pending[req.AgentID]; exists {
+			validationErr = fmt.Errorf("registration already pending: %s (status: %s)", req.AgentID, pending.Status)
+		} else if d.config.RequireApproval {
+			// Require approval path
+			req.Status = "pending"
+			d.pending[req.AgentID] = req
+			log.Printf("[Discovery] Registration pending approval: %q", req.AgentID)
+		} else {
+			// Auto-approve path
+			req.Status = "approved"
+			d.pending[req.AgentID] = req
 
-	if !d.config.AllowSelfRegister {
-		return fmt.Errorf("self-registration is not allowed")
+			// Add to discovered
+			agent = &DiscoveredAgent{
+				ID:       req.AgentID,
+				Name:     req.Name,
+				Endpoint: req.Endpoint,
+				Status:   DiscoveryStatusAvailable,
+				LastSeen: time.Now(),
+			}
+			d.discovered[req.AgentID] = agent
+
+			log.Printf("[Discovery] Agent self-registered: %q", req.AgentID)
+
+			onDiscovered = d.onDiscovered
+		}
+	}
+	d.mu.Unlock()
+
+	if validationErr != nil {
+		return validationErr
 	}
 
-	// Check if already registered
-	if _, exists := d.discovered[req.AgentID]; exists {
-		return fmt.Errorf("agent already registered: %s", req.AgentID)
-	}
-
-	// Check if pending
-	if pending, exists := d.pending[req.AgentID]; exists {
-		return fmt.Errorf("registration already pending: %s (status: %s)", req.AgentID, pending.Status)
-	}
-
-	// Require approval?
-	if d.config.RequireApproval {
-		req.Status = "pending"
-		d.pending[req.AgentID] = req
-		log.Printf("[Discovery] Registration pending approval: %s", req.AgentID)
-		return nil
-	}
-
-	// Auto-approve
-	req.Status = "approved"
-	d.pending[req.AgentID] = req
-
-	// Add to discovered
-	agent := &DiscoveredAgent{
-		ID:       req.AgentID,
-		Name:     req.Name,
-		Endpoint: req.Endpoint,
-		Status:   DiscoveryStatusAvailable,
-		LastSeen: time.Now(),
-	}
-	d.discovered[req.AgentID] = agent
-
-	log.Printf("[Discovery] Agent self-registered: %s", req.AgentID)
-
-	if d.onDiscovered != nil {
-		go d.onDiscovered(agent)
+	// Invoke callback outside lock to prevent deadlock
+	if onDiscovered != nil {
+		d.wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Discovery] RegisterSelf onDiscovered callback panic for %q: %v", agent.Name, r)
+				}
+				d.wg.Done()
+			}()
+			onDiscovered(agent)
+		}()
 	}
 
 	return nil
@@ -635,35 +924,59 @@ func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
 
 // ApproveRegistration approves a pending registration
 func (d *DiscoveryService) ApproveRegistration(agentID, approvedBy string) error {
+	// Snapshot callback under lock, invoke outside lock to prevent deadlock
+	var (
+		agent         *DiscoveredAgent
+		onDiscovered  func(*DiscoveredAgent)
+		validationErr error
+	)
+
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	{
+		req, exists := d.pending[agentID]
+		if !exists {
+			validationErr = fmt.Errorf("no pending registration for: %s", agentID)
+		} else if req.Status != "pending" {
+			validationErr = fmt.Errorf("registration not pending: %s", req.Status)
+		} else {
+			req.Status = "approved"
+			req.ApprovedBy = approvedBy
 
-	req, exists := d.pending[agentID]
-	if !exists {
-		return fmt.Errorf("no pending registration for: %s", agentID)
+			// Add to discovered
+			agent = &DiscoveredAgent{
+				ID:       req.AgentID,
+				Name:     req.Name,
+				Endpoint: req.Endpoint,
+				Status:   DiscoveryStatusAvailable,
+				LastSeen: time.Now(),
+			}
+			d.discovered[agentID] = agent
+
+			// Remove from pending to prevent memory leak
+			delete(d.pending, agentID)
+
+			onDiscovered = d.onDiscovered
+		}
+	}
+	d.mu.Unlock()
+
+	if validationErr != nil {
+		return validationErr
 	}
 
-	if req.Status != "pending" {
-		return fmt.Errorf("registration not pending: %s", req.Status)
-	}
+	log.Printf("[Discovery] Registration approved: %q by %q", agentID, approvedBy)
 
-	req.Status = "approved"
-	req.ApprovedBy = approvedBy
-
-	// Add to discovered
-	agent := &DiscoveredAgent{
-		ID:       req.AgentID,
-		Name:     req.Name,
-		Endpoint: req.Endpoint,
-		Status:   DiscoveryStatusAvailable,
-		LastSeen: time.Now(),
-	}
-	d.discovered[agentID] = agent
-
-	log.Printf("[Discovery] Registration approved: %s by %s", agentID, approvedBy)
-
-	if d.onDiscovered != nil {
-		go d.onDiscovered(agent)
+	if onDiscovered != nil {
+		d.wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Discovery] ApproveRegistration onDiscovered callback panic for %q: %v", agent.Name, r)
+				}
+				d.wg.Done()
+			}()
+			onDiscovered(agent)
+		}()
 	}
 
 	return nil
@@ -680,27 +993,35 @@ func (d *DiscoveryService) RejectRegistration(agentID, reason string) error {
 	}
 
 	req.Status = "rejected"
-	log.Printf("[Discovery] Registration rejected: %s (reason: %s)", agentID, reason)
+	log.Printf("[Discovery] Registration rejected: %q (reason: %q)", agentID, reason)
 
 	delete(d.pending, agentID)
 
 	return nil
 }
 
-// GetDiscovered returns all discovered agents
+// GetDiscovered returns copies of all discovered agents
 func (d *DiscoveryService) GetDiscovered() []*DiscoveredAgent {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	agents := make([]*DiscoveredAgent, 0, len(d.discovered))
 	for _, agent := range d.discovered {
-		agents = append(agents, agent)
+		cp := *agent // Value copy to prevent mutation of internal state
+		// MEDIUM: Deep copy Metadata map to prevent shared mutation
+		if agent.Metadata != nil {
+			cp.Metadata = make(map[string]string, len(agent.Metadata))
+			for k, v := range agent.Metadata {
+				cp.Metadata[k] = v
+			}
+		}
+		agents = append(agents, &cp)
 	}
 
 	return agents
 }
 
-// GetPending returns all pending registrations
+// GetPending returns copies of all pending registrations
 func (d *DiscoveryService) GetPending() []*RegistrationRequest {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -708,7 +1029,9 @@ func (d *DiscoveryService) GetPending() []*RegistrationRequest {
 	requests := make([]*RegistrationRequest, 0, len(d.pending))
 	for _, req := range d.pending {
 		if req.Status == "pending" {
-			requests = append(requests, req)
+			// MEDIUM: Value copy to prevent mutation of internal state
+			cp := *req
+			requests = append(requests, &cp)
 		}
 	}
 
@@ -737,7 +1060,15 @@ func (d *DiscoveryService) networkListener() {
 
 	log.Printf("[Discovery] Network listener started on %s", addr)
 
+	// Track cleanup goroutine to prevent leak on Stop
+	d.wg.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Discovery] Network listener cleanup panic: %v", r)
+			}
+			d.wg.Done()
+		}()
 		<-ctx.Done()
 		listener.Close()
 	}()
@@ -753,7 +1084,16 @@ func (d *DiscoveryService) networkListener() {
 			}
 		}
 
-		go d.handleRegistration(conn)
+		d.wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Discovery] handleRegistration panic: %v", r)
+				}
+				d.wg.Done()
+			}()
+			d.handleRegistration(conn)
+		}()
 	}
 }
 
@@ -762,11 +1102,13 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 	defer conn.Close()
 
 	// Set read deadline
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		log.Printf("[Discovery] Failed to set read deadline: %v", err)
+	}
 
-	// Read registration request
+	// Read registration request (limit to 1MB to prevent memory exhaustion)
 	var req RegistrationRequest
-	decoder := json.NewDecoder(conn)
+	decoder := json.NewDecoder(io.LimitReader(conn, 1<<20))
 	if err := decoder.Decode(&req); err != nil {
 		log.Printf("[Discovery] Invalid registration request: %v", err)
 		return
@@ -777,7 +1119,13 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 	// Process registration
 	if err := d.RegisterSelf(&req); err != nil {
 		log.Printf("[Discovery] Registration failed: %v", err)
-		conn.Write([]byte(`{"status":"error","message":"` + err.Error() + `"}`))
+		// Safe JSON encoding to prevent injection
+		errResp := map[string]string{"status": "error", "message": "registration failed"}
+		if errData, marshalErr := json.Marshal(errResp); marshalErr == nil {
+			if _, writeErr := conn.Write(errData); writeErr != nil {
+				log.Printf("[Discovery] Failed to write error response: %v", writeErr)
+			}
+		}
 		return
 	}
 
@@ -791,8 +1139,14 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 		response["message"] = "Registration pending approval"
 	}
 
-	data, _ := json.Marshal(response)
-	conn.Write(data)
+	data, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("[Discovery] Failed to marshal response: %v", err)
+		return
+	}
+	if _, err := conn.Write(data); err != nil {
+		log.Printf("[Discovery] Failed to send registration response: %v", err)
+	}
 }
 
 // inferCapabilities infers capabilities from command name
@@ -831,9 +1185,10 @@ func parseCapabilities(caps []string) acp.AgentCapabilities {
 		PairProgramming: true,
 	}
 
+	// Check for coordinator capability and enable team collaboration
 	for _, cap := range caps {
 		if cap == "coordinator" {
-			// Mark as coordinator capable
+			result.TeamCollaboration = true
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -52,11 +53,11 @@ type AgentCapabilities struct {
 
 // HandshakeResult represents the result of a handshake
 type HandshakeResult struct {
-	Success      bool              `json:"success"`
-	AgentInfo    *HandshakeConnection  `json:"agentInfo,omitempty"`
-	Error        string            `json:"error,omitempty"`
-	Negotiated   map[string]string `json:"negotiated,omitempty"`
-	ResponseTime time.Duration     `json:"responseTime"`
+	Success      bool                 `json:"success"`
+	AgentInfo    *HandshakeConnection `json:"agentInfo,omitempty"`
+	Error        string               `json:"error,omitempty"`
+	Negotiated   map[string]string    `json:"negotiated,omitempty"`
+	ResponseTime time.Duration        `json:"responseTime"`
 }
 
 // NewHandshakeManager creates a new handshake manager
@@ -224,6 +225,8 @@ func (hc *HeartbeatChecker) Start() {
 		hc.mu.Unlock()
 		return
 	}
+	// Recreate stopChan in case it was closed by a previous Stop()
+	hc.stopChan = make(chan struct{})
 	hc.running = true
 	hc.mu.Unlock()
 
@@ -303,7 +306,7 @@ func (hc *HeartbeatChecker) UnregisterAgent(agentID string) {
 // CheckHeartbeat performs an immediate heartbeat check
 func (hc *HeartbeatChecker) CheckHeartbeat(ctx context.Context, agentID string, connManager *acp.ConnectionManager) *HeartbeatStatus {
 	hc.mu.RLock()
-	status, ok := hc.connections[agentID]
+	_, ok := hc.connections[agentID]
 	hc.mu.RUnlock()
 
 	if !ok {
@@ -320,27 +323,27 @@ func (hc *HeartbeatChecker) CheckHeartbeat(ctx context.Context, agentID string, 
 	conn, exists := connManager.GetConnection(agentID)
 	if !exists {
 		hc.recordFailure(agentID, fmt.Errorf("connection not found"))
-		status.Healthy = false
-		return status
+		return hc.GetStatus(agentID)
 	}
 
 	// Check if connection is in connected state
 	if conn.GetState() != acp.StateConnected {
 		hc.recordFailure(agentID, fmt.Errorf("connection not in connected state"))
-		status.Healthy = false
-		return status
+		return hc.GetStatus(agentID)
 	}
 
 	// Update status
 	hc.mu.Lock()
-	status.LastHeartbeat = time.Now()
-	status.LastLatency = time.Since(start)
-	status.Healthy = true
-	status.Consecutive = 0
+	if status, ok := hc.connections[agentID]; ok {
+		status.LastHeartbeat = time.Now()
+		status.LastLatency = time.Since(start)
+		status.Healthy = true
+		status.Consecutive = 0
+	}
 	hc.mu.Unlock()
 
 	_ = ctx // Context used for timeout
-	return status
+	return hc.GetStatus(agentID)
 }
 
 // recordFailure records a heartbeat failure
@@ -359,25 +362,27 @@ func (hc *HeartbeatChecker) recordFailure(agentID string, err error) {
 	}
 }
 
-// GetStatus returns the heartbeat status for an agent
+// GetStatus returns a copy of the heartbeat status for an agent
 func (hc *HeartbeatChecker) GetStatus(agentID string) *HeartbeatStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	if status, ok := hc.connections[agentID]; ok {
-		return status
+		cp := *status
+		return &cp
 	}
 	return nil
 }
 
-// GetAllStatuses returns all heartbeat statuses
+// GetAllStatuses returns copies of all heartbeat statuses
 func (hc *HeartbeatChecker) GetAllStatuses() map[string]*HeartbeatStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	result := make(map[string]*HeartbeatStatus, len(hc.connections))
 	for k, v := range hc.connections {
-		result[k] = v
+		cp := *v
+		result[k] = &cp
 	}
 	return result
 }
@@ -463,12 +468,7 @@ func (n *CapabilityNegotiator) CanPerform(agentID, operation string) bool {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
-	for _, op := range n.negotiatedOps[agentID] {
-		if op == operation {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(n.negotiatedOps[agentID], operation)
 }
 
 // ToJSON converts capabilities to JSON

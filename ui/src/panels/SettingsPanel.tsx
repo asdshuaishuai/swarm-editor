@@ -189,7 +189,7 @@ export default function SettingsPanel() {
               <select
                 value={settings.tabSize}
                 onChange={(e) =>
-                  updateSetting('tabSize', parseInt(e.target.value))
+                  updateSetting('tabSize', parseInt(e.target.value) || 2)
                 }
                 className="input-mac"
               >
@@ -248,7 +248,7 @@ export default function SettingsPanel() {
             <div className="mt-5 p-4 bg-glass border border-glass-border rounded-mac text-sm text-text-secondary">
               <p className="flex items-start gap-2">
                 <Shield size={16} className="text-info mt-0.5 flex-shrink-0" />
-                Your API key is stored locally and never sent to our servers.
+                Reserved for future API extensions. Currently unused — agents communicate via WebSocket.
               </p>
             </div>
           </SettingsSection>
@@ -403,7 +403,7 @@ export default function SettingsPanel() {
                   for ACP protocol, pair programming, and swarm orchestration.
                 </p>
                 <p>
-                  Built with Go, React, TypeScript, and Tauri.
+                  Built with Go, React, TypeScript, and WebSocket.
                 </p>
               </div>
 

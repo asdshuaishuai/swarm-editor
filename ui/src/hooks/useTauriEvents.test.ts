@@ -1,62 +1,113 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, cleanup } from '@testing-library/react'
 import { useTauriEvents, useTauriEventStatus } from './useTauriEvents'
-import * as tauriModule from '../services/tauri'
 import * as appStoreModule from '../store/appStore'
+import type { AppState } from '../store/appStore'
 
-// Mock the tauri module
-vi.mock('../services/tauri', () => ({
-  tauri: {
-    isTauriEnv: vi.fn(),
-    events: {
-      onSwarmTaskUpdate: vi.fn(),
-      onSwarmStatusChange: vi.fn(),
-      onAgentStatusChange: vi.fn(),
-      onPermissionRequest: vi.fn(),
-      onLog: vi.fn(),
-    },
+// Store event handlers for triggering in tests
+const eventHandlers = new Map<string, (payload: unknown) => void>()
+
+// Mock WebSocket client
+const mockIsConnected = vi.fn().mockReturnValue(true)
+const mockOnConnect = vi.fn()
+const mockOnDisconnect = vi.fn()
+
+vi.mock('../services', () => ({
+  events: {
+    onSwarmTaskUpdate: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('swarm_task_update', handler)
+      return () => eventHandlers.delete('swarm_task_update')
+    }),
+    onSwarmStatusChange: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('swarm_status_change', handler)
+      return () => eventHandlers.delete('swarm_status_change')
+    }),
+    onAgentStatusChange: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('agent_status_change', handler)
+      return () => eventHandlers.delete('agent_status_change')
+    }),
+    onPermissionRequest: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('permission_request', handler)
+      return () => eventHandlers.delete('permission_request')
+    }),
+    onAgentMessage: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('agent_message', handler)
+      return () => eventHandlers.delete('agent_message')
+    }),
+    onAgentStats: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('agent_stats', handler)
+      return () => eventHandlers.delete('agent_stats')
+    }),
+    onSwarmStats: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('swarm_stats', handler)
+      return () => eventHandlers.delete('swarm_stats')
+    }),
   },
+  getWebSocketClient: () => ({
+    isConnected: mockIsConnected,
+    on: (event: string, handler: () => void) => {
+      if (event === 'connect') mockOnConnect.mockImplementation(handler)
+      if (event === 'disconnect') mockOnDisconnect.mockImplementation(handler)
+    },
+  }),
 }))
 
-// Mock the appStore
-vi.mock('../store/appStore', () => ({
-  useAppStore: vi.fn(),
-}))
+// Mock the appStore — use real agentInfoToAgent since it's a pure function
+vi.mock('../store/appStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../store/appStore')>()
+  return {
+    ...actual,
+    useAppStore: vi.fn(),
+  }
+})
 
-describe('useTauriEvents', () => {
-  const mockUnlisten = vi.fn()
-  const mockSetSwarms = vi.fn()
-  const mockSetAgents = vi.fn()
-  const mockSetActiveSwarm = vi.fn()
-  const mockUpdateAgent = vi.fn()
-  const mockAddPermissionRequest = vi.fn()
+// Module-level mocks for shared state between useAppStore() and useAppStore.getState()
+const mockSetSwarms = vi.fn()
+const mockSetAgents = vi.fn()
+const mockSetActiveSwarm = vi.fn()
+const mockAddPermissionRequest = vi.fn()
+const mockSetConnected = vi.fn()
 
-  const createMockStore = (overrides = {}) => {
-    vi.mocked(appStoreModule.useAppStore).mockReturnValue({
+// Mutable store state shared between useAppStore() and useAppStore.getState()
+let mockStoreState = {
+  swarms: [] as unknown[],
+  agents: [] as unknown[],
+  activeSwarm: null,
+  setSwarms: mockSetSwarms,
+  setAgents: mockSetAgents,
+  setActiveSwarm: mockSetActiveSwarm,
+  addPermissionRequest: mockAddPermissionRequest,
+  connected: false,
+  setConnected: mockSetConnected,
+}
+
+// Provide getState on the mocked store — accessed as useAppStore.getState() in the hook
+Object.assign(appStoreModule.useAppStore, {
+  getState: () => mockStoreState,
+})
+
+describe('useTauriEvents (WebSocket)', () => {
+  const createMockStore = (overrides: Record<string, unknown> = {}) => {
+    mockStoreState = { ...mockStoreState, ...overrides }
+    vi.mocked(appStoreModule.useAppStore).mockReturnValue(mockStoreState as never)
+    // Also sync getState() so useAppStore.getState() inside the hook sees the same state
+    ;(appStoreModule.useAppStore as unknown as { getState: () => typeof mockStoreState }).getState = () => mockStoreState
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStoreState = {
       swarms: [],
       agents: [],
       activeSwarm: null,
       setSwarms: mockSetSwarms,
       setAgents: mockSetAgents,
       setActiveSwarm: mockSetActiveSwarm,
-      updateAgent: mockUpdateAgent,
       addPermissionRequest: mockAddPermissionRequest,
       connected: false,
-      ...overrides,
-    } as unknown as ReturnType<typeof appStoreModule.useAppStore>)
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    // Default: not in Tauri environment
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(false)
-    // Setup event listeners to return unlisten functions
-    vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mockResolvedValue(mockUnlisten)
-    vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mockResolvedValue(mockUnlisten)
-    vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mockResolvedValue(mockUnlisten)
-    vi.mocked(tauriModule.tauri.events.onPermissionRequest).mockResolvedValue(mockUnlisten)
-    vi.mocked(tauriModule.tauri.events.onLog).mockResolvedValue(mockUnlisten)
-    // Default store mock
+      setConnected: mockSetConnected,
+    }
     createMockStore()
   })
 
@@ -64,459 +115,91 @@ describe('useTauriEvents', () => {
     cleanup()
   })
 
-  it('should not subscribe to events when not in Tauri environment', () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(false)
-
+  it('should subscribe to all WebSocket events', () => {
     renderHook(() => useTauriEvents())
 
-    expect(tauriModule.tauri.events.onSwarmTaskUpdate).not.toHaveBeenCalled()
-    expect(tauriModule.tauri.events.onSwarmStatusChange).not.toHaveBeenCalled()
-    expect(tauriModule.tauri.events.onAgentStatusChange).not.toHaveBeenCalled()
-    expect(tauriModule.tauri.events.onPermissionRequest).not.toHaveBeenCalled()
-    expect(tauriModule.tauri.events.onLog).not.toHaveBeenCalled()
+    expect(eventHandlers.has('swarm_task_update')).toBe(true)
+    expect(eventHandlers.has('swarm_status_change')).toBe(true)
+    expect(eventHandlers.has('agent_status_change')).toBe(true)
+    expect(eventHandlers.has('permission_request')).toBe(true)
+    expect(eventHandlers.has('agent_message')).toBe(true)
+    expect(eventHandlers.has('agent_stats')).toBe(true)
+    expect(eventHandlers.has('swarm_stats')).toBe(true)
   })
 
-  it('should subscribe to all events when in Tauri environment', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    renderHook(() => useTauriEvents())
-
-    // Wait for async subscription with longer timeout
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmStatusChange).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onAgentStatusChange).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onPermissionRequest).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onLog).toHaveBeenCalled()
-    }, { timeout: 3000 })
-  })
-
-  it('should call unlisten functions on cleanup', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const { unmount } = renderHook(() => useTauriEvents())
-
-    // Wait for all subscriptions
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onLog).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    unmount()
-
-    // Each of the 5 event subscriptions should call unlisten
-    await vi.waitFor(() => {
-      expect(mockUnlisten).toHaveBeenCalledTimes(5)
-    }, { timeout: 3000 })
-  })
-
-  it('should handle subscription errors gracefully', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-    vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mockRejectedValue(new Error('Subscription failed'))
-
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalled()
-    })
-
-    consoleSpy.mockRestore()
-  })
-
-  it('should invoke log handler with correct log level', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    renderHook(() => useTauriEvents())
-
-    // Wait for onLog to be called
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onLog).toHaveBeenCalled()
-    })
-
-    // Get the callback passed to onLog
-    const logCallback = vi.mocked(tauriModule.tauri.events.onLog).mock.calls[0][0]
-
-    // Test different log levels
-    logCallback({ level: 'info', source: 'TestSource', message: 'Info message', timestamp: 123 })
-    expect(consoleSpy).toHaveBeenCalledWith('[TestSource]', 'Info message')
-
-    logCallback({ level: 'warn', source: 'WarnSource', message: 'Warn message', timestamp: 456 })
-    expect(consoleSpy).toHaveBeenCalledWith('[WarnSource]', 'Warn message')
-
-    logCallback({ level: 'error', source: 'ErrorSource', message: 'Error message', timestamp: 789 })
-    // error uses console.error
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    logCallback({ level: 'error', source: 'ErrorSource', message: 'Error message', timestamp: 789 })
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[ErrorSource]', 'Error message')
-    consoleErrorSpy.mockRestore()
-
-    consoleSpy.mockRestore()
-  })
-
-  it('should handle cleanup errors gracefully', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    // Create a mock unlisten that throws an error
-    const mockUnlistenError = vi.fn().mockImplementation(() => {
-      throw new Error('Cleanup failed')
-    })
-    vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mockResolvedValue(mockUnlistenError)
-    vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mockResolvedValue(mockUnlistenError)
-    vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mockResolvedValue(mockUnlistenError)
-    vi.mocked(tauriModule.tauri.events.onPermissionRequest).mockResolvedValue(mockUnlistenError)
-    vi.mocked(tauriModule.tauri.events.onLog).mockResolvedValue(mockUnlistenError)
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const { unmount } = renderHook(() => useTauriEvents())
-
-    // Wait for subscriptions
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onLog).toHaveBeenCalled()
-    }, { timeout: 3000 })
-
-    unmount()
-
-    // Should have logged errors during cleanup
-    await vi.waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalled()
-    })
-
-    consoleErrorSpy.mockRestore()
-  })
-
-  it('should update swarm stats on task update event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    // Create mock swarm data with valid SwarmState
+  it('should update swarm stats on task update event', () => {
     const mockSwarm = {
       id: 'swarm-1',
       name: 'Test Swarm',
-      state: 'active' as const,
+      status: 'active',
       stats: {
-        agentCount: 1,
-        idleAgents: 0,
-        executingAgents: 1,
-        pendingTasks: 0,
         completedTasks: 0,
-        topology: 'star',
-        strategy: 'parallel',
-        state: 'active',
+        pendingTasks: 0,
       },
     }
     createMockStore({ swarms: [mockSwarm] })
 
     renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
-    })
-
-    // Get the callback passed to onSwarmTaskUpdate
-    const taskUpdateCallback = vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mock.calls[0][0]
 
     // Trigger task completed event
-    taskUpdateCallback({
-      task_id: 'task-1',
-      swarm_id: 'swarm-1',
-      status: 'completed',
-      progress: 100,
-      agent_results: {},
-    })
-
-    expect(mockSetSwarms).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'swarm-1',
-        stats: expect.objectContaining({
-          completedTasks: 1,
-        }),
-      }),
-    ])
-  })
-
-  it('should update pending tasks on pending status', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const mockSwarm = {
-      id: 'swarm-1',
-      name: 'Test Swarm',
-      state: 'active' as const,
-      stats: {
-        agentCount: 1,
-        idleAgents: 0,
-        executingAgents: 1,
-        pendingTasks: 0,
-        completedTasks: 0,
-        topology: 'star',
-        strategy: 'parallel',
-        state: 'active',
-      },
-    }
-    createMockStore({ swarms: [mockSwarm] })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
-    })
-
-    const taskUpdateCallback = vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mock.calls[0][0]
-
-    // Trigger task pending event
-    taskUpdateCallback({
-      task_id: 'task-1',
-      swarm_id: 'swarm-1',
-      status: 'pending',
-      progress: 0,
-      agent_results: {},
-    })
-
-    expect(mockSetSwarms).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'swarm-1',
-        stats: expect.objectContaining({
-          pendingTasks: 1,
-        }),
-      }),
-    ])
-  })
-
-  it('should not update swarm if not found in store', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    // Empty swarms array
-    createMockStore({ swarms: [] })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmTaskUpdate).toHaveBeenCalled()
-    })
-
-    const taskUpdateCallback = vi.mocked(tauriModule.tauri.events.onSwarmTaskUpdate).mock.calls[0][0]
-
-    taskUpdateCallback({
-      task_id: 'task-1',
-      swarm_id: 'unknown-swarm',
-      status: 'completed',
-      progress: 100,
-      agent_results: {},
-    })
-
-    expect(mockSetSwarms).not.toHaveBeenCalled()
-  })
-
-  it('should not update swarm state if swarm not found in status change event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    // Empty swarms array - swarm not found
-    createMockStore({ swarms: [] })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmStatusChange).toHaveBeenCalled()
-    })
-
-    const statusCallback = vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mock.calls[0][0]
-
-    statusCallback({
-      swarm_id: 'unknown-swarm',
-      old_state: 'initializing',
-      new_state: 'active',
-    })
-
-    // Should not call setSwarms since swarm was not found
-    expect(mockSetSwarms).not.toHaveBeenCalled()
-    expect(mockSetActiveSwarm).not.toHaveBeenCalled()
-  })
-
-  it('should update swarm state on status change event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const mockSwarm = {
-      id: 'swarm-1',
-      name: 'Test Swarm',
-      state: 'initializing' as const,
-      stats: {
-        agentCount: 1,
-        idleAgents: 0,
-        executingAgents: 1,
-        pendingTasks: 0,
-        completedTasks: 0,
-        topology: 'star',
-        strategy: 'parallel',
-        state: 'initializing',
-      },
-    }
-    createMockStore({ swarms: [mockSwarm] })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmStatusChange).toHaveBeenCalled()
-    })
-
-    const statusCallback = vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mock.calls[0][0]
-
-    statusCallback({
-      swarm_id: 'swarm-1',
-      old_state: 'initializing',
-      new_state: 'active',
-    })
-
-    expect(mockSetSwarms).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'swarm-1',
-        state: 'active',
-      }),
-    ])
-  })
-
-  it('should update active swarm on status change if it matches', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const mockSwarm = {
-      id: 'swarm-1',
-      name: 'Test Swarm',
-      state: 'initializing' as const,
-      stats: {
-        agentCount: 1,
-        idleAgents: 0,
-        executingAgents: 1,
-        pendingTasks: 0,
-        completedTasks: 0,
-        topology: 'star',
-        strategy: 'parallel',
-        state: 'initializing',
-      },
-    }
-    createMockStore({ swarms: [mockSwarm], activeSwarm: mockSwarm })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onSwarmStatusChange).toHaveBeenCalled()
-    })
-
-    const statusCallback = vi.mocked(tauriModule.tauri.events.onSwarmStatusChange).mock.calls[0][0]
-
-    statusCallback({
-      swarm_id: 'swarm-1',
-      old_state: 'initializing',
-      new_state: 'active',
-    })
-
-    expect(mockSetActiveSwarm).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'swarm-1',
-        state: 'active',
+    const handler = eventHandlers.get('swarm_task_update')
+    if (handler) {
+      handler({
+        swarmId: 'swarm-1',
+        taskId: 'task-1',
+        status: 'completed',
+        progress: 100,
       })
-    )
+    }
+
+    expect(mockSetSwarms).toHaveBeenCalled()
   })
 
-  it('should update agent state on agent status change event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+  it('should update swarm status on status change event', () => {
+    const mockSwarm = {
+      id: 'swarm-1',
+      name: 'Test Swarm',
+      status: 'initializing',
+    }
+    createMockStore({ swarms: [mockSwarm] })
 
+    renderHook(() => useTauriEvents())
+
+    // Trigger status change event
+    const handler = eventHandlers.get('swarm_status_change')
+    if (handler) {
+      handler({
+        swarmId: 'swarm-1',
+        status: 'active',
+      })
+    }
+
+    expect(mockSetSwarms).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'swarm-1',
+        status: 'active',
+      }),
+    ])
+  })
+
+  it('should update agent state on agent status change event', () => {
     const mockAgent = {
       id: 'agent-1',
       name: 'Test Agent',
-      state: 'idle' as const,
-      type: 'default',
-      capabilities: [],
+      state: 'idle',
     }
     createMockStore({ agents: [mockAgent] })
 
     renderHook(() => useTauriEvents())
 
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onAgentStatusChange).toHaveBeenCalled()
-    })
-
-    const agentCallback = vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mock.calls[0][0]
-
-    agentCallback({
-      agent_id: 'agent-1',
-      status: 'running',
-    })
-
-    expect(mockUpdateAgent).toHaveBeenCalledWith('agent-1', { state: 'running' })
-  })
-
-  it('should not update agent if not found in agent status change event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    // Empty agents array - agent not found
-    createMockStore({ agents: [] })
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onAgentStatusChange).toHaveBeenCalled()
-    })
-
-    const agentCallback = vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mock.calls[0][0]
-
-    agentCallback({
-      agent_id: 'unknown-agent',
-      status: 'running',
-    })
-
-    // Should not call updateAgent or setAgents since agent was not found
-    expect(mockUpdateAgent).not.toHaveBeenCalled()
-    expect(mockSetAgents).not.toHaveBeenCalled()
-  })
-
-  it('should fallback to setAgents when updateAgent is not available', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
-    const mockAgent = {
-      id: 'agent-1',
-      name: 'Test Agent',
-      state: 'idle' as const,
-      type: 'default',
-      capabilities: [],
+    // Trigger agent status change event
+    const handler = eventHandlers.get('agent_status_change')
+    if (handler) {
+      handler({
+        agentId: 'agent-1',
+        state: 'running',
+      })
     }
-    // Create store without updateAgent
-    vi.mocked(appStoreModule.useAppStore).mockReturnValue({
-      swarms: [],
-      agents: [mockAgent],
-      activeSwarm: null,
-      setSwarms: mockSetSwarms,
-      setAgents: mockSetAgents,
-      setActiveSwarm: mockSetActiveSwarm,
-      updateAgent: undefined,
-      addPermissionRequest: mockAddPermissionRequest,
-      connected: false,
-    } as unknown as ReturnType<typeof appStoreModule.useAppStore>)
-
-    renderHook(() => useTauriEvents())
-
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onAgentStatusChange).toHaveBeenCalled()
-    })
-
-    const agentCallback = vi.mocked(tauriModule.tauri.events.onAgentStatusChange).mock.calls[0][0]
-
-    agentCallback({
-      agent_id: 'agent-1',
-      status: 'running',
-    })
 
     expect(mockSetAgents).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -526,56 +209,118 @@ describe('useTauriEvents', () => {
     ])
   })
 
-  it('should add permission request on permission request event', async () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
-
+  it('should add permission request on permission request event', () => {
     renderHook(() => useTauriEvents())
 
-    await vi.waitFor(() => {
-      expect(tauriModule.tauri.events.onPermissionRequest).toHaveBeenCalled()
-    })
-
-    const permCallback = vi.mocked(tauriModule.tauri.events.onPermissionRequest).mock.calls[0][0]
-
-    permCallback({
-      request_id: 'perm-1',
-      session_id: 'session-1',
-      tool_call_id: 'tool-1',
-      tool_name: 'test-tool',
-      description: 'Test permission',
-      options: [{ option_id: 'opt-1', name: 'Allow', kind: 'allow' }],
-    })
-
-    expect(mockAddPermissionRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request_id: 'perm-1',
-        tool_name: 'test-tool',
+    // Trigger permission request event
+    const handler = eventHandlers.get('permission_request')
+    if (handler) {
+      handler({
+        id: 'perm-1',
+        sessionId: 'session-1',
+        type: 'tool_call',
+        description: 'Test permission',
       })
-    )
+    }
+
+    expect(mockAddPermissionRequest).toHaveBeenCalled()
+  })
+
+  it('should update agents on agent stats event', () => {
+    renderHook(() => useTauriEvents())
+
+    const newAgents = [
+      { id: 'agent-1', name: 'Agent 1', state: 'idle' },
+      { id: 'agent-2', name: 'Agent 2', state: 'running' },
+    ]
+
+    // Trigger agent stats event
+    const handler = eventHandlers.get('agent_stats')
+    if (handler) {
+      handler(newAgents)
+    }
+
+    expect(mockSetAgents).toHaveBeenCalled()
+    const calledWith = mockSetAgents.mock.calls[0][0]
+    expect(calledWith).toHaveLength(2)
+    expect(calledWith[0].id).toBe('agent-1')
+    expect(calledWith[1].id).toBe('agent-2')
+    // Verify state mapping: 'running' -> 'executing', 'idle' -> 'idle'
+    expect(calledWith[0].state).toBe('idle')
+    expect(calledWith[1].state).toBe('executing')
+  })
+
+  it('should update swarms on swarm stats event', () => {
+    renderHook(() => useTauriEvents())
+
+    const newSwarms = [
+      { id: 'swarm-1', name: 'Swarm 1', status: 'active', state: 'active' },
+    ]
+
+    // Trigger swarm stats event
+    const handler = eventHandlers.get('swarm_stats')
+    if (handler) {
+      handler(newSwarms)
+    }
+
+    expect(mockSetSwarms).toHaveBeenCalled()
+    const calledWith = mockSetSwarms.mock.calls[0][0]
+    expect(calledWith).toHaveLength(1)
+    expect(calledWith[0].id).toBe('swarm-1')
+    expect(calledWith[0].name).toBe('Swarm 1')
+    // Verify state is properly mapped
+    expect(calledWith[0].state).toBe('active')
+  })
+
+  it('should cleanup all event handlers on unmount', () => {
+    const { unmount } = renderHook(() => useTauriEvents())
+
+    expect(eventHandlers.size).toBe(7)
+
+    unmount()
+
+    expect(eventHandlers.size).toBe(0)
   })
 })
 
 describe('useTauriEventStatus', () => {
   it('should return connected status from store', () => {
+    const mockState = {
+      connected: true,
+      connecting: false,
+      connectionError: null,
+      agents: [],
+      selectedAgent: null,
+      swarms: [],
+      activeSwarm: null,
+      teams: [],
+      activeTeam: null,
+      sessions: [],
+      activeSession: null,
+      permissionQueue: [],
+      activePermission: null,
+      toasts: [],
+      sidebarCollapsed: false,
+      activePanel: 'editor' as const,
+      loading: false,
+    } as unknown as AppState
+    vi.mocked(appStoreModule.useAppStore).mockImplementation((selector) => {
+      if (typeof selector === 'function') {
+        return selector(mockState)
+      }
+      return mockState
+    })
+
     const { result } = renderHook(() => useTauriEventStatus())
 
-    expect(result.current).toHaveProperty('connected')
-    expect(result.current).toHaveProperty('isTauriEnv')
+    expect(result.current.connected).toBe(true)
   })
 
-  it('should reflect Tauri environment status', () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(true)
+  it('should return WebSocket connection status', () => {
+    mockIsConnected.mockReturnValue(true)
 
     const { result } = renderHook(() => useTauriEventStatus())
 
-    expect(result.current.isTauriEnv).toBe(true)
-  })
-
-  it('should reflect non-Tauri environment status', () => {
-    vi.mocked(tauriModule.tauri.isTauriEnv).mockReturnValue(false)
-
-    const { result } = renderHook(() => useTauriEventStatus())
-
-    expect(result.current.isTauriEnv).toBe(false)
+    expect(result.current.isConnected).toBe(true)
   })
 })

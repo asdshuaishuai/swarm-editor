@@ -2,6 +2,7 @@ package team
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -326,6 +327,33 @@ func TestTeamSchedulerHandoffTask(t *testing.T) {
 	}
 }
 
+func TestTeamSchedulerHandoffTask_NegativeLoadClamp(t *testing.T) {
+	team := &Team{Members: make(map[string]*Member)}
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{}, team, router, coordinator)
+
+	task := &ScheduledTask{
+		ID:         "task1",
+		AssignedTo: []string{"agent1"},
+		Status:     "running",
+	}
+	scheduler.runningTasks["task1"] = task
+	// agent1 is not in agentLoad (was never registered via RegisterTeamAgent)
+	// so its load defaults to 0 in Go
+
+	err := scheduler.HandoffTask("task1", "agent1", "agent2", "handoff")
+	if err != nil {
+		t.Fatalf("HandoffTask failed: %v", err)
+	}
+
+	// agent1's load should be clamped to 0, not negative
+	if scheduler.agentLoad["agent1"] < 0 {
+		t.Errorf("agent1 load should not be negative, got %d", scheduler.agentLoad["agent1"])
+	}
+}
+
 func TestTeamSchedulerStats(t *testing.T) {
 	team := &Team{Members: make(map[string]*Member)}
 	router := a2a.NewRouter(a2a.RouterConfig{})
@@ -415,7 +443,12 @@ func TestTeamSchedulerCallbacks(t *testing.T) {
 	// Manually trigger assignment
 	task := &ScheduledTask{ID: "task1", Priority: 1}
 	scheduler.SubmitTask(task)
-	scheduler.assignTask(task, []string{"agent1"})
+	cb := scheduler.assignTask(task, []string{"agent1"})
+
+	// assignTask returns callback for invocation outside lock
+	if cb != nil {
+		cb()
+	}
 
 	if !assignedCalled {
 		t.Error("OnTaskAssigned callback should have been called")
@@ -720,5 +753,62 @@ func TestTeamSchedulerCalculatePeerScoreEmpty(t *testing.T) {
 	score := scheduler.calculatePeerScore("agent1")
 	if score != 0.0 {
 		t.Errorf("Expected 0.0 for empty peer scores, got %f", score)
+	}
+}
+
+func TestTeamSchedulerCompletedTasksCleanup(t *testing.T) {
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	coordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{}, router)
+	team := &Team{Members: make(map[string]*Member)}
+	team.Members["agent1"] = &Member{ID: "agent1", Role: RoleDeveloper}
+
+	scheduler := NewTeamScheduler(TeamSchedulerConfig{}, team, router, coordinator)
+	scheduler.RegisterTeamAgent("agent1", nil)
+
+	// Submit and complete tasks to fill completedTasks beyond limit
+	for i := 0; i < maxCompletedTasks+100; i++ {
+		taskID := fmt.Sprintf("task_%d", i)
+		task := &ScheduledTask{
+			ID:         taskID,
+			Priority:   1,
+			AssignedTo: []string{"agent1"},
+		}
+
+		// Submit task
+		scheduler.SubmitTask(task)
+
+		// Manually move from pending to running
+		scheduler.mu.Lock()
+		scheduler.runningTasks[taskID] = task
+		delete(scheduler.pendingTasks, taskID)
+		scheduler.mu.Unlock()
+
+		// Complete the task
+		scheduler.CompleteTask(taskID, &ScheduledTaskResult{Error: ""})
+	}
+
+	// Verify cleanup happened - should not exceed maxCompletedTasks
+	scheduler.mu.RLock()
+	count := len(scheduler.completedTasks)
+	scheduler.mu.RUnlock()
+
+	if count > maxCompletedTasks {
+		t.Errorf("completedTasks count %d exceeds max %d", count, maxCompletedTasks)
+	}
+
+	// Verify oldest tasks were removed (task_0 should not exist)
+	scheduler.mu.RLock()
+	_, exists := scheduler.completedTasks["task_0"]
+	scheduler.mu.RUnlock()
+
+	if exists {
+		t.Error("Oldest task should have been cleaned up")
+	}
+}
+
+func TestTeamSchedulerMaxCompletedTasks(t *testing.T) {
+	// Verify the constant is set to expected value
+	if maxCompletedTasks != 1000 {
+		t.Errorf("maxCompletedTasks = %d, expected 1000", maxCompletedTasks)
 	}
 }

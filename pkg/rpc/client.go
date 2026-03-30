@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
 )
+
+// Default maximum message size (10MB)
+const defaultMaxMsgSize = 10 << 20
 
 // Client represents an RPC client
 type Client struct {
@@ -23,18 +27,20 @@ type Client struct {
 	nextID       uint64
 	onConnect    func()
 	onDisconnect func(error)
+	maxMsgSize   uint32 // Maximum message size to prevent OOM (default 10MB)
+	wg           sync.WaitGroup
 }
 
 // Codec defines the interface for encoding/decoding messages
 type Codec interface {
-	Encode(msg interface{}) ([]byte, error)
-	Decode(data []byte, msg interface{}) error
+	Encode(msg any) ([]byte, error)
+	Decode(data []byte, msg any) error
 }
 
 // pendingCall represents a pending RPC call
 type pendingCall struct {
 	done chan struct{}
-	resp interface{}
+	resp any
 	err  error
 }
 
@@ -69,22 +75,23 @@ func (e *RPCError) Error() string {
 type JSONCodec struct{}
 
 // Encode encodes a message to JSON
-func (c *JSONCodec) Encode(msg interface{}) ([]byte, error) {
+func (c *JSONCodec) Encode(msg any) ([]byte, error) {
 	return json.Marshal(msg)
 }
 
 // Decode decodes JSON to a message
-func (c *JSONCodec) Decode(data []byte, msg interface{}) error {
+func (c *JSONCodec) Decode(data []byte, msg any) error {
 	return json.Unmarshal(data, msg)
 }
 
 // NewClient creates a new RPC client
 func NewClient(addr string, opts ...ClientOption) *Client {
 	client := &Client{
-		addr:    addr,
-		timeout: 30 * time.Second,
-		codec:   &JSONCodec{},
-		pending: make(map[uint64]*pendingCall),
+		addr:       addr,
+		timeout:    30 * time.Second,
+		codec:      &JSONCodec{},
+		pending:    make(map[uint64]*pendingCall),
+		maxMsgSize: defaultMaxMsgSize,
 	}
 
 	for _, opt := range opts {
@@ -125,12 +132,19 @@ func WithOnDisconnect(fn func(error)) ClientOption {
 	}
 }
 
+// WithMaxMsgSize sets the maximum message size (to prevent OOM attacks)
+func WithMaxMsgSize(size uint32) ClientOption {
+	return func(c *Client) {
+		c.maxMsgSize = size
+	}
+}
+
 // Connect connects to the RPC server
 func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if c.connected {
+		c.mu.Unlock()
 		return fmt.Errorf("already connected")
 	}
 
@@ -140,17 +154,28 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	conn, err := dialer.DialContext(ctx, "tcp", c.addr)
 	if err != nil {
+		c.mu.Unlock()
 		return fmt.Errorf("dial failed: %w", err)
 	}
 
 	c.conn = conn
 	c.connected = true
 
-	// Start read loop
-	go c.readLoop()
+	// Snapshot callback before unlocking
+	onConnect := c.onConnect
 
-	if c.onConnect != nil {
-		c.onConnect()
+	c.mu.Unlock()
+
+	// Start read loop
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.readLoop()
+	}()
+
+	// Invoke callback outside lock
+	if onConnect != nil {
+		onConnect()
 	}
 
 	return nil
@@ -159,9 +184,9 @@ func (c *Client) Connect(ctx context.Context) error {
 // Close closes the client connection
 func (c *Client) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if !c.connected {
+		c.mu.Unlock()
 		return nil
 	}
 
@@ -174,14 +199,20 @@ func (c *Client) Close() error {
 	}
 	c.pending = make(map[uint64]*pendingCall)
 
+	var connErr error
 	if c.conn != nil {
-		return c.conn.Close()
+		connErr = c.conn.Close()
 	}
-	return nil
+	c.mu.Unlock()
+
+	// Wait for readLoop to exit after closing conn
+	c.wg.Wait()
+
+	return connErr
 }
 
 // Call makes an RPC call
-func (c *Client) Call(ctx context.Context, method string, params, result interface{}) error {
+func (c *Client) Call(ctx context.Context, method string, params, result any) error {
 	c.mu.Lock()
 	if !c.connected {
 		c.mu.Unlock()
@@ -197,10 +228,17 @@ func (c *Client) Call(ctx context.Context, method string, params, result interfa
 	c.mu.Unlock()
 
 	// Create request
+	paramsData, err := safeMarshal(params)
+	if err != nil {
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+		return err
+	}
 	req := &Request{
 		ID:     id,
 		Method: method,
-		Params: mustMarshal(params),
+		Params: paramsData,
 	}
 
 	// Send request
@@ -235,7 +273,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result interfa
 }
 
 // Notify sends a one-way notification (no response expected)
-func (c *Client) Notify(ctx context.Context, method string, params interface{}) error {
+func (c *Client) Notify(ctx context.Context, method string, params any) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -243,10 +281,14 @@ func (c *Client) Notify(ctx context.Context, method string, params interface{}) 
 		return fmt.Errorf("not connected")
 	}
 
+	paramsData, err := safeMarshal(params)
+	if err != nil {
+		return err
+	}
 	req := &Request{
 		ID:     0, // Notifications use ID 0
 		Method: method,
-		Params: mustMarshal(params),
+		Params: paramsData,
 	}
 
 	return c.send(req)
@@ -267,35 +309,60 @@ func (c *Client) send(req *Request) error {
 	header[2] = byte(len >> 8)
 	header[3] = byte(len)
 
+	// MEDIUM: Hold lock during write to prevent TOCTOU race with Close()
+	// (conn could become nil between RUnlock and Write)
 	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
+	defer c.mu.RUnlock()
 
-	if conn == nil {
+	if c.conn == nil {
 		return fmt.Errorf("not connected")
 	}
 
-	_, err = conn.Write(append(header, data...))
+	_, err = c.conn.Write(append(header, data...))
 	return err
 }
 
 // readLoop reads responses from the connection
 func (c *Client) readLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[RPC] readLoop panic: %v", r)
+		}
+	}()
 	header := make([]byte, 4)
 
 	for {
+		// Snapshot conn under lock to prevent race with Close()
+		c.mu.RLock()
+		conn := c.conn
+		c.mu.RUnlock()
+
+		if conn == nil {
+			return
+		}
+
 		// Read length header
-		_, err := io.ReadFull(c.conn, header)
+		_, err := io.ReadFull(conn, header)
 		if err != nil {
 			c.handleDisconnect(err)
 			return
 		}
 
 		len := uint32(header[0])<<24 | uint32(header[1])<<16 | uint32(header[2])<<8 | uint32(header[3])
+
+		// Security: Check message size to prevent OOM attacks
+		c.mu.RLock()
+		maxSize := c.maxMsgSize
+		c.mu.RUnlock()
+		if len > maxSize {
+			c.handleDisconnect(fmt.Errorf("message size %d exceeds maximum %d", len, maxSize))
+			return
+		}
+
 		data := make([]byte, len)
 
 		// Read message body
-		_, err = io.ReadFull(c.conn, data)
+		_, err = io.ReadFull(conn, data)
 		if err != nil {
 			c.handleDisconnect(err)
 			return
@@ -313,16 +380,23 @@ func (c *Client) readLoop() {
 		c.mu.RUnlock()
 
 		if ok {
-			// Delete from pending first to prevent double-close race with Close()
+			// Atomically delete from pending and check ownership to prevent
+			// double-close race with Close()/handleDisconnect():
+			// RLock→RLock gap allows Close to close(call.done) first.
 			c.mu.Lock()
-			delete(c.pending, resp.ID)
-			c.mu.Unlock()
+			if current, exists := c.pending[resp.ID]; exists && current == call {
+				delete(c.pending, resp.ID)
+				c.mu.Unlock()
 
-			call.resp = resp.Result
-			if resp.Error != nil {
-				call.err = resp.Error
+				call.resp = resp.Result
+				if resp.Error != nil {
+					call.err = resp.Error
+				}
+				close(call.done)
+			} else {
+				// Close already handled this call; skip
+				c.mu.Unlock()
 			}
-			close(call.done)
 		}
 	}
 }
@@ -330,9 +404,9 @@ func (c *Client) readLoop() {
 // handleDisconnect handles disconnection
 func (c *Client) handleDisconnect(err error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if !c.connected {
+		c.mu.Unlock()
 		return
 	}
 	c.connected = false
@@ -344,8 +418,14 @@ func (c *Client) handleDisconnect(err error) {
 	}
 	c.pending = make(map[uint64]*pendingCall)
 
-	if c.onDisconnect != nil {
-		c.onDisconnect(err)
+	// Snapshot callback before unlocking
+	onDisconnect := c.onDisconnect
+
+	c.mu.Unlock()
+
+	// Invoke callback outside lock
+	if onDisconnect != nil {
+		onDisconnect(err)
 	}
 }
 
@@ -356,14 +436,23 @@ func (c *Client) IsConnected() bool {
 	return c.connected
 }
 
-// mustMarshal marshals params, handling nil case
-func mustMarshal(v interface{}) json.RawMessage {
+// safeMarshal marshals params, returning error on failure
+func safeMarshal(v any) (json.RawMessage, error) {
 	if v == nil {
-		return nil
+		return nil, nil
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
-		return json.RawMessage(fmt.Sprintf(`marshal error: %s`, err))
+		return nil, fmt.Errorf("failed to marshal params: %w", err)
+	}
+	return json.RawMessage(data), nil
+}
+
+// mustMarshal marshals params, panicking on failure (for tests and simple cases)
+func mustMarshal(v any) json.RawMessage {
+	data, err := safeMarshal(v)
+	if err != nil {
+		panic(err)
 	}
 	return data
 }

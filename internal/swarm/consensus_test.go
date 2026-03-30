@@ -2,7 +2,9 @@ package swarm
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,6 +49,11 @@ func TestConsensusEngineDefaultConfig(t *testing.T) {
 
 	if engine.config.MinAgreement == 0 {
 		t.Error("MinAgreement should be set")
+	}
+
+	// Default should be Queen Bee model
+	if engine.config.DefaultAlgorithm != ConsensusQueenBee {
+		t.Errorf("Expected default algorithm %s, got %s", ConsensusQueenBee, engine.config.DefaultAlgorithm)
 	}
 }
 
@@ -103,7 +110,7 @@ func TestConsensusEngineDoubleStop(t *testing.T) {
 	engine.Stop()
 }
 
-func TestCreateProposal(t *testing.T) {
+func TestEvaluateTask(t *testing.T) {
 	registry := agent.NewRegistry()
 
 	// Add some agents
@@ -120,18 +127,55 @@ func TestCreateProposal(t *testing.T) {
 	engine.Start(ctx)
 	defer engine.Stop()
 
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test Proposal",
-		Description: "This is a test proposal for consensus voting",
-		CreatedAt:   time.Now(),
-	}
+	task := NewTask("Test Task", "This is a test task for Queen Bee evaluation", acp.Prompt{
+		{Type: "text", Text: "Sample task prompt"},
+	})
 
-	// Create proposal with timeout
+	// Create evaluation with timeout
 	ctxTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	result, err := engine.CreateProposal(ctxTimeout, proposal, ConsensusSimpleMajority)
+	result, err := engine.EvaluateTask(ctxTimeout, task, ConsensusQueenBee)
+	if err != nil {
+		t.Fatalf("EvaluateTask failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+
+	if result.TaskID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, result.TaskID)
+	}
+}
+
+// Test backward compatibility with CreateProposal
+func TestCreateProposalBackwardCompatibility(t *testing.T) {
+	registry := agent.NewRegistry()
+
+	// Add some agents
+	for i := 0; i < 3; i++ {
+		a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
+		registry.Register(a)
+	}
+
+	engine := NewConsensusEngine(ConsensusConfig{
+		DefaultTimeout: 5 * time.Second,
+	}, registry)
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	task := NewTask("Test Task", "This is a test task for backward compatibility", acp.Prompt{
+		{Type: "text", Text: "Sample task prompt"},
+	})
+
+	// Create proposal with timeout (backward compatibility)
+	ctxTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	result, err := engine.CreateProposal(ctxTimeout, task, ConsensusSimpleMajority)
 	if err != nil {
 		t.Fatalf("CreateProposal failed: %v", err)
 	}
@@ -140,65 +184,151 @@ func TestCreateProposal(t *testing.T) {
 		t.Fatal("Result should not be nil")
 	}
 
-	if result.TaskID != proposal.ID {
-		t.Errorf("Expected task ID %s, got %s", proposal.ID, result.TaskID)
+	if result.TaskID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, result.TaskID)
 	}
 }
 
 func TestConsensusAlgorithms(t *testing.T) {
 	tests := []struct {
-		name          string
-		algorithm     ConsensusAlgorithm
-		approvalRate  float64
-		expectedAgree bool
+		name         string
+		algorithm    ConsensusAlgorithm
+		approvalRate float64
+		expected     bool
+		minAgreement float64
 	}{
 		{
-			name:          "Simple majority - approved",
-			algorithm:     ConsensusSimpleMajority,
-			approvalRate:  0.6,
-			expectedAgree: true,
+			name:         "SimpleMajority 50% should fail",
+			algorithm:    ConsensusSimpleMajority,
+			approvalRate: 0.5,
+			expected:     false,
 		},
 		{
-			name:          "Simple majority - rejected",
-			algorithm:     ConsensusSimpleMajority,
-			approvalRate:  0.4,
-			expectedAgree: false,
+			name:         "SimpleMajority 51% should pass",
+			algorithm:    ConsensusSimpleMajority,
+			approvalRate: 0.51,
+			expected:     true,
 		},
 		{
-			name:          "Supermajority - approved",
-			algorithm:     ConsensusSupermajority,
-			approvalRate:  0.7,
-			expectedAgree: true,
+			name:         "Supermajority 66% should fail",
+			algorithm:    ConsensusSupermajority,
+			approvalRate: 0.66,
+			expected:     false,
 		},
 		{
-			name:          "Supermajority - rejected",
-			algorithm:     ConsensusSupermajority,
-			approvalRate:  0.6,
-			expectedAgree: false,
+			name:         "Supermajority 67% should pass",
+			algorithm:    ConsensusSupermajority,
+			approvalRate: 0.67,
+			expected:     true,
 		},
 		{
-			name:          "Unanimity - approved",
-			algorithm:     ConsensusUnanimity,
-			approvalRate:  1.0,
-			expectedAgree: true,
+			name:         "Unanimity 99% should fail",
+			algorithm:    ConsensusUnanimity,
+			approvalRate: 0.99,
+			expected:     false,
 		},
 		{
-			name:          "Unanimity - rejected",
-			algorithm:     ConsensusUnanimity,
-			approvalRate:  0.9,
-			expectedAgree: false,
+			name:         "Unanimity 100% should pass",
+			algorithm:    ConsensusUnanimity,
+			approvalRate: 1.0,
+			expected:     true,
+		},
+		{
+			name:         "Weighted 70% with min 0.6 should pass",
+			algorithm:    ConsensusWeighted,
+			approvalRate: 0.7,
+			minAgreement: 0.6,
+			expected:     true,
+		},
+		{
+			name:         "Weighted 50% with min 0.6 should fail",
+			algorithm:    ConsensusWeighted,
+			approvalRate: 0.5,
+			minAgreement: 0.6,
+			expected:     false,
+		},
+		{
+			name:         "Byzantine 66% should fail",
+			algorithm:    ConsensusByzantine,
+			approvalRate: 0.66,
+			expected:     false,
+		},
+		{
+			name:         "Byzantine 67% should pass",
+			algorithm:    ConsensusByzantine,
+			approvalRate: 0.67,
+			expected:     true,
+		},
+		{
+			name:         "QueenBee 70% with min 0.6 should pass",
+			algorithm:    ConsensusQueenBee,
+			approvalRate: 0.7,
+			minAgreement: 0.6,
+			expected:     true,
 		},
 	}
 
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := ConsensusConfig{}
+			if tt.minAgreement > 0 {
+				config.MinAgreement = tt.minAgreement
+			}
+			engine := NewConsensusEngine(config, agent.NewRegistry())
+			result := engine.isConsensusReached(tt.approvalRate, tt.algorithm)
+			if result != tt.expected {
+				t.Errorf("Expected %v for %s with approval rate %.2f, got %v",
+					tt.expected, tt.algorithm, tt.approvalRate, result)
+			}
+		})
+	}
+}
+
+func TestInferEvaluationFromText(t *testing.T) {
+	engine := NewConsensusEngine(ConsensusConfig{}, agent.NewRegistry())
+
+	tests := []struct {
+		name     string
+		text     string
+		expected bool
+	}{
+		{
+			name:     "Explicit approve",
+			text:     "I approve this proposal. It looks good.",
+			expected: true,
+		},
+		{
+			name:     "Explicit reject",
+			text:     "I reject this proposal. It has issues.",
+			expected: false,
+		},
+		{
+			name:     "Positive language",
+			text:     "This looks excellent, great work!",
+			expected: true,
+		},
+		{
+			name:     "Negative language",
+			text:     "This is poor quality, needs major changes.",
+			expected: false,
+		},
+		{
+			name:     "Mixed leans positive",
+			text:     "There are a few concerns, but overall this is excellent and good.",
+			expected: true,
+		},
+		{
+			name:     "Mixed leans negative",
+			text:     "There are issues, problems, and it's poor quality overall.",
+			expected: false, // "poor" and "problems" count as 2 negatives vs 0 positives
+		},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := engine.isConsensusReached(tt.approvalRate, tt.algorithm)
-			if result != tt.expectedAgree {
-				t.Errorf("isConsensusReached(%f, %s) = %v, want %v",
-					tt.approvalRate, tt.algorithm, result, tt.expectedAgree)
+			result := engine.inferEvaluationFromText(tt.text)
+			if result != tt.expected {
+				t.Errorf("Expected %v for text: %q, got %v", tt.expected, tt.text, result)
 			}
 		})
 	}
@@ -208,1095 +338,755 @@ func TestCalculateAgentWeight(t *testing.T) {
 	registry := agent.NewRegistry()
 	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
-	tests := []struct {
-		agentType agent.AgentType
-		minWeight float64
-		maxWeight float64
-	}{
-		{agent.AgentTypeArchitect, 1.0, 2.0},
-		{agent.AgentTypeReviewer, 1.0, 1.5},
-		{agent.AgentTypeOrchestrator, 1.0, 1.3},
-		{agent.AgentTypeCoder, 0.5, 1.2},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.agentType), func(t *testing.T) {
-			a := agent.NewAgent("test", tt.agentType)
-			weight := engine.calculateAgentWeight(a)
-
-			if weight < tt.minWeight || weight > tt.maxWeight {
-				t.Errorf("Weight for %s should be between %f and %f, got %f",
-					tt.agentType, tt.minWeight, tt.maxWeight, weight)
-			}
-		})
-	}
-}
-
-func TestInferVoteFromText(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	tests := []struct {
-		text     string
-		expected bool
-	}{
-		{"I approve this proposal", true},
-		{"I agree with this approach", true},
-		{"This is excellent work", true},
-		{"I reject this proposal", false},
-		{"I disagree with this", true}, // "disagree" contains "agree" substring
-		{"This is a poor implementation", false},
-		{"The code looks acceptable", true},
-		{"I cannot support this", true}, // "support" is matched
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.text, func(t *testing.T) {
-			result := engine.inferVoteFromText(tt.text)
-			if result != tt.expected {
-				t.Errorf("inferVoteFromText(%q) = %v, want %v", tt.text, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestCountVotes(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	votes := map[string]Vote{
-		"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-		"agent-2": {AgentID: "agent-2", Approve: true, Weight: 1.5},
-		"agent-3": {AgentID: "agent-3", Approve: false, Weight: 1.0},
-		"agent-4": {AgentID: "agent-4", Approve: false, Weight: 2.0},
-	}
-
-	approved, total := engine.countVotes(votes)
-
-	// Total: 1.0 + 1.5 + 1.0 + 2.0 = 5.5
-	// Approved: 1.0 + 1.5 = 2.5
-	if total != 5.5 {
-		t.Errorf("Expected total 5.5, got %f", total)
-	}
-
-	if approved != 2.5 {
-		t.Errorf("Expected approved 2.5, got %f", approved)
-	}
-}
-
-func TestCountVotesEmpty(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	votes := map[string]Vote{}
-
-	approved, total := engine.countVotes(votes)
-
-	// Should avoid division by zero
-	if total != 1 {
-		t.Errorf("Expected total 1 for empty votes, got %f", total)
-	}
-
-	if approved != 0 {
-		t.Errorf("Expected approved 0, got %f", approved)
-	}
-}
-
-func TestCastVote(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Don't start the engine to avoid deadlock with proposalMonitorLoop
-	// Just test the CastVote functionality directly
-
-	// Create a proposal manually
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			Title:     "Test",
-			CreatedAt: time.Now(),
-		},
-		Votes:       make(map[string]Vote),
-		Deadline:    time.Now().Add(30 * time.Second),
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	engine.mu.Lock()
-	engine.activeProposals["test-prop"] = active
-	engine.mu.Unlock()
-
-	vote := Vote{
-		AgentID: "external-agent",
-		Approve: true,
-		Comment: "Manual vote",
-		Weight:  1.0,
-	}
-
-	err := engine.CastVote("test-prop", vote)
-	if err != nil {
-		t.Fatalf("CastVote failed: %v", err)
-	}
-
-	// Verify vote was recorded
-	activeProposal, ok := engine.GetProposal("test-prop")
-	if !ok {
-		t.Fatal("Proposal should exist")
-	}
-
-	if len(activeProposal.Votes) != 1 {
-		t.Errorf("Expected 1 vote, got %d", len(activeProposal.Votes))
-	}
-
-	recordedVote := activeProposal.Votes["external-agent"]
-	if recordedVote.AgentID != "external-agent" {
-		t.Errorf("Vote agent ID mismatch")
-	}
-}
-
-func TestCastVoteNonExistentProposal(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	vote := Vote{
-		AgentID: "agent-1",
-		Approve: true,
-	}
-
-	err := engine.CastVote("non-existent", vote)
-	if err == nil {
-		t.Error("CastVote should fail for non-existent proposal")
-	}
-}
-
-func TestGetActiveProposals(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Add some proposals
-	for i := 0; i < 3; i++ {
-		active := &ActiveProposal{
-			Proposal: &Proposal{
-				ID:        string(rune('a' + i)),
-				CreatedAt: time.Now(),
-			},
-			Votes:       make(map[string]Vote),
-			Completed:   false,
-			VoteChannel: make(chan Vote, 10),
-		}
-		engine.activeProposals[string(rune('a'+i))] = active
-	}
-
-	// Add a completed one
-	completed := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "completed",
-			CreatedAt: time.Now(),
-		},
-		Completed:   true,
-		VoteChannel: make(chan Vote, 10),
-	}
-	engine.activeProposals["completed"] = completed
-
-	active := engine.GetActiveProposals()
-	if len(active) != 3 {
-		t.Errorf("Expected 3 active proposals, got %d", len(active))
-	}
-}
-
-func TestConsensusCallbacks(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	var (
-		proposalCreated  bool
-		voteReceived     bool
-		consensusReached bool
-		timeoutCalled    bool
-	)
-
-	engine.OnProposalCreated(func(p *Proposal) {
-		proposalCreated = true
-	})
-
-	engine.OnVoteReceived(func(proposalID string, v Vote) {
-		voteReceived = true
-	})
-
-	engine.OnConsensusReached(func(r *ConsensusResult) {
-		consensusReached = true
-	})
-
-	engine.OnTimeout(func(proposalID string) {
-		timeoutCalled = true
-	})
-
-	// Verify callbacks are set
-	if engine.onProposalCreated == nil {
-		t.Error("onProposalCreated should be set")
-	}
-	if engine.onVoteReceived == nil {
-		t.Error("onVoteReceived should be set")
-	}
-	if engine.onConsensusReached == nil {
-		t.Error("onConsensusReached should be set")
-	}
-	if engine.onTimeout == nil {
-		t.Error("onTimeout should be set")
-	}
-
-	// These should be set correctly if we got here
-	_ = proposalCreated
-	_ = voteReceived
-	_ = consensusReached
-	_ = timeoutCalled
-}
-
-func TestBuildEvaluationPrompt(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	proposal := &Proposal{
-		ID:          "test-1",
-		Title:       "Add Feature X",
-		Description: "Implement feature X with the following requirements...",
-		CreatedAt:   time.Now(),
-	}
-
-	prompt := engine.buildEvaluationPrompt(proposal)
-
-	if prompt == "" {
-		t.Error("Prompt should not be empty")
-	}
-
-	// Should contain key elements
-	if !strings.Contains(prompt, "Add Feature X") {
-		t.Error("Prompt should contain proposal title")
-	}
-
-	if !strings.Contains(prompt, "approve") {
-		t.Error("Prompt should mention approve")
-	}
-
-	if !strings.Contains(prompt, "confidence") {
-		t.Error("Prompt should mention confidence")
-	}
-}
-
-func TestConsensusResultStatus(t *testing.T) {
+	// Test different agent types
 	tests := []struct {
 		name         string
-		approvalRate float64
-		expected     string
+		agentType    agent.AgentType
+		expectedBase float64
 	}{
-		{"Full agreement", 1.0, "agreed"},
-		{"Strong majority", 0.8, "agreed"},
-		{"Simple majority", 0.6, "agreed"},
-		{"Partial agreement", 0.55, "partial"},
-		{"Barely majority", 0.51, "agreed"},
-		{"Minority", 0.4, "disagreed"},
-		{"Strong rejection", 0.2, "disagreed"},
+		{
+			name:         "Architect weight",
+			agentType:    agent.AgentTypeArchitect,
+			expectedBase: 1.5,
+		},
+		{
+			name:         "Reviewer weight",
+			agentType:    agent.AgentTypeReviewer,
+			expectedBase: 1.3,
+		},
+		{
+			name:         "Orchestrator weight",
+			agentType:    agent.AgentTypeOrchestrator,
+			expectedBase: 1.2,
+		},
+		{
+			name:         "Coder weight",
+			agentType:    agent.AgentTypeCoder,
+			expectedBase: 1.0,
+		},
+		{
+			name:         "Tester weight",
+			agentType:    agent.AgentTypeTester,
+			expectedBase: 1.0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			consensus := tt.approvalRate > 0.5
-			status := "disagreed"
-			if consensus {
-				status = "agreed"
-			} else if tt.approvalRate > 0.5 {
-				status = "partial"
-			}
-
-			// Verify expected status
-			if tt.approvalRate >= 0.51 && tt.expected == "agreed" {
-				if status != "agreed" {
-					t.Errorf("Expected agreed for rate %f, got %s", tt.approvalRate, status)
-				}
+			a := agent.NewAgent("test", tt.agentType)
+			weight := engine.calculateAgentWeight(a)
+			if weight != tt.expectedBase {
+				t.Errorf("Expected weight %.1f for %s, got %.1f", tt.expectedBase, tt.agentType, weight)
 			}
 		})
 	}
 }
 
-func TestWeightedVoting(t *testing.T) {
+func TestCastEvaluation(t *testing.T) {
 	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{
-		MinAgreement: 0.6,
-	}, registry)
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
-	// Test with weighted votes where minority can win due to higher weights
-	votes := map[string]Vote{
-		"agent-1": {AgentID: "agent-1", Approve: true, Weight: 3.0},  // High weight approve
-		"agent-2": {AgentID: "agent-2", Approve: true, Weight: 2.0},  // Medium weight approve
-		"agent-3": {AgentID: "agent-3", Approve: false, Weight: 1.0}, // Low weight reject
-		"agent-4": {AgentID: "agent-4", Approve: false, Weight: 1.0}, // Low weight reject
-	}
-
-	approved, total := engine.countVotes(votes)
-
-	// Total: 3 + 2 + 1 + 1 = 7
-	// Approved: 3 + 2 = 5
-	approvalRate := approved / total
-
-	if approvalRate != 5.0/7.0 {
-		t.Errorf("Expected approval rate %f, got %f", 5.0/7.0, approvalRate)
-	}
-
-	// With 5/7 = 0.714, should reach consensus with 0.6 threshold
-	if !engine.isConsensusReached(approvalRate, ConsensusWeighted) {
-		t.Error("Should reach consensus with weighted voting")
-	}
-}
-
-func TestConcurrentVoting(t *testing.T) {
-	registry := agent.NewRegistry()
-
-	// Add multiple agents
-	for i := 0; i < 10; i++ {
-		a := agent.NewAgent("agent", agent.AgentTypeCoder)
-		registry.Register(a)
-	}
-
-	engine := NewConsensusEngine(ConsensusConfig{
-		DefaultTimeout: 5 * time.Second,
-		VotingDelay:    10 * time.Millisecond,
-	}, registry)
+	task := NewTask("Test Task", "Test description", acp.Prompt{})
 
 	ctx := context.Background()
 	engine.Start(ctx)
 	defer engine.Stop()
 
-	// Submit multiple proposals concurrently
-	done := make(chan bool, 5)
-
-	for i := 0; i < 5; i++ {
-		go func(idx int) {
-			proposal := &Proposal{
-				ID:          string(rune('a' + idx)),
-				Title:       "Concurrent Test",
-				Description: "Testing concurrent proposal creation",
-				CreatedAt:   time.Now(),
-			}
-
-			ctxTimeout, cancel := context.WithTimeout(ctx, 3*time.Second)
-			defer cancel()
-
-			_, err := engine.CreateProposal(ctxTimeout, proposal, ConsensusSimpleMajority)
-			if err != nil {
-				t.Errorf("Concurrent proposal %d failed: %v", idx, err)
-			}
-			done <- true
-		}(i)
-	}
-
-	// Wait for all to complete
-	for i := 0; i < 5; i++ {
-		<-done
-	}
-}
-
-func TestAgentIDType(t *testing.T) {
-	// Verify that acp.AgentID can be used correctly
-	var agentID acp.AgentID = "test-agent-123"
-
-	if agentID != "test-agent-123" {
-		t.Errorf("AgentID should be 'test-agent-123', got '%s'", agentID)
-	}
-
-	// Test conversion to string
-	str := string(agentID)
-	if str != "test-agent-123" {
-		t.Errorf("String conversion failed: got '%s'", str)
-	}
-}
-
-func TestConsensusCheckTimeouts(t *testing.T) {
-	registry := agent.NewRegistry()
-
-	// Add agents
-	for i := 0; i < 3; i++ {
-		a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-		registry.Register(a)
-	}
-
-	engine := NewConsensusEngine(ConsensusConfig{
-		DefaultTimeout: 100 * time.Millisecond, // Very short timeout
-		MinAgreement:   0.5,
-	}, registry)
-
-	ctx := context.Background()
-	engine.Start(ctx)
-	defer engine.Stop()
-
-	// Create a proposal that will timeout
-	proposal := &Proposal{
-		ID:          "timeout-test",
-		Title:       "Timeout Test",
-		Description: "This proposal should timeout",
-		CreatedAt:   time.Now(),
-	}
-
-	timeoutCalled := false
-	engine.OnTimeout(func(proposalID string) {
-		if proposalID == "timeout-test" {
-			timeoutCalled = true
+	// Evaluate the task
+	go func() {
+		_, err := engine.EvaluateTask(ctx, task, ConsensusQueenBee)
+		if err != nil {
+			t.Logf("EvaluateTask error: %v", err)
 		}
+	}()
+
+	// Give it a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cast an external evaluation
+	evaluation := Evaluation{
+		AgentID:  "external-agent",
+		Approved: true,
+		Comment:  "Looks good to me",
+		Weight:   1.0,
+	}
+
+	err := engine.CastEvaluation(task.ID, evaluation)
+	if err != nil {
+		t.Fatalf("CastEvaluation failed: %v", err)
+	}
+
+	// Check that evaluation was recorded
+	active, ok := engine.GetTask(task.ID)
+	if !ok {
+		t.Fatal("Task should exist")
+	}
+
+	if len(active.Evaluations) != 1 {
+		t.Errorf("Expected 1 evaluation, got %d", len(active.Evaluations))
+	}
+
+	recordedEval := active.Evaluations["external-agent"]
+	if recordedEval.Approved != true {
+		t.Error("Expected evaluation to be approved")
+	}
+	if recordedEval.Comment != "Looks good to me" {
+		t.Errorf("Expected comment mismatch")
+	}
+}
+
+// Test backward compatibility with CastVote
+func TestCastVoteBackwardCompatibility(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	task := NewTask("Test Task", "Test description", acp.Prompt{})
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	// Evaluate the task
+	go func() {
+		_, err := engine.EvaluateTask(ctx, task, ConsensusQueenBee)
+		if err != nil {
+			t.Logf("EvaluateTask error: %v", err)
+		}
+	}()
+
+	// Give it a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cast an external vote (backward compatibility)
+	vote := Vote{
+		AgentID: "external-agent",
+		Approve: true,
+		Comment: "Looks good to me",
+		Weight:  1.0,
+	}
+
+	err := engine.CastVote(task.ID, vote)
+	if err != nil {
+		t.Fatalf("CastVote failed: %v", err)
+	}
+
+	// Check that vote was recorded
+	active, ok := engine.GetTask(task.ID)
+	if !ok {
+		t.Fatal("Task should exist")
+	}
+
+	if len(active.Evaluations) != 1 {
+		t.Errorf("Expected 1 evaluation, got %d", len(active.Evaluations))
+	}
+
+	recordedEval := active.Evaluations["external-agent"]
+	if recordedEval.Approved != true {
+		t.Error("Expected evaluation to be approved")
+	}
+	if recordedEval.Comment != "Looks good to me" {
+		t.Errorf("Expected comment mismatch")
+	}
+}
+
+func TestCastEvaluationNonExistentTask(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	evaluation := Evaluation{
+		AgentID:  "external-agent",
+		Approved: true,
+	}
+
+	err := engine.CastEvaluation("non-existent-task", evaluation)
+	if err == nil {
+		t.Error("Expected error for non-existent task")
+	}
+	if !strings.Contains(err.Error(), "task not found") {
+		t.Errorf("Expected 'task not found' error, got: %v", err)
+	}
+}
+
+func TestGetActiveTasks(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	// Add 2 active tasks
+	for i := 0; i < 2; i++ {
+		task := NewTask("Test Task", "Test", acp.Prompt{})
+		active := &ActiveTaskEvaluation{
+			Task:        task,
+			Evaluations: make(map[string]Evaluation),
+			Completed:   false,
+		}
+		engine.activeTasks[string(rune('a'+i))] = active
+	}
+
+	// Add 1 completed task
+	completedTask := NewTask("Completed Task", "Test", acp.Prompt{})
+	completed := &ActiveTaskEvaluation{
+		Task:        completedTask,
+		Evaluations: make(map[string]Evaluation),
+		Completed:   true,
+	}
+	engine.activeTasks["completed"] = completed
+
+	active := engine.GetActiveTasks()
+	if len(active) != 2 {
+		t.Errorf("Expected 2 active tasks, got %d", len(active))
+	}
+}
+
+// Test backward compatibility with GetActiveProposals
+func TestGetActiveProposalsBackwardCompatibility(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	// Add 2 active tasks
+	for i := 0; i < 2; i++ {
+		task := NewTask("Test Task", "Test", acp.Prompt{})
+		active := &ActiveTaskEvaluation{
+			Task:        task,
+			Evaluations: make(map[string]Evaluation),
+			Completed:   false,
+		}
+		engine.activeTasks[string(rune('a'+i))] = active
+	}
+
+	// Add 1 completed task
+	completedTask := NewTask("Completed Task", "Test", acp.Prompt{})
+	completed := &ActiveTaskEvaluation{
+		Task:        completedTask,
+		Evaluations: make(map[string]Evaluation),
+		Completed:   true,
+	}
+	engine.activeTasks["completed"] = completed
+
+	active := engine.GetActiveProposals()
+	if len(active) != 2 {
+		t.Errorf("Expected 2 active proposals, got %d", len(active))
+	}
+}
+
+func TestOnTaskEvaluationStartedCallback(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	var mu sync.Mutex
+	var receivedTask *Task
+	engine.OnTaskEvaluationStarted(func(task *Task) {
+		mu.Lock()
+		receivedTask = task
+		mu.Unlock()
 	})
 
-	// Create proposal with timeout
-	ctxTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+	task := NewTask("Test Task", "Test", acp.Prompt{})
 
-	_, err := engine.CreateProposal(ctxTimeout, proposal, ConsensusSimpleMajority)
-	if err != nil {
-		t.Logf("CreateProposal error: %v", err)
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	go engine.EvaluateTask(ctx, task, ConsensusQueenBee)
+
+	// Wait for callback with proper synchronization
+	var gotTask *Task
+	for i := 0; i < 10; i++ {
+		mu.Lock()
+		gotTask = receivedTask
+		mu.Unlock()
+		if gotTask != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Wait for timeout to be processed
-	time.Sleep(200 * time.Millisecond)
-
-	// The timeout should have been called
-	t.Logf("Timeout called: %v", timeoutCalled)
+	if gotTask == nil {
+		t.Fatal("Expected to receive task in callback")
+	}
+	if gotTask.ID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, gotTask.ID)
+	}
 }
 
-func TestConsensusGetProposalNotFound(t *testing.T) {
+// Test backward compatibility with OnProposalCreated
+func TestOnProposalCreatedBackwardCompatibility(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	var mu sync.Mutex
+	var receivedTask *Task
+	engine.OnProposalCreated(func(task *Task) {
+		mu.Lock()
+		receivedTask = task
+		mu.Unlock()
+	})
+
+	task := NewTask("Test Task", "Test", acp.Prompt{})
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	go engine.CreateProposal(ctx, task, ConsensusQueenBee)
+
+	// Wait for callback with proper synchronization
+	var gotTask *Task
+	for i := 0; i < 10; i++ {
+		mu.Lock()
+		gotTask = receivedTask
+		mu.Unlock()
+		if gotTask != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if gotTask == nil {
+		t.Fatal("Expected to receive task in callback")
+	}
+	if gotTask.ID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, gotTask.ID)
+	}
+}
+
+func TestOnEvaluationReceivedCallback(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	var mu sync.Mutex
+	var receivedTaskID string
+	var receivedEval Evaluation
+	engine.OnEvaluationReceived(func(taskID string, eval Evaluation) {
+		mu.Lock()
+		receivedTaskID = taskID
+		receivedEval = eval
+		mu.Unlock()
+	})
+
+	task := NewTask("Test Task", "Test", acp.Prompt{})
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	go engine.EvaluateTask(ctx, task, ConsensusQueenBee)
+
+	// Give it a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cast an evaluation to trigger callback
+	eval := Evaluation{
+		AgentID:  "test-agent",
+		Approved: true,
+		Comment:  "Test comment",
+	}
+	err := engine.CastEvaluation(task.ID, eval)
+	if err != nil {
+		t.Fatalf("CastEvaluation failed: %v", err)
+	}
+
+	// Wait for callback with proper synchronization
+	var gotTaskID string
+	var gotEval Evaluation
+	for i := 0; i < 10; i++ {
+		mu.Lock()
+		gotTaskID = receivedTaskID
+		gotEval = receivedEval
+		mu.Unlock()
+		if gotTaskID != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if gotTaskID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, gotTaskID)
+	}
+	if gotEval.AgentID != "test-agent" {
+		t.Errorf("Expected agent ID 'test-agent', got %s", gotEval.AgentID)
+	}
+	if gotEval.Approved != true {
+		t.Error("Expected approved to be true")
+	}
+}
+
+// Test backward compatibility with OnVoteReceived
+func TestOnVoteReceivedBackwardCompatibility(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	var mu sync.Mutex
+	var receivedTaskID string
+	var receivedVote Vote
+	engine.OnVoteReceived(func(taskID string, vote Vote) {
+		mu.Lock()
+		receivedTaskID = taskID
+		receivedVote = vote
+		mu.Unlock()
+	})
+
+	task := NewTask("Test Task", "Test", acp.Prompt{})
+
+	ctx := context.Background()
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	go engine.EvaluateTask(ctx, task, ConsensusQueenBee)
+
+	// Give it a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cast a vote to trigger callback
+	vote := Vote{
+		AgentID: "test-agent",
+		Approve: true,
+		Comment: "Test comment",
+	}
+	err := engine.CastVote(task.ID, vote)
+	if err != nil {
+		t.Fatalf("CastVote failed: %v", err)
+	}
+
+	// Wait for callback with proper synchronization
+	var gotTaskID string
+	var gotVote Vote
+	for i := 0; i < 10; i++ {
+		mu.Lock()
+		gotTaskID = receivedTaskID
+		gotVote = receivedVote
+		mu.Unlock()
+		if gotTaskID != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if gotTaskID != task.ID {
+		t.Errorf("Expected task ID %s, got %s", task.ID, gotTaskID)
+	}
+	if gotVote.AgentID != "test-agent" {
+		t.Errorf("Expected agent ID 'test-agent', got %s", gotVote.AgentID)
+	}
+	if gotVote.Approve != true {
+		t.Error("Expected approved to be true")
+	}
+}
+
+func TestOnConsensusReachedCallback(t *testing.T) {
+	registry := agent.NewRegistry()
+	for i := 0; i < 3; i++ {
+		a := agent.NewAgent(fmt.Sprintf("agent-%d", i), agent.AgentTypeCoder)
+		registry.Register(a)
+	}
+
+	engine := NewConsensusEngine(ConsensusConfig{
+		MinAgreement:   0.5,
+		DefaultTimeout: 2 * time.Second,
+	}, registry)
+
+	resultCh := make(chan *ConsensusResult, 1)
+	engine.OnConsensusReached(func(result *ConsensusResult) {
+		resultCh <- result
+	})
+
+	task := NewTask("Test Task", "Test", acp.Prompt{})
+
+	ctx := context.Background()
+	err := engine.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer engine.Stop()
+
+	go func() {
+		_, _ = engine.EvaluateTask(ctx, task, ConsensusSimpleMajority)
+	}()
+
+	select {
+	case receivedResult := <-resultCh:
+		if receivedResult == nil {
+			t.Fatal("Expected non-nil consensus result in callback")
+		}
+		if receivedResult.TaskID != task.ID {
+			t.Errorf("Expected task ID %s, got %s", task.ID, receivedResult.TaskID)
+		}
+		if receivedResult.Status == "" {
+			t.Error("Expected non-empty consensus status")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out waiting for consensus callback")
+	}
+}
+
+func TestOnTimeoutCallback(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{
+		DefaultTimeout: 500 * time.Millisecond,
+	}, registry)
+
+	var timedOutTaskID string
+	engine.OnTimeout(func(taskID string) {
+		timedOutTaskID = taskID
+	})
+
+	task := NewTask("Test Task", "Test", acp.Prompt{})
+
+	ctx := context.Background()
+	err := engine.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer engine.Stop()
+
+	// Insert an overdue task directly and force timeout processing.
+	engine.mu.Lock()
+	engine.activeTasks[task.ID] = &ActiveTaskEvaluation{
+		Task:        task,
+		Evaluations: make(map[string]Evaluation),
+		Algorithm:   ConsensusQueenBee,
+		Deadline:    time.Now().Add(-1 * time.Second),
+		EvalChannel: make(chan Evaluation, 1),
+	}
+	engine.mu.Unlock()
+
+	engine.checkTimeouts()
+
+	if timedOutTaskID != task.ID {
+		t.Errorf("Expected timeout for task %s, got %s", task.ID, timedOutTaskID)
+	}
+
+	active, ok := engine.GetTask(task.ID)
+	if !ok {
+		t.Fatal("Task should still exist")
+	}
+	if active.Completed != true {
+		t.Error("Task should be marked as completed after timeout")
+	}
+}
+
+func TestGetTaskNotFound(t *testing.T) {
+	registry := agent.NewRegistry()
+	engine := NewConsensusEngine(ConsensusConfig{}, registry)
+
+	task, ok := engine.GetTask("non-existent")
+	if ok {
+		t.Error("Expected ok to be false for non-existent task")
+	}
+	if task != nil {
+		t.Error("Task should be nil for non-existent")
+	}
+}
+
+// Test backward compatibility with GetProposal
+func TestGetProposalBackwardCompatibility(t *testing.T) {
 	registry := agent.NewRegistry()
 	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
 	proposal, ok := engine.GetProposal("non-existent")
 	if ok {
-		t.Error("Should not find non-existent proposal")
+		t.Error("Expected ok to be false for non-existent proposal")
 	}
 	if proposal != nil {
 		t.Error("Proposal should be nil for non-existent")
 	}
 }
 
-func TestConsensusGetActiveProposalsEmpty(t *testing.T) {
+func TestGetActiveTasksEmpty(t *testing.T) {
 	registry := agent.NewRegistry()
 	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
-	proposals := engine.GetActiveProposals()
-	if len(proposals) != 0 {
-		t.Errorf("Expected 0 active proposals, got %d", len(proposals))
+	tasks := engine.GetActiveTasks()
+	if len(tasks) != 0 {
+		t.Errorf("Expected 0 active tasks, got %d", len(tasks))
 	}
 }
 
-func TestConsensusCastVoteNonExistent(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	err := engine.CastVote("non-existent", Vote{
-		AgentID: "agent-1",
-		Approve: true,
-	})
-	// Should handle gracefully
-	if err == nil {
-		t.Log("CastVote returned no error for non-existent proposal")
-	}
-}
-
-func TestConsensusAlgorithmTypes(t *testing.T) {
-	algorithms := []ConsensusAlgorithm{
-		ConsensusSimpleMajority,
-		ConsensusSupermajority,
-		ConsensusUnanimity,
-		ConsensusWeighted,
-		ConsensusByzantine,
+func TestActiveTaskEvaluationStruct(t *testing.T) {
+	task := NewTask("Test Task", "Test description", acp.Prompt{})
+	active := &ActiveTaskEvaluation{
+		Task:        task,
+		Evaluations: make(map[string]Evaluation),
+		Algorithm:   ConsensusQueenBee,
+		Deadline:    time.Now().Add(1 * time.Minute),
+		Completed:   false,
 	}
 
-	for _, alg := range algorithms {
-		if alg == "" {
-			t.Error("ConsensusAlgorithm should not be empty")
-		}
+	if active.Task.ID != task.ID {
+		t.Error("Task ID mismatch")
 	}
-}
-
-func TestVoteStruct(t *testing.T) {
-	vote := Vote{
-		AgentID: "agent-1",
-		Approve: true,
-		Comment: "I approve this",
-		Weight:  1.0,
-	}
-
-	if vote.AgentID != "agent-1" {
-		t.Error("AgentID mismatch")
-	}
-	if !vote.Approve {
-		t.Error("Approve should be true")
-	}
-	if vote.Comment != "I approve this" {
-		t.Error("Comment mismatch")
-	}
-}
-
-func TestActiveProposalStruct(t *testing.T) {
-	proposal := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:          "prop-1",
-			Title:       "Test Proposal",
-			Description: "Test Description",
-		},
-		Algorithm: ConsensusSimpleMajority,
-		Votes:     make(map[string]Vote),
-		Deadline:  time.Now().Add(30 * time.Second),
-		Completed: false,
-	}
-
-	if proposal.Proposal.ID != "prop-1" {
-		t.Error("Proposal ID mismatch")
-	}
-	if proposal.Algorithm != ConsensusSimpleMajority {
+	if active.Algorithm != ConsensusQueenBee {
 		t.Error("Algorithm mismatch")
 	}
-	if proposal.Votes == nil {
-		t.Error("Votes should be initialized")
+	if active.Completed != false {
+		t.Error("Completed should be false")
 	}
 }
 
-func TestProposalStruct(t *testing.T) {
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test Proposal",
-		Description: "Test Description",
-		CreatedAt:   time.Now(),
+func TestEvaluationStruct(t *testing.T) {
+	eval := Evaluation{
+		AgentID:    "test-agent",
+		Approved:   true,
+		Confidence: 0.9,
+		Comment:    "Looks good",
+		Weight:     1.5,
 	}
 
-	if proposal.ID != "prop-1" {
-		t.Error("ID mismatch")
+	if eval.AgentID != "test-agent" {
+		t.Error("AgentID mismatch")
 	}
-	if proposal.Title != "Test Proposal" {
-		t.Error("Title mismatch")
+	if eval.Approved != true {
+		t.Error("Approved should be true")
+	}
+	if eval.Confidence != 0.9 {
+		t.Error("Confidence mismatch")
+	}
+	if eval.Comment != "Looks good" {
+		t.Error("Comment mismatch")
+	}
+	if eval.Weight != 1.5 {
+		t.Error("Weight mismatch")
 	}
 }
 
-func TestConsensusCheckTimeoutsExpired(t *testing.T) {
+func TestCanReachEarlyConsensus(t *testing.T) {
 	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{
-		DefaultTimeout: 1 * time.Millisecond, // Very short
-	}, registry)
-
-	// Create an expired proposal
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "expired-prop",
-			Title:     "Expired",
-			CreatedAt: time.Now().Add(-1 * time.Hour),
-		},
-		Votes:       make(map[string]Vote),
-		Deadline:    time.Now().Add(-1 * time.Second), // Already expired
-		VoteChannel: make(chan Vote, 10),
-	}
-	engine.activeProposals["expired-prop"] = active
-
-	// Call checkTimeouts directly
-	engine.checkTimeouts()
-
-	// The proposal should be marked as completed
-	if !active.Completed {
-		t.Error("Expired proposal should be marked as completed")
-	}
-}
-
-func TestConsensusByzantineAlgorithm(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Byzantine requires 2/3 + 1 agreement
-	// Test with exactly 2/3
-	if engine.isConsensusReached(0.667, ConsensusByzantine) {
-		t.Log("Byzantine consensus reached at 66.7%")
-	}
-
-	// Test with less than 2/3
-	if engine.isConsensusReached(0.5, ConsensusByzantine) {
-		t.Error("Byzantine should not reach consensus at 50%")
-	}
-}
-
-func TestConsensusWeightedAlgorithm(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{
-		MinAgreement: 0.6,
-	}, registry)
-
-	// Test with MinAgreement threshold
-	if !engine.isConsensusReached(0.7, ConsensusWeighted) {
-		t.Error("Weighted should reach consensus above MinAgreement")
-	}
-
-	if engine.isConsensusReached(0.5, ConsensusWeighted) {
-		t.Error("Weighted should not reach consensus below MinAgreement")
-	}
-}
-
-func TestConsensusRecordVoteCompleted(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Create a completed proposal
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "completed-prop",
-			CreatedAt: time.Now(),
-		},
-		Votes:       make(map[string]Vote),
-		Completed:   true, // Already completed
-		VoteChannel: make(chan Vote, 10),
-	}
-	engine.activeProposals["completed-prop"] = active
-
-	// Try to record a vote on completed proposal
-	engine.recordVote(active, Vote{
-		AgentID: "agent-1",
-		Approve: true,
-	})
-
-	// Should not add vote to completed proposal
-	if len(active.Votes) != 0 {
-		t.Error("Should not record vote on completed proposal")
-	}
-}
-
-func TestConsensusCanReachEarlyConsensusUnanimity(t *testing.T) {
-	registry := agent.NewRegistry()
-
-	// Add 3 agents
-	for i := 0; i < 3; i++ {
-		a := agent.NewAgent("agent", agent.AgentTypeCoder)
+	for i := 0; i < 10; i++ { // 10 agents total
+		a := agent.NewAgent(fmt.Sprintf("agent-%d", i), agent.AgentTypeCoder)
 		registry.Register(a)
 	}
 
 	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
-	// For unanimity, we need all votes
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "unanimity-test",
-			CreatedAt: time.Now(),
-		},
-		Algorithm:   ConsensusUnanimity,
-		Votes:       make(map[string]Vote),
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// With only 2 out of 3 votes, unanimity can't be determined early
-	canReach := engine.canReachEarlyConsensus(active)
-	t.Logf("Can reach early consensus with 0/%d votes: %v", registry.Count(), canReach)
-}
-
-func TestConsensusInferVoteMixedText(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
 	tests := []struct {
-		text     string
-		expected bool
+		name          string
+		algorithm     ConsensusAlgorithm
+		currentVotes  int
+		approvedVotes float64
+		expected      bool
 	}{
-		{"I think this is a good approach but has some concerns", true},
-		{"The implementation looks bad and should be rejected", false},
-		{"Excellent work, I fully support this", true},
-		{"This is a poor implementation", false},
+		{
+			name:          "Unanimity with 9/10 votes can't reach early",
+			algorithm:     ConsensusUnanimity,
+			currentVotes:  9,
+			approvedVotes: 9.0,
+			expected:      false,
+		},
+		{
+			name:          "Unanimity with 10/10 votes can reach early",
+			algorithm:     ConsensusUnanimity,
+			currentVotes:  10,
+			approvedVotes: 10.0,
+			expected:      true,
+		},
+		{
+			name:          "Simple majority with 6/10 approved cannot reach early yet",
+			algorithm:     ConsensusSimpleMajority,
+			currentVotes:  6,
+			approvedVotes: 6.0,
+			expected:      false, // 60% < 50% + 4/10 = 90% threshold
+		},
+		{
+			name:          "Simple majority with 8/10 approved can reach early",
+			algorithm:     ConsensusSimpleMajority,
+			currentVotes:  8,
+			approvedVotes: 8.0,
+			expected:      true, // 80% > 50% + 2/10 = 20% → 80% > 70% → yes
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.text, func(t *testing.T) {
-			result := engine.inferVoteFromText(tt.text)
+		t.Run(tt.name, func(t *testing.T) {
+			active := &ActiveTaskEvaluation{
+				Algorithm:   tt.algorithm,
+				Evaluations: make(map[string]Evaluation),
+			}
+
+			// Add approved votes
+			for i := 0; i < int(tt.approvedVotes); i++ {
+				active.Evaluations[fmt.Sprintf("approve-%d", i)] = Evaluation{
+					AgentID:  fmt.Sprintf("approve-%d", i),
+					Approved: true,
+					Weight:   1.0,
+				}
+			}
+
+			// Add rejected votes
+			rejected := tt.currentVotes - int(tt.approvedVotes)
+			for i := 0; i < rejected; i++ {
+				active.Evaluations[fmt.Sprintf("reject-%d", i)] = Evaluation{
+					AgentID:  fmt.Sprintf("reject-%d", i),
+					Approved: false,
+					Weight:   1.0,
+				}
+			}
+
+			result := engine.canReachEarlyConsensus(active)
 			if result != tt.expected {
-				t.Errorf("inferVoteFromText(%q) = %v, want %v", tt.text, result, tt.expected)
+				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestConsensusParseAgentResponseJSON(t *testing.T) {
+func TestCountEvaluations(t *testing.T) {
+	engine := NewConsensusEngine(ConsensusConfig{}, agent.NewRegistry())
+
+	evaluations := map[string]Evaluation{
+		"agent-1": {Approved: true, Weight: 1.0},
+		"agent-2": {Approved: true, Weight: 1.5},
+		"agent-3": {Approved: false, Weight: 1.0},
+		"agent-4": {Approved: true, Weight: 0.5},
+	}
+
+	approved, total := engine.countEvaluations(evaluations)
+
+	expectedApproved := 1.0 + 1.5 + 0.5    // 3.0
+	expectedTotal := 1.0 + 1.5 + 1.0 + 0.5 // 4.0
+
+	if approved != expectedApproved {
+		t.Errorf("Expected approved %.1f, got %.1f", expectedApproved, approved)
+	}
+	if total != expectedTotal {
+		t.Errorf("Expected total %.1f, got %.1f", expectedTotal, total)
+	}
+}
+
+func TestCountEvaluationsEmpty(t *testing.T) {
+	engine := NewConsensusEngine(ConsensusConfig{}, agent.NewRegistry())
+
+	evaluations := map[string]Evaluation{}
+
+	approved, total := engine.countEvaluations(evaluations)
+
+	if approved != 0 {
+		t.Errorf("Expected approved 0, got %.1f", approved)
+	}
+	if total != 1 { // Should avoid division by zero
+		t.Errorf("Expected total 1, got %.1f", total)
+	}
+}
+
+func TestQueenBeeModelDefault(t *testing.T) {
 	registry := agent.NewRegistry()
 	engine := NewConsensusEngine(ConsensusConfig{}, registry)
 
-	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test",
-		Description: "Test proposal",
-		CreatedAt:   time.Now(),
+	// Default algorithm should be Queen Bee
+	if engine.config.DefaultAlgorithm != ConsensusQueenBee {
+		t.Errorf("Expected default algorithm %s, got %s", ConsensusQueenBee, engine.config.DefaultAlgorithm)
 	}
 
-	// Test with valid JSON response
-	jsonResult := &agent.ExecutionResult{
-		Output: `{"approve": true, "confidence": 0.9, "reasoning": "Good proposal"}`,
+	// Queen Bee should use min agreement threshold
+	result := engine.isConsensusReached(0.7, ConsensusQueenBee)
+	if result != true { // Default min agreement is 0.51
+		t.Error("Expected 70% to pass Queen Bee consensus")
 	}
 
-	vote := engine.parseAgentResponse(a, jsonResult, proposal)
-	if !vote.Approve {
-		t.Error("Expected approve=true from JSON response")
+	result = engine.isConsensusReached(0.5, ConsensusQueenBee)
+	if result != false {
+		t.Error("Expected 50% to fail Queen Bee consensus")
 	}
-	if vote.Comment != "Good proposal" {
-		t.Errorf("Expected comment 'Good proposal', got %q", vote.Comment)
-	}
-	if vote.Weight <= 0 {
-		t.Error("Weight should be positive")
-	}
-}
-
-func TestConsensusParseAgentResponseText(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test",
-		Description: "Test proposal",
-		CreatedAt:   time.Now(),
-	}
-
-	// Test with invalid JSON (falls back to text inference)
-	textResult := &agent.ExecutionResult{
-		Output: "I approve this proposal and think it's excellent",
-	}
-
-	vote := engine.parseAgentResponse(a, textResult, proposal)
-	if !vote.Approve {
-		t.Error("Expected approve=true from text inference")
-	}
-	if vote.Comment != "Vote inferred from text response" {
-		t.Errorf("Expected inferred comment, got %q", vote.Comment)
-	}
-}
-
-func TestConsensusParseAgentResponseReject(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-	proposal := &Proposal{
-		ID:          "prop-1",
-		Title:       "Test",
-		Description: "Test proposal",
-		CreatedAt:   time.Now(),
-	}
-
-	// Test with JSON rejection
-	jsonResult := &agent.ExecutionResult{
-		Output: `{"approve": false, "confidence": 0.8, "reasoning": "Has issues"}`,
-	}
-
-	vote := engine.parseAgentResponse(a, jsonResult, proposal)
-	if vote.Approve {
-		t.Error("Expected approve=false from JSON response")
-	}
-	if vote.Comment != "Has issues" {
-		t.Errorf("Expected comment 'Has issues', got %q", vote.Comment)
-	}
-}
-
-func TestConsensusCalculateAgentWeightWithHistory(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Create agent with tool history
-	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
-	a.RecordToolExecution(&agent.ToolExecution{
-		ID:     "tool-1",
-		Tool:   "test-tool",
-		Status: acp.StatusCompleted,
-	})
-	a.RecordToolExecution(&agent.ToolExecution{
-		ID:     "tool-2",
-		Tool:   "test-tool",
-		Status: acp.StatusCompleted,
-	})
-	a.RecordToolExecution(&agent.ToolExecution{
-		ID:     "tool-3",
-		Tool:   "test-tool",
-		Status: acp.StatusFailed,
-	})
-
-	weight := engine.calculateAgentWeight(a)
-	// Weight should be affected by success rate (2/3 = 0.667)
-	t.Logf("Agent weight with 66.7%% success rate: %f", weight)
-	if weight <= 0 {
-		t.Error("Weight should be positive")
-	}
-}
-
-func TestConsensusCalculateAgentWeightTypes(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	tests := []struct {
-		agentType agent.AgentType
-		minWeight float64
-		maxWeight float64
-	}{
-		{agent.AgentTypeArchitect, 1.0, 2.0},
-		{agent.AgentTypeReviewer, 1.0, 1.5},
-		{agent.AgentTypeOrchestrator, 1.0, 1.5},
-		{agent.AgentTypeCoder, 0.5, 1.2},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.agentType), func(t *testing.T) {
-			a := agent.NewAgent("test", tt.agentType)
-			weight := engine.calculateAgentWeight(a)
-
-			if weight < tt.minWeight || weight > tt.maxWeight {
-				t.Errorf("Weight for %s should be between %f and %f, got %f",
-					tt.agentType, tt.minWeight, tt.maxWeight, weight)
-			}
-		})
-	}
-}
-
-func TestConsensusCanReachEarlyConsensusAllVoted(t *testing.T) {
-	registry := agent.NewRegistry()
-
-	// Add 3 agents
-	agents := make([]*agent.Agent, 3)
-	for i := 0; i < 3; i++ {
-		agents[i] = agent.NewAgent("agent", agent.AgentTypeCoder)
-		registry.Register(agents[i])
-	}
-
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			CreatedAt: time.Now(),
-		},
-		Algorithm: ConsensusSimpleMajority,
-		Votes: map[string]Vote{
-			string(agents[0].ID): {AgentID: string(agents[0].ID), Approve: true, Weight: 1.0},
-			string(agents[1].ID): {AgentID: string(agents[1].ID), Approve: true, Weight: 1.0},
-			string(agents[2].ID): {AgentID: string(agents[2].ID), Approve: false, Weight: 1.0},
-		},
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// All agents have voted, should be able to reach consensus
-	if !engine.canReachEarlyConsensus(active) {
-		t.Error("Should reach early consensus when all votes are in")
-	}
-}
-
-func TestConsensusCanReachEarlyConsensusNoAgents(t *testing.T) {
-	registry := agent.NewRegistry() // Empty registry
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			CreatedAt: time.Now(),
-		},
-		Algorithm:   ConsensusSimpleMajority,
-		Votes:       make(map[string]Vote),
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// No agents, should not reach consensus
-	if engine.canReachEarlyConsensus(active) {
-		t.Error("Should not reach early consensus with no agents")
-	}
-}
-
-func TestConsensusCanReachEarlyConsensusSupermajority(t *testing.T) {
-	registry := agent.NewRegistry()
-
-	// Add 5 agents
-	for i := 0; i < 5; i++ {
-		a := agent.NewAgent("agent", agent.AgentTypeCoder)
-		registry.Register(a)
-	}
-
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// 4 out of 5 approve (80% > 66.7% needed for supermajority)
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			CreatedAt: time.Now(),
-		},
-		Algorithm: ConsensusSupermajority,
-		Votes: map[string]Vote{
-			"a1": {AgentID: "a1", Approve: true, Weight: 1.0},
-			"a2": {AgentID: "a2", Approve: true, Weight: 1.0},
-			"a3": {AgentID: "a3", Approve: true, Weight: 1.0},
-			"a4": {AgentID: "a4", Approve: true, Weight: 1.0},
-		},
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// Can reach early consensus because 4/5 = 80% > 66.7%
-	// Remaining 1 vote can't change outcome
-	result := engine.canReachEarlyConsensus(active)
-	t.Logf("canReachEarlyConsensus with 4/5 approves for supermajority: %v", result)
-}
-
-func TestConsensusCheckTimeoutsMultipleProposals(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{
-		DefaultTimeout: 1 * time.Millisecond,
-	}, registry)
-
-	// Create multiple proposals with different deadlines
-	now := time.Now()
-
-	// Expired proposal
-	expired := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "expired",
-			CreatedAt: now.Add(-1 * time.Hour),
-		},
-		Votes:       make(map[string]Vote),
-		Deadline:    now.Add(-1 * time.Second),
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// Active proposal
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "active",
-			CreatedAt: now,
-		},
-		Votes:       make(map[string]Vote),
-		Deadline:    now.Add(1 * time.Hour),
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	// Already completed
-	completed := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "completed",
-			CreatedAt: now,
-		},
-		Votes:       make(map[string]Vote),
-		Deadline:    now.Add(-1 * time.Second),
-		Completed:   true,
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	engine.activeProposals["expired"] = expired
-	engine.activeProposals["active"] = active
-	engine.activeProposals["completed"] = completed
-
-	engine.checkTimeouts()
-
-	// Expired should be marked as completed
-	if !expired.Completed {
-		t.Error("Expired proposal should be marked as completed")
-	}
-
-	// Active should not be completed
-	if active.Completed {
-		t.Error("Active proposal should not be completed")
-	}
-
-	// Completed should stay completed
-	if !completed.Completed {
-		t.Error("Already completed proposal should stay completed")
-	}
-}
-
-func TestConsensusRecordVoteWithCallback(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	callbackCalled := false
-	var receivedProposalID string
-	var receivedVote Vote
-
-	engine.OnVoteReceived(func(proposalID string, v Vote) {
-		callbackCalled = true
-		receivedProposalID = proposalID
-		receivedVote = v
-	})
-
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			CreatedAt: time.Now(),
-		},
-		Votes:       make(map[string]Vote),
-		VoteChannel: make(chan Vote, 10),
-	}
-	engine.activeProposals["test-prop"] = active
-
-	vote := Vote{
-		AgentID: "agent-1",
-		Approve: true,
-		Comment: "I approve",
-		Weight:  1.0,
-	}
-
-	engine.recordVote(active, vote)
-
-	if !callbackCalled {
-		t.Error("Vote callback should be called")
-	}
-	if receivedProposalID != "test-prop" {
-		t.Errorf("Expected proposal ID 'test-prop', got '%s'", receivedProposalID)
-	}
-	if receivedVote.AgentID != "agent-1" {
-		t.Errorf("Expected agent ID 'agent-1', got '%s'", receivedVote.AgentID)
-	}
-}
-
-func TestConsensusFinalizeConsensusAgreed(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{
-		MinAgreement: 0.5,
-	}, registry)
-
-	consensusReached := false
-	engine.OnConsensusReached(func(r *ConsensusResult) {
-		consensusReached = true
-	})
-
-	active := &ActiveProposal{
-		Proposal: &Proposal{
-			ID:        "test-prop",
-			Title:     "Test Proposal",
-			CreatedAt: time.Now(),
-		},
-		Algorithm: ConsensusSimpleMajority,
-		Votes: map[string]Vote{
-			"agent-1": {AgentID: "agent-1", Approve: true, Weight: 1.0},
-			"agent-2": {AgentID: "agent-2", Approve: true, Weight: 1.0},
-			"agent-3": {AgentID: "agent-3", Approve: false, Weight: 1.0},
-		},
-		VoteChannel: make(chan Vote, 10),
-	}
-
-	engine.finalizeConsensus(active)
-
-	if !active.Completed {
-		t.Error("Proposal should be marked as completed")
-	}
-	if active.Result == nil {
-		t.Fatal("Result should not be nil")
-	}
-	if active.Result.TaskID != "test-prop" {
-		t.Errorf("Expected TaskID 'test-prop', got '%s'", active.Result.TaskID)
-	}
-	t.Logf("Consensus reached: %v, status: %s", consensusReached, active.Result.Status)
-}
-
-func TestConsensusInferVoteFromTextNeutral(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Test with neutral text (no clear approval/rejection keywords)
-	result := engine.inferVoteFromText("This is a comment with no opinion")
-	// Default behavior should be defined
-	t.Logf("Neutral text inference result: %v", result)
-}
-
-func TestConsensusInferVoteFromTextEmpty(t *testing.T) {
-	registry := agent.NewRegistry()
-	engine := NewConsensusEngine(ConsensusConfig{}, registry)
-
-	// Test with empty text
-	result := engine.inferVoteFromText("")
-	t.Logf("Empty text inference result: %v", result)
 }

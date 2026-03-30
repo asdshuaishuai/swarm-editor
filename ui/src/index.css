@@ -10,6 +10,22 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* CSS 变量 - 与 Tailwind 主题色同步 */
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-muted: rgba(10, 132, 255, 0.15);
+  --success: #30d158;
+  --warning: #ffd60a;
+  --error: #ff453a;
+  --info: #64d2ff;
+  --text-primary: #f5f5f7;
+  --text-secondary: rgba(235, 235, 235, 0.6);
+  --text-tertiary: rgba(235, 235, 235, 0.4);
+  --bg-primary: #1c1c1e;
+  --bg-secondary: rgba(30, 30, 30, 0.85);
+  --glass: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
 }
 
 body {
@@ -159,4 +175,15 @@ body {
 /* Code Font */
 .font-mono {
   font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Menlo', monospace;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -3,6 +3,7 @@ package acp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -434,8 +435,9 @@ func TestWebSocketTransportReceiveEOF(t *testing.T) {
 	transport := NewWebSocketTransport(conn)
 
 	_, err := transport.Receive()
-	if err != io.EOF {
-		t.Errorf("Expected EOF, got: %v", err)
+	// The error is wrapped, so we check with errors.Is
+	if !errors.Is(err, io.EOF) {
+		t.Errorf("Expected EOF error, got: %v", err)
 	}
 }
 

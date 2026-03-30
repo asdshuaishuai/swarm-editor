@@ -23,12 +23,19 @@ const (
 	MethodSessionCancel      = "session/cancel"
 	MethodSessionUpdate      = "session/update"
 	MethodSessionRequestPerm = "session/request_permission"
+	MethodSessionClose       = "session/close"
 
 	// Client methods
 	MethodFSReadTextFile  = "fs/read_text_file"
 	MethodFSWriteTextFile = "fs/write_text_file"
 	MethodTerminalCreate  = "terminal/create"
 	MethodTerminalWrite   = "terminal/write"
+
+	// MCP methods
+	MethodMCPStartServer = "mcp/startServer"
+	MethodMCPStopServer  = "mcp/stopServer"
+	MethodMCPCallTool    = "mcp/callTool"
+	MethodMCPListTools   = "mcp/listTools"
 )
 
 // Handler handles ACP method calls
@@ -71,6 +78,18 @@ type Handler interface {
 
 	// SwarmGetStatus gets swarm status
 	SwarmGetStatus(ctx context.Context, params *SwarmGetStatusParams) (*SwarmStatusResult, error)
+
+	// MCPStartServer starts an MCP server
+	MCPStartServer(ctx context.Context, params *MCPStartServerParams) (*MCPServerStatus, error)
+
+	// MCPStopServer stops an MCP server
+	MCPStopServer(ctx context.Context, params *MCPStopServerParams) (*MCPServerStatus, error)
+
+	// MCPCallTool calls a tool on an MCP server
+	MCPCallTool(ctx context.Context, params *MCPCallToolParams) (*MCPCallToolResult, error)
+
+	// MCPListTools lists available tools on an MCP server
+	MCPListTools(ctx context.Context, params *MCPListToolsParams) (*MCPListToolsResult, error)
 
 	// OnUpdate registers a callback for session updates
 	OnUpdate(callback func(sessionID SessionID, update *Update))
@@ -124,7 +143,10 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the server
+// Stop stops the server.
+// IMPORTANT: transport.Close() MUST be called before wg.Wait() to prevent deadlock.
+// The readLoop blocks in transport.Receive(), which won't see context cancellation.
+// Closing the transport unblocks Receive(), allowing the goroutine to exit.
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	if !s.running {
@@ -137,8 +159,11 @@ func (s *Server) Stop() error {
 	}
 	s.mu.Unlock()
 
+	// Close transport FIRST to unblock readLoop's Receive() call
+	transportErr := s.transport.Close()
+	// THEN wait for goroutines to finish
 	s.wg.Wait()
-	return s.transport.Close()
+	return transportErr
 }
 
 // SendUpdate sends a session update notification
@@ -217,17 +242,36 @@ func (s *Server) readLoop() {
 				// Normal shutdown
 				return
 			}
-			// Log error and continue - transport may recover
+			// Non-EOF error: transport may recover, but log and exit readLoop
+			// to avoid busy-loop when transport returns permanent errors
 			log.Printf("server readLoop: receive error: %v", err)
-			continue
+			return
 		}
 
 		if msg.ID != nil && msg.Method != "" {
-			// Request
-			go s.handleRequest(msg)
+			// Request - isolate panics to prevent process crash
+			s.wg.Add(1)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("server handleRequest panic: %v", r)
+					}
+					s.wg.Done()
+				}()
+				s.handleRequest(msg)
+			}()
 		} else if msg.Method != "" {
-			// Notification
-			go s.handleNotification(msg)
+			// Notification - isolate panics to prevent process crash
+			s.wg.Add(1)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("server handleNotification panic: %v", r)
+					}
+					s.wg.Done()
+				}()
+				s.handleNotification(msg)
+			}()
 		} else if msg.ID != nil {
 			// Response
 			s.handleResponse(msg)
@@ -236,7 +280,7 @@ func (s *Server) readLoop() {
 }
 
 func (s *Server) handleRequest(msg *Message) {
-	var result interface{}
+	var result any
 	var err error
 
 	ctx := s.ctx
@@ -323,6 +367,30 @@ func (s *Server) handleRequest(msg *Message) {
 			result, err = s.handler.SwarmGetStatus(ctx, &params)
 		}
 
+	case MethodMCPStartServer:
+		var params MCPStartServerParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.MCPStartServer(ctx, &params)
+		}
+
+	case MethodMCPStopServer:
+		var params MCPStopServerParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.MCPStopServer(ctx, &params)
+		}
+
+	case MethodMCPCallTool:
+		var params MCPCallToolParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.MCPCallTool(ctx, &params)
+		}
+
+	case MethodMCPListTools:
+		var params MCPListToolsParams
+		if err = json.Unmarshal(msg.Params, &params); err == nil {
+			result, err = s.handler.MCPListTools(ctx, &params)
+		}
+
 	default:
 		err = fmt.Errorf("method not found: %s", msg.Method)
 	}
@@ -349,6 +417,12 @@ func (s *Server) handleNotification(msg *Message) {
 }
 
 func (s *Server) handleResponse(msg *Message) {
+	// CRITICAL: Check for nil ID before accessing msg.ID.IsNum
+	// Malformed JSON-RPC responses may have nil ID
+	if msg.ID == nil {
+		return
+	}
+
 	s.mu.RLock()
 	var id int64
 	if msg.ID.IsNum {
@@ -358,7 +432,11 @@ func (s *Server) handleResponse(msg *Message) {
 	s.mu.RUnlock()
 
 	if ok {
-		ch <- msg
+		select {
+		case ch <- msg:
+		default:
+			log.Printf("[ACP Server] duplicate response for request %d, dropping", id)
+		}
 	}
 }
 
@@ -420,17 +498,28 @@ func (c *Client) Stop() error {
 	}
 	c.mu.Unlock()
 
+	// Close transport BEFORE waiting for goroutines.
+	// readLoop is blocked on transport.Receive(); closing the transport
+	// unblocks it and allows wg.Wait() to complete.
+	// If we waited first (transport.Close after wg.Wait), readLoop would
+	// block indefinitely on Receive() → deadlock.
+	transportErr := c.transport.Close()
+
 	c.wg.Wait()
-	return c.transport.Close()
+	return transportErr
 }
 
 // OnUpdate sets the update handler
 func (c *Client) OnUpdate(handler func(sessionID SessionID, update *Update)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.updateHandler = handler
 }
 
 // OnPermissionRequest sets the permission handler
 func (c *Client) OnPermissionRequest(handler func(sessionID SessionID, request *SessionRequestPermissionParams) (*PermissionOutcome, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.permissionHandler = handler
 }
 
@@ -482,7 +571,7 @@ func (c *Client) SendUpdate(sessionID SessionID, update *Update) error {
 	return c.transport.Send(msg)
 }
 
-func (c *Client) call(ctx context.Context, method string, params interface{}, result interface{}) error {
+func (c *Client) call(ctx context.Context, method string, params any, result any) error {
 	id := atomic.AddInt64(&c.nextID, 1)
 	reqID := &RequestID{Number: id, IsNum: true}
 
@@ -536,9 +625,10 @@ func (c *Client) readLoop() {
 				// Normal shutdown
 				return
 			}
-			// Log error and continue - transport may recover
+			// Non-EOF error: transport may recover, but log and exit readLoop
+			// to avoid busy-loop when transport returns permanent errors
 			log.Printf("client readLoop: receive error: %v", err)
-			continue
+			return
 		}
 
 		if msg.ID != nil && msg.Method == "" {
@@ -552,7 +642,11 @@ func (c *Client) readLoop() {
 			c.mu.RUnlock()
 
 			if ok {
-				ch <- msg
+				select {
+				case ch <- msg:
+				default:
+					log.Printf("[ACP Client] duplicate response for request %d, dropping", id)
+				}
 			}
 		} else if msg.Method != "" {
 			// Notification from agent
@@ -562,20 +656,26 @@ func (c *Client) readLoop() {
 }
 
 func (c *Client) handleNotification(msg *Message) {
+	// Snapshot handlers under lock to prevent race with OnUpdate/OnPermissionRequest
+	c.mu.RLock()
+	updateHandler := c.updateHandler
+	permissionHandler := c.permissionHandler
+	c.mu.RUnlock()
+
 	switch msg.Method {
 	case MethodSessionUpdate:
-		if c.updateHandler != nil {
+		if updateHandler != nil {
 			var params SessionUpdateParams
 			if err := json.Unmarshal(msg.Params, &params); err == nil {
-				c.updateHandler(params.SessionID, &params.Update)
+				updateHandler(params.SessionID, &params.Update)
 			}
 		}
 
 	case MethodSessionRequestPerm:
-		if c.permissionHandler != nil {
+		if permissionHandler != nil {
 			var params SessionRequestPermissionParams
 			if err := json.Unmarshal(msg.Params, &params); err == nil {
-				outcome, handlerErr := c.permissionHandler(params.SessionID, &params)
+				outcome, handlerErr := permissionHandler(params.SessionID, &params)
 				if handlerErr == nil {
 					// Send response
 					resp, respErr := NewResponse(msg.ID, outcome)
@@ -585,6 +685,13 @@ func (c *Client) handleNotification(msg *Message) {
 					}
 					if sendErr := c.transport.Send(resp); sendErr != nil {
 						log.Printf("client handleNotification: failed to send response: %v", sendErr)
+					}
+				} else {
+					// MEDIUM: Send error response when handler fails (previously silently ignored)
+					log.Printf("client handleNotification: permission handler error: %v", handlerErr)
+					errResp := NewErrorResponse(msg.ID, -32603, handlerErr.Error(), nil)
+					if sendErr := c.transport.Send(errResp); sendErr != nil {
+						log.Printf("client handleNotification: failed to send error response: %v", sendErr)
 					}
 				}
 			}

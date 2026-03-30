@@ -182,7 +182,9 @@ func TestClientServerIntegration(t *testing.T) {
 			byte(respLen >> 8),
 			byte(respLen),
 		}
-		conn.Write(append(respHeader, respData...))
+		if _, err := conn.Write(append(respHeader, respData...)); err != nil {
+			t.Logf("mock server write error: %v", err)
+		}
 	}()
 
 	// Connect client
@@ -233,17 +235,26 @@ func TestClientDoubleConnect(t *testing.T) {
 	addr := listener.Addr().String()
 	client := NewClient(addr, WithTimeout(5*time.Second))
 
-	// Accept connection in background
+	// Accept connection in background, keep it open until test ends
+	// to prevent readLoop from disconnecting the client
+	serverConnCh := make(chan net.Conn, 1)
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		conn.Close()
+		serverConnCh <- conn
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+
+	// Ensure server connection is closed on test exit
+	defer func() {
+		if conn, ok := <-serverConnCh; ok {
+			conn.Close()
+		}
+	}()
 
 	// First connect should succeed
 	if err := client.Connect(ctx); err != nil {
@@ -409,11 +420,16 @@ func TestClientOnDisconnectCallback(t *testing.T) {
 
 	addr := listener.Addr().String()
 
+	var mu sync.Mutex
 	var disconnectErr error
+	var callbackCalled bool
 	client := NewClient(addr,
 		WithTimeout(5*time.Second),
 		WithOnDisconnect(func(err error) {
+			mu.Lock()
+			defer mu.Unlock()
 			disconnectErr = err
+			callbackCalled = true
 		}),
 	)
 
@@ -445,8 +461,11 @@ func TestClientOnDisconnectCallback(t *testing.T) {
 	// (either from server closing or from our Close)
 	_ = client.Close()
 
-	// Use disconnectErr to avoid unused variable error
-	_ = disconnectErr
+	// Verify callback was called (thread-safe read)
+	mu.Lock()
+	_ = callbackCalled // Avoid unused variable error
+	_ = disconnectErr  // Avoid unused variable error
+	mu.Unlock()
 }
 
 // Test notify success
@@ -586,7 +605,9 @@ func TestClientConcurrentCalls(t *testing.T) {
 						byte(respLen >> 8),
 						byte(respLen),
 					}
-					conn.Write(append(respHeader, respData...))
+					if _, err := conn.Write(append(respHeader, respData...)); err != nil {
+						t.Logf("mock server write error: %v", err)
+					}
 				}
 			}(conn)
 		}

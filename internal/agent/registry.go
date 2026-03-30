@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -54,11 +56,14 @@ func (r *Registry) Unregister(id acp.AgentID) error {
 
 	delete(r.agents, id)
 
-	// Remove from type index
+	// Remove from type index using slices.Delete to avoid aliasing
 	typeAgents := r.byType[agent.Type]
 	for i, a := range typeAgents {
 		if a.ID == id {
-			r.byType[agent.Type] = append(typeAgents[:i], typeAgents[i+1:]...)
+			r.byType[agent.Type] = slices.Delete(typeAgents, i, i+1)
+			if len(r.byType[agent.Type]) == 0 {
+				delete(r.byType, agent.Type)
+			}
 			break
 		}
 	}
@@ -134,6 +139,7 @@ type Lifecycle struct {
 	onSpawn       func(agent *Agent)
 	onTerminate   func(agent *Agent)
 	onStateChange func(agent *Agent, oldState, newState AgentState)
+	stopped       bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -155,19 +161,28 @@ func NewLifecycle(registry *Registry) *Lifecycle {
 
 // Spawn creates and registers a new agent
 func (l *Lifecycle) Spawn(name string, agentType AgentType) *Agent {
+	l.mu.Lock()
+	if l.stopped {
+		l.mu.Unlock()
+		return nil
+	}
 	agent := NewAgent(name, agentType)
 
-	// Register first - if this fails, we won't start the monitor
+	// Register while holding lock to prevent race with Stop()
 	if err := l.registry.Register(agent); err != nil {
 		// Agent already registered, return the existing one
 		if existing, ok := l.registry.Get(agent.ID); ok {
+			l.mu.Unlock()
 			return existing
 		}
+		l.mu.Unlock()
 		return agent
 	}
-
-	// Track state changes only after successful registration
+	// Track goroutine under lock before releasing to prevent race with Stop()
+	// (Stop calls wg.Wait() after releasing mu, must see our wg.Add)
 	l.wg.Add(1)
+	l.mu.Unlock()
+
 	go l.monitorAgent(agent)
 
 	l.mu.RLock()
@@ -191,7 +206,9 @@ func (l *Lifecycle) Terminate(ctx context.Context, id acp.AgentID) error {
 	// Wait for agent to finish current task or timeout
 	agent.SetState(StateIdle)
 
-	l.registry.Unregister(id)
+	if err := l.registry.Unregister(id); err != nil {
+		log.Printf("[Lifecycle] Warning: failed to unregister agent %s: %v", id, err)
+	}
 
 	l.mu.RLock()
 	fn := l.onTerminate
@@ -227,6 +244,10 @@ func (l *Lifecycle) OnStateChange(fn func(agent *Agent, oldState, newState Agent
 
 // Stop stops the lifecycle manager and all agent monitors
 func (l *Lifecycle) Stop() {
+	l.mu.Lock()
+	l.stopped = true
+	l.mu.Unlock()
+
 	if l.cancel != nil {
 		l.cancel()
 	}
@@ -236,6 +257,11 @@ func (l *Lifecycle) Stop() {
 
 func (l *Lifecycle) monitorAgent(agent *Agent) {
 	defer l.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Lifecycle] monitorAgent panic for agent %s: %v", agent.ID, r)
+		}
+	}()
 	lastState := agent.GetState()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -312,9 +338,16 @@ func (p *Pool) Acquire(ctx context.Context) (*Agent, error) {
 }
 
 // Release returns an agent to the pool
+// Uses non-blocking send to prevent deadlock if pool is full
 func (p *Pool) Release(agent *Agent) {
 	agent.SetState(StateIdle)
-	p.ready <- agent
+	select {
+	case p.ready <- agent:
+		// Successfully returned to pool
+	default:
+		// Channel full (shouldn't happen in normal operation)
+		// Agent is still in the pool's agents slice, just not in ready channel
+	}
 }
 
 // Size returns the current pool size

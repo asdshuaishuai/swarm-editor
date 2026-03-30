@@ -3,7 +3,9 @@ package pair
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -96,6 +98,9 @@ func (s *Store) Save(session *PairSession) error {
 	if session == nil {
 		return fmt.Errorf("session cannot be nil")
 	}
+	if err := validateSessionID(session.ID); err != nil {
+		return fmt.Errorf("invalid session ID: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -156,7 +161,7 @@ func (s *Store) Delete(id string) error {
 
 	// Remove from disk
 	filename := s.sessionPath(id)
-	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("failed to delete session file: %w", err)
 	}
 
@@ -225,7 +230,7 @@ func (s *Store) Cleanup(maxAge time.Duration) (int, error) {
 		if session.State == string(PairStateEnded) && session.UpdatedAt.Before(cutoff) {
 			delete(s.sessions, id)
 			filename := s.sessionPath(id)
-			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+			if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return removed, fmt.Errorf("failed to delete session %s: %w", id, err)
 			}
 			removed++
@@ -299,7 +304,7 @@ func (s *Store) saveToDisk(session *StoredSession) error {
 func (s *Store) loadAll() error {
 	entries, err := os.ReadDir(s.basePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("failed to read sessions directory: %w", err)
@@ -319,6 +324,12 @@ func (s *Store) loadAll() error {
 		var session StoredSession
 		if err := json.Unmarshal(data, &session); err != nil {
 			continue // Skip files we can't parse
+		}
+
+		// Validate session ID to prevent path traversal from crafted files
+		if err := validateSessionID(session.ID); err != nil {
+			log.Printf("Warning: skipping session with invalid ID from file %s: %v", entry.Name(), err)
+			continue
 		}
 
 		s.sessions[session.ID] = &session

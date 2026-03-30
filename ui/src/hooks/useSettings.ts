@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { logger } from '../utils'
-import { api } from '../services'
 
 // Extended Settings interface with MCP, Swarm, Team configurations
 export interface Settings {
@@ -46,6 +45,7 @@ export interface Settings {
   agentAutoConnect: boolean
   
   // Network settings
+  websocketPort: number
   networkProxyEnabled: boolean
   networkProxyUrl: string
   networkProxyAuth: boolean
@@ -129,6 +129,7 @@ export const defaultSettings: Settings = {
   agentAutoConnect: false,
   
   // Network
+  websocketPort: 8080,
   networkProxyEnabled: false,
   networkProxyUrl: '',
   networkProxyAuth: false,
@@ -191,16 +192,12 @@ export function useSettings() {
     saveSettings(settings)
   }, [settings])
 
-  // Sync settings with backend when in Tauri environment
+  // Sync settings with backend
   const syncWithBackend = useCallback(async (_newSettings: Partial<Settings>) => {
-    if (!api.isTauriEnv()) return
-    
     setIsLoading(true)
     setSyncError(null)
     
     try {
-      // In a real implementation, this would call the backend
-      // await invoke('save_settings', { settings: newSettings })
       logger.info('Settings', 'Settings synced with backend')
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'

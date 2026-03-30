@@ -377,10 +377,8 @@ func TestSwarmIntelligenceScheduler_BroadcastSwarmCommand(t *testing.T) {
 
 	// Broadcast command (will fail without agents, but shouldn't panic)
 	err := scheduler.BroadcastSwarmCommand("converge", map[string]string{"target": "task1"})
-	// Error expected without registered agents
-	if err == nil {
-		// This is fine if broadcast to empty set
-	}
+	// Error expected without registered agents, but nil is also acceptable
+	_ = err // Ignore result - broadcast to empty set is allowed
 }
 
 func TestSwarmIntelligenceScheduler_GetActiveNegotiations(t *testing.T) {
@@ -557,11 +555,11 @@ func TestSwarmIntelligenceScheduler_HandleProposal(t *testing.T) {
 
 	// Create a negotiation
 	scheduler.activeNegotiations["neg-1"] = &Negotiation{
-		ID:        "neg-1",
-		TaskID:    "task-1",
-		Status:    "pending",
-		Deadline:  time.Now().Add(5 * time.Second),
-		Bids:      make(map[string]*Bid),
+		ID:       "neg-1",
+		TaskID:   "task-1",
+		Status:   "pending",
+		Deadline: time.Now().Add(5 * time.Second),
+		Bids:     make(map[string]*Bid),
 	}
 
 	// Handle proposal message
@@ -1017,11 +1015,11 @@ func TestSwarmIntelligenceScheduler_HandleProposalTaskBid(t *testing.T) {
 	// Create a negotiation
 	scheduler.mu.Lock()
 	scheduler.activeNegotiations["neg-1"] = &Negotiation{
-		ID:        "neg-1",
-		TaskID:    "task-1",
-		Status:    "pending",
-		Deadline:  time.Now().Add(5 * time.Second),
-		Bids:      make(map[string]*Bid),
+		ID:       "neg-1",
+		TaskID:   "task-1",
+		Status:   "pending",
+		Deadline: time.Now().Add(5 * time.Second),
+		Bids:     make(map[string]*Bid),
 	}
 	scheduler.mu.Unlock()
 

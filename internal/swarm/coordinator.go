@@ -4,11 +4,20 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"log"
+	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 )
+
+const maxCoordinatorCompletedTasks = 500
+const maxCoordinatorPendingTasks = 1000
+
+// needsDecompositionDescMinLen is the minimum description length to consider decomposition
+const needsDecompositionDescMinLen = 200
 
 // Coordinator manages multi-agent task coordination
 type Coordinator struct {
@@ -27,9 +36,18 @@ type Coordinator struct {
 	pendingTasks   []*CoordinationTask
 	completedTasks []*CoordinationTask
 
+	// Reverse index for O(1) agent → task lookup (performance optimization)
+	agentToTask map[string]string // agentID → taskID
+
+	// Per-task cancellation (AutoGen CancellationTokenSource pattern)
+	taskCancels map[string][]context.CancelFunc // taskID → cancel funcs (one per worker)
+
 	// Communication channels
 	broadcastChan chan *CoordinatorMessage
 	resultChan    chan *TaskResult
+
+	// Input guardrails (OpenAI Agents SDK pattern)
+	inputGuardrails *InputGuardrailChain
 
 	// Callbacks
 	onTaskStart    func(task *CoordinationTask)
@@ -39,6 +57,9 @@ type Coordinator struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup // WaitGroup for background goroutines
+
+	// Checkpoint store for crash recovery (LangGraph-inspired)
+	checkpoint *CheckpointStore
 }
 
 // CoordinatorConfig configures the coordinator
@@ -78,22 +99,18 @@ type CoordinationTask struct {
 	Consensus *ConsensusResult       `json:"consensus,omitempty"`
 
 	// Metadata
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-}
+	Metadata map[string]any `json:"metadata,omitempty"`
 
-// Additional task statuses for coordination
-const (
-	TaskStatusDecomposing TaskStatus = "decomposing"
-	TaskStatusAssigned    TaskStatus = "assigned"
-	TaskStatusConsensus   TaskStatus = "consensus"
-)
+	// Internal atomic counter for turn tracking (avoids data race on Metadata map)
+	atomicTurnCount int64
+}
 
 // CoordinatorMessage represents a message from coordinator
 type CoordinatorMessage struct {
-	Type     string                 `json:"type"` // "task_assign", "task_cancel", "query", "broadcast"
-	TaskID   string                 `json:"taskId,omitempty"`
-	Content  string                 `json:"content,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Type     string         `json:"type"` // "task_assign", "task_cancel", "query", "broadcast"
+	TaskID   string         `json:"taskId,omitempty"`
+	Content  string         `json:"content,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // CoordinationUpdate represents an update from an agent
@@ -128,8 +145,12 @@ func NewCoordinator(config CoordinatorConfig, cm *acp.ConnectionManager) *Coordi
 		workers:           make(map[string]*acp.AgentConnection),
 		activeTasks:       make(map[string]*CoordinationTask),
 		pendingTasks:      make([]*CoordinationTask, 0),
+		agentToTask:       make(map[string]string), // Reverse index for O(1) lookup
+		taskCancels:       make(map[string][]context.CancelFunc),
 		broadcastChan:     make(chan *CoordinatorMessage, 100),
 		resultChan:        make(chan *TaskResult, 100),
+		checkpoint:        nil, // Set via SetCheckpointStore() when needed
+		inputGuardrails:   NewInputGuardrailChain(),
 	}
 }
 
@@ -141,6 +162,29 @@ func (c *Coordinator) SetCoordinator(conn *acp.AgentConnection) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.coordinator = conn
+}
+
+// SetCheckpointStore sets the checkpoint store for crash recovery.
+// Must be called before starting the coordinator.
+func (c *Coordinator) SetCheckpointStore(store *CheckpointStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.checkpoint = store
+}
+
+// SetInputGuardrails replaces the default input guardrail chain.
+// Must be called before submitting tasks.
+func (c *Coordinator) SetInputGuardrails(chain *InputGuardrailChain) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.inputGuardrails = chain
+}
+
+// GetInputGuardrails returns the current input guardrail chain for inspection.
+func (c *Coordinator) GetInputGuardrails() *InputGuardrailChain {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.inputGuardrails
 }
 
 // AddWorker adds a worker agent connection
@@ -214,8 +258,41 @@ func (c *Coordinator) SubmitTask(ctx context.Context, task *CoordinationTask) er
 		return fmt.Errorf("task priority cannot be negative")
 	}
 
+	// Run input guardrails (OpenAI Agents SDK pattern)
+	c.mu.RLock()
+	guardrails := c.inputGuardrails
+	c.mu.RUnlock()
+	if guardrails != nil {
+		input := task.Prompt
+		if input == "" {
+			input = task.Title + " " + task.Description
+		}
+		result, err := guardrails.Validate(ctx, input, task.Metadata)
+		if err != nil {
+			return fmt.Errorf("input guardrail error: %w", err)
+		}
+		switch result.Action {
+		case InputReject:
+			return fmt.Errorf("input rejected by guardrail %q: %s", result.RuleName, result.Reason)
+		case InputRewrite:
+			task.Prompt = result.Rewrite
+		case InputTriage:
+			// Store triage hint in metadata for downstream processing
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]any)
+			}
+			task.Metadata["_triageTo"] = result.TriageTo
+			task.Metadata["_triageReason"] = result.Reason
+		}
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Check if coordinator is running
+	if !c.running {
+		return fmt.Errorf("coordinator is not running")
+	}
 
 	// Check for duplicate task ID in active tasks
 	if _, exists := c.activeTasks[task.ID]; exists {
@@ -239,12 +316,22 @@ func (c *Coordinator) SubmitTask(ctx context.Context, task *CoordinationTask) er
 	task.Status = TaskStatusPending
 	c.pendingTasks = append(c.pendingTasks, task)
 
+	// Limit pending tasks to prevent unbounded growth
+	if len(c.pendingTasks) > maxCoordinatorPendingTasks {
+		c.pendingTasks = c.pendingTasks[len(c.pendingTasks)-maxCoordinatorPendingTasks:]
+	}
+
 	return nil
 }
 
 // coordinatorLoop is the main coordination loop
 func (c *Coordinator) coordinatorLoop() {
 	defer c.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Coordinator] coordinatorLoop panic: %v", r)
+		}
+	}()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -263,6 +350,11 @@ func (c *Coordinator) coordinatorLoop() {
 // resultProcessingLoop processes task results
 func (c *Coordinator) resultProcessingLoop() {
 	defer c.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Coordinator] resultProcessingLoop panic: %v", r)
+		}
+	}()
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -303,7 +395,16 @@ func (c *Coordinator) processPendingTasks() {
 
 	// Check if task needs decomposition
 	if c.needsDecomposition(task) {
-		go c.decomposeTask(task)
+		c.wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Coordinator] decomposeTask panic for %q: %v", task.ID, r)
+				}
+				c.wg.Done()
+			}()
+			c.decomposeTask(task)
+		}()
 		return
 	}
 
@@ -317,7 +418,16 @@ func (c *Coordinator) processPendingTasks() {
 
 	// Start task execution
 	c.activeTasks[task.ID] = task
-	go c.executeTask(task)
+	c.wg.Add(1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Coordinator] executeTask panic for %q: %v", task.ID, r)
+			}
+			c.wg.Done()
+		}()
+		c.executeTask(task)
+	}()
 }
 
 // getNextTask gets the next highest priority task
@@ -339,19 +449,25 @@ func (c *Coordinator) getNextTask() *CoordinationTask {
 // needsDecomposition checks if a task needs to be decomposed
 func (c *Coordinator) needsDecomposition(task *CoordinationTask) bool {
 	// Check if task is complex enough to decompose
-	return len(task.Description) > 200 && len(c.workers) > 1
+	return len(task.Description) > needsDecompositionDescMinLen && len(c.workers) > 1
 }
 
 // decomposeTask decomposes a task into subtasks
 func (c *Coordinator) decomposeTask(task *CoordinationTask) {
-	c.mu.Lock()
-	task.Status = TaskStatusDecomposing
-	c.mu.Unlock()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Coordinator] decomposeTask panic for task %s: %v", task.ID, r)
+		}
+	}()
 
-	// Simple decomposition heuristic
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	task.Status = TaskStatusDecomposing
+
+	// Simple decomposition heuristic (c.mu held for createSubtasks)
 	subtasks := c.createSubtasks(task)
 
-	c.mu.Lock()
 	task.Subtasks = subtasks
 	for _, st := range subtasks {
 		st.IsSubtask = true
@@ -359,10 +475,10 @@ func (c *Coordinator) decomposeTask(task *CoordinationTask) {
 		c.pendingTasks = append(c.pendingTasks, st)
 	}
 	task.Status = TaskStatusPending
-	c.mu.Unlock()
 }
 
-// createSubtasks creates subtasks from a main task
+// createSubtasks creates subtasks from a main task.
+// Called from decomposeTask with c.mu held.
 func (c *Coordinator) createSubtasks(task *CoordinationTask) []*CoordinationTask {
 	workerCount := len(c.workers)
 	if workerCount == 0 {
@@ -370,7 +486,7 @@ func (c *Coordinator) createSubtasks(task *CoordinationTask) []*CoordinationTask
 	}
 
 	subtasks := make([]*CoordinationTask, workerCount)
-	for i := 0; i < workerCount; i++ {
+	for i := range workerCount {
 		subtasks[i] = &CoordinationTask{
 			ID:          fmt.Sprintf("%s-%d", task.ID, i+1),
 			ParentID:    task.ID,
@@ -401,6 +517,10 @@ func (c *Coordinator) assignTask(task *CoordinationTask) bool {
 
 	task.AssignedTo = []string{worker}
 	task.Status = TaskStatusAssigned
+
+	// Update reverse index for O(1) lookup in handleResult
+	c.agentToTask[worker] = task.ID
+
 	return true
 }
 
@@ -436,34 +556,82 @@ func (c *Coordinator) selectBestWorker(task *CoordinationTask, available []strin
 
 // executeTask executes a task on assigned workers
 func (c *Coordinator) executeTask(task *CoordinationTask) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Coordinator] executeTask panic for task %s: %v", task.ID, r)
+		}
+	}()
+
 	c.mu.Lock()
 	task.Status = TaskStatusRunning
 	task.StartedAt = time.Now()
+	onStart := c.onTaskStart
 	c.mu.Unlock()
 
-	if c.onTaskStart != nil {
-		c.onTaskStart(task)
+	if onStart != nil {
+		onStart(task)
 	}
 
 	// Send task to assigned workers
+	// Snapshot workers under lock to prevent data race with concurrent RemoveWorker
+	c.mu.RLock()
+	workers := make(map[string]*acp.AgentConnection, len(c.workers))
+	maps.Copy(workers, c.workers)
+	// Snapshot Metadata for concurrent-safe access in worker goroutines
+	maxTurns := 0
+	if task.Metadata != nil {
+		if v, ok := task.Metadata["maxTurns"].(int); ok {
+			maxTurns = v
+		}
+	}
+	c.mu.RUnlock()
+
 	for _, agentID := range task.AssignedTo {
-		worker, ok := c.workers[agentID]
+		worker, ok := workers[string(agentID)]
 		if !ok {
 			continue
 		}
 
-		go c.executeOnWorker(task, agentID, worker)
+		c.wg.Add(1)
+		go func(t *CoordinationTask, aID string, w *acp.AgentConnection, mt int) {
+			defer c.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Coordinator] executeOnWorker panic for task %s agent %s: %v", t.ID, aID, r)
+				}
+			}()
+			c.executeOnWorkerWithMaxTurns(t, aID, w, mt)
+		}(task, agentID, worker, maxTurns)
 	}
 }
 
-// executeOnWorker executes a task on a specific worker
-func (c *Coordinator) executeOnWorker(task *CoordinationTask, agentID string, worker *acp.AgentConnection) {
-	ctx := c.ctx
-	if c.config.TaskTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.TaskTimeout)
-		defer cancel()
+// executeOnWorkerWithMaxTurns executes a task on a specific worker with a pre-snapshotted maxTurns value.
+func (c *Coordinator) executeOnWorkerWithMaxTurns(task *CoordinationTask, agentID string, worker *acp.AgentConnection, maxTurns int) {
+	// Check max_turns limit (snapshotted in executeTask under lock)
+	if maxTurns > 0 {
+		currentTurns := atomic.AddInt64(&task.atomicTurnCount, 1) - 1
+		if currentTurns >= int64(maxTurns) {
+			c.handleWorkerError(task, agentID, fmt.Errorf("exceeded max_turns (%d/%d)", currentTurns, maxTurns))
+			return
+		}
 	}
+
+	c.mu.RLock()
+	ctx := c.ctx
+	taskTimeout := c.config.TaskTimeout
+	c.mu.RUnlock()
+	var taskCancel context.CancelFunc
+	if taskTimeout > 0 {
+		ctx, taskCancel = context.WithTimeout(ctx, taskTimeout)
+	} else {
+		ctx, taskCancel = context.WithCancel(ctx)
+	}
+	defer taskCancel()
+
+	// Register cancel func for external cancellation (AutoGen CancellationTokenSource pattern)
+	c.mu.Lock()
+	c.taskCancels[task.ID] = append(c.taskCancels[task.ID], taskCancel)
+	c.mu.Unlock()
 
 	// Create session with worker
 	session, err := worker.CreateSession(ctx, acp.ModeDefault)
@@ -492,14 +660,17 @@ func (c *Coordinator) executeOnWorker(task *CoordinationTask, agentID string, wo
 	}
 	taskResult.Duration = taskResult.CompletedAt.Sub(taskResult.StartedAt)
 
-	// Send result
-	c.resultChan <- taskResult
+	// Send result (non-blocking to prevent deadlock during shutdown)
+	select {
+	case c.resultChan <- taskResult:
+	default:
+		log.Printf("[Coordinator] resultChan full, discarding result for task %s from agent %s", task.ID, agentID)
+	}
 }
 
 // handleWorkerError handles errors from workers
 func (c *Coordinator) handleWorkerError(task *CoordinationTask, agentID string, err error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if task.Results == nil {
 		task.Results = make(map[string]*TaskResult)
@@ -520,32 +691,58 @@ func (c *Coordinator) handleWorkerError(task *CoordinationTask, agentID string, 
 
 	if allFailed {
 		task.Status = TaskStatusFailed
-		if c.onTaskComplete != nil {
-			c.onTaskComplete(task, nil)
+		// Clean up agent-to-task reverse index (same as completeTask)
+		for _, agentID := range task.AssignedTo {
+			delete(c.agentToTask, agentID)
 		}
+		delete(c.activeTasks, task.ID)
+		delete(c.taskCancels, task.ID)
+		onComplete := c.onTaskComplete
+		c.mu.Unlock()
+		if onComplete != nil {
+			onComplete(task, nil)
+		}
+		return
 	}
+	c.mu.Unlock()
 }
 
 // handleResult handles a task result
 func (c *Coordinator) handleResult(result *TaskResult) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	// Find task this result belongs to
-	var task *CoordinationTask
-	for _, t := range c.activeTasks {
-		for _, agentID := range t.AssignedTo {
-			if agentID == result.AgentID {
-				task = t
-				break
-			}
-		}
-		if task != nil {
-			break
-		}
+	// Validate result is not nil
+	if result == nil {
+		c.mu.Unlock()
+		return
 	}
 
-	if task == nil {
+	// Validate agentID is provided
+	if result.AgentID == "" {
+		c.mu.Unlock()
+		return
+	}
+
+	// Verify the worker is registered
+	if _, registered := c.workers[result.AgentID]; !registered {
+		// Reject results from unregistered workers
+		c.mu.Unlock()
+		return
+	}
+
+	// O(1) lookup: find task using reverse index (performance optimization)
+	taskID, exists := c.agentToTask[result.AgentID]
+	if !exists {
+		// No active task found for this agent
+		c.mu.Unlock()
+		return
+	}
+
+	task, exists := c.activeTasks[taskID]
+	if !exists {
+		// Task no longer active (should not happen, cleanup index)
+		delete(c.agentToTask, result.AgentID)
+		c.mu.Unlock()
 		return
 	}
 
@@ -557,7 +754,10 @@ func (c *Coordinator) handleResult(result *TaskResult) {
 
 	// Check if all assigned workers have reported
 	if len(task.Results) == len(task.AssignedTo) {
+		// completeTask handles unlock
 		c.completeTask(task)
+	} else {
+		c.mu.Unlock()
 	}
 }
 
@@ -575,17 +775,31 @@ func (c *Coordinator) completeTask(task *CoordinationTask) {
 	task.CompletedAt = time.Now()
 	task.Progress = 1.0
 
+	// Clean up agent-to-task reverse index
+	for _, agentID := range task.AssignedTo {
+		delete(c.agentToTask, agentID)
+	}
+
 	// Move to completed
 	delete(c.activeTasks, task.ID)
+	delete(c.taskCancels, task.ID)
 	c.completedTasks = append(c.completedTasks, task)
 
-	if c.onTaskComplete != nil {
+	// Limit completed tasks history to prevent memory leak (keep last 500)
+	if len(c.completedTasks) > maxCoordinatorCompletedTasks {
+		c.completedTasks = c.completedTasks[len(c.completedTasks)-maxCoordinatorCompletedTasks:]
+	}
+
+	onComplete := c.onTaskComplete
+	c.mu.Unlock()
+
+	if onComplete != nil {
 		var finalResult *TaskResult
 		for _, r := range task.Results {
 			finalResult = r
 			break
 		}
-		c.onTaskComplete(task, finalResult)
+		onComplete(task, finalResult)
 	}
 }
 
@@ -648,7 +862,8 @@ func (c *Coordinator) handleBroadcast(msg *CoordinatorMessage) {
 	}
 }
 
-// cancelTask cancels a task
+// cancelTask cancels a task and cascades cancellation to its subtasks.
+// Inspired by AutoGen's linked CancellationTokenSource pattern.
 func (c *Coordinator) cancelTask(taskID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -658,8 +873,60 @@ func (c *Coordinator) cancelTask(taskID string) {
 		return
 	}
 
-	task.Status = TaskStatusFailed
+	task.Status = TaskStatusCancelled
+	task.CompletedAt = time.Now()
 	delete(c.activeTasks, taskID)
+
+	// Clean up agent-to-task reverse index (same as completeTask)
+	for _, agentID := range task.AssignedTo {
+		delete(c.agentToTask, agentID)
+	}
+
+	// Cancel the running goroutine(s) via per-task context
+	if cancelFns, ok := c.taskCancels[taskID]; ok {
+		for _, fn := range cancelFns {
+			fn()
+		}
+		delete(c.taskCancels, taskID)
+	}
+
+	// Add to completedTasks for visibility (with limit to prevent memory leak)
+	c.completedTasks = append(c.completedTasks, task)
+	if len(c.completedTasks) > maxCoordinatorCompletedTasks {
+		c.completedTasks = c.completedTasks[len(c.completedTasks)-maxCoordinatorCompletedTasks:]
+	}
+
+	// Cascade: cancel subtasks that are active
+	for _, st := range task.Subtasks {
+		if _, isActive := c.activeTasks[st.ID]; isActive {
+			st.Status = TaskStatusCancelled
+			st.CompletedAt = time.Now()
+			delete(c.activeTasks, st.ID)
+			// Clean up agent-to-task reverse index for subtask
+			for _, agentID := range st.AssignedTo {
+				delete(c.agentToTask, agentID)
+			}
+			// Cancel subtask's running goroutine(s)
+			if cancelFns, ok := c.taskCancels[st.ID]; ok {
+				for _, fn := range cancelFns {
+					fn()
+				}
+				delete(c.taskCancels, st.ID)
+			}
+			// Add cancelled subtask to completedTasks
+			c.completedTasks = append(c.completedTasks, st)
+			if len(c.completedTasks) > maxCoordinatorCompletedTasks {
+				c.completedTasks = c.completedTasks[len(c.completedTasks)-maxCoordinatorCompletedTasks:]
+			}
+		}
+		// Also remove from pending
+		for i, pt := range c.pendingTasks {
+			if pt.ID == st.ID {
+				c.pendingTasks = append(c.pendingTasks[:i], c.pendingTasks[i+1:]...)
+				break
+			}
+		}
+	}
 }
 
 // GetStats returns coordinator statistics

@@ -1,9 +1,10 @@
-// Package acp implements ACP agent configuration management
 package acp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -135,7 +136,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			// Create default config
 			cfg := NewConfig()
 			if err := cfg.Save(path); err != nil {
@@ -167,8 +168,8 @@ func (c *Config) Save(path string) error {
 		path = filepath.Join(ConfigDir, ConfigFile)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	// Ensure directory exists with restricted permissions
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -177,7 +178,8 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Write with restricted permissions (owner read/write only)
+	return os.WriteFile(path, data, 0600)
 }
 
 // AddAgent adds an agent configuration
