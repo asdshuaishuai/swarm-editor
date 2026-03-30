@@ -215,7 +215,7 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 64.9% (up from 15.7%)
+- [x] 测试覆盖率趋势 - internal/api: 64.9% (up from 15.7%), internal/swarm: 72.0% (up from 70.7%)
 - [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
