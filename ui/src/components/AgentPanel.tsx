@@ -36,16 +36,26 @@ export default function AgentPanel() {
   const [fileQuery, setFileQuery] = useState('')
   const [availableFiles, setAvailableFiles] = useState<FileItem[]>([])
 
+  // Directories to exclude from file scanning
+  const EXCLUDE_DIRS = ['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'vendor', 'target', 'bin']
+
   // Load available files for autocomplete from backend
-  const loadFilesFromBackend = useCallback(async (dirPath: string = '.') => {
+  const loadFilesFromBackend = useCallback(async (dirPath: string = '.'): Promise<FileItem[]> => {
+    // Skip if already in an excluded directory
+    if (EXCLUDE_DIRS.some(d => dirPath.includes('/' + d) || dirPath === d)) {
+      return []
+    }
+
     try {
       const entries = await fsApi.listDir(dirPath)
       const files: FileItem[] = []
+
       for (const entry of entries) {
         if (entry.isDirectory) {
-          // Recursively load files from subdirectories (limit depth)
-          if (!dirPath.includes('node_modules') && !dirPath.includes('.git') && dirPath.split('/').length < 4) {
-            const subFiles = await loadFilesFromBackend(`${dirPath}/${entry.name}`)
+          // Skip excluded directories and limit recursion depth
+          if (!EXCLUDE_DIRS.includes(entry.name) && dirPath.split('/').length < 5) {
+            const subPath = dirPath === '.' ? entry.name : `${dirPath}/${entry.name}`
+            const subFiles = await loadFilesFromBackend(subPath)
             files.push(...subFiles)
           }
         } else {
@@ -98,7 +108,7 @@ export default function AgentPanel() {
     const afterCursor = input.slice(cursorPos)
 
     // Find the start of the @File reference
-    const match = beforeCursor.match(/@(?:File|Files)\s*([^@]*)$/i)
+    const match = beforeCursor.match(/@(?:File|Files)\s+(\S*)$/i)
     if (match) {
       const beforeRef = beforeCursor.slice(0, beforeCursor.length - match[0].length)
       const newPath = `@File ${path} `
