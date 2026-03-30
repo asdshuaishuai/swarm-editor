@@ -2579,3 +2579,176 @@ func TestCommandHandler_HandleGetWorkflowReport_NotFound(t *testing.T) {
 		t.Error("expected error for non-existent workflow")
 	}
 }
+
+// ==================== API Error Tests ====================
+
+func TestAPIError_Error(t *testing.T) {
+	err := NewAPIError(CodeNotFound, "resource not found")
+	if err.Error() != "resource not found" {
+		t.Errorf("Error() = %q, want 'resource not found'", err.Error())
+	}
+}
+
+func TestAPIError_ErrorMethods(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *APIError
+		expected string
+	}{
+		{"not found", errNotFound("test resource"), "test resource"},
+		{"validation", errValidation("invalid input"), "invalid input"},
+		{"not connected", errNotConnected("service unavailable"), "service unavailable"},
+		{"limit exceeded", errLimitExceeded("rate limit hit"), "rate limit hit"},
+		{"unauthorized", errUnauthorized("access denied"), "access denied"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err.Message != tt.expected {
+				t.Errorf("Message = %q, want %q", tt.err.Message, tt.expected)
+			}
+			if tt.err.Error() != tt.expected {
+				t.Errorf("Error() = %q, want %q", tt.err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+func TestAPIError_Codes(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *APIError
+		expected int
+	}{
+		{"not found", errNotFound(""), CodeNotFound},
+		{"validation", errValidation(""), CodeValidation},
+		{"not connected", errNotConnected(""), CodeNotConnected},
+		{"limit exceeded", errLimitExceeded(""), CodeLimitExceeded},
+		{"unauthorized", errUnauthorized(""), CodeUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err.Code != tt.expected {
+				t.Errorf("Code = %d, want %d", tt.err.Code, tt.expected)
+			}
+		})
+	}
+}
+
+// ==================== Emergence Service with Components Tests ====================
+
+func TestEmergenceService_CollectHealthMetrics_WithScheduler(t *testing.T) {
+	connMgr := acp.NewConnectionManager(nil)
+	scheduler := swarm.NewScheduler(swarm.SchedulerConfig{}, connMgr)
+	svc := NewEmergenceService(nil, scheduler, nil)
+
+	data := svc.GetData()
+	if data == nil {
+		t.Fatal("GetData should return non-nil data")
+	}
+
+	// Should have health metrics from scheduler
+	if data.Health.CollaborationIdx < 0 {
+		t.Error("CollaborationIdx should be non-negative")
+	}
+}
+
+func TestEmergenceService_CollectHealthMetrics_WithCoordinator(t *testing.T) {
+	connMgr := acp.NewConnectionManager(nil)
+	coordinator := swarm.NewCoordinator(swarm.CoordinatorConfig{}, connMgr)
+	svc := NewEmergenceService(nil, nil, coordinator)
+
+	data := svc.GetData()
+	if data == nil {
+		t.Fatal("GetData should return non-nil data")
+	}
+
+	// Should have health metrics from coordinator
+	if data.Health.AgentUtilization < 0 {
+		t.Error("AgentUtilization should be non-negative")
+	}
+}
+
+func TestEmergenceService_CollectHealthMetrics_AllComponents(t *testing.T) {
+	registry := agent.NewRegistry()
+	lifecycle := agent.NewLifecycle(registry)
+	supervisor := swarm.NewSupervisor(swarm.SupervisorConfig{}, registry, lifecycle)
+	connMgr := acp.NewConnectionManager(nil)
+	scheduler := swarm.NewScheduler(swarm.SchedulerConfig{}, connMgr)
+	coordinator := swarm.NewCoordinator(swarm.CoordinatorConfig{}, connMgr)
+
+	svc := NewEmergenceService(supervisor, scheduler, coordinator)
+
+	data := svc.GetData()
+	if data == nil {
+		t.Fatal("GetData should return non-nil data")
+	}
+
+	// Should have health metrics from all components
+	if data.Health.OverallScore < 0 {
+		t.Error("OverallScore should be non-negative")
+	}
+}
+
+func TestEmergenceService_CollectAgentNodes_WithSupervisor(t *testing.T) {
+	registry := agent.NewRegistry()
+	lifecycle := agent.NewLifecycle(registry)
+	supervisor := swarm.NewSupervisor(swarm.SupervisorConfig{}, registry, lifecycle)
+	svc := NewEmergenceService(supervisor, nil, nil)
+
+	data := svc.GetData()
+	if data == nil {
+		t.Fatal("GetData should return non-nil data")
+	}
+
+	// Agents list should not be nil
+	if data.Agents == nil {
+		t.Error("Agents should not be nil")
+	}
+}
+
+// ==================== WebSocket Server Setter Tests ====================
+
+func TestWebSocketServer_AddSupervisor(t *testing.T) {
+	server := newTestServer()
+	server.supervisors = make(map[string]*swarm.Supervisor)
+	registry := agent.NewRegistry()
+	lifecycle := agent.NewLifecycle(registry)
+	supervisor := swarm.NewSupervisor(swarm.SupervisorConfig{}, registry, lifecycle)
+
+	server.AddSupervisor("test-sup", supervisor)
+	// Should not panic
+}
+
+func TestWebSocketServer_RemoveSupervisor(t *testing.T) {
+	server := newTestServer()
+	server.supervisors = make(map[string]*swarm.Supervisor)
+	registry := agent.NewRegistry()
+	lifecycle := agent.NewLifecycle(registry)
+	supervisor := swarm.NewSupervisor(swarm.SupervisorConfig{}, registry, lifecycle)
+
+	server.AddSupervisor("test-sup", supervisor)
+	server.RemoveSupervisor("test-sup")
+	// Should not panic
+}
+
+func TestWebSocketServer_Hub(t *testing.T) {
+	server := newTestServer()
+	hub := server.Hub()
+	if hub != nil {
+		t.Error("Hub should be nil before Run()")
+	}
+}
+
+func TestWebSocketServer_AddMCPClient(t *testing.T) {
+	server := newTestServer()
+	client := mcp.NewClient(&mcp.ClientConfig{Name: "test-mcp", Command: "echo"})
+	server.AddMCPClient("test-mcp", client)
+
+	// Verify client was added
+	clients := server.ListMCPClients()
+	if len(clients) != 1 {
+		t.Errorf("expected 1 MCP client, got %d", len(clients))
+	}
+}
