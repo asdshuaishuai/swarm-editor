@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1197,5 +1198,426 @@ func TestCommandHandler_HandleDeleteAgent_Validation(t *testing.T) {
 				t.Error("expected error")
 			}
 		})
+	}
+}
+
+// ==================== Tier 2: Swarm Success Path Tests ====================
+
+func TestCommandHandler_HandleCreateSwarm_Success(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"name": "Test Swarm", "topology": "mesh", "strategy": "round_robin"}`)
+	result, err := handler.HandleCommand("create_swarm", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(SwarmInfo)
+	if !ok {
+		t.Fatal("expected SwarmInfo")
+	}
+	if info.Name != "Test Swarm" {
+		t.Errorf("Name = %q, want 'Test Swarm'", info.Name)
+	}
+	if info.Status != "created" {
+		t.Errorf("Status = %q, want 'created'", info.Status)
+	}
+}
+
+func TestCommandHandler_HandleGetSwarm_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Create a swarm first
+	cfg := swarm.SwarmConfig{
+		ID:       "test-swarm-1",
+		Name:     "Test Swarm",
+		Topology: swarm.TopologyMesh,
+		Strategy: swarm.StrategySequential,
+	}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"id": "test-swarm-1"}`)
+	result, err := handler.HandleCommand("get_swarm", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["id"] != "test-swarm-1" {
+		t.Errorf("id = %v, want 'test-swarm-1'", info["id"])
+	}
+	if info["name"] != "Test Swarm" {
+		t.Errorf("name = %v, want 'Test Swarm'", info["name"])
+	}
+}
+
+func TestCommandHandler_HandleStartSwarm_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "swarm-start", Name: "Start Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"id": "swarm-start"}`)
+	result, err := handler.HandleCommand("start_swarm", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "started" {
+		t.Errorf("status = %v, want 'started'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleStopSwarm_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "swarm-stop", Name: "Stop Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"id": "swarm-stop"}`)
+	result, err := handler.HandleCommand("stop_swarm", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "stopped" {
+		t.Errorf("status = %v, want 'stopped'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleGetSwarmTasks_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "swarm-tasks", Name: "Tasks Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"swarmId": "swarm-tasks"}`)
+	result, err := handler.HandleCommand("get_swarm_tasks", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tasks, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map[string]any")
+	}
+	// Check that expected keys exist
+	if _, ok := tasks["pending"]; !ok {
+		t.Error("expected 'pending' key")
+	}
+	if _, ok := tasks["completed"]; !ok {
+		t.Error("expected 'completed' key")
+	}
+}
+
+func TestCommandHandler_HandleSubmitTask_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "swarm-submit", Name: "Submit Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"swarmId": "swarm-submit", "title": "Test task", "description": "test"}`)
+	result, err := handler.HandleCommand("submit_task", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// handleSubmitTask returns TaskInfo struct
+	info, ok := result.(TaskInfo)
+	if !ok {
+		t.Fatalf("expected TaskInfo, got %T", result)
+	}
+	if info.Status != "pending" {
+		t.Errorf("status = %v, want 'pending'", info.Status)
+	}
+}
+
+func TestCommandHandler_HandleAddAgentToTeam_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Create team first (ownerId is required)
+	createParams := json.RawMessage(`{"name": "Test Team", "ownerId": "owner-1"}`)
+	createResult, err := handler.HandleCommand("create_team", createParams)
+	if err != nil {
+		t.Fatalf("create_team failed: %v", err)
+	}
+
+	// Extract team ID from response
+	teamInfo, ok := createResult.(TeamInfo)
+	if !ok {
+		t.Fatalf("expected TeamInfo, got %T", createResult)
+	}
+
+	// Create agent in registry
+	ag := agent.NewAgent("Test Agent", agent.AgentTypeWorker)
+	ag.ID = "test-agent"
+	server.registry.Register(ag)
+
+	// Add agent to team using the actual team ID
+	params := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent"}`, teamInfo.ID))
+	result, err := handler.HandleCommand("add_agent_to_team", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "added" {
+		t.Errorf("status = %v, want 'added'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleRemoveAgentFromTeam_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Create team first (ownerId is required)
+	createParams := json.RawMessage(`{"name": "Test Team 2", "ownerId": "owner-2"}`)
+	createResult, err := handler.HandleCommand("create_team", createParams)
+	if err != nil {
+		t.Fatalf("create_team failed: %v", err)
+	}
+
+	// Extract team ID from response
+	teamInfo, ok := createResult.(TeamInfo)
+	if !ok {
+		t.Fatalf("expected TeamInfo, got %T", createResult)
+	}
+
+	// Create agent and add to team
+	ag := agent.NewAgent("Test Agent 2", agent.AgentTypeWorker)
+	ag.ID = "test-agent-2"
+	server.registry.Register(ag)
+	addParams := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent-2"}`, teamInfo.ID))
+	_, _ = handler.HandleCommand("add_agent_to_team", addParams)
+
+	// Remove agent from team
+	params := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent-2"}`, teamInfo.ID))
+	result, err := handler.HandleCommand("remove_agent_from_team", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "removed" {
+		t.Errorf("status = %v, want 'removed'", info["status"])
+	}
+}
+
+// ==================== Tier 4: Workflow Handler Tests ====================
+
+func TestCommandHandler_HandleListWorkflows_Empty(t *testing.T) {
+	handler, server := newTestHandler()
+	server.SetOrchestrator(swarm.NewOrchestrator(nil))
+
+	result, err := handler.HandleCommand("list_workflows", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	workflows, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatal("expected []map[string]any")
+	}
+	if len(workflows) != 0 {
+		t.Errorf("expected 0 workflows, got %d", len(workflows))
+	}
+}
+
+func TestCommandHandler_HandleCreateWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	server.SetOrchestrator(swarm.NewOrchestrator(nil))
+
+	params := json.RawMessage(`{"name": "Test Workflow", "mode": "sequential"}`)
+	result, err := handler.HandleCommand("create_workflow", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["name"] != "Test Workflow" {
+		t.Errorf("name = %v, want 'Test Workflow'", info["name"])
+	}
+	if info["status"] != "draft" {
+		t.Errorf("status = %v, want 'draft'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow first
+	wf := orch.CreateWorkflow("Get Test", swarm.ModeSequential)
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("get_workflow", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["id"] != wf.ID {
+		t.Errorf("id = %v, want %s", info["id"], wf.ID)
+	}
+}
+
+func TestCommandHandler_HandleUpdateWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow first
+	wf := orch.CreateWorkflow("Update Test", swarm.ModeSequential)
+
+	// Update workflow requires nested "workflow" object
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "workflow": {"name": "Updated Name"}}`, wf.ID))
+	result, err := handler.HandleCommand("update_workflow", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["name"] != "Updated Name" {
+		t.Errorf("name = %v, want 'Updated Name'", info["name"])
+	}
+}
+
+func TestCommandHandler_HandleDeleteWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow first
+	wf := orch.CreateWorkflow("Delete Test", swarm.ModeSequential)
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("delete_workflow", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "deleted" {
+		t.Errorf("status = %v, want 'deleted'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowNode_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow first
+	wf := orch.CreateWorkflow("Node Test", swarm.ModeSequential)
+
+	// Uses "id" not "workflowId", and node is nested
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "node": {"type": "agent", "name": "Test Node", "agentId": "test-agent"}}`, wf.ID))
+	result, err := handler.HandleCommand("add_workflow_node", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["name"] != "Test Node" {
+		t.Errorf("name = %v, want 'Test Node'", info["name"])
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowCheckpoints_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow first
+	wf := orch.CreateWorkflow("Checkpoint Test", swarm.ModeSequential)
+
+	// Uses "id" not "workflowId"
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("get_workflow_checkpoints", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Returns []map[string]any
+	_, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatalf("expected []map[string]any, got %T", result)
+	}
+	// Empty is valid
+}
+
+func TestCommandHandler_HandleClearNodeCache_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"nodeId": "test-node"}`)
+	result, err := handler.HandleCommand("clear_node_cache", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "ok" {
+		t.Errorf("status = %v, want 'ok'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleClearAllCaches_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("clear_all_caches", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "ok" {
+		t.Errorf("status = %v, want 'ok'", info["status"])
 	}
 }

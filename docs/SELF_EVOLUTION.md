@@ -186,6 +186,7 @@ const parseFileReferences = (text: string) => {
 53. ✅ internal/api 测试覆盖率 41.6% (up from 34.6%) — 13 command handler validation tests (90+ sub-tests: create_session/send_message/close_session/permission_response/get_swarm/execute_task/MCP/agent CRUD)
 54. ✅ internal/swarm 测试覆盖率 71.4% (up from 70.7%) — 31 setter/getter/utility tests (Orchestrator/HandoffManager/Coordinator)
 55. ✅ internal/swarm interrupt_test.go — InterruptError + GojaExecutor 11 tests (71.4% → 71.7%)
+56. ✅ internal/api 测试覆盖率 47.8% (up from 41.6%) — 11 success path tests fixed (StartSwarm/StopSwarm/SubmitTask/AddAgentToTeam/RemoveAgentFromTeam/UpdateWorkflow/DeleteWorkflow/AddWorkflowNode/GetWorkflowCheckpoints/ClearNodeCache/ClearAllCaches)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
@@ -209,7 +210,7 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 30.2% (up from 15.7%)
+- [x] 测试覆盖率趋势 - internal/api: 47.8% (up from 15.7%)
 - [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
