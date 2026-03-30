@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
 import { logger } from '../utils'
-import { api, events } from '../services'
-import { isCursorInFileReference } from '../utils/fileReference'
+import { api, events, fsApi } from '../services'
+import { isCursorInFileReference, parseFileReferences, getLanguageFromExtension } from '../utils/fileReference'
 import { FileAutocompleteWrapper, FileItem } from './FileAutocomplete'
 
 interface ChatSession {
@@ -36,20 +36,43 @@ export default function AgentPanel() {
   const [fileQuery, setFileQuery] = useState('')
   const [availableFiles, setAvailableFiles] = useState<FileItem[]>([])
 
-  // Load available files for autocomplete
-  useEffect(() => {
-    // Mock files for now - will be replaced with actual file listing from backend
-    const mockFiles: FileItem[] = [
-      { path: 'src/App.tsx', type: 'file', name: 'App.tsx' },
-      { path: 'src/main.tsx', type: 'file', name: 'main.tsx' },
-      { path: 'src/store/appStore.ts', type: 'file', name: 'appStore.ts' },
-      { path: 'src/components/AgentPanel.tsx', type: 'file', name: 'AgentPanel.tsx' },
-      { path: 'src/components/FileAutocomplete.tsx', type: 'file', name: 'FileAutocomplete.tsx' },
-      { path: 'src/services/api.ts', type: 'file', name: 'api.ts' },
-      { path: 'src/services/events.ts', type: 'file', name: 'events.ts' },
-    ]
-    setAvailableFiles(mockFiles)
+  // Load available files for autocomplete from backend
+  const loadFilesFromBackend = useCallback(async (dirPath: string = '.') => {
+    try {
+      const entries = await fsApi.listDir(dirPath)
+      const files: FileItem[] = []
+      for (const entry of entries) {
+        if (entry.isDirectory) {
+          // Recursively load files from subdirectories (limit depth)
+          if (!dirPath.includes('node_modules') && !dirPath.includes('.git') && dirPath.split('/').length < 4) {
+            const subFiles = await loadFilesFromBackend(`${dirPath}/${entry.name}`)
+            files.push(...subFiles)
+          }
+        } else {
+          files.push({
+            path: dirPath === '.' ? entry.name : `${dirPath}/${entry.name}`,
+            type: 'file',
+            name: entry.name,
+          })
+        }
+      }
+      return files
+    } catch (e) {
+      logger.warn('AgentPanel', 'Failed to load files:', e)
+      return []
+    }
   }, [])
+
+  // Load files on mount
+  useEffect(() => {
+    let mounted = true
+    loadFilesFromBackend('.').then(files => {
+      if (mounted) {
+        setAvailableFiles(files)
+      }
+    })
+    return () => { mounted = false }
+  }, [loadFilesFromBackend])
 
   // Handle file autocomplete detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -153,13 +176,58 @@ export default function AgentPanel() {
     }
   }
 
+  // Resolve @File references and format message with file content
+  const resolveFileReferences = async (text: string): Promise<string> => {
+    const references = parseFileReferences(text)
+    if (references.length === 0) return text
+
+    const fileContents = new Map<string, string>()
+
+    // Load file content for each reference (only for 'file' type, not glob/folder)
+    for (const ref of references) {
+      if (ref.type === 'file') {
+        try {
+          const content = await fsApi.readFile(ref.path)
+          fileContents.set(ref.path, content)
+        } catch (e) {
+          logger.warn('AgentPanel', `Failed to read file ${ref.path}:`, e)
+          // Add error message in place of file content
+          fileContents.set(ref.path, `[Error: Could not read file ${ref.path}]`)
+        }
+      }
+    }
+
+    // Replace @File references with formatted content
+    let result = text
+    const sorted = [...references].sort((a, b) => b.startIndex - a.startIndex)
+
+    for (const ref of sorted) {
+      const content = fileContents.get(ref.path)
+      if (content) {
+        const ext = ref.path.split('.').pop()?.toLowerCase() || ''
+        const lang = getLanguageFromExtension(ext)
+        const formatted = `\n\`\`\`${lang}:${ref.path}\n${content}\n\`\`\`\n`
+        result = result.slice(0, ref.startIndex) + formatted + result.slice(ref.endIndex)
+      } else {
+        // For glob/folder types, just remove the reference
+        result = result.slice(0, ref.startIndex) + result.slice(ref.endIndex)
+      }
+    }
+
+    return result.trim()
+  }
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || !selectedAgent) return
 
+    // Capture input before clearing
+    const originalInput = input
+
+    // Update UI immediately for responsive UX
     const userMessage = {
       id: Date.now().toString(),
       role: 'user' as const,
-      content: input,
+      content: originalInput,
       timestamp: new Date(),
     }
 
@@ -168,18 +236,19 @@ export default function AgentPanel() {
     setIsLoading(true)
 
     try {
+      // Resolve @File references asynchronously
+      const resolvedContent = await resolveFileReferences(originalInput)
+
       const session = await ensureSession()
       if (!session) {
         setIsLoading(false)
         return
       }
 
-      // 发送消息到后端
-      // 后端会通过 'agent-message' 事件返回响应，由事件监听器处理
-      await api.agent.sendMessage(session.sessionId, userMessage.content)
+      // Send resolved content (with file contents) to backend
+      await api.agent.sendMessage(session.sessionId, resolvedContent)
 
-      // 注意：不在这里设置 setIsLoading(false)
-      // 等待 'agent-message' 事件到达后，在监听器中处理
+      // Note: isLoading will be set to false in the event listener
     } catch (e) {
       logger.error('AgentPanel', 'Failed to send message:', e)
       addToast('error', 'Send Error', `Failed to send message: ${e instanceof Error ? e.message : String(e)}`)

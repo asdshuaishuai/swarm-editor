@@ -411,7 +411,12 @@ describe('AgentPanel loading state', () => {
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
     fireEvent.click(sendButton!)
 
-    // Input should be cleared
+    // Wait for async handleSend to complete (file resolution)
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Input should be cleared after async resolution
     expect(input).toHaveValue('')
 
     // Type another message and try to send via Enter while still loading
@@ -423,11 +428,6 @@ describe('AgentPanel loading state', () => {
     // Only the first message should be visible in the chat
     const messageAreas = screen.getAllByText('First message')
     expect(messageAreas.length).toBe(1)
-
-    // Advance timer to complete loading
-    await act(async () => {
-      vi.runAllTimersAsync()
-    })
 
     vi.useRealTimers()
   })
