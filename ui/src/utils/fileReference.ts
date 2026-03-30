@@ -84,6 +84,61 @@ function formatFileContent(path: string, content: string): string {
   return '\n```' + lang + ':' + path + '\n' + content + '\n```\n'
 }
 
+/**
+ * Match a glob pattern against a file path
+ * Supports: ** (any directories), * (any chars except /), ? (single char)
+ */
+export function matchGlob(pattern: string, path: string): boolean {
+  // Normalize paths
+  const normalizedPattern = pattern.replace(/\\/g, '/')
+  const normalizedPath = path.replace(/\\/g, '/')
+
+  // Convert glob to regex
+  let regexStr = ''
+  let i = 0
+
+  while (i < normalizedPattern.length) {
+    const char = normalizedPattern[i]
+
+    if (char === '*' && normalizedPattern[i + 1] === '*') {
+      // ** matches any number of directories (including none)
+      if (normalizedPattern[i + 2] === '/') {
+        regexStr += '(?:.*/)?'
+        i += 3
+      } else {
+        regexStr += '.*'
+        i += 2
+      }
+    } else if (char === '*') {
+      // * matches any characters except /
+      regexStr += '[^/]*'
+      i++
+    } else if (char === '?') {
+      // ? matches single character except /
+      regexStr += '[^/]'
+      i++
+    } else if ('.+^$()[]{}|'.includes(char)) {
+      // Escape regex special characters
+      regexStr += '\\' + char
+      i++
+    } else {
+      regexStr += char
+      i++
+    }
+  }
+
+  // Match entire path
+  const regex = new RegExp('^' + regexStr + '$', 'i')
+  return regex.test(normalizedPath)
+}
+
+/**
+ * Expand a glob pattern against a list of file paths
+ */
+export function expandGlob(pattern: string, files: string[]): string[] {
+  return files.filter(file => matchGlob(pattern, file))
+}
+
 export function getLanguageFromExtension(ext: string): string {
   const mapping: Record<string, string> = {
     'ts': 'typescript',

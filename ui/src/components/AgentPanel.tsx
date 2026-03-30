@@ -3,7 +3,7 @@ import { useAppStore } from '../store/appStore'
 import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
 import { logger } from '../utils'
 import { api, events, fsApi } from '../services'
-import { isCursorInFileReference, parseFileReferences, getLanguageFromExtension } from '../utils/fileReference'
+import { isCursorInFileReference, parseFileReferences, getLanguageFromExtension, expandGlob } from '../utils/fileReference'
 import { FileAutocompleteWrapper, FileItem } from './FileAutocomplete'
 
 interface ChatSession {
@@ -192,19 +192,43 @@ export default function AgentPanel() {
     if (references.length === 0) return text
 
     const fileContents = new Map<string, string>()
+    const filePaths = availableFiles.map(f => f.path)
 
-    // Load file content for each reference (only for 'file' type, not glob/folder)
+    // Load file content for each reference
     for (const ref of references) {
       if (ref.type === 'file') {
+        // Single file reference
         try {
           const content = await fsApi.readFile(ref.path)
           fileContents.set(ref.path, content)
         } catch (e) {
           logger.warn('AgentPanel', `Failed to read file ${ref.path}:`, e)
-          // Add error message in place of file content
           fileContents.set(ref.path, `[Error: Could not read file ${ref.path}]`)
         }
+      } else if (ref.type === 'glob') {
+        // Glob pattern - expand and read all matching files
+        const matchedFiles = expandGlob(ref.path, filePaths)
+        if (matchedFiles.length === 0) {
+          logger.warn('AgentPanel', `No files matched glob pattern: ${ref.path}`)
+          fileContents.set(ref.path, `[No files matched: ${ref.path}]`)
+        } else {
+          // Limit to 10 files per glob to avoid token overflow
+          const limitedFiles = matchedFiles.slice(0, 10)
+          for (const filePath of limitedFiles) {
+            try {
+              const content = await fsApi.readFile(filePath)
+              fileContents.set(filePath, content)
+            } catch (e) {
+              logger.warn('AgentPanel', `Failed to read file ${filePath}:`, e)
+              fileContents.set(filePath, `[Error: Could not read file ${filePath}]`)
+            }
+          }
+          if (matchedFiles.length > 10) {
+            logger.info('AgentPanel', `Glob matched ${matchedFiles.length} files, limited to 10`)
+          }
+        }
       }
+      // Note: 'folder' type is not yet implemented - would require recursive listing
     }
 
     // Replace @File references with formatted content
@@ -212,14 +236,38 @@ export default function AgentPanel() {
     const sorted = [...references].sort((a, b) => b.startIndex - a.startIndex)
 
     for (const ref of sorted) {
-      const content = fileContents.get(ref.path)
-      if (content) {
-        const ext = ref.path.split('.').pop()?.toLowerCase() || ''
-        const lang = getLanguageFromExtension(ext)
-        const formatted = `\n\`\`\`${lang}:${ref.path}\n${content}\n\`\`\`\n`
-        result = result.slice(0, ref.startIndex) + formatted + result.slice(ref.endIndex)
+      if (ref.type === 'file') {
+        const content = fileContents.get(ref.path)
+        if (content) {
+          const ext = ref.path.split('.').pop()?.toLowerCase() || ''
+          const lang = getLanguageFromExtension(ext)
+          const formatted = `\n\`\`\`${lang}:${ref.path}\n${content}\n\`\`\`\n`
+          result = result.slice(0, ref.startIndex) + formatted + result.slice(ref.endIndex)
+        } else {
+          result = result.slice(0, ref.startIndex) + result.slice(ref.endIndex)
+        }
+      } else if (ref.type === 'glob') {
+        // For glob patterns, insert all matched file contents
+        const matchedFiles = expandGlob(ref.path, filePaths).slice(0, 10)
+        const parts: string[] = []
+
+        for (const filePath of matchedFiles) {
+          const content = fileContents.get(filePath)
+          if (content) {
+            const ext = filePath.split('.').pop()?.toLowerCase() || ''
+            const lang = getLanguageFromExtension(ext)
+            parts.push(`\n\`\`\`${lang}:${filePath}\n${content}\n\`\`\`\n`)
+          }
+        }
+
+        if (matchedFiles.length > 10) {
+          parts.push(`\n[... and ${matchedFiles.length - 10} more files]\n`)
+        }
+
+        const replacement = parts.join('')
+        result = result.slice(0, ref.startIndex) + replacement + result.slice(ref.endIndex)
       } else {
-        // For glob/folder types, just remove the reference
+        // For unhandled types (folder), just remove the reference
         result = result.slice(0, ref.startIndex) + result.slice(ref.endIndex)
       }
     }
