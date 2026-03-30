@@ -345,7 +345,8 @@ func (s *Supervisor) collectStuckEvent(ag *agent.Agent, health *AgentHealth) *su
 	return nil
 }
 
-// handleUnrecoverableAgent handles an agent that cannot be recovered
+// handleUnrecoverableAgent handles an agent that cannot be recovered.
+// Caller must hold s.mu. Modifies s.stuckAgents, s.healthScores, s.heartbeats, s.alerts.
 func (s *Supervisor) handleUnrecoverableAgent(ag *agent.Agent) {
 	agentID := string(ag.ID)
 
@@ -367,7 +368,7 @@ func (s *Supervisor) handleUnrecoverableAgent(ag *agent.Agent) {
 	s.addAlert("unrecoverable", agentID, "Agent could not be recovered after multiple attempts", "critical", nil)
 }
 
-// addAlert adds an alert
+// addAlert adds an alert. Caller must hold s.mu.
 func (s *Supervisor) addAlert(alertType, agentID, message, severity string, metadata map[string]any) {
 	alert := &SupervisorAlert{
 		Type:      alertType,
