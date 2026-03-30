@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import AgentPanel from './AgentPanel'
 import { useAppStore } from '../store/appStore'
 
@@ -9,6 +9,11 @@ vi.mock('../store/appStore', () => ({
 
 // Store event handlers for triggering in tests
 const eventHandlers = new Map<string, (payload: unknown) => void>()
+
+// Always restore real timers after each test to prevent leakage
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 // Mock WebSocket events API
 vi.mock('../services', () => ({
@@ -103,7 +108,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type a message... (@File to reference files)')).toBeInTheDocument()
   })
 
   it('send button is disabled when no agent selected', () => {
@@ -130,7 +135,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello agent' } })
     const sendButtons = screen.getAllByRole('button')
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
@@ -158,7 +163,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Test message' } })
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 
@@ -180,7 +185,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Test message' } })
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
 
@@ -198,7 +203,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello' } })
     const sendButtons = screen.getAllByRole('button')
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
@@ -225,7 +230,7 @@ describe('AgentPanel', () => {
       return selector ? selector(state) : state
     })
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello' } })
     const sendButtons = screen.getAllByRole('button')
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
@@ -398,7 +403,7 @@ describe('AgentPanel loading state', () => {
   it('does not send message while loading', async () => {
     vi.useFakeTimers()
     render(<AgentPanel />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
 
     // Send first message
     fireEvent.change(input, { target: { value: 'First message' } })

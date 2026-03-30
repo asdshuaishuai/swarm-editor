@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
 import { logger } from '../utils'
 import { api, events } from '../services'
+import { isCursorInFileReference } from '../utils/fileReference'
+import { FileAutocompleteWrapper, FileItem } from './FileAutocomplete'
 
 interface ChatSession {
   agentId: string
@@ -29,6 +31,67 @@ export default function AgentPanel() {
   const [isToggling, setIsToggling] = useState<string | null>(null)
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
   const sessionRef = useRef<ChatSession | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [showFileAutocomplete, setShowFileAutocomplete] = useState(false)
+  const [fileQuery, setFileQuery] = useState('')
+  const [availableFiles, setAvailableFiles] = useState<FileItem[]>([])
+
+  // Load available files for autocomplete
+  useEffect(() => {
+    // Mock files for now - will be replaced with actual file listing from backend
+    const mockFiles: FileItem[] = [
+      { path: 'src/App.tsx', type: 'file', name: 'App.tsx' },
+      { path: 'src/main.tsx', type: 'file', name: 'main.tsx' },
+      { path: 'src/store/appStore.ts', type: 'file', name: 'appStore.ts' },
+      { path: 'src/components/AgentPanel.tsx', type: 'file', name: 'AgentPanel.tsx' },
+      { path: 'src/components/FileAutocomplete.tsx', type: 'file', name: 'FileAutocomplete.tsx' },
+      { path: 'src/services/api.ts', type: 'file', name: 'api.ts' },
+      { path: 'src/services/events.ts', type: 'file', name: 'events.ts' },
+    ]
+    setAvailableFiles(mockFiles)
+  }, [])
+
+  // Handle file autocomplete detection
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    const cursorPos = e.target.selectionStart || 0
+    setInput(value)
+
+    const result = isCursorInFileReference(value, cursorPos)
+    if (result.inReference) {
+      setFileQuery(result.query || '')
+      setShowFileAutocomplete(true)
+    } else {
+      setShowFileAutocomplete(false)
+    }
+  }, [])
+
+  // Handle file selection from autocomplete
+  const handleFileSelect = useCallback((path: string) => {
+    if (!inputRef.current) return
+
+    const cursorPos = inputRef.current.selectionStart || 0
+    const beforeCursor = input.slice(0, cursorPos)
+    const afterCursor = input.slice(cursorPos)
+
+    // Find the start of the @File reference
+    const match = beforeCursor.match(/@(?:File|Files)\s*([^@]*)$/i)
+    if (match) {
+      const beforeRef = beforeCursor.slice(0, beforeCursor.length - match[0].length)
+      const newPath = `@File ${path} `
+      setInput(beforeRef + newPath + afterCursor)
+
+      // Move cursor after the inserted path
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newPos = beforeRef.length + newPath.length
+          inputRef.current.setSelectionRange(newPos, newPos)
+          inputRef.current.focus()
+        }
+      }, 0)
+    }
+    setShowFileAutocomplete(false)
+  }, [input])
 
   // 监听后端事件 (WebSocket)
   useEffect(() => {
@@ -354,13 +417,14 @@ export default function AgentPanel() {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-glass-border">
+      <div className="p-3 border-t border-glass-border relative">
         <div className="flex items-end gap-2">
           <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={selectedAgent ? "Type a message..." : "Select an agent first..."}
+            placeholder={selectedAgent ? "Type a message... (@File to reference files)" : "Select an agent first..."}
             className="flex-1 input-mac resize-none focus:outline-none focus:border-accent disabled:opacity-50"
             rows={2}
             disabled={!selectedAgent}
@@ -373,6 +437,15 @@ export default function AgentPanel() {
             <Send size={16} />
           </button>
         </div>
+        {/* File Autocomplete */}
+        <FileAutocompleteWrapper
+          visible={showFileAutocomplete}
+          query={fileQuery}
+          files={availableFiles}
+          onSelect={handleFileSelect}
+          onClose={() => setShowFileAutocomplete(false)}
+          inputRef={inputRef}
+        />
       </div>
     </div>
   )

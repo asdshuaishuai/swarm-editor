@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { File, Folder, Search, X } from 'lucide-react'
+import { File, Folder, Search } from 'lucide-react'
 
 export interface FileItem {
   path: string
