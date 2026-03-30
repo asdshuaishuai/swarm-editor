@@ -531,6 +531,17 @@ func (h *CommandHandler) handlePermissionResponse(ctx context.Context, params js
 		return nil, safeError("failed to respond to request", err)
 	}
 
+	// Audit log permission response for accountability
+	if orch := h.server.Orchestrator(); orch != nil {
+		if logger := orch.GetAuditLogger(); logger != nil {
+			logger.Log("permission.response", req.ResolvedBy,
+				fmt.Sprintf("permission_%s", map[bool]string{true: "approved", false: "denied"}[req.Approved]),
+				"permission_request", req.RequestID,
+				map[string]any{"approved": req.Approved, "reason": req.Reason},
+				true, "")
+		}
+	}
+
 	return map[string]any{
 		"requestId": req.RequestID,
 		"status":    req.Approved,
@@ -2246,7 +2257,10 @@ func (h *CommandHandler) handleDeleteArtifact(ctx context.Context, params json.R
 	if store == nil {
 		return nil, errNotConnected("artifact store not configured")
 	}
-	store.Delete(strings.TrimSpace(req.WorkflowID), strings.TrimSpace(req.Key))
+	deleted := store.Delete(strings.TrimSpace(req.WorkflowID), strings.TrimSpace(req.Key))
+	if !deleted {
+		log.Printf("[API] Artifact not found for deletion: workflow=%s key=%s", req.WorkflowID, req.Key)
+	}
 	return map[string]string{"status": "deleted"}, nil
 }
 
@@ -2310,8 +2324,8 @@ func (h *CommandHandler) handleAddWorkflowNode(ctx context.Context, params json.
 
 	node := &swarm.WorkflowNode{
 		ID:       fmt.Sprintf("node_%s", uuid.New().String()[:8]),
-		Name:     req.Node.Name,
-		AgentID:  req.Node.AgentID,
+		Name:     strings.TrimSpace(req.Node.Name),
+		AgentID:  strings.TrimSpace(req.Node.AgentID),
 		Type:     "agent", // Default to agent type
 		Status:   swarm.TaskStatusPending,
 		Position: req.Node.Position,
@@ -2521,6 +2535,13 @@ func (h *CommandHandler) handleListAuditEvents(ctx context.Context, params json.
 		return []audit.Event{}, nil
 	}
 
+	// Enforce maximum limit to prevent unbounded memory allocation
+	const maxAuditLimit = 10000
+	limit := req.Limit
+	if limit <= 0 || limit > maxAuditLimit {
+		limit = maxAuditLimit
+	}
+
 	filter := &audit.Filter{
 		EventType:    req.EventType,
 		Actor:        req.Actor,
@@ -2528,7 +2549,7 @@ func (h *CommandHandler) handleListAuditEvents(ctx context.Context, params json.
 		ResourceType: req.ResourceType,
 		ResourceID:   req.ResourceID,
 		Success:      req.Success,
-		Limit:        req.Limit,
+		Limit:        limit,
 	}
 	if req.StartTime != nil {
 		filter.StartTime = *req.StartTime

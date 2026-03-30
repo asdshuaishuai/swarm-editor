@@ -144,6 +144,9 @@ const parseFileReferences = (text: string) => {
 14. ✅ 深度审计 - 4 Agent 并行审计 (handler.go, websocket_server.go, emergence.go, React 前端)
 15. ✅ Bug 修复 - handleRestoreWorkflow 忽略 workflow ID (MEDIUM)
 16. ✅ Bug 修复 - Agent 节点位置 off-by-one (LOW)
+17. ✅ 审计修复 - handleListAuditEvents Limit 上限 10000
+18. ✅ 审计修复 - handleAddWorkflowNode AgentID/Name trim
+19. ✅ 审计修复 - handlePermissionResponse 添加审计日志
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
