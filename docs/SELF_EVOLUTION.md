@@ -166,6 +166,8 @@ const parseFileReferences = (text: string) => {
 36. ✅ orchestration.go executeHierarchical coordinator 失败状态未设置修复 (MEDIUM)
 37. ✅ orchestration.go RestoreFromCheckpoint sagaLog nil 清理 (LOW)
 38. ✅ supervisor.go addAlert/handleUnrecoverableAgent 锁要求文档化
+39. ✅ context_test.go — ContextManager 全覆盖测试 (nil-indexer 7 方法 + indexer 集成 + recentFiles limit)
+40. ✅ idgen_test.go — GenerateID/GenerateShortID 格式/唯一性/前缀/长度测试
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
