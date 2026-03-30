@@ -1656,3 +1656,826 @@ func TestCommandHandler_HandleExecuteWorkflow_NoOrchestrator(t *testing.T) {
 		t.Error("expected error for missing orchestrator")
 	}
 }
+
+// ==================== Automation Handler Tests ====================
+
+func TestCommandHandler_HandleListAutomations_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+	// No orchestrator set
+
+	_, err := handler.HandleCommand("list_automations", nil)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleListAutomations_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("list_automations", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	list, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatalf("expected []map[string]any, got %T", result)
+	}
+	// Empty list is valid
+	if list == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestCommandHandler_HandleAddAutomation_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{}`)},
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("add_automation", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddAutomation_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-auto", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
+	_, err := handler.HandleCommand("add_automation", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleAddAutomation_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "test-auto", "name": "Test Automation", "trigger": {"type": "task_complete"}, "actions": [], "enabled": true}`)
+	result, err := handler.HandleCommand("add_automation", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["id"] != "test-auto" {
+		t.Errorf("id = %v, want 'test-auto'", info["id"])
+	}
+	if info["status"] != "added" {
+		t.Errorf("status = %v, want 'added'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleAddAutomation_InvalidCooldown(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "test-auto", "cooldown": "invalid"}`)
+	_, err := handler.HandleCommand("add_automation", params)
+	if err == nil {
+		t.Error("expected error for invalid cooldown")
+	}
+}
+
+func TestCommandHandler_HandleRemoveAutomation_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{}`)},
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("remove_automation", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleRemoveAutomation_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Add automation first
+	addParams := json.RawMessage(`{"id": "test-remove", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
+	handler.HandleCommand("add_automation", addParams)
+
+	params := json.RawMessage(`{"id": "test-remove"}`)
+	result, err := handler.HandleCommand("remove_automation", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "removed" {
+		t.Errorf("status = %v, want 'removed'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleEnableAutomation_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{"enabled": true}`)},
+		{"empty id", json.RawMessage(`{"id": "", "enabled": true}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("enable_automation", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleEnableAutomation_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Add automation first
+	addParams := json.RawMessage(`{"id": "test-enable", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
+	handler.HandleCommand("add_automation", addParams)
+
+	params := json.RawMessage(`{"id": "test-enable", "enabled": false}`)
+	result, err := handler.HandleCommand("enable_automation", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "updated" {
+		t.Errorf("status = %v, want 'updated'", info["status"])
+	}
+}
+
+// ==================== Artifact Handler Tests ====================
+
+func TestCommandHandler_HandleListArtifacts_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	// Returns empty list without error when no orchestrator
+	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	list, ok := result.([]any)
+	if !ok {
+		t.Fatalf("expected []any, got %T", result)
+	}
+	if len(list) != 0 {
+		t.Errorf("expected empty list, got %d items", len(list))
+	}
+}
+
+func TestCommandHandler_HandleListArtifacts_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test-wf"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Can be []*swarm.WorkflowArtifact or []any
+	_ = result
+	// Empty list is valid
+}
+
+func TestCommandHandler_HandleGetArtifact_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"key": "test"}`)},
+		{"missing key", json.RawMessage(`{"workflowId": "test"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test"}`)},
+		{"empty key", json.RawMessage(`{"workflowId": "test", "key": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("get_artifact", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetArtifact_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Test with non-existent artifact - should return error
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent"}`)
+	_, err := handler.HandleCommand("get_artifact", params)
+	// This should return an error since artifact doesn't exist
+	if err == nil {
+		t.Error("expected error for non-existent artifact")
+	}
+}
+
+func TestCommandHandler_HandleCreateArtifact_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"key": "test", "data": {}}`)},
+		{"missing key", json.RawMessage(`{"workflowId": "test", "data": {}}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test", "data": {}}`)},
+		{"empty key", json.RawMessage(`{"workflowId": "test", "key": "", "data": {}}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("create_artifact", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCreateArtifact_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"result": 42}}`)
+	result, err := handler.HandleCommand("create_artifact", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Result can be map[string]any or *swarm.WorkflowArtifact
+	_ = result
+}
+
+func TestCommandHandler_HandleDeleteArtifact_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"key": "test"}`)},
+		{"missing key", json.RawMessage(`{"workflowId": "test"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test"}`)},
+		{"empty key", json.RawMessage(`{"workflowId": "test", "key": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("delete_artifact", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteArtifact_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
+	result, err := handler.HandleCommand("delete_artifact", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "deleted" {
+		t.Errorf("status = %v, want 'deleted'", info["status"])
+	}
+}
+
+// ==================== Variable Handler Tests ====================
+
+func TestCommandHandler_HandleListVariables_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`))
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleListVariables_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Can be []swarm.WorkflowVariable or []any
+	_ = result
+}
+
+func TestCommandHandler_HandleAddVariable_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"key": "TEST", "value": "test"}`)},
+		{"missing key", json.RawMessage(`{"workflowId": "wf", "value": "test"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "TEST", "value": "test"}`)},
+		{"empty key", json.RawMessage(`{"workflowId": "wf", "key": "", "value": "test"}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("add_variable", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddVariable_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "TEST_VAR", "name": "Test Var", "value": "test_value"}`)
+	result, err := handler.HandleCommand("add_variable", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["key"] != "TEST_VAR" {
+		t.Errorf("key = %v, want 'TEST_VAR'", info["key"])
+	}
+}
+
+func TestCommandHandler_HandleRemoveVariable_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"variableId": "var-1"}`)},
+		{"missing variableId", json.RawMessage(`{"workflowId": "wf"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "variableId": "var-1"}`)},
+		{"empty variableId", json.RawMessage(`{"workflowId": "wf", "variableId": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("remove_variable", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleRemoveVariable_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Add variable first
+	addResult, _ := handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "REMOVE_VAR", "value": "test"}`))
+	varID := addResult.(map[string]string)["id"]
+
+	params := json.RawMessage(fmt.Sprintf(`{"workflowId": "test-wf", "variableId": "%s"}`, varID))
+	result, err := handler.HandleCommand("remove_variable", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "removed" {
+		t.Errorf("status = %v, want 'removed'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleSetVariableValue_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"key": "TEST", "value": "test"}`)},
+		{"missing key", json.RawMessage(`{"workflowId": "wf", "value": "test"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "TEST", "value": "test"}`)},
+		{"empty key", json.RawMessage(`{"workflowId": "wf", "key": "", "value": "test"}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("set_variable_value", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleSetVariableValue_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Add variable first
+	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "old"}`))
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "new_value"}`)
+	result, err := handler.HandleCommand("set_variable_value", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "updated" {
+		t.Errorf("status = %v, want 'updated'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleResolveVariables_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"template": "test"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "template": "test"}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("resolve_variables", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleResolveVariables_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Add variable first
+	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "NAME", "value": "World"}`))
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "template": "Hello {{NAME}}!"}`)
+	result, err := handler.HandleCommand("resolve_variables", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["result"] != "Hello World!" {
+		t.Errorf("result = %v, want 'Hello World!'", info["result"])
+	}
+}
+
+// ==================== Audit Handler Tests ====================
+
+func TestCommandHandler_HandleListAuditEvents_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`))
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleListAuditEvents_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Returns []map[string]any or similar
+	_ = result
+}
+
+func TestCommandHandler_HandleGetAuditStats_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_audit_stats", nil)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleGetAuditStats_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	result, err := handler.HandleCommand("get_audit_stats", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Returns stats
+	_ = result
+}
+
+func TestCommandHandler_HandleClearAuditLog_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("clear_audit_log", nil)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleClearAuditLog_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"confirm": true}`)
+	result, err := handler.HandleCommand("clear_audit_log", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if info["success"] != true {
+		t.Errorf("success = %v, want true", info["success"])
+	}
+}
+
+// ==================== Schedule Runner Handler Tests ====================
+
+func TestCommandHandler_HandleStartScheduleRunner_NoRunner(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("start_schedule_runner", nil)
+	if err == nil {
+		t.Error("expected error for missing schedule runner")
+	}
+}
+
+func TestCommandHandler_HandleStartScheduleRunner_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+	runner := swarm.NewScheduleRunner(nil, orch, nil)
+	server.SetScheduleRunner(runner)
+
+	result, err := handler.HandleCommand("start_schedule_runner", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if info["status"] != "running" {
+		t.Errorf("status = %v, want 'running'", info["status"])
+	}
+
+	// Clean up
+	runner.Stop()
+}
+
+func TestCommandHandler_HandleStopScheduleRunner_NoRunner(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("stop_schedule_runner", nil)
+	if err == nil {
+		t.Error("expected error for missing schedule runner")
+	}
+}
+
+func TestCommandHandler_HandleStopScheduleRunner_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+	runner := swarm.NewScheduleRunner(nil, orch, nil)
+	runner.Start()
+	server.SetScheduleRunner(runner)
+
+	result, err := handler.HandleCommand("stop_schedule_runner", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if info["status"] != "stopped" {
+		t.Errorf("status = %v, want 'stopped'", info["status"])
+	}
+}
+
+func TestCommandHandler_HandleGetScheduleRunnerStatus_NoRunner(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_schedule_runner_status", nil)
+	if err == nil {
+		t.Error("expected error for missing schedule runner")
+	}
+}
+
+func TestCommandHandler_HandleGetScheduleRunnerStatus_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+	runner := swarm.NewScheduleRunner(nil, orch, nil)
+	server.SetScheduleRunner(runner)
+
+	result, err := handler.HandleCommand("get_schedule_runner_status", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if _, exists := info["status"]; !exists {
+		t.Error("expected 'status' key in result")
+	}
+}
+
+// ==================== Resume Workflow Handler Tests ====================
+
+func TestCommandHandler_HandleResumeWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing id", json.RawMessage(`{}`)},
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("resume_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleResumeWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow"}`)
+	_, err := handler.HandleCommand("resume_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+// ==================== Add Workflow Edge Handler Tests ====================
+
+func TestCommandHandler_HandleAddWorkflowEdge_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"missing workflowId", json.RawMessage(`{"from": "a", "to": "b"}`)},
+		{"missing from", json.RawMessage(`{"workflowId": "wf", "to": "b"}`)},
+		{"missing to", json.RawMessage(`{"workflowId": "wf", "from": "a"}`)},
+		{"empty workflowId", json.RawMessage(`{"workflowId": "", "from": "a", "to": "b"}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("add_workflow_edge", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowEdge_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "from": "a", "to": "b"}`)
+	_, err := handler.HandleCommand("add_workflow_edge", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}

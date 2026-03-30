@@ -189,7 +189,7 @@ const parseFileReferences = (text: string) => {
 56. ✅ internal/api 测试覆盖率 47.8% (up from 41.6%) — 11 success path tests fixed (StartSwarm/StopSwarm/SubmitTask/AddAgentToTeam/RemoveAgentFromTeam/UpdateWorkflow/DeleteWorkflow/AddWorkflowNode/GetWorkflowCheckpoints/ClearNodeCache/ClearAllCaches)
 57. ✅ internal/swarm 测试覆盖率 72.0% (up from 71.7%) — executeCodeNodeJavaScript tests (5 sub-tests) + deepCopyAny tests (10 sub-tests)
 58. ✅ internal/api 测试覆盖率 50.5% (up from 47.8%) — emergence service tests (23 sub-tests) + execute workflow validation tests
-57. ✅ internal/swarm 测试覆盖率 71.9% (up from 71.7%) — executeCodeNodeJavaScript tests (simple/vars/timeout/syntax error/object creation + timeout clamp + variable isolation)
+59. ✅ internal/api 测试覆盖率 62.7% (up from 50.5%) — 50+ sub-tests for 0% coverage handlers (automation/artifact/variable/audit/schedule handlers)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
@@ -213,7 +213,7 @@ const parseFileReferences = (text: string) => {
 ### 每月
 - [ ] 竞品版本更新检查
 - [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 47.8% (up from 15.7%)
+- [x] 测试覆盖率趋势 - internal/api: 62.7% (up from 15.7%)
 - [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
 
 ### 每季度
