@@ -474,7 +474,7 @@ func findLogicalOp(expr string, op string) int {
 	for i := 0; i < len(expr)-opLen+1; i++ {
 		ch := expr[i]
 		if inStr {
-			if ch == strChar {
+			if ch == strChar && i > 0 && expr[i-1] != '\\' {
 				inStr = false
 			}
 			continue
@@ -548,7 +548,7 @@ func findTopLevelOp(expr string, op string) int {
 	for i := 0; i < len(expr)-opLen+1; i++ {
 		ch := expr[i]
 		if inStr {
-			if ch == strChar {
+			if ch == strChar && i > 0 && expr[i-1] != '\\' {
 				inStr = false
 			}
 			continue
@@ -626,7 +626,7 @@ func findArithmeticOp(expr string) int {
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
 		if inStr {
-			if ch == strChar {
+			if ch == strChar && i > 0 && expr[i-1] != '\\' {
 				inStr = false
 			}
 			continue

@@ -153,6 +153,7 @@ const parseFileReferences = (text: string) => {
 23. ✅ emergence.go AgentUtilization 覆写修复 - coordinator 不再静默丢弃 supervisor 指标 (MEDIUM)
 24. ✅ LoopDetector 添加 sync.Mutex - 修复并发 ExecuteTask 数据竞争 (MEDIUM-HIGH)
 25. ✅ termination.go AND 模式双重 Check 修复 - 避免有状态条件被重复调用 (MEDIUM)
+26. ✅ code_node.go 表达式解析器转义引号修复 - findLogicalOp/findTopLevelOp/findArithmeticOp 统一处理 (LOW)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
