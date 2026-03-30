@@ -384,3 +384,56 @@ func TestExecuteCodeNode_ArithmeticWithVars(t *testing.T) {
 		t.Errorf("expected 50, got %v", result.Output)
 	}
 }
+
+func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
+	t.Run("logical op does not match inside string", func(t *testing.T) {
+		// The || inside the string should not be treated as a logical operator.
+		// Use double quotes to wrap a string containing single quotes with ||.
+		result, err := ExecuteCodeNode(map[string]any{
+			"code": `"it's a || b" || "end"`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// "it's a || b" is truthy, so OR short-circuits to it
+		if result.Output != "it's a || b" {
+			t.Errorf("expected \"it's a || b\", got %v", result.Output)
+		}
+	})
+
+	t.Run("comparison inside string with escaped quote", func(t *testing.T) {
+		result, err := ExecuteCodeNode(map[string]any{
+			"code": `'a\\'s' == 'a\\'s'`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Output != true {
+			t.Errorf("expected true, got %v", result.Output)
+		}
+	})
+
+	t.Run("arithmetic inside string with double quotes", func(t *testing.T) {
+		result, err := ExecuteCodeNode(map[string]any{
+			"code": `"2 + 3"`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Output != "2 + 3" {
+			t.Errorf("expected \"2 + 3\", got %v", result.Output)
+		}
+	})
+
+	t.Run("ternary with string containing comparison", func(t *testing.T) {
+		result, err := ExecuteCodeNode(map[string]any{
+			"code": `1 > 0 ? "yes" : "no"`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Output != "yes" {
+			t.Errorf("expected \"yes\", got %v", result.Output)
+		}
+	})
+}
