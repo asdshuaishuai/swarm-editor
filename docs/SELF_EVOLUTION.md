@@ -157,6 +157,10 @@ const parseFileReferences = (text: string) => {
 27. ✅ internal/team HTTP handler 测试覆盖 - 25+ sub-tests (HandleListTeams/GetTeam/CreateTeam/DeleteTeam/GetTeamStats/AddMember/RemoveMember/AddAgent/RemoveAgent)
 28. ✅ internal/api command handler 测试覆盖 - 28 sub-tests (stop_agent/refresh_agents/delete_team/add_agent_to_team/remove_agent_from_team/start_swarm/stop_swarm/get_swarm_tasks/get_teams/delete_swarm)
 29. ✅ internal/api 测试覆盖率 34.6% (up from 30.0%)
+30. ✅ automations.go send_notification message 验证 + call_webhook nil-safe type assertions (MEDIUM)
+31. ✅ http_node.go time.After → time.NewTimer 修复 timer leak (LOW)
+32. ✅ checkpoint.go pruneOld 删除失败日志 (LOW)
+33. ✅ 3 automation nil params/missing message tests
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
