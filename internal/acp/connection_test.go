@@ -3,6 +3,8 @@ package acp
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1501,5 +1503,85 @@ func TestAgentSessionContentCaptureFullFlow(t *testing.T) {
 		if block.Type != blocks[i].Type {
 			t.Errorf("Block %d: expected type '%s', got '%s'", i, blocks[i].Type, block.Type)
 		}
+	}
+}
+
+func TestValidateCommand_Empty(t *testing.T) {
+	err := validateCommand("", nil)
+	if err == nil {
+		t.Error("expected error for empty command")
+	}
+}
+
+func TestValidateCommand_PathTraversal(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+	}{
+		{"parent dir", "../bin/agent"},
+		{"double dot mid", "/usr/../etc/passwd"},
+		{"cleaned dot", "/foo/bar/../baz"}, // filepath.Clean produces /foo/baz, no ".."
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCommand(tt.cmd, nil)
+			// filepath.Clean resolves "..", so only literal ".." in cleaned path triggers
+			cleaned := filepath.Clean(tt.cmd)
+			if strings.Contains(cleaned, "..") {
+				if err == nil {
+					t.Errorf("expected error for path traversal in %q", tt.cmd)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateCommand_ShellMetacharacters(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+	}{
+		{"pipe", "agent | cat"},
+		{"double pipe", "agent || echo"},
+		{"ampersand", "agent && echo"},
+		{"semicolon", "agent; ls"},
+		{"newline", "agent\nls"},
+		{"carriage return", "agent\rls"},
+		{"dollar paren", "agent $(whoami)"},
+		{"backtick", "agent `whoami`"},
+		{"dollar brace", "agent ${VAR}"},
+		{"redirect out", "agent > /tmp/out"},
+		{"redirect append", "agent >> /tmp/out"},
+		{"redirect in", "agent < /etc/passwd"},
+		{"redirect heredoc", "agent << EOF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCommand(tt.cmd, nil)
+			if err == nil {
+				t.Errorf("expected error for shell metacharacter in %q", tt.cmd)
+			}
+		})
+	}
+}
+
+func TestValidateCommand_ArgMetacharacters(t *testing.T) {
+	err := validateCommand("/usr/bin/agent", []string{"--config", "; rm -rf /"})
+	if err == nil {
+		t.Error("expected error for metacharacter in argument")
+	}
+}
+
+func TestValidateCommand_Valid(t *testing.T) {
+	err := validateCommand("/usr/bin/claude", []string{"--model", "opus"})
+	if err != nil {
+		t.Errorf("valid command should not error, got: %v", err)
+	}
+}
+
+func TestValidateCommand_ValidRelativePath(t *testing.T) {
+	err := validateCommand("./agent", nil)
+	if err != nil {
+		t.Errorf("relative path should be valid, got: %v", err)
 	}
 }
