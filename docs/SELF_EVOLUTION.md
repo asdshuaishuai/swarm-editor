@@ -60,13 +60,13 @@
 - [ ] 向量嵌入（可选）
 - [ ] 符号搜索优化
 
-### P2 - @Files 语法 ✅ 已完成 (2026-03-31)
+### P2 - @Files 语法 ✅ 完全完成 (2026-03-31)
 
 **实现**: `ui/src/utils/` + `ui/src/components/`
 - `fileReference.ts` - 文件引用解析器
 - `FileAutocomplete.tsx` - 文件选择器组件
 - `fileReference.test.ts` - 23 测试用例
-- `AgentPanel.tsx` - 集成文件自动补全
+- `AgentPanel.tsx` - 完整后端集成
 
 **核心能力**:
 - ✅ 解析 @Files 语法
@@ -75,9 +75,11 @@
 - ✅ 光标位置检测
 - ✅ 文件补全建议
 - ✅ AgentPanel 集成 (键盘导航、自动补全)
+- ✅ **后端联动** - 从 fsApi.listDir 加载实际文件列表
+- ✅ **文件内容注入** - resolveFileReferences 读取并注入文件内容
 
 **待完善**:
-- [ ] 与后端代码库索引联动
+- [ ] glob 模式支持 (`@Files **/*.ts`)
 
 **问题**: 无法在对话中引用特定文件
 
@@ -121,16 +123,15 @@ const parseFileReferences = (text: string) => {
 
 ## 四、下一步行动
 
-### 立即可做
+### 已完成
 1. ✅ 方向修正 - 回归"多Agent协调编辑器"
 2. ✅ 功能分类 - 核心功能 vs 实验性功能
 3. ✅ 代码清理 - 移除过度设计代码
 4. ✅ 代码库索引模块 - `internal/context/`
-5. ✅ @Files 语法支持 - 前端 AgentPanel 集成
+5. ✅ @Files 语法支持 - 完整后端集成 (读取实际文件内容)
 
 ### 短期规划
-1. **后端联动** - @Files 与代码库索引联动 (读取实际文件内容)
-2. **文件引用增强** - glob 模式支持 (`@Files **/*.ts`)
+1. **glob 模式** - 支持 `@Files **/*.ts` 通配符
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
