@@ -60,7 +60,23 @@
 - [ ] 向量嵌入（可选）
 - [ ] 符号搜索优化
 
-### P2 - @Files 语法（中优先级）
+### P2 - @Files 语法 ⏳ 核心实现完成 (2026-03-31)
+
+**实现**: `ui/src/utils/` + `ui/src/components/`
+- `fileReference.ts` - 文件引用解析器
+- `FileAutocomplete.tsx` - 文件选择器组件
+- `fileReference.test.ts` - 23 测试用例
+
+**核心能力**:
+- ✅ 解析 @Files 语法
+- ✅ 文件路径提取
+- ✅ 文件内容格式化
+- ✅ 光标位置检测
+- ✅ 文件补全建议
+
+**待完善**:
+- [ ] AgentPanel 集成
+- [ ] 与后端代码库索引联动
 
 **问题**: 无法在对话中引用特定文件
 
