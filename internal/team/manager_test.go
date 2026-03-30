@@ -1,6 +1,9 @@
 package team
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,21 @@ func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	tempDir := t.TempDir()
 	return NewManagerWithDir(tempDir)
+}
+
+// newTestTeamWithOwner creates a team and adds the owner as a member with RoleOwner.
+// This is needed because CreateTeamWithDesc stores the owner in Team.Owner but does
+// not add them to Team.Members, and permission checks look up Members.
+func newTestTeamWithOwner(t *testing.T, m *Manager, name, desc, owner string) *Team {
+	t.Helper()
+	team, err := m.CreateTeamWithDesc(name, desc, owner)
+	if err != nil {
+		t.Fatalf("CreateTeamWithDesc: %v", err)
+	}
+	if err := team.AddMember(&Member{ID: owner, Role: RoleOwner}); err != nil {
+		t.Fatalf("AddMember owner: %v", err)
+	}
+	return team
 }
 
 func TestNewTeam(t *testing.T) {
@@ -1029,4 +1047,360 @@ func TestWorkspaceAddReviewCommentEmptyContent(t *testing.T) {
 	if err == nil {
 		t.Error("AddReviewComment should fail for empty content")
 	}
+}
+
+// ==================== HTTP Handler Tests ====================
+
+func TestHandleListTeams(t *testing.T) {
+	m := newTestManager(t)
+	m.CreateTeamWithDesc("Team A", "desc", "owner-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/teams", nil)
+	w := httptest.NewRecorder()
+	m.HandleListTeams(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestHandleGetTeam(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team, _ := m.CreateTeamWithDesc("Team A", "desc", "owner-1")
+
+		req := httptest.NewRequest(http.MethodGet, "/teams/"+team.ID, nil)
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleGetTeam(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing id", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodGet, "/teams/", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleGetTeam(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodGet, "/teams/nonexistent", nil)
+		req.SetPathValue("id", "nonexistent")
+		w := httptest.NewRecorder()
+		m.HandleGetTeam(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleCreateTeam(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		body := `{"name":"New Team","description":"desc","ownerId":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		m.HandleCreateTeam(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("expected 201, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		m := newTestManager(t)
+		body := `{"description":"desc","ownerId":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		m.HandleCreateTeam(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodPost, "/teams", strings.NewReader("bad"))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		m.HandleCreateTeam(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleDeleteTeam(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team, _ := m.CreateTeamWithDesc("Team A", "desc", "owner-1")
+
+		req := httptest.NewRequest(http.MethodDelete, "/teams/"+team.ID+"?deletedBy=owner-1", nil)
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleDeleteTeam(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("non-owner cannot delete", func(t *testing.T) {
+		m := newTestManager(t)
+		team, _ := m.CreateTeamWithDesc("Team A", "desc", "owner-1")
+
+		req := httptest.NewRequest(http.MethodDelete, "/teams/"+team.ID+"?deletedBy=other", nil)
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleDeleteTeam(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing params", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodDelete, "/teams/", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleDeleteTeam(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("idempotent for non-existent team", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodDelete, "/teams/nonexistent?deletedBy=owner-1", nil)
+		req.SetPathValue("id", "nonexistent")
+		w := httptest.NewRecorder()
+		m.HandleDeleteTeam(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 (idempotent), got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleGetTeamStats(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team, _ := m.CreateTeamWithDesc("Team A", "desc", "owner-1")
+
+		req := httptest.NewRequest(http.MethodGet, "/teams/"+team.ID+"/stats", nil)
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleGetTeamStats(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing id", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodGet, "/teams//stats", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleGetTeamStats(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodGet, "/teams/nonexistent/stats", nil)
+		req.SetPathValue("id", "nonexistent")
+		w := httptest.NewRecorder()
+		m.HandleGetTeamStats(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleAddMember(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team := newTestTeamWithOwner(t, m, "Team A", "desc", "owner-1")
+
+		body := `{"userId":"user-1","role":"developer","addedBy":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams/"+team.ID+"/members", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleAddMember(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing team id", func(t *testing.T) {
+		m := newTestManager(t)
+		body := `{"userId":"user-1","role":"developer","addedBy":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams//members", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleAddMember(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodPost, "/teams/team-A/members", strings.NewReader("bad"))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "team-A")
+		w := httptest.NewRecorder()
+		m.HandleAddMember(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("permission denied", func(t *testing.T) {
+		m := newTestManager(t)
+		team := newTestTeamWithOwner(t, m, "Team A", "desc", "owner-1")
+
+		body := `{"userId":"user-1","role":"owner","addedBy":"non-owner"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams/"+team.ID+"/members", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleAddMember(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleRemoveMember(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team := newTestTeamWithOwner(t, m, "Team A", "desc", "owner-1")
+		m.AddMemberWithPermission(team.ID, "user-1", RoleDeveloper, "owner-1")
+
+		req := httptest.NewRequest(http.MethodDelete, "/teams/"+team.ID+"/members/user-1?removedBy=owner-1", nil)
+		req.SetPathValue("id", team.ID)
+		req.SetPathValue("userId", "user-1")
+		w := httptest.NewRecorder()
+		m.HandleRemoveMember(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing params", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodDelete, "/teams//members/?removedBy=owner-1", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleRemoveMember(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleAddAgent(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team := newTestTeamWithOwner(t, m, "Team A", "desc", "owner-1")
+
+		body := `{"agentId":"agent-1","addedBy":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams/"+team.ID+"/agents", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", team.ID)
+		w := httptest.NewRecorder()
+		m.HandleAddAgent(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodPost, "/teams/team-A/agents", strings.NewReader("bad"))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "team-A")
+		w := httptest.NewRecorder()
+		m.HandleAddAgent(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing team id", func(t *testing.T) {
+		m := newTestManager(t)
+		body := `{"agentId":"agent-1","addedBy":"owner-1"}`
+		req := httptest.NewRequest(http.MethodPost, "/teams//agents", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleAddAgent(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleRemoveAgent(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestManager(t)
+		team := newTestTeamWithOwner(t, m, "Team A", "desc", "owner-1")
+		a := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+		m.AddAgentWithPermission(team.ID, string(a.ID), "owner-1")
+
+		req := httptest.NewRequest(http.MethodDelete, "/teams/"+team.ID+"/agents/"+string(a.ID)+"?removedBy=owner-1", nil)
+		req.SetPathValue("id", team.ID)
+		req.SetPathValue("agentId", string(a.ID))
+		w := httptest.NewRecorder()
+		m.HandleRemoveAgent(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing params", func(t *testing.T) {
+		m := newTestManager(t)
+		req := httptest.NewRequest(http.MethodDelete, "/teams//agents/?removedBy=owner-1", nil)
+		req.SetPathValue("id", "")
+		w := httptest.NewRecorder()
+		m.HandleRemoveAgent(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
 }
