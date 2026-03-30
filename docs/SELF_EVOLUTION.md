@@ -136,6 +136,7 @@ const parseFileReferences = (text: string) => {
 6. ✅ glob 模式支持 (`@Files **/*.ts`)
 7. ✅ internal/api 测试覆盖率提升 (15.7% → 19.1%)
 8. ✅ api.ts `any` 类型替换为 `unknown` - ESLint 0 warnings
+9. ✅ glob 函数测试 - matchGlob + expandGlob (10 tests)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
