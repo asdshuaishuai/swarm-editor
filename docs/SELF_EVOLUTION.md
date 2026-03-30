@@ -134,6 +134,7 @@ const parseFileReferences = (text: string) => {
 4. ✅ 代码库索引模块 - `internal/context/`
 5. ✅ @Files 语法支持 - 完整后端集成 (读取实际文件内容)
 6. ✅ glob 模式支持 (`@Files **/*.ts`)
+7. ✅ internal/api 测试覆盖率提升 (15.7% → 19.1%)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
