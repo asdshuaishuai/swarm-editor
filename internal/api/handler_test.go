@@ -1136,16 +1136,24 @@ func TestCommandHandler_HandleRemoveMCPServer_Validation(t *testing.T) {
 func TestCommandHandler_HandleAddAgent_Validation(t *testing.T) {
 	handler, _ := newTestHandler()
 
+	// Generate strings that exceed limits
+	longID := strings.Repeat("a", 129)   // maxIDLen = 128
+	longName := strings.Repeat("b", 101) // maxNameLen = 100
+
 	tests := []struct {
 		name   string
 		params string
 	}{
 		{"empty id", `{"config": {"id": "", "name": "Test", "command": "echo"}}`},
+		{"whitespace id", `{"config": {"id": "   ", "name": "Test", "command": "echo"}}`},
 		{"empty name", `{"config": {"id": "a1", "name": "", "command": "echo"}}`},
+		{"whitespace name", `{"config": {"id": "a1", "name": "   ", "command": "echo"}}`},
 		{"missing id", `{"config": {"name": "Test", "command": "echo"}}`},
 		{"missing name", `{"config": {"id": "a1", "command": "echo"}}`},
 		{"missing config", `{}`},
 		{"invalid json", `invalid`},
+		{"id too long", fmt.Sprintf(`{"config": {"id": "%s", "name": "Test", "command": "echo"}}`, longID)},
+		{"name too long", fmt.Sprintf(`{"config": {"id": "a1", "name": "%s", "command": "echo"}}`, longName)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2478,6 +2486,41 @@ func TestCommandHandler_HandleAddWorkflowEdge_NoOrchestrator(t *testing.T) {
 	_, err := handler.HandleCommand("add_workflow_edge", params)
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowEdge_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create workflow and add nodes
+	wf := orch.CreateWorkflow("Edge Test", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "node-a", Type: "agent"})
+	wf.AddNode(&swarm.WorkflowNode{ID: "node-b", Type: "agent"})
+
+	// Add edge
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "edge": {"from": "node-a", "to": "node-b", "condition": "success", "label": "on success"}}`, wf.ID))
+	result, err := handler.HandleCommand("add_workflow_edge", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["from"] != "node-a" {
+		t.Errorf("from = %v, want 'node-a'", info["from"])
+	}
+	if info["to"] != "node-b" {
+		t.Errorf("to = %v, want 'node-b'", info["to"])
+	}
+	if info["condition"] != "success" {
+		t.Errorf("condition = %v, want 'success'", info["condition"])
+	}
+	if info["label"] != "on success" {
+		t.Errorf("label = %v, want 'on success'", info["label"])
 	}
 }
 
