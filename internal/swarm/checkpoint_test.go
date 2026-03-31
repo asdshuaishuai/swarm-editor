@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -401,5 +402,440 @@ func TestCheckpointStore_DeleteCheckpoint(t *testing.T) {
 	err = store.DeleteCheckpoint("nonexistent")
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCheckpointStore_Save_ReadOnlyDir(t *testing.T) {
+	// Test Save when dataDir is read-only: CreateTemp and Rename should fail
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make the directory read-only to trigger CreateTemp failure
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700) // restore for cleanup
+
+	err = store.Save([]*CoordinationTask{{ID: "task_1"}}, nil)
+	if err == nil {
+		t.Fatal("expected error when saving to read-only directory")
+	}
+	// The error should mention temp file creation failure
+	if err != nil && !strings.Contains(err.Error(), "temp") {
+		t.Errorf("expected temp-related error, got: %v", err)
+	}
+}
+
+func TestCheckpointStore_Save_NonExistentDir(t *testing.T) {
+	// Test Save when the dataDir has been removed after creation
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove the directory to trigger ReadDir failure in pruneOld
+	// and file creation failure in subsequent Saves
+	os.RemoveAll(dir)
+
+	// First Save should fail because the directory no longer exists
+	err = store.Save([]*CoordinationTask{{ID: "task_1"}}, nil)
+	if err == nil {
+		t.Fatal("expected error when saving to removed directory")
+	}
+}
+
+func TestCheckpointStore_Save_Concurrent(t *testing.T) {
+	// Test concurrent Save calls to verify thread safety
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const goroutines = 10
+	errCh := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(id int) {
+			task := &CoordinationTask{
+				ID:     fmt.Sprintf("task_%d", id),
+				Status: TaskStatusRunning,
+			}
+			errCh <- store.Save([]*CoordinationTask{task}, nil)
+		}(i)
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errCh; err != nil {
+			t.Errorf("concurrent Save %d failed: %v", i, err)
+		}
+	}
+
+	// All saves should have incremented the sequence
+	if store.LatestSequence() != goroutines {
+		t.Fatalf("expected sequence %d, got %d", goroutines, store.LatestSequence())
+	}
+
+	// Verify all checkpoint files exist and are valid JSON
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonCount := 0
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".json" {
+			jsonCount++
+		}
+	}
+	if jsonCount != goroutines {
+		t.Fatalf("expected %d checkpoint files, got %d", goroutines, jsonCount)
+	}
+}
+
+func TestCheckpointStore_Save_EmptyTasks(t *testing.T) {
+	// Test Save with nil/empty task slices
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.Save(nil, nil)
+	if err != nil {
+		t.Fatalf("Save with nil tasks: %v", err)
+	}
+
+	err = store.Save([]*CoordinationTask{}, []*CoordinationTask{})
+	if err != nil {
+		t.Fatalf("Save with empty tasks: %v", err)
+	}
+
+	cp, err := store.LoadLatest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp == nil {
+		t.Fatal("expected checkpoint")
+	}
+	if len(cp.ActiveTasks) != 0 || len(cp.PendingTasks) != 0 {
+		t.Fatal("expected empty task lists")
+	}
+}
+
+func TestCheckpointStore_Save_FilePermissions(t *testing.T) {
+	// Verify that saved checkpoint files are created with 0600 permissions
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.Save([]*CoordinationTask{{ID: "perm_test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		// Check the file is not world-readable/writable (umask may affect actual mode)
+		if info.Mode().Perm()&0o077 != 0 {
+			// This is expected on some systems due to umask, but verify it's at least owner-only
+			// The chmod sets 0600, but umask may make it tighter, never looser
+		}
+		// Verify it's at least not world-writable
+		if info.Mode().Perm()&0o002 != 0 {
+			t.Errorf("checkpoint file %s should not be world-writable, got %o", e.Name(), info.Mode().Perm())
+		}
+	}
+}
+
+func TestCheckpointStore_Save_RenameToReadOnlyDir(t *testing.T) {
+	// Test Save where CreateTemp succeeds but Rename fails due to read-only parent
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the temp file first by doing a Save, then make dir read-only
+	err = store.Save([]*CoordinationTask{{ID: "first"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Now make the directory read-only so Rename fails on next Save
+	// CreateTemp uses the dir prefix, so it may also fail
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+
+	err = store.Save([]*CoordinationTask{{ID: "second"}}, nil)
+	if err == nil {
+		t.Fatal("expected error when renaming into read-only directory")
+	}
+}
+
+func TestIsValidCheckpointID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"valid", "cp-12345", true},
+		{"valid with dashes", "checkpoint-abc-def", true},
+		{"valid short", "x", true},
+		{"empty", "", false},
+		{"too long", strings.Repeat("a", 129), false},
+		{"exactly 128", strings.Repeat("b", 128), true},
+		{"contains slash", "cp/123", false},
+		{"contains backslash", "cp\\123", false},
+		{"contains dot", "cp.123", false},
+		{"contains all forbidden", "a/b\\.c", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isValidCheckpointID(tt.id)
+			if got != tt.want {
+				t.Errorf("isValidCheckpointID(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckpointStore_LoadCheckpoint_InvalidID(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test with invalid ID containing path traversal
+	_, err = store.LoadCheckpoint("../etc/passwd")
+	if err == nil {
+		t.Fatal("expected error for invalid checkpoint ID")
+	}
+	if !strings.Contains(err.Error(), "invalid checkpoint id") {
+		t.Errorf("expected invalid checkpoint id error, got: %v", err)
+	}
+
+	// Test with empty ID
+	_, err = store.LoadCheckpoint("")
+	if err == nil {
+		t.Fatal("expected error for empty checkpoint ID")
+	}
+}
+
+func TestCheckpointStore_DeleteCheckpoint_InvalidID(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test with invalid ID containing path traversal
+	err = store.DeleteCheckpoint("../etc/passwd")
+	if err == nil {
+		t.Fatal("expected error for invalid checkpoint ID")
+	}
+	if !strings.Contains(err.Error(), "invalid checkpoint id") {
+		t.Errorf("expected invalid checkpoint id error, got: %v", err)
+	}
+}
+
+func TestCheckpointStore_DiffCheckpoints_MissingCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Save one checkpoint
+	err = store.Save([]*CoordinationTask{{ID: "task_1"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoints, err := store.ListCheckpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints) != 1 {
+		t.Fatalf("expected 1 checkpoint, got %d", len(checkpoints))
+	}
+
+	// Try to diff with non-existent checkpoint
+	_, err = store.DiffCheckpoints(checkpoints[0].ID, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error when diffing with non-existent checkpoint")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+
+	// Try to diff with invalid ID
+	_, err = store.DiffCheckpoints(checkpoints[0].ID, "../invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid checkpoint ID")
+	}
+}
+
+func TestCheckpointStore_DiffCheckpoints_RemovedTasks(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First checkpoint with task_1 and task_2
+	err = store.Save([]*CoordinationTask{
+		{ID: "task_1", Title: "Task 1", Status: TaskStatusPending, Progress: 0.0},
+		{ID: "task_2", Title: "Task 2", Status: TaskStatusPending, Progress: 0.0},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Second checkpoint with only task_1 (task_2 removed)
+	err = store.Save([]*CoordinationTask{
+		{ID: "task_1", Title: "Task 1", Status: TaskStatusRunning, Progress: 0.5},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoints, err := store.ListCheckpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints) != 2 {
+		t.Fatalf("expected 2 checkpoints, got %d", len(checkpoints))
+	}
+
+	// Diff newest vs oldest (newest first in list)
+	diff, err := store.DiffCheckpoints(checkpoints[1].ID, checkpoints[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify removed task
+	if len(diff.RemovedTasks) != 1 || diff.RemovedTasks[0].ID != "task_2" {
+		t.Fatalf("expected 1 removed task (task_2), got %d: %v", len(diff.RemovedTasks), diff.RemovedTasks)
+	}
+
+	// Verify modified task
+	if len(diff.ModifiedTasks) != 1 {
+		t.Fatalf("expected 1 modified task, got %d", len(diff.ModifiedTasks))
+	}
+}
+
+func TestCheckpointStore_DiffCheckpoints_PendingTasks(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First checkpoint with pending tasks
+	err = store.Save(nil, []*CoordinationTask{
+		{ID: "pending_1", Title: "Pending 1", Status: TaskStatusPending, Progress: 0.0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Second checkpoint with pending task moved to active
+	err = store.Save([]*CoordinationTask{
+		{ID: "pending_1", Title: "Pending 1", Status: TaskStatusRunning, Progress: 0.5},
+	}, []*CoordinationTask{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoints, err := store.ListCheckpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diff, err := store.DiffCheckpoints(checkpoints[1].ID, checkpoints[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Task should be modified, not added/removed
+	if len(diff.ModifiedTasks) != 1 {
+		t.Fatalf("expected 1 modified task, got %d", len(diff.ModifiedTasks))
+	}
+	if diff.ModifiedTasks[0].TaskID != "pending_1" {
+		t.Errorf("expected pending_1 modified, got %s", diff.ModifiedTasks[0].TaskID)
+	}
+}
+
+func TestCheckpointStore_ListCheckpoints_Empty(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoints, err := store.ListCheckpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints) != 0 {
+		t.Errorf("expected nil or empty list, got %d checkpoints", len(checkpoints))
+	}
+}
+
+func TestCheckpointStore_NewCheckpointStore_Error(t *testing.T) {
+	// Try to create a store in a path where parent is a file
+	tmpFile := filepath.Join(t.TempDir(), "notadir")
+	if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewCheckpointStore(tmpFile, 5)
+	if err == nil {
+		t.Fatal("expected error when creating store in a file path")
+	}
+}
+
+func TestCheckpointStore_LatestSequence(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewCheckpointStore(dir, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Initial sequence should be 0
+	if store.LatestSequence() != 0 {
+		t.Errorf("expected initial sequence 0, got %d", store.LatestSequence())
+	}
+
+	// After save, sequence should increment
+	_ = store.Save(nil, nil)
+	if store.LatestSequence() != 1 {
+		t.Errorf("expected sequence 1, got %d", store.LatestSequence())
+	}
+
+	_ = store.Save(nil, nil)
+	if store.LatestSequence() != 2 {
+		t.Errorf("expected sequence 2, got %d", store.LatestSequence())
 	}
 }

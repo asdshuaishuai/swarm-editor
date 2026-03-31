@@ -429,6 +429,119 @@ func TestPredefinedErrors(t *testing.T) {
 	}
 }
 
+func TestValidateCommand(t *testing.T) {
+	// Save original and restore after test
+	orig := AllowedMCPCommands
+	defer func() { AllowedMCPCommands = orig }()
+
+	tests := []struct {
+		name        string
+		command     string
+		allowed     map[string]bool
+		wantErr     bool
+		description string
+	}{
+		{
+			name:        "empty command",
+			command:     "",
+			allowed:     nil,
+			wantErr:     true,
+			description: "empty command should fail",
+		},
+		{
+			name:        "allowed command npx",
+			command:     "npx",
+			allowed:     nil,
+			wantErr:     false,
+			description: "npx is in default whitelist",
+		},
+		{
+			name:        "allowed command uvx",
+			command:     "uvx",
+			allowed:     nil,
+			wantErr:     false,
+			description: "uvx is in default whitelist",
+		},
+		{
+			name:        "blocked command",
+			command:     "malicious-binary",
+			allowed:     nil,
+			wantErr:     true,
+			description: "non-whitelisted command should fail",
+		},
+		{
+			name:        "command with forward slash path",
+			command:     "/usr/local/bin/npx",
+			allowed:     nil,
+			wantErr:     false,
+			description: "extracts base command from Unix path",
+		},
+		{
+			name:        "command with backslash path",
+			command:     "C:\\Program Files\\nodejs\\npx",
+			allowed:     nil,
+			wantErr:     false,
+			description: "extracts base command from Windows path",
+		},
+		{
+			name:        "custom whitelist allowed",
+			command:     "my-custom-server",
+			allowed:     map[string]bool{"my-custom-server": true},
+			wantErr:     false,
+			description: "custom whitelist allows command",
+		},
+		{
+			name:        "custom whitelist blocked",
+			command:     "npx",
+			allowed:     map[string]bool{"only-this": true},
+			wantErr:     true,
+			description: "custom whitelist blocks default commands",
+		},
+		{
+			name:        "python allowed",
+			command:     "python",
+			allowed:     nil,
+			wantErr:     false,
+			description: "python is in default whitelist",
+		},
+		{
+			name:        "uv allowed",
+			command:     "uv",
+			allowed:     nil,
+			wantErr:     false,
+			description: "uv is in default whitelist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			AllowedMCPCommands = tt.allowed
+			err := validateCommand(tt.command)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("%s: expected error, got nil", tt.description)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("%s: unexpected error: %v", tt.description, err)
+				}
+			}
+		})
+	}
+}
+
+func TestErrCommandForbidden(t *testing.T) {
+	if ErrCommandForbidden == nil {
+		t.Fatal("ErrCommandForbidden should not be nil")
+	}
+	if ErrCommandForbidden.Code != -4 {
+		t.Errorf("expected code -4, got %d", ErrCommandForbidden.Code)
+	}
+	if ErrCommandForbidden.Message == "" {
+		t.Error("ErrCommandForbidden should have a message")
+	}
+}
+
 func TestClientGetCapabilities(t *testing.T) {
 	mockPath := getMockServerPath(t)
 
@@ -509,5 +622,97 @@ func TestClientListPrompts(t *testing.T) {
 
 	if prompts == nil {
 		t.Error("ListPrompts should not return nil")
+	}
+}
+
+func TestClientReadResource(t *testing.T) {
+	mockPath := getMockServerPath(t)
+
+	config := &ClientConfig{
+		Name:    "test-client",
+		Command: "python3",
+		Args:    []string{mockPath},
+		Timeout: 5,
+	}
+
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer func() { _ = client.Disconnect() }()
+
+	// Call ReadResource directly - mock server handles resources/read
+	result, err := client.ReadResource(ctx, "file:///test.txt")
+	if err != nil {
+		t.Errorf("ReadResource failed: %v", err)
+	}
+	if result == nil {
+		t.Error("ReadResource should not return nil")
+	}
+}
+
+func TestClientReadResource_NotConnected(t *testing.T) {
+	config := &ClientConfig{
+		Name:    "test-client",
+		Command: "python3",
+		Args:    []string{"--nonexistent"},
+		Timeout: 5,
+	}
+
+	client := NewClient(config)
+	ctx := context.Background()
+
+	_, err := client.ReadResource(ctx, "file:///test.txt")
+	if err != ErrNotConnected {
+		t.Errorf("expected ErrNotConnected, got: %v", err)
+	}
+}
+
+func TestClientGetPrompt(t *testing.T) {
+	mockPath := getMockServerPath(t)
+
+	config := &ClientConfig{
+		Name:    "test-client",
+		Command: "python3",
+		Args:    []string{mockPath},
+		Timeout: 5,
+	}
+
+	client := NewClient(config)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer func() { _ = client.Disconnect() }()
+
+	// Call GetPrompt directly - mock server handles prompts/get
+	result, err := client.GetPrompt(ctx, "test-prompt", nil)
+	if err != nil {
+		t.Errorf("GetPrompt failed: %v", err)
+	}
+	if result == nil {
+		t.Error("GetPrompt should not return nil")
+	}
+}
+
+func TestClientGetPrompt_NotConnected(t *testing.T) {
+	config := &ClientConfig{
+		Name:    "test-client",
+		Command: "python3",
+		Args:    []string{"--nonexistent"},
+		Timeout: 5,
+	}
+
+	client := NewClient(config)
+	ctx := context.Background()
+
+	_, err := client.GetPrompt(ctx, "test-prompt", nil)
+	if err != ErrNotConnected {
+		t.Errorf("expected ErrNotConnected, got: %v", err)
 	}
 }

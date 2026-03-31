@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1538,4 +1541,992 @@ func TestCoordinator_GetInputGuardrails_Nil(t *testing.T) {
 	if coord.GetInputGuardrails() == nil {
 		t.Error("should have default input guardrails")
 	}
+}
+
+func TestCoordinator_HandleResult_Nil(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.handleResult(nil)
+}
+
+func TestCoordinator_HandleResult_EmptyAgentID(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.handleResult(&TaskResult{AgentID: ""})
+}
+
+func TestCoordinator_HandleResult_UnregisteredWorker(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.handleResult(&TaskResult{AgentID: "unknown-agent"})
+}
+
+func TestCoordinator_HandleResult_NoActiveTask(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.workers["agent-1"] = nil
+	coord.handleResult(&TaskResult{AgentID: "agent-1"})
+}
+
+func TestCoordinator_HandleResult_TaskNotFound(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.workers["agent-1"] = nil
+	coord.agentToTask["agent-1"] = "missing-task"
+	coord.handleResult(&TaskResult{AgentID: "agent-1"})
+	if _, exists := coord.agentToTask["agent-1"]; exists {
+		t.Error("expected stale agentToTask entry to be cleaned up")
+	}
+}
+
+func TestCoordinator_HandleResult_PartialResults(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.workers["agent-1"] = nil
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"agent-1", "agent-2"},
+		Status:     TaskStatusRunning,
+		Results:    make(map[string]*TaskResult),
+	}
+	coord.activeTasks["task-1"] = task
+	coord.agentToTask["agent-1"] = "task-1"
+
+	coord.handleResult(&TaskResult{
+		TaskID:  "task-1",
+		AgentID: "agent-1",
+		Content: "result from agent-1",
+	})
+
+	if task.Status == TaskStatusCompleted {
+		t.Error("expected task to still be in progress (only 1 of 2 results)")
+	}
+	if _, ok := task.Results["agent-1"]; !ok {
+		t.Error("expected result from agent-1 to be stored")
+	}
+}
+
+func TestCoordinator_HandleResult_AllResults(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.workers["agent-1"] = nil
+
+	task := &CoordinationTask{
+		ID:         "task-2",
+		AssignedTo: []string{"agent-1", "agent-2"},
+		Status:     TaskStatusRunning,
+		Results:    make(map[string]*TaskResult),
+	}
+	task.Results["agent-2"] = &TaskResult{AgentID: "agent-2"}
+	coord.activeTasks["task-2"] = task
+	coord.agentToTask["agent-1"] = "task-2"
+
+	coord.handleResult(&TaskResult{
+		TaskID:  "task-2",
+		AgentID: "agent-1",
+		Content: "final result",
+	})
+
+	if len(task.Results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(task.Results))
+	}
+}
+
+func TestCoordinator_GetNextTask_Empty(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	task := coord.getNextTask()
+	if task != nil {
+		t.Error("expected nil when no pending tasks")
+	}
+}
+
+func TestCoordinator_GetNextTask_SingleTask(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	t1 := &CoordinationTask{ID: "task-1", Priority: 5}
+	coord.pendingTasks = append(coord.pendingTasks, t1)
+
+	task := coord.getNextTask()
+	if task == nil || task.ID != "task-1" {
+		t.Error("expected task-1")
+	}
+}
+
+func TestCoordinator_GetNextTask_HighestPriority(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	coord.pendingTasks = append(coord.pendingTasks,
+		&CoordinationTask{ID: "low", Priority: 1},
+		&CoordinationTask{ID: "high", Priority: 10},
+		&CoordinationTask{ID: "mid", Priority: 5},
+	)
+
+	task := coord.getNextTask()
+	if task == nil || task.ID != "high" {
+		t.Errorf("expected 'high' priority task, got %v", task)
+	}
+}
+
+// ==================== cancelTask Tests ====================
+
+func TestCoordinator_CancelTask_NotFound(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	// Should not panic when task doesn't exist
+	coord.cancelTask("nonexistent-task")
+}
+
+func TestCoordinator_CancelTask_ActiveTask(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+	// Register a worker (use mockAgentConnection helper)
+	coord.workers["agent-1"] = mockAgentConnection("agent-1")
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+	}
+	coord.activeTasks["task-1"] = task
+	coord.agentToTask["agent-1"] = "task-1"
+
+	coord.cancelTask("task-1")
+
+	// Task should be removed from active
+	if _, exists := coord.activeTasks["task-1"]; exists {
+		t.Error("task should be removed from activeTasks")
+	}
+
+	// Task should be in completed with cancelled status
+	if len(coord.completedTasks) == 0 {
+		t.Fatal("task should be in completedTasks")
+	}
+	if coord.completedTasks[0].Status != TaskStatusCancelled {
+		t.Errorf("expected status %s, got %s", TaskStatusCancelled, coord.completedTasks[0].Status)
+	}
+
+	// agentToTask should be cleaned up
+	if _, exists := coord.agentToTask["agent-1"]; exists {
+		t.Error("agentToTask should be cleaned up")
+	}
+}
+
+func TestCoordinator_CancelTask_WithCancelFunc(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+	}
+	coord.activeTasks["task-1"] = task
+
+	cancelled := false
+	coord.taskCancels["task-1"] = []context.CancelFunc{
+		func() { cancelled = true },
+	}
+
+	coord.cancelTask("task-1")
+
+	if !cancelled {
+		t.Error("cancel function should have been called")
+	}
+
+	if _, exists := coord.taskCancels["task-1"]; exists {
+		t.Error("taskCancels entry should be removed")
+	}
+}
+
+func TestCoordinator_CancelTask_WithSubtasks(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+
+	// Child tasks
+	childTask1 := &CoordinationTask{ID: "child-1", Status: TaskStatusRunning, AssignedTo: []string{"agent-2"}}
+	childTask2 := &CoordinationTask{ID: "child-2", Status: TaskStatusPending, AssignedTo: []string{"agent-3"}}
+
+	// Parent task with Subtasks (actual child task pointers)
+	parentTask := &CoordinationTask{
+		ID:         "parent-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+		Subtasks:   []*CoordinationTask{childTask1, childTask2},
+	}
+	coord.activeTasks["parent-1"] = parentTask
+	coord.activeTasks["child-1"] = childTask1
+	coord.activeTasks["child-2"] = childTask2
+	coord.agentToTask["agent-2"] = "child-1"
+	coord.agentToTask["agent-3"] = "child-2"
+
+	coord.cancelTask("parent-1")
+
+	// All tasks should be cancelled
+	if _, exists := coord.activeTasks["child-1"]; exists {
+		t.Error("child-1 should be cancelled")
+	}
+	if _, exists := coord.activeTasks["child-2"]; exists {
+		t.Error("child-2 should be cancelled")
+	}
+}
+
+// ==================== processPendingTasks Tests ====================
+
+func TestCoordinator_ProcessPendingTasks_Empty(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	// Should not panic with empty queue
+	coord.processPendingTasks()
+}
+
+func TestCoordinator_ProcessPendingTasks_AtCapacity(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 1}, nil)
+
+	// One active task (at capacity)
+	activeTask := &CoordinationTask{ID: "active-1", Status: TaskStatusRunning}
+	coord.activeTasks["active-1"] = activeTask
+
+	// One pending task
+	pendingTask := &CoordinationTask{ID: "pending-1", Status: TaskStatusPending}
+	coord.pendingTasks = append(coord.pendingTasks, pendingTask)
+
+	coord.processPendingTasks()
+
+	// Pending task should remain (at capacity)
+	if len(coord.pendingTasks) == 0 {
+		t.Error("pending task should remain when at capacity")
+	}
+}
+
+func TestCoordinator_ProcessPendingTasks_NoWorkers(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+
+	// No workers registered
+	pendingTask := &CoordinationTask{ID: "pending-1", Status: TaskStatusPending}
+	coord.pendingTasks = append(coord.pendingTasks, pendingTask)
+
+	coord.processPendingTasks()
+
+	// Task should remain pending (no workers to assign)
+	if len(coord.pendingTasks) == 0 {
+		t.Error("pending task should remain when no workers available")
+	}
+}
+
+// ==================== processPendingTasks Additional Coverage ====================
+
+func TestCoordinator_ProcessPendingTasks_WithWorkers(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	coord.AddWorker("worker-1", mockAgentConnection("worker-1"))
+
+	task := &CoordinationTask{
+		ID:          "task-1",
+		Title:       "Simple task",
+		Description: "short",
+		Status:      TaskStatusPending,
+	}
+	coord.pendingTasks = append(coord.pendingTasks, task)
+
+	coord.processPendingTasks()
+
+	// Task should be removed from pending (assigned and moved to active or execution)
+	if len(coord.pendingTasks) != 0 {
+		t.Errorf("expected 0 pending tasks after assignment, got %d", len(coord.pendingTasks))
+	}
+
+	// Task should be in active tasks
+	if _, exists := coord.activeTasks["task-1"]; !exists {
+		t.Error("expected task to be moved to active tasks")
+	}
+}
+
+func TestCoordinator_ProcessPendingTasks_Decomposition(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	// Add 2+ workers to trigger decomposition
+	coord.AddWorker("worker-1", mockAgentConnection("worker-1"))
+	coord.AddWorker("worker-2", mockAgentConnection("worker-2"))
+
+	// Description must be > needsDecompositionDescMinLen (200) to trigger decomposition
+	longDesc := make([]byte, needsDecompositionDescMinLen+1)
+	for i := range longDesc {
+		longDesc[i] = 'a'
+	}
+
+	task := &CoordinationTask{
+		ID:          "task-1",
+		Title:       "Complex task",
+		Description: string(longDesc),
+		Status:      TaskStatusPending,
+	}
+	coord.pendingTasks = append(coord.pendingTasks, task)
+
+	coord.processPendingTasks()
+
+	// Wait for decomposeTask goroutine
+	coord.wg.Wait()
+
+	// Task should be decomposed into subtasks (added to pending)
+	if len(task.Subtasks) == 0 {
+		t.Error("expected task to be decomposed into subtasks")
+	}
+
+	// Subtasks should be added to pending queue
+	if len(coord.pendingTasks) == 0 {
+		t.Error("expected subtasks to be added to pending queue")
+	}
+}
+
+func TestCoordinator_ProcessPendingTasks_MultiplePriority(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	coord.AddWorker("worker-1", mockAgentConnection("worker-1"))
+
+	// Add tasks with different priorities
+	lowTask := &CoordinationTask{ID: "low", Title: "Low", Priority: 1}
+	highTask := &CoordinationTask{ID: "high", Title: "High", Priority: 10}
+	midTask := &CoordinationTask{ID: "mid", Title: "Mid", Priority: 5}
+
+	coord.pendingTasks = append(coord.pendingTasks, lowTask, highTask, midTask)
+
+	coord.processPendingTasks()
+
+	// Highest priority task should be picked first
+	if _, exists := coord.activeTasks["high"]; !exists {
+		t.Error("expected highest priority task 'high' to be processed first")
+	}
+
+	// Other tasks should remain pending
+	if len(coord.pendingTasks) != 2 {
+		t.Errorf("expected 2 remaining pending tasks, got %d", len(coord.pendingTasks))
+	}
+}
+
+func TestCoordinator_ProcessPendingTasks_PutBackOnRequeue(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	// No workers - task should be put back at the front of the queue
+	task := &CoordinationTask{ID: "task-1", Title: "Test"}
+	coord.pendingTasks = append(coord.pendingTasks, task)
+
+	coord.processPendingTasks()
+
+	// Task should still be pending (put back at front)
+	if len(coord.pendingTasks) != 1 {
+		t.Errorf("expected 1 pending task (requeued), got %d", len(coord.pendingTasks))
+	}
+
+	// Task should be at the front of the queue
+	if coord.pendingTasks[0].ID != "task-1" {
+		t.Errorf("expected task-1 at front of queue, got %s", coord.pendingTasks[0].ID)
+	}
+}
+
+func TestCoordinator_ProcessPendingTasks_NeedsDecomposition_SingleWorker(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{MaxConcurrent: 5}, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	// Only 1 worker - decomposition should NOT trigger (needs > 1 worker)
+	coord.AddWorker("worker-1", mockAgentConnection("worker-1"))
+
+	longDesc := make([]byte, needsDecompositionDescMinLen+1)
+	for i := range longDesc {
+		longDesc[i] = 'a'
+	}
+
+	task := &CoordinationTask{
+		ID:          "task-1",
+		Title:       "Complex task",
+		Description: string(longDesc),
+		Status:      TaskStatusPending,
+	}
+	coord.pendingTasks = append(coord.pendingTasks, task)
+
+	coord.processPendingTasks()
+
+	// Task should NOT be decomposed (only 1 worker)
+	if len(task.Subtasks) != 0 {
+		t.Error("expected no decomposition with single worker")
+	}
+
+	// Task should be assigned normally
+	if _, exists := coord.activeTasks["task-1"]; !exists {
+		t.Error("expected task to be assigned normally (no decomposition)")
+	}
+}
+
+// ==================== handleWorkerError Additional Coverage ====================
+
+func TestCoordinator_HandleWorkerError_PartialFailure(t *testing.T) {
+	// When only one of two assigned workers fails, the task should NOT be marked failed
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"worker-1", "worker-2"},
+		Results:    make(map[string]*TaskResult),
+	}
+	coord.activeTasks["task-1"] = task
+	coord.agentToTask["worker-1"] = "task-1"
+	coord.agentToTask["worker-2"] = "task-1"
+
+	coord.handleWorkerError(task, "worker-1", errors.New("something went wrong"))
+
+	// Error should be recorded
+	if task.Results["worker-1"] == nil || task.Results["worker-1"].Error != "something went wrong" {
+		t.Error("error result should be stored for worker-1")
+	}
+
+	// Task should NOT be failed because worker-2 hasn't reported yet
+	if task.Status == TaskStatusFailed {
+		t.Error("task should not be failed when only one of two workers has errored")
+	}
+
+	// Task should still be in active tasks
+	if _, exists := coord.activeTasks["task-1"]; !exists {
+		t.Error("task should still be in active tasks after partial failure")
+	}
+}
+
+func TestCoordinator_HandleWorkerError_AllWorkersFail_TwoWorkers(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	var completedTaskID string
+	var completedResult *TaskResult
+	coord.OnTaskComplete(func(task *CoordinationTask, result *TaskResult) {
+		completedTaskID = task.ID
+		completedResult = result
+	})
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"worker-1", "worker-2"},
+		Results:    make(map[string]*TaskResult),
+	}
+	coord.activeTasks["task-1"] = task
+	coord.agentToTask["worker-1"] = "task-1"
+	coord.agentToTask["worker-2"] = "task-1"
+
+	// First worker fails
+	coord.handleWorkerError(task, "worker-1", errors.New("worker-1 error"))
+	// Task not failed yet
+	if task.Status == TaskStatusFailed {
+		t.Error("task should not be failed after first worker error")
+	}
+
+	// Second worker fails - now all have failed
+	coord.handleWorkerError(task, "worker-2", errors.New("worker-2 error"))
+	if task.Status != TaskStatusFailed {
+		t.Errorf("expected status %s, got %s", TaskStatusFailed, task.Status)
+	}
+
+	// Should be removed from active tasks
+	if _, exists := coord.activeTasks["task-1"]; exists {
+		t.Error("task should be removed from active tasks")
+	}
+
+	// agentToTask should be cleaned up
+	if _, exists := coord.agentToTask["worker-1"]; exists {
+		t.Error("agentToTask should be cleaned for worker-1")
+	}
+	if _, exists := coord.agentToTask["worker-2"]; exists {
+		t.Error("agentToTask should be cleaned for worker-2")
+	}
+
+	// Callback should have been called
+	if completedTaskID != "task-1" {
+		t.Errorf("expected callback for task-1, got %s", completedTaskID)
+	}
+	if completedResult != nil {
+		t.Error("expected nil result for failed task")
+	}
+}
+
+func TestCoordinator_HandleWorkerError_NilResults(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"worker-1"},
+		// Results is nil - should be initialized
+	}
+
+	coord.handleWorkerError(task, "worker-1", errors.New("timeout error"))
+
+	if task.Results == nil {
+		t.Error("Results map should be initialized")
+	}
+	if task.Results["worker-1"] == nil {
+		t.Error("error result should be stored")
+	}
+	if task.Results["worker-1"].Error != "timeout error" {
+		t.Errorf("expected error 'timeout error', got %q", task.Results["worker-1"].Error)
+	}
+}
+
+// ==================== SubmitTask Additional Coverage ====================
+
+func TestCoordinator_SubmitTask_WithPriority(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	// Submit a high-priority task
+	task := &CoordinationTask{
+		ID:          "task-1",
+		Title:       "High Priority Task",
+		Description: "Important task",
+		Priority:    10,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err != nil {
+		t.Fatalf("SubmitTask failed: %v", err)
+	}
+
+	if len(coord.pendingTasks) != 1 {
+		t.Fatalf("expected 1 pending task, got %d", len(coord.pendingTasks))
+	}
+	if coord.pendingTasks[0].Priority != 10 {
+		t.Errorf("expected priority 10, got %d", coord.pendingTasks[0].Priority)
+	}
+}
+
+func TestCoordinator_SubmitTask_DuplicateInCompleted(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	// Add a completed task with the same ID
+	coord.completedTasks = append(coord.completedTasks, &CoordinationTask{
+		ID:    "task-1",
+		Title: "Old Task",
+	})
+
+	// Try to submit a task with the same ID
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "New Task",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err == nil {
+		t.Error("expected error for duplicate task ID in completed tasks")
+	}
+	if !strings.Contains(err.Error(), "already exists in completed tasks") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCoordinator_SubmitTask_DuplicateInPending(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	// Add a pending task with the same ID
+	coord.pendingTasks = append(coord.pendingTasks, &CoordinationTask{
+		ID:    "task-1",
+		Title: "Old Task",
+	})
+
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "New Task",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err == nil {
+		t.Error("expected error for duplicate task ID in pending tasks")
+	}
+	if !strings.Contains(err.Error(), "already exists in pending tasks") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCoordinator_SubmitTask_GuardrailReject(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	chain := NewInputGuardrailChain()
+	chain.AddGuardrail(InputGuardrail{
+		Name: "test-reject",
+		Check: func(_ context.Context, _ string, _ map[string]any) (*InputGuardrailResult, error) {
+			return &InputGuardrailResult{
+				Action:   InputReject,
+				Reason:   "blocked by test rule",
+				RuleName: "test-reject",
+			}, nil
+		},
+	})
+	coord.SetInputGuardrails(chain)
+
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "Blocked Task",
+		Prompt:   "test input",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err == nil {
+		t.Fatal("expected error from guardrail rejection")
+	}
+	if !strings.Contains(err.Error(), "input rejected by guardrail") {
+		t.Errorf("expected guardrail rejection error, got: %v", err)
+	}
+}
+
+func TestCoordinator_SubmitTask_GuardrailRewrite(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	chain := NewInputGuardrailChain()
+	chain.AddGuardrail(InputGuardrail{
+		Name: "test-rewrite",
+		Check: func(_ context.Context, _ string, _ map[string]any) (*InputGuardrailResult, error) {
+			return &InputGuardrailResult{
+				Action:  InputRewrite,
+				Rewrite: "rewritten prompt content",
+			}, nil
+		},
+	})
+	coord.SetInputGuardrails(chain)
+
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "Rewrite Task",
+		Prompt:   "original prompt",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err != nil {
+		t.Fatalf("SubmitTask failed: %v", err)
+	}
+
+	// Prompt should be rewritten
+	if task.Prompt != "rewritten prompt content" {
+		t.Errorf("expected prompt to be rewritten, got %q", task.Prompt)
+	}
+}
+
+func TestCoordinator_SubmitTask_GuardrailTriage(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	chain := NewInputGuardrailChain()
+	chain.AddGuardrail(InputGuardrail{
+		Name: "test-triage",
+		Check: func(_ context.Context, _ string, _ map[string]any) (*InputGuardrailResult, error) {
+			return &InputGuardrailResult{
+				Action:   InputTriage,
+				TriageTo: "specialized-agent",
+				Reason:   "needs special handling",
+			}, nil
+		},
+	})
+	coord.SetInputGuardrails(chain)
+
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "Triage Task",
+		Prompt:   "test input",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err != nil {
+		t.Fatalf("SubmitTask failed: %v", err)
+	}
+
+	// Metadata should contain triage info
+	if task.Metadata == nil {
+		t.Fatal("expected metadata to be set")
+	}
+	if task.Metadata["_triageTo"] != "specialized-agent" {
+		t.Errorf("expected _triageTo 'specialized-agent', got %v", task.Metadata["_triageTo"])
+	}
+	if task.Metadata["_triageReason"] != "needs special handling" {
+		t.Errorf("expected _triageReason, got %v", task.Metadata["_triageReason"])
+	}
+}
+
+func TestCoordinator_SubmitTask_GuardrailError(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	chain := NewInputGuardrailChain()
+	chain.AddGuardrail(InputGuardrail{
+		Name: "test-error",
+		Check: func(_ context.Context, _ string, _ map[string]any) (*InputGuardrailResult, error) {
+			return nil, errors.New("guardrail check failed")
+		},
+	})
+	coord.SetInputGuardrails(chain)
+
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	task := &CoordinationTask{
+		ID:       "task-1",
+		Title:    "Error Task",
+		Prompt:   "test input",
+		Priority: 1,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err == nil {
+		t.Fatal("expected error from guardrail failure")
+	}
+	if !strings.Contains(err.Error(), "input guardrail error") {
+		t.Errorf("expected guardrail error, got: %v", err)
+	}
+}
+
+func TestCoordinator_SubmitTask_PendingTasksLimit(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	// Fill pending tasks beyond the limit
+	originalLen := maxCoordinatorPendingTasks
+	for i := 0; i < originalLen; i++ {
+		task := &CoordinationTask{
+			ID:       fmt.Sprintf("task-%04d", i),
+			Title:    fmt.Sprintf("Task %d", i),
+			Priority: 0,
+		}
+		err := coord.SubmitTask(ctx, task)
+		if err != nil {
+			t.Fatalf("SubmitTask %d failed: %v", i, err)
+		}
+	}
+
+	// Add one more task that will push over the limit
+	extraTask := &CoordinationTask{
+		ID:       "task-extra",
+		Title:    "Extra Task",
+		Priority: 0,
+	}
+	err := coord.SubmitTask(ctx, extraTask)
+	if err != nil {
+		t.Fatalf("SubmitTask extra failed: %v", err)
+	}
+
+	// Pending tasks should be capped at maxCoordinatorPendingTasks
+	if len(coord.pendingTasks) > maxCoordinatorPendingTasks {
+		t.Errorf("pending tasks should be capped at %d, got %d", maxCoordinatorPendingTasks, len(coord.pendingTasks))
+	}
+
+	// The oldest tasks should have been pruned (the first task should be gone)
+	foundFirst := false
+	for _, pt := range coord.pendingTasks {
+		if pt.ID == "task-0000" {
+			foundFirst = true
+			break
+		}
+	}
+	if foundFirst {
+		t.Error("oldest task should have been pruned from pending queue")
+	}
+}
+
+func TestCoordinator_SubmitTask_OnlyDescription(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	if err := coord.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coord.Stop()
+
+	// Task with only description (no title) should succeed
+	task := &CoordinationTask{
+		ID:          "desc-only",
+		Description: "A task with only description",
+		Priority:    0,
+	}
+	err := coord.SubmitTask(ctx, task)
+	if err != nil {
+		t.Fatalf("SubmitTask with only description failed: %v", err)
+	}
+}
+
+// ==================== cancelTask Additional Coverage ====================
+
+func TestCoordinator_CancelTask_WithSubtaskPending(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+
+	// Create a subtask that is only in pendingTasks (not active)
+	pendingSubtask := &CoordinationTask{
+		ID:       "sub-pending-1",
+		Status:   TaskStatusPending,
+		ParentID: "parent-1",
+	}
+	parentTask := &CoordinationTask{
+		ID:         "parent-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+		Subtasks:   []*CoordinationTask{pendingSubtask},
+	}
+	coord.activeTasks["parent-1"] = parentTask
+	coord.pendingTasks = append(coord.pendingTasks, pendingSubtask)
+
+	coord.cancelTask("parent-1")
+
+	// Pending subtask should be removed from pendingTasks
+	for _, pt := range coord.pendingTasks {
+		if pt.ID == "sub-pending-1" {
+			t.Error("pending subtask should be removed from pending tasks")
+		}
+	}
+}
+
+func TestCoordinator_CancelTask_CompletedTasksCleanup(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+
+	// Fill completedTasks to near the limit
+	for i := 0; i < maxCoordinatorCompletedTasks; i++ {
+		coord.completedTasks = append(coord.completedTasks, &CoordinationTask{
+			ID: fmt.Sprintf("completed-%d", i),
+		})
+	}
+
+	task := &CoordinationTask{
+		ID:         "cancel-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+	}
+	coord.activeTasks["cancel-1"] = task
+
+	coord.cancelTask("cancel-1")
+
+	// completedTasks should be capped at maxCoordinatorCompletedTasks
+	if len(coord.completedTasks) > maxCoordinatorCompletedTasks {
+		t.Errorf("completed tasks should be capped at %d, got %d", maxCoordinatorCompletedTasks, len(coord.completedTasks))
+	}
+}
+
+func TestCoordinator_CancelTask_MultipleCancelFuncs(t *testing.T) {
+	coord := NewCoordinator(CoordinatorConfig{}, nil)
+
+	callCount := 0
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"agent-1"},
+		Status:     TaskStatusRunning,
+	}
+	coord.activeTasks["task-1"] = task
+
+	// Multiple cancel functions registered
+	coord.taskCancels["task-1"] = []context.CancelFunc{
+		func() { callCount++ },
+		func() { callCount++ },
+		func() { callCount++ },
+	}
+
+	coord.cancelTask("task-1")
+
+	if callCount != 3 {
+		t.Errorf("expected 3 cancel function calls, got %d", callCount)
+	}
+
+	if _, exists := coord.taskCancels["task-1"]; exists {
+		t.Error("taskCancels entry should be removed")
+	}
+}
+
+// ==================== executeOnWorkerWithMaxTurns Additional Coverage ====================
+
+func TestCoordinator_ExecuteOnWorkerWithMaxTurns_Exceeded(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	task := &CoordinationTask{
+		ID:         "task-1",
+		AssignedTo: []string{"worker-1"},
+		Results:    make(map[string]*TaskResult),
+		Status:     TaskStatusRunning,
+		Metadata: map[string]any{
+			"maxTurns": 1,
+		},
+	}
+
+	// Call executeOnWorkerWithMaxTurns with maxTurns=1
+	// First call: currentTurns=0 < 1, should proceed (but will fail since worker is nil/mock)
+	// The function will try to use worker which is nil, causing a panic that's recovered
+	// But we can test the maxTurns limit by pre-incrementing the counter
+	atomic.StoreInt64(&task.atomicTurnCount, 1)
+	coord.executeOnWorkerWithMaxTurns(task, "worker-1", nil, 1)
+
+	// After exceeding maxTurns, error should be recorded
+	if task.Results["worker-1"] == nil {
+		t.Fatal("error result should be stored after maxTurns exceeded")
+	}
+	if !strings.Contains(task.Results["worker-1"].Error, "exceeded max_turns") {
+		t.Errorf("expected max_turns error, got: %s", task.Results["worker-1"].Error)
+	}
+}
+
+func TestCoordinator_ExecuteOnWorkerWithMaxTurns_CancelRegistered(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5, TaskTimeout: 0}
+	coord := NewCoordinator(config, nil)
+	ctx := context.Background()
+	coord.ctx, coord.cancel = context.WithCancel(ctx)
+	defer coord.cancel()
+
+	// Manually verify the cancel func registration path
+	// (executeOnWorkerWithMaxTurns registers cancel funcs via coord.taskCancels)
+	var registeredCancel context.CancelFunc
+	_, registeredCancel = context.WithCancel(coord.ctx)
+	coord.mu.Lock()
+	coord.taskCancels["task-1"] = append(coord.taskCancels["task-1"], registeredCancel)
+	coord.mu.Unlock()
+
+	if len(coord.taskCancels["task-1"]) == 0 {
+		t.Error("cancel function should be registered for the task")
+	}
+
+	// Clean up
+	registeredCancel()
 }

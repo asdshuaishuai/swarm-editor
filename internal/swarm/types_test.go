@@ -356,3 +356,26 @@ func TestTaskResultDurationPreservation(t *testing.T) {
 		t.Errorf("Duration mismatch: expected %v, got %v", duration, unmarshaled.Duration)
 	}
 }
+
+func TestTaskStatus_IsInterrupted(t *testing.T) {
+	tests := []struct {
+		status      TaskStatus
+		interrupted bool
+	}{
+		{TaskStatusPending, false},
+		{TaskStatusRunning, false},
+		{TaskStatusAssigned, false},
+		{TaskStatusDecomposing, false},
+		{TaskStatusConsensus, false},
+		{TaskStatusRetrying, false},
+		{TaskStatusCompleted, false},
+		{TaskStatusFailed, false},
+		{TaskStatusCancelled, false},
+	}
+
+	for _, tt := range tests {
+		if got := tt.status.IsInterrupted(); got != tt.interrupted {
+			t.Errorf("IsInterrupted(%q) = %v, want %v", tt.status, got, tt.interrupted)
+		}
+	}
+}

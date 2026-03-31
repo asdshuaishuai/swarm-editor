@@ -578,3 +578,32 @@ func TestExecuteSwitchNode_InvalidBranchesFormat(t *testing.T) {
 		t.Error("invalid branches format should not match")
 	}
 }
+
+func TestCompareSwitchIn_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		left          any
+		right         any
+		caseSensitive bool
+		want          bool
+	}{
+		{"non-slice/non-string right type", "hello", 42, true, false},
+		{"empty []any", "hello", []any{}, true, false},
+		{"case-insensitive match in []any", "hello", []any{"HELLO", "WORLD"}, false, true},
+		{"case-sensitive no match in []any", "hello", []any{"HELLO", "WORLD"}, true, false},
+		{"comma-separated with spaces", "banana", "apple, banana, cherry", true, true},
+		{"comma-separated empty string", "hello", "", true, false},
+		{"nil left value", nil, []any{"hello"}, true, false},
+		{"nil right value", "hello", nil, true, false},
+		{"map as right type", "hello", map[string]any{"key": "value"}, true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compareSwitchIn(tt.left, tt.right, tt.caseSensitive)
+			if got != tt.want {
+				t.Errorf("compareSwitchIn(%v, %v, %v) = %v, want %v", tt.left, tt.right, tt.caseSensitive, got, tt.want)
+			}
+		})
+	}
+}

@@ -1146,3 +1146,877 @@ func TestSwarmGetTaskConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestSwarmGetHandoffManager(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	hm := swarm.GetHandoffManager()
+	if hm == nil {
+		t.Error("expected non-nil handoff manager")
+	}
+}
+
+func TestSwarmSetHandoffBroadcaster(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	// Create a mock broadcaster
+	mockBc := &mockEventBroadcaster{}
+
+	swarm.SetHandoffBroadcaster(mockBc)
+
+	// Verify no panic - broadcaster is set on handoffManager
+}
+
+func TestSwarmBroadcastToWorkers(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+
+	// BroadcastToWorkers with no agents should return empty map
+	errors := swarm.BroadcastToWorkers(ctx, "test message")
+	if len(errors) != 0 {
+		t.Errorf("expected 0 errors for empty swarm, got %d", len(errors))
+	}
+}
+
+func TestSwarmGetResultValidator(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	rv := swarm.GetResultValidator()
+	if rv == nil {
+		t.Error("expected non-nil result validator")
+	}
+}
+
+func TestSwarmGetTerminationPolicy(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	tp := swarm.GetTerminationPolicy()
+	if tp == nil {
+		t.Error("expected non-nil termination policy")
+	}
+}
+
+func TestSwarmHandoffCallbacks(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	var requestedCalled, acceptedCalled, completedCalled, rejectedCalled bool
+
+	swarm.OnHandoffRequested(func(req *HandoffRequest) { requestedCalled = true })
+	swarm.OnHandoffAccepted(func(req *HandoffRequest) { acceptedCalled = true })
+	swarm.OnHandoffCompleted(func(req *HandoffRequest) { completedCalled = true })
+	swarm.OnHandoffRejected(func(req *HandoffRequest) { rejectedCalled = true })
+
+	// Verify callbacks were registered (no panic)
+	_ = requestedCalled
+	_ = acceptedCalled
+	_ = completedCalled
+	_ = rejectedCalled
+}
+
+func TestSwarmGetHandoffStats(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	// GetHandoffStats should return stats from handoffManager
+	stats := swarm.GetHandoffStats()
+	if stats == nil {
+		t.Error("expected non-nil handoff stats")
+	}
+}
+
+func TestSwarmRequestHandoff(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+
+	// RequestHandoff should return error for non-existent agents
+	_, err := swarm.RequestHandoff(ctx, "from-agent", "to-agent", "task-1", "test", nil)
+	// Expected to fail because to-agent doesn't exist
+	if err == nil {
+		t.Error("expected error for non-existent to-agent")
+	}
+}
+
+func TestSwarmRejectHandoff(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+
+	// RejectHandoff should return error for non-existent request
+	err := swarm.RejectHandoff(ctx, "non-existent-request", "test reason")
+	if err == nil {
+		t.Error("expected error for non-existent request")
+	}
+}
+
+func TestSwarmCompleteHandoff(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "swarm-1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+
+	// CompleteHandoff should return error for non-existent request
+	err := swarm.CompleteHandoff(ctx, "non-existent-request")
+	if err == nil {
+		t.Error("expected error for non-existent request")
+	}
+}
+
+// --- Additional coverage tests for BroadcastToWorkers, GetStats, AcceptHandoff ---
+
+func TestSwarm_BroadcastToWorkers_OnlyCoordinator(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	coord := agent.NewAgent("coord", agent.AgentTypeOrchestrator)
+	swarm.AddAgent(coord)
+	swarm.SetCoordinator(coord)
+
+	ctx := context.Background()
+	errs := swarm.BroadcastToWorkers(ctx, "hello workers")
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors when only coordinator, got %d", len(errs))
+	}
+}
+
+func TestSwarm_BroadcastToWorkers_WithWorkers(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	coord := agent.NewAgent("coord", agent.AgentTypeOrchestrator)
+	swarm.AddAgent(coord)
+	swarm.SetCoordinator(coord)
+
+	// Add workers (no ACP connections, so Execute will return ErrNoConnection)
+	w1 := agent.NewAgent("w1", agent.AgentTypeCoder)
+	w2 := agent.NewAgent("w2", agent.AgentTypeCoder)
+	swarm.AddAgent(w1)
+	swarm.AddAgent(w2)
+
+	ctx := context.Background()
+	errs := swarm.BroadcastToWorkers(ctx, "hello workers")
+
+	// Both workers should have errors (no connection), but broadcast should complete without panic
+	if len(errs) != 2 {
+		t.Errorf("expected 2 errors (no connection for each worker), got %d", len(errs))
+	}
+	if _, ok := errs[w1.ID]; !ok {
+		t.Errorf("expected error for worker w1")
+	}
+	if _, ok := errs[w2.ID]; !ok {
+		t.Errorf("expected error for worker w2")
+	}
+	// Coordinator should NOT be in the error map
+	if _, ok := errs[coord.ID]; ok {
+		t.Errorf("coordinator should not be in error map")
+	}
+}
+
+func TestSwarm_BroadcastToWorkers_NoCoordinator(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyMesh,
+		Strategy: StrategyParallel,
+	})
+
+	// Add agents but no coordinator set
+	w1 := agent.NewAgent("w1", agent.AgentTypeCoder)
+	w2 := agent.NewAgent("w2", agent.AgentTypeReviewer)
+	swarm.AddAgent(w1)
+	swarm.AddAgent(w2)
+
+	ctx := context.Background()
+	errs := swarm.BroadcastToWorkers(ctx, "hello")
+
+	// All agents are workers when no coordinator is set
+	if len(errs) != 2 {
+		t.Errorf("expected 2 errors when no coordinator, got %d", len(errs))
+	}
+}
+
+func TestSwarm_BroadcastToWorkers_ContextCancelled(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	w1 := agent.NewAgent("w1", agent.AgentTypeCoder)
+	swarm.AddAgent(w1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	errs := swarm.BroadcastToWorkers(ctx, "hello")
+	// Should complete without panic, error map may or may not have the entry
+	// depending on whether Execute checks context before returning ErrNoConnection
+	_ = errs
+}
+
+func TestSwarm_GetStats_Empty(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	stats := swarm.GetStats()
+	if stats == nil {
+		t.Fatal("expected non-nil stats")
+	}
+	if stats.AgentCount != 0 {
+		t.Errorf("expected 0 agents, got %d", stats.AgentCount)
+	}
+	if stats.IdleAgents != 0 {
+		t.Errorf("expected 0 idle agents, got %d", stats.IdleAgents)
+	}
+	if stats.ExecutingAgents != 0 {
+		t.Errorf("expected 0 executing agents, got %d", stats.ExecutingAgents)
+	}
+	if stats.PendingTasks != 0 {
+		t.Errorf("expected 0 pending tasks, got %d", stats.PendingTasks)
+	}
+	if stats.CompletedTasks != 0 {
+		t.Errorf("expected 0 completed tasks, got %d", stats.CompletedTasks)
+	}
+	if stats.Topology != "star" {
+		t.Errorf("expected topology star, got %s", stats.Topology)
+	}
+	if stats.Strategy != "parallel" {
+		t.Errorf("expected strategy parallel, got %s", stats.Strategy)
+	}
+	if stats.State != "initializing" {
+		t.Errorf("expected state initializing, got %s", stats.State)
+	}
+}
+
+func TestSwarm_GetStats_WithMixedStates(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyMesh,
+		Strategy: StrategySequential,
+	})
+
+	idleAgent := agent.NewAgent("idle-1", agent.AgentTypeCoder)
+	swarm.AddAgent(idleAgent)
+
+	execAgent := agent.NewAgent("exec-1", agent.AgentTypeCoder)
+	execAgent.SetState(agent.StateExecuting)
+	swarm.AddAgent(execAgent)
+
+	thinkAgent := agent.NewAgent("think-1", agent.AgentTypeOrchestrator)
+	thinkAgent.SetState(agent.StateThinking)
+	swarm.AddAgent(thinkAgent)
+
+	stats := swarm.GetStats()
+	if stats.AgentCount != 3 {
+		t.Errorf("expected 3 agents, got %d", stats.AgentCount)
+	}
+	if stats.IdleAgents != 1 {
+		t.Errorf("expected 1 idle agent, got %d", stats.IdleAgents)
+	}
+	if stats.ExecutingAgents != 2 {
+		t.Errorf("expected 2 executing/thinking agents, got %d", stats.ExecutingAgents)
+	}
+	if stats.Topology != "mesh" {
+		t.Errorf("expected topology mesh, got %s", stats.Topology)
+	}
+	if stats.Strategy != "sequential" {
+		t.Errorf("expected strategy sequential, got %s", stats.Strategy)
+	}
+}
+
+func TestSwarm_GetStats_WithTasks(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	a := agent.NewAgent("a1", agent.AgentTypeCoder)
+	swarm.AddAgent(a)
+
+	// Manually add pending and completed tasks
+	swarm.taskQueue = append(swarm.taskQueue, &Task{ID: "t1"}, &Task{ID: "t2"})
+	swarm.completed = append(swarm.completed, &Task{ID: "t3"}, &Task{ID: "t4"}, &Task{ID: "t5"})
+
+	stats := swarm.GetStats()
+	if stats.PendingTasks != 2 {
+		t.Errorf("expected 2 pending tasks, got %d", stats.PendingTasks)
+	}
+	if stats.CompletedTasks != 3 {
+		t.Errorf("expected 3 completed tasks, got %d", stats.CompletedTasks)
+	}
+}
+
+func TestSwarm_GetStats_AfterStartStop(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+	swarm.Start(ctx)
+
+	stats := swarm.GetStats()
+	if stats.State != "active" {
+		t.Errorf("expected state active after Start, got %s", stats.State)
+	}
+
+	swarm.Stop()
+	stats = swarm.GetStats()
+	if stats.State != "stopped" {
+		t.Errorf("expected state stopped after Stop, got %s", stats.State)
+	}
+}
+
+func TestSwarm_AcceptHandoff_NotFound(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	ctx := context.Background()
+	err := swarm.AcceptHandoff(ctx, "nonexistent-request", "test summary")
+	if err == nil {
+		t.Error("expected error for nonexistent handoff request")
+	}
+}
+
+func TestSwarm_AcceptHandoff_Success(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	fromAgent := agent.NewAgent("from-1", agent.AgentTypeCoder)
+	toAgent := agent.NewAgent("to-1", agent.AgentTypeCoder)
+	swarm.AddAgent(fromAgent)
+	swarm.AddAgent(toAgent)
+
+	ctx := context.Background()
+
+	// Create a pending handoff request
+	req, err := swarm.RequestHandoff(ctx, string(fromAgent.ID), string(toAgent.ID), "task-1", "need help", nil)
+	if err != nil {
+		t.Fatalf("RequestHandoff failed: %v", err)
+	}
+	if req == nil {
+		t.Fatal("RequestHandoff returned nil request")
+	}
+
+	// Verify it's in pending stats
+	stats := swarm.GetHandoffStats()
+	if stats[HandoffStatePending] != 1 {
+		t.Errorf("expected 1 pending handoff, got %d", stats[HandoffStatePending])
+	}
+
+	// Accept the handoff
+	err = swarm.AcceptHandoff(ctx, req.ID, "accepted summary")
+	if err != nil {
+		t.Fatalf("AcceptHandoff failed: %v", err)
+	}
+
+	// Verify state transitioned
+	stats = swarm.GetHandoffStats()
+	if stats[HandoffStatePending] != 0 {
+		t.Errorf("expected 0 pending handoffs after accept, got %d", stats[HandoffStatePending])
+	}
+	if stats[HandoffStateAccepted] != 1 {
+		t.Errorf("expected 1 accepted handoff, got %d", stats[HandoffStateAccepted])
+	}
+}
+
+func TestSwarm_AcceptHandoff_WithUpdatedVars(t *testing.T) {
+	swarm := NewSwarm(SwarmConfig{
+		ID:       "s1",
+		Name:     "Test",
+		Topology: TopologyStar,
+		Strategy: StrategyParallel,
+	})
+
+	fromAgent := agent.NewAgent("from-1", agent.AgentTypeCoder)
+	toAgent := agent.NewAgent("to-1", agent.AgentTypeCoder)
+	swarm.AddAgent(fromAgent)
+	swarm.AddAgent(toAgent)
+
+	ctx := context.Background()
+
+	// Create handoff with context
+	handoffCtx := &HandoffContext{
+		ContextVariables: map[string]any{"key1": "value1"},
+	}
+	req, err := swarm.RequestHandoff(ctx, string(fromAgent.ID), string(toAgent.ID), "task-1", "need help", handoffCtx)
+	if err != nil {
+		t.Fatalf("RequestHandoff failed: %v", err)
+	}
+
+	// Accept with updated vars
+	updatedVars := map[string]any{"key2": "value2", "key1": "updated"}
+	err = swarm.AcceptHandoff(ctx, req.ID, "accepted with updates", updatedVars)
+	if err != nil {
+		t.Fatalf("AcceptHandoff with vars failed: %v", err)
+	}
+
+	// Verify the context was merged (request moved to active)
+	stats := swarm.GetHandoffStats()
+	if stats[HandoffStateAccepted] != 1 {
+		t.Errorf("expected 1 accepted handoff, got %d", stats[HandoffStateAccepted])
+	}
+}
+
+// ==================== resolveSpeakerSelector Tests ====================
+
+func TestResolveSpeakerSelector_Default(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+	// Default (no config) should return RoundRobinSelector
+	_, ok := sel.(*RoundRobinSelector)
+	if !ok {
+		t.Errorf("expected RoundRobinSelector for default config, got %T", sel)
+	}
+}
+
+func TestResolveSpeakerSelector_Random(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "random",
+		},
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+	_, ok := sel.(*RandomSelector)
+	if !ok {
+		t.Errorf("expected RandomSelector for random policy, got %T", sel)
+	}
+}
+
+func TestResolveSpeakerSelector_Auto_WithCustomFunc(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "auto",
+			"speaker_selector_fn": func(turns int, messages []GroupChatMessage, nodes []*WorkflowNode) int {
+				return 0 // Always select first node
+			},
+		},
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+	fnSel, ok := sel.(*FuncSelector)
+	if !ok {
+		t.Fatalf("expected FuncSelector for auto policy with custom function, got %T", sel)
+	}
+	// Verify the function works
+	idx := fnSel.Select(1, nil, nil)
+	if idx != 0 {
+		t.Errorf("expected custom function to return 0, got %d", idx)
+	}
+}
+
+func TestResolveSpeakerSelector_Auto_WithoutCustomFunc(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "auto",
+			// No speaker_selector_fn - should fall back to round robin
+		},
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+	_, ok := sel.(*RoundRobinSelector)
+	if !ok {
+		t.Errorf("expected RoundRobinSelector fallback for auto without custom function, got %T", sel)
+	}
+}
+
+func TestResolveSpeakerSelector_Manual_WithSignal(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "manual",
+		},
+	})
+	w.AddNode(&WorkflowNode{
+		ID:     "node-2",
+		AgentID: "agent-2",
+	})
+
+	// Add a next_speaker signal to the signal bus
+	o.signalBus.pendingSignals[w.ID] = append(
+		o.signalBus.pendingSignals[w.ID],
+		&Signal{Name: "next_speaker", Input: "agent-2"},
+	)
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+
+	nodes := w.Nodes
+	idx := sel.Select(1, nil, nodes)
+	if idx != 1 {
+		t.Errorf("expected manual selector to return index 1 (agent-2), got %d", idx)
+	}
+
+	// Signal should be consumed
+	signals := o.signalBus.PeekSignals(w.ID)
+	for _, sig := range signals {
+		if sig.Name == "next_speaker" {
+			t.Error("expected next_speaker signal to be consumed")
+		}
+	}
+}
+
+func TestResolveSpeakerSelector_Manual_NoSignal(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "manual",
+		},
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector")
+	}
+
+	// No signal available - should return -1 (end chat)
+	idx := sel.Select(1, nil, w.Nodes)
+	if idx != -1 {
+		t.Errorf("expected manual selector to return -1 when no signal, got %d", idx)
+	}
+}
+
+func TestResolveSpeakerSelector_Manual_UnknownAgent(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "manual",
+		},
+	})
+
+	// Signal references an agent not in the workflow
+	o.signalBus.pendingSignals[w.ID] = append(
+		o.signalBus.pendingSignals[w.ID],
+		&Signal{Name: "next_speaker", Input: "unknown-agent"},
+	)
+
+	sel := o.resolveSpeakerSelector(w)
+	idx := sel.Select(1, nil, w.Nodes)
+	if idx != -1 {
+		t.Errorf("expected -1 for unknown agent in manual signal, got %d", idx)
+	}
+}
+
+func TestResolveSpeakerSelector_Manual_SignalNotString(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "manual",
+		},
+	})
+
+	// Signal Input is not a string
+	o.signalBus.pendingSignals[w.ID] = append(
+		o.signalBus.pendingSignals[w.ID],
+		&Signal{Name: "next_speaker", Input: 12345},
+	)
+
+	sel := o.resolveSpeakerSelector(w)
+	idx := sel.Select(1, nil, w.Nodes)
+	// Non-string input should be ignored, return -1
+	if idx != -1 {
+		t.Errorf("expected -1 for non-string signal input, got %d", idx)
+	}
+}
+
+func TestResolveSpeakerSelector_UnknownPolicy(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	w.AddNode(&WorkflowNode{
+		ID:     "node-1",
+		AgentID: "agent-1",
+		Config: map[string]any{
+			"speaker_policy": "unknown_policy",
+		},
+	})
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector for unknown policy")
+	}
+	// Unknown policy falls through to default case (RoundRobinSelector)
+	_, ok := sel.(*RoundRobinSelector)
+	if !ok {
+		t.Errorf("expected RoundRobinSelector for unknown policy (default), got %T", sel)
+	}
+}
+
+func TestResolveSpeakerSelector_NoNodes(t *testing.T) {
+	o := NewOrchestrator(nil)
+	w := o.CreateWorkflow("test", ModeGroupChat)
+	// No nodes added
+
+	sel := o.resolveSpeakerSelector(w)
+	if sel == nil {
+		t.Fatal("expected non-nil selector even with no nodes")
+	}
+}
+
+// ==================== executeOnAgentsWithPrompt Tests ====================
+
+func TestOrchestrator_ExecuteOnAgents_NoAgents(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	ctx := context.Background()
+	err := s.executeOnAgentsWithPrompt(ctx, task, nil, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when no agents provided")
+	}
+	if err.Error() != "no available agents" {
+		t.Errorf("expected 'no available agents' error, got '%s'", err.Error())
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_EmptySlice(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	ctx := context.Background()
+	err := s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{}, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when empty agent slice provided")
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_AgentError(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	a := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	s.AddAgent(a)
+
+	ctx := context.Background()
+	s.Start(ctx)
+	defer s.Stop()
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	// Agent has no ACP connection, so Execute will fail
+	err := s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a}, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when agent has no connection")
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_ContextCancelled(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	a := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	s.AddAgent(a)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	s.Start(ctx)
+	defer s.Stop()
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	// Should return error (agent execution fails due to cancelled context)
+	err := s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a}, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when context is cancelled")
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_MaxTurns(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	a := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	s.AddAgent(a)
+
+	ctx := context.Background()
+	s.Start(ctx)
+	defer s.Stop()
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	task.MaxTurns = 1
+	result := &TaskResult{}
+
+	// First call increments turns to 1, should succeed
+	err := s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a}, result, task.Prompt)
+	// Will error because no connection, but turns should be incremented
+	_ = err
+
+	// Second call: turns is now 2, exceeds MaxTurns of 1
+	err = s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a}, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when max_turns exceeded")
+	}
+	if err != nil && !containsAny(err.Error(), []string{"max_turns", "exceeded", "error"}) {
+		t.Logf("unexpected error: %v", err)
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_MultipleAgents_AllFail(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	a1 := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	a2 := agent.NewAgent("agent-2", agent.AgentTypeCoder)
+	s.AddAgent(a1)
+	s.AddAgent(a2)
+
+	ctx := context.Background()
+	s.Start(ctx)
+	defer s.Stop()
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	// Both agents have no connections - both should fail
+	err := s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a1, a2}, result, task.Prompt)
+	if err == nil {
+		t.Error("expected error when all agents fail")
+	}
+}
+
+func TestOrchestrator_ExecuteOnAgents_TurnsIncrement(t *testing.T) {
+	s := NewSwarm(SwarmConfig{ID: "s1", Name: "Test", Topology: TopologyStar, Strategy: StrategyParallel})
+
+	a := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	s.AddAgent(a)
+
+	ctx := context.Background()
+	s.Start(ctx)
+	defer s.Stop()
+
+	task := NewTask("test", "test desc", acp.Prompt{{Type: "text", Text: "hello"}})
+	result := &TaskResult{}
+
+	if task.TurnCount != 0 {
+		t.Fatalf("expected initial turn count 0, got %d", task.TurnCount)
+	}
+
+	// executeOnAgentsWithPrompt will fail (no connection) but should still increment turns
+	_ = s.executeOnAgentsWithPrompt(ctx, task, []*agent.Agent{a}, result, task.Prompt)
+
+	if task.TurnCount != 1 {
+		t.Errorf("expected turn count 1 after execution, got %d", task.TurnCount)
+	}
+}

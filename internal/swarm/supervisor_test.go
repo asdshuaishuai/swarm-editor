@@ -1352,3 +1352,267 @@ func TestGetAlertsReturnsCopy(t *testing.T) {
 		t.Error("internal alert should not be nil after mutating returned copy")
 	}
 }
+
+// TestSupervisor_SetBroadcaster tests that SetBroadcaster correctly sets up
+// callback functions for broadcasting supervisor events.
+func TestSupervisor_SetBroadcaster(t *testing.T) {
+	sup := NewSupervisor(DefaultSupervisorConfig(), nil, nil)
+
+	// Initially no broadcaster set
+	sup.mu.RLock()
+	initialBroadcaster := sup.broadcaster
+	sup.mu.RUnlock()
+	if initialBroadcaster != nil {
+		t.Error("expected nil broadcaster initially")
+	}
+
+	// Set a mock broadcaster (reuse existing mock from automations_test.go)
+	mockBroadcaster := &mockEventBroadcaster{}
+	sup.SetBroadcaster(mockBroadcaster)
+
+	// Verify broadcaster is set and callbacks are wired
+	sup.mu.RLock()
+	b := sup.broadcaster
+	sup.mu.RUnlock()
+	if b == nil {
+		t.Error("expected broadcaster to be set")
+	}
+
+	// Verify callbacks are wired
+	sup.mu.RLock()
+	onStuck := sup.onAgentStuck
+	sup.mu.RUnlock()
+	if onStuck == nil {
+		t.Error("expected onAgentStuck callback to be wired")
+	}
+
+	// Test nil broadcaster clears callbacks
+	sup.SetBroadcaster(nil)
+	sup.mu.RLock()
+	b = sup.broadcaster
+	sup.mu.RUnlock()
+	if b != nil {
+		t.Error("expected broadcaster to be nil after clearing")
+	}
+}
+
+func TestSupervisor_SetBroadcaster_WithBroadcaster(t *testing.T) {
+	registry := agent.NewRegistry()
+	agent1 := agent.NewAgent("Test Agent 1", agent.AgentTypeCoder)
+	registry.Register(agent1)
+
+	sup := NewSupervisor(SupervisorConfig{}, registry, nil)
+	defer sup.Stop()
+
+	var mu sync.Mutex
+	var events []map[string]any
+	broadcaster := &testSupervisorBroadcaster{
+		broadcastFn: func(eventType string, payload any) {
+			mu.Lock()
+			defer mu.Unlock()
+			events = append(events, map[string]any{"type": eventType, "payload": payload})
+		},
+	}
+	sup.SetBroadcaster(broadcaster)
+
+	// Record heartbeat that triggers stuck detection after timeout
+	sup.RecordHeartbeat(string(agent1.ID))
+
+	// Verify broadcaster was set
+	sup.mu.RLock()
+	b := sup.broadcaster
+	sup.mu.RUnlock()
+	if b == nil {
+		t.Error("expected broadcaster to be set")
+	}
+}
+
+type testSupervisorBroadcaster struct {
+	broadcastFn func(eventType string, payload any)
+}
+
+func (t *testSupervisorBroadcaster) Broadcast(eventType string, payload any) {
+	if t.broadcastFn != nil {
+		t.broadcastFn(eventType, payload)
+	}
+}
+
+func TestSupervisor_AddAlert(t *testing.T) {
+	s := createTestSupervisor()
+
+	s.mu.Lock()
+	s.addAlert("stuck", "agent-1", "Agent is stuck", "warning", nil)
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	alerts := s.alerts
+	s.mu.RUnlock()
+
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].Type != "stuck" {
+		t.Errorf("expected type 'stuck', got %q", alerts[0].Type)
+	}
+	if alerts[0].AgentID != "agent-1" {
+		t.Errorf("expected agentID 'agent-1', got %q", alerts[0].AgentID)
+	}
+	if alerts[0].Message != "Agent is stuck" {
+		t.Errorf("expected message 'Agent is stuck', got %q", alerts[0].Message)
+	}
+	if alerts[0].Severity != "warning" {
+		t.Errorf("expected severity 'warning', got %q", alerts[0].Severity)
+	}
+	if alerts[0].Timestamp.IsZero() {
+		t.Error("expected non-zero timestamp")
+	}
+}
+
+func TestSupervisor_AddAlert_WithMetadata(t *testing.T) {
+	s := createTestSupervisor()
+
+	metadata := map[string]any{"key": "value", "count": 42}
+	s.mu.Lock()
+	s.addAlert("degraded", "agent-2", "Health degraded", "critical", metadata)
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	alerts := s.alerts
+	s.mu.RUnlock()
+
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].Metadata == nil {
+		t.Fatal("expected metadata to be set")
+	}
+	if alerts[0].Metadata["key"] != "value" {
+		t.Errorf("expected metadata key='value', got %v", alerts[0].Metadata["key"])
+	}
+}
+
+func TestSupervisor_AddAlert_MaxAlerts(t *testing.T) {
+	s := createTestSupervisor()
+
+	// Add more than maxAlerts (1000)
+	s.mu.Lock()
+	for i := 0; i < 1005; i++ {
+		s.addAlert("test", "agent-1", "alert", "info", nil)
+	}
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	count := len(s.alerts)
+	s.mu.RUnlock()
+
+	if count > 1000 {
+		t.Errorf("expected at most 1000 alerts, got %d", count)
+	}
+}
+
+func TestSupervisor_AddAlert_WithBroadcaster(t *testing.T) {
+	s := createTestSupervisor()
+
+	var mu sync.Mutex
+	var broadcasted bool
+	s.broadcaster = &testSupervisorBroadcaster{
+		broadcastFn: func(eventType string, payload any) {
+			mu.Lock()
+			defer mu.Unlock()
+			if eventType == "supervisor_alert" {
+				broadcasted = true
+			}
+		},
+	}
+
+	s.mu.Lock()
+	s.addAlert("stuck", "agent-1", "test", "warning", nil)
+	s.mu.Unlock()
+
+	// Wait for the goroutine to complete
+	s.wg.Wait()
+
+	mu.Lock()
+	if !broadcasted {
+		t.Error("expected alert to be broadcast")
+	}
+	mu.Unlock()
+}
+
+// TestSupervisor_GetStats_HealthStates tests GetStats with different health states
+func TestSupervisor_GetStats_HealthStates(t *testing.T) {
+	sup := createTestSupervisor()
+
+	// Add agents with different health scores
+	// HealthThreshold defaults to 0.7
+	// Score >= 0.7: Healthy
+	// Score >= 0.5: Degraded
+	// Score < 0.5: Unhealthy
+
+	sup.mu.Lock()
+	// Healthy agent (score 0.9)
+	sup.healthScores["healthy-agent"] = &AgentHealth{
+		AgentID: "healthy-agent",
+		Score:   0.9,
+	}
+
+	// Degraded agent (score 0.6)
+	sup.healthScores["degraded-agent"] = &AgentHealth{
+		AgentID: "degraded-agent",
+		Score:   0.6,
+	}
+
+	// Unhealthy agent (score 0.3)
+	sup.healthScores["unhealthy-agent"] = &AgentHealth{
+		AgentID: "unhealthy-agent",
+		Score:   0.3,
+	}
+
+	// Stuck agent
+	sup.stuckAgents["stuck-agent"] = &StuckAgentInfo{
+		AgentID:    "stuck-agent",
+		StuckAt:    time.Now(),
+		DetectedAt: time.Now(),
+	}
+	sup.mu.Unlock()
+
+	stats := sup.GetStats()
+
+	// Verify counts
+	if stats.TotalAgents != 3 {
+		t.Errorf("expected 3 total agents, got %d", stats.TotalAgents)
+	}
+	if stats.HealthyAgents != 1 {
+		t.Errorf("expected 1 healthy agent, got %d", stats.HealthyAgents)
+	}
+	if stats.DegradedAgents != 1 {
+		t.Errorf("expected 1 degraded agent, got %d", stats.DegradedAgents)
+	}
+	if stats.UnhealthyAgents != 1 {
+		t.Errorf("expected 1 unhealthy agent, got %d", stats.UnhealthyAgents)
+	}
+	if stats.StuckAgents != 1 {
+		t.Errorf("expected 1 stuck agent, got %d", stats.StuckAgents)
+	}
+}
+
+func TestSupervisor_SetAlertsForTest(t *testing.T) {
+	sup := createTestSupervisor()
+
+	alerts := []*SupervisorAlert{
+		{Type: "stuck", AgentID: "agent-1", Message: "test alert", Severity: "warning"},
+		{Type: "degraded", AgentID: "agent-2", Message: "health degraded", Severity: "critical"},
+	}
+	sup.SetAlertsForTest(alerts)
+
+	got := sup.GetAlerts()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 alerts, got %d", len(got))
+	}
+	if got[0].AgentID != "agent-1" {
+		t.Errorf("alert[0].AgentID = %q, want %q", got[0].AgentID, "agent-1")
+	}
+	if got[1].Severity != "critical" {
+		t.Errorf("alert[1].Severity = %q, want %q", got[1].Severity, "critical")
+	}
+}

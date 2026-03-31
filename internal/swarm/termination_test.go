@@ -260,3 +260,104 @@ func TestTerminationResult_Fields(t *testing.T) {
 		t.Error("Condition should not be empty")
 	}
 }
+
+func TestCustomCondition_Reset(t *testing.T) {
+	called := false
+	cond := NewCustomCondition("test", func(turnCount int, lastOutput string) bool {
+		called = true
+		return turnCount >= 3
+	})
+
+	if cond.Name() != "test" {
+		t.Errorf("Name() = %q, want %q", cond.Name(), "test")
+	}
+
+	// Below threshold
+	result := cond.Check(2, "output")
+	if result.Terminated {
+		t.Error("Should not terminate below threshold")
+	}
+
+	// At threshold
+	result = cond.Check(3, "output")
+	if !result.Terminated {
+		t.Error("Should terminate at threshold")
+	}
+	if !called {
+		t.Error("Custom check function should have been called")
+	}
+
+	// Reset is a no-op but should not panic
+	cond.Reset()
+
+	// Verify condition still works after reset
+	called = false
+	result = cond.Check(3, "output")
+	if !result.Terminated {
+		t.Error("Should still terminate after reset (no-op)")
+	}
+}
+
+func TestTimeoutCondition_Reset(t *testing.T) {
+	cond := NewTimeoutCondition(100 * time.Millisecond)
+
+	// Start the timeout
+	result := cond.Check(0, "")
+	if result.Terminated {
+		t.Error("Should not terminate immediately")
+	}
+
+	// Reset the condition
+	cond.Reset()
+
+	// After reset, should be able to start fresh
+	// The started flag should be reset, so next Check() will restart the timer
+	result = cond.Check(0, "")
+	if result.Terminated {
+		t.Error("Should not terminate immediately after reset")
+	}
+}
+
+func TestMaxTurnsCondition_Reset(t *testing.T) {
+	cond := NewMaxTurnsCondition(3)
+
+	// Turn 1
+	result := cond.Check(1, "")
+	if result.Terminated {
+		t.Error("Should not terminate at turn 1")
+	}
+
+	// Turn 3 - should terminate
+	result = cond.Check(3, "")
+	if !result.Terminated {
+		t.Error("Should terminate at turn 3")
+	}
+
+	// Reset
+	cond.Reset()
+
+	// After reset, should start fresh
+	result = cond.Check(1, "")
+	if result.Terminated {
+		t.Error("Should not terminate at turn 1 after reset")
+	}
+}
+
+func TestNoProgressCondition_Reset(t *testing.T) {
+	cond := NewNoProgressCondition()
+
+	// Check with different outputs (not a loop)
+	result := cond.Check(0, "output 1")
+	if result.Terminated {
+		t.Error("Should not terminate on first check")
+	}
+
+	// Reset
+	cond.Reset()
+
+	// After reset, should start fresh
+	result = cond.Check(0, "different output")
+	if result.Terminated {
+		t.Error("Should not terminate after reset with different output")
+	}
+}

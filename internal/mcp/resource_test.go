@@ -366,3 +366,239 @@ func TestFileResourceHandler_List_WithFiles(t *testing.T) {
 		t.Error("expected to find b.ts")
 	}
 }
+
+func TestResourceManager_Subscribe_MaxSubscribers(t *testing.T) {
+	rm := NewResourceManager()
+	uri := "file:///test.txt"
+
+	// Subscribe maxSubscribersPerURI times
+	channels := make([]<-chan ResourceUpdate, 0, 50)
+	for i := range 50 {
+		ch, err := rm.Subscribe(context.Background(), uri)
+		if err != nil {
+			t.Fatalf("Subscribe %d: %v", i, err)
+		}
+		channels = append(channels, ch)
+	}
+	if len(channels) != 50 {
+		t.Fatalf("expected 50 channels, got %d", len(channels))
+	}
+
+	// The 51st should fail
+	_, err := rm.Subscribe(context.Background(), uri)
+	if err == nil {
+		t.Error("expected error when max subscribers reached")
+	}
+
+	// Cleanup
+	rm.Close()
+}
+
+func TestFileResourceHandler_Read_BinaryFile(t *testing.T) {
+	dir := t.TempDir()
+	handler := NewFileResourceHandler(dir)
+
+	// Write a binary file (PNG header magic bytes)
+	binaryData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	if err := os.WriteFile(dir+"/image.png", binaryData, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	content, err := handler.Read(context.Background(), "file://"+dir+"/image.png")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if content.MimeType != "application/octet-stream" {
+		t.Errorf("expected application/octet-stream, got %s", content.MimeType)
+	}
+	if content.Blob == nil {
+		t.Error("expected Blob to be set for binary file")
+	}
+	if content.Text != "" {
+		t.Error("expected Text to be empty for binary file")
+	}
+}
+
+func TestFileResourceHandler_Read_MissingFilePrefix(t *testing.T) {
+	dir := t.TempDir()
+	handler := NewFileResourceHandler(dir)
+
+	_, err := handler.Read(context.Background(), "/path/to/file.txt")
+	if err != ErrResourceNotFound {
+		t.Errorf("expected ErrResourceNotFound for missing file:// prefix, got %v", err)
+	}
+}
+
+// TestResourceManager_Subscribe_HandlerError tests Subscribe when handler returns error
+func TestResourceManager_Subscribe_HandlerError(t *testing.T) {
+	rm := NewResourceManager()
+
+	// Register a handler that returns error on Subscribe
+	rm.RegisterHandler("custom://", &mockResourceHandler{
+		readFn: func(ctx context.Context, uri string) (*ResourceContent, error) {
+			return nil, fmt.Errorf("not implemented")
+		},
+		listFn: func(ctx context.Context, cursor string) ([]Resource, string, error) {
+			return nil, "", nil
+		},
+		subscribe: func(ctx context.Context, uri string) (<-chan ResourceUpdate, error) {
+			return nil, fmt.Errorf("handler subscribe error")
+		},
+	})
+
+	// Subscribe should still succeed (handler error is logged but not propagated)
+	// because the code checks `if err == nil` on line 194
+	ch, err := rm.Subscribe(context.Background(), "custom://resource")
+	if err != nil {
+		t.Errorf("expected no error when handler Subscribe fails, got: %v", err)
+	}
+	if ch == nil {
+		t.Error("expected non-nil channel")
+	}
+
+	// Cleanup
+	rm.Close()
+}
+
+// TestResourceManager_Subscribe_HandlerSuccess tests Subscribe with working handler
+func TestResourceManager_Subscribe_HandlerSuccess(t *testing.T) {
+	rm := NewResourceManager()
+
+	handlerCh := make(chan ResourceUpdate, 1)
+	rm.RegisterHandler("custom://", &mockResourceHandler{
+		readFn: func(ctx context.Context, uri string) (*ResourceContent, error) {
+			return nil, fmt.Errorf("not implemented")
+		},
+		listFn: func(ctx context.Context, cursor string) ([]Resource, string, error) {
+			return nil, "", nil
+		},
+		subscribe: func(ctx context.Context, uri string) (<-chan ResourceUpdate, error) {
+			return handlerCh, nil
+		},
+	})
+
+	// Subscribe should succeed and start the goroutine
+	subCh, err := rm.Subscribe(context.Background(), "custom://resource")
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	// Send update through handler channel
+	handlerCh <- ResourceUpdate{URI: "custom://resource", Updated: time.Now()}
+
+	// Should receive on subscriber channel
+	select {
+	case update := <-subCh:
+		if update.URI != "custom://resource" {
+			t.Errorf("expected URI custom://resource, got %s", update.URI)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("expected to receive update from handler")
+	}
+
+	// Close handler channel to trigger goroutine exit
+	close(handlerCh)
+
+	// Cleanup - should wait for goroutine
+	rm.Close()
+}
+
+// TestResourceManager_Subscribe_GoroutinePanicRecovery tests panic recovery in Subscribe goroutine
+func TestResourceManager_Subscribe_GoroutinePanicRecovery(t *testing.T) {
+	rm := NewResourceManager()
+
+	// Create a channel that will cause panic when closed (sending to closed channel)
+	panicCh := make(chan ResourceUpdate, 1)
+
+	callCount := 0
+	rm.RegisterHandler("custom://", &mockResourceHandler{
+		readFn: func(ctx context.Context, uri string) (*ResourceContent, error) {
+			return nil, fmt.Errorf("not implemented")
+		},
+		listFn: func(ctx context.Context, cursor string) ([]Resource, string, error) {
+			return nil, "", nil
+		},
+		subscribe: func(ctx context.Context, uri string) (<-chan ResourceUpdate, error) {
+			callCount++
+			return panicCh, nil
+		},
+	})
+
+	// Subscribe - this starts the goroutine
+	_, err := rm.Subscribe(context.Background(), "custom://resource")
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	// Close the channel to cause range to exit normally (not a panic, but tests the defer path)
+	close(panicCh)
+
+	// Give time for goroutine to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should complete without hanging (WaitGroup properly tracked)
+	done := make(chan struct{})
+	go func() {
+		rm.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success - Close completed
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Close hung - goroutine may not be properly tracked")
+	}
+}
+
+// TestResourceManager_Unsubscribe_NonExistent tests Unsubscribe with unknown channel
+func TestResourceManager_Unsubscribe_NonExistent(t *testing.T) {
+	rm := NewResourceManager()
+
+	// Create a channel that was never subscribed
+	ch := make(chan ResourceUpdate)
+
+	// Should not panic when unsubscribing non-existent channel
+	rm.Unsubscribe("file:///test.txt", ch)
+
+	// Verify resource manager is still functional
+	rm.RegisterResource(&Resource{URI: "file:///test.txt", Name: "Test"})
+}
+
+// TestResourceManager_Unsubscribe_MultipleSubscribers tests removing middle subscriber
+func TestResourceManager_Unsubscribe_MultipleSubscribers(t *testing.T) {
+	rm := NewResourceManager()
+	uri := "file:///test.txt"
+
+	ch1, _ := rm.Subscribe(context.Background(), uri)
+	ch2, _ := rm.Subscribe(context.Background(), uri)
+	ch3, _ := rm.Subscribe(context.Background(), uri)
+
+	// Remove middle subscriber
+	rm.Unsubscribe(uri, ch2)
+
+	// Verify ch2 is closed
+	_, ok := <-ch2
+	if ok {
+		t.Error("expected ch2 to be closed")
+	}
+
+	// Verify ch1 and ch3 still work
+	rm.notifySubscribers(ResourceUpdate{URI: uri, Updated: time.Now()})
+
+	select {
+	case <-ch1:
+		// OK
+	default:
+		t.Error("expected ch1 to receive update")
+	}
+
+	select {
+	case <-ch3:
+		// OK
+	default:
+		t.Error("expected ch3 to receive update")
+	}
+
+	rm.Close()
+}

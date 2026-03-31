@@ -353,3 +353,32 @@ func TestManagerBroadcastToNonExistentSession(t *testing.T) {
 		t.Error("Manager should still exist")
 	}
 }
+
+func TestManagerGetAgentSessionID(t *testing.T) {
+	registry := agent.NewRegistry()
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	registry.Register(driver)
+	registry.Register(navigator)
+
+	m := NewManager(registry)
+	session, _ := m.CreateSession(driver.ID, navigator.ID)
+
+	// Find session ID by driver
+	sessionID := m.GetAgentSessionID(driver.ID)
+	if sessionID != session.ID {
+		t.Errorf("expected session ID %s for driver, got %s", session.ID, sessionID)
+	}
+
+	// Find session ID by navigator
+	sessionID = m.GetAgentSessionID(navigator.ID)
+	if sessionID != session.ID {
+		t.Errorf("expected session ID %s for navigator, got %s", session.ID, sessionID)
+	}
+
+	// Non-participant returns empty
+	sessionID = m.GetAgentSessionID("non-existent")
+	if sessionID != "" {
+		t.Errorf("expected empty session ID for non-existent agent, got %s", sessionID)
+	}
+}

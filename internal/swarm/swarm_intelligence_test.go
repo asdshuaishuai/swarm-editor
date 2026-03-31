@@ -404,6 +404,57 @@ func TestSwarmIntelligenceScheduler_GetActiveNegotiations(t *testing.T) {
 	}
 }
 
+func TestSwarmIntelligenceScheduler_GetActiveNegotiations_WithParticipantsAndBids(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Add a negotiation with participants and bids
+	scheduler.activeNegotiations["neg-1"] = &Negotiation{
+		ID:           "neg-1",
+		TaskID:       "task-1",
+		Status:       "pending",
+		Participants: []string{"agent1", "agent2", "agent3"},
+		Bids: map[string]*Bid{
+			"agent1": {AgentID: "agent1", Value: 0.5},
+			"agent2": {AgentID: "agent2", Value: 0.9},
+		},
+		Deadline: time.Now().Add(5 * time.Second),
+	}
+
+	negotiations := scheduler.GetActiveNegotiations()
+	if len(negotiations) != 1 {
+		t.Fatalf("Expected 1 negotiation, got %d", len(negotiations))
+	}
+
+	// Verify participants were copied
+	if len(negotiations[0].Participants) != 3 {
+		t.Errorf("Expected 3 participants, got %d", len(negotiations[0].Participants))
+	}
+
+	// Verify bids were copied
+	if len(negotiations[0].Bids) != 2 {
+		t.Errorf("Expected 2 bids, got %d", len(negotiations[0].Bids))
+	}
+
+	// Verify deep copy - modifying returned value should not affect original
+	negotiations[0].Participants[0] = "modified"
+	scheduler.mu.RLock()
+	original := scheduler.activeNegotiations["neg-1"]
+	if original.Participants[0] == "modified" {
+		t.Error("Participants should be deep copied, not shared")
+	}
+	scheduler.mu.RUnlock()
+
+	// Verify bids are independent
+	negotiations[0].Bids["agent1"].Value = 0.0
+	scheduler.mu.RLock()
+	if scheduler.activeNegotiations["neg-1"].Bids["agent1"].Value == 0.0 {
+		t.Error("Bids should be deep copied, not shared")
+	}
+	scheduler.mu.RUnlock()
+}
+
 func TestSwarmIntelligenceScheduler_GetSignals(t *testing.T) {
 	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
 	config := DefaultSwarmIntelligenceConfig()
@@ -1091,5 +1142,403 @@ func TestSwarmIntelligenceScheduler_HandleProposalInvalidPayload(t *testing.T) {
 	err := scheduler.handleProposal(msg)
 	if err == nil {
 		t.Error("Expected error for message without payload")
+	}
+}
+
+// ==================== safeMarshalJSON Tests ====================
+
+func TestSafeMarshalJSON_Valid(t *testing.T) {
+	data := map[string]any{"key": "value", "num": 42}
+	result := safeMarshalJSON(data)
+	if result == nil {
+		t.Error("expected non-nil result for valid input")
+	}
+	if string(result) != `{"key":"value","num":42}` {
+		t.Errorf("result = %s, want {\"key\":\"value\",\"num\":42}", string(result))
+	}
+}
+
+func TestSafeMarshalJSON_Slice(t *testing.T) {
+	data := []string{"a", "b", "c"}
+	result := safeMarshalJSON(data)
+	if result == nil {
+		t.Error("expected non-nil result for slice")
+	}
+}
+
+func TestSafeMarshalJSON_Nil(t *testing.T) {
+	result := safeMarshalJSON(nil)
+	if string(result) != "null" {
+		t.Errorf("result = %s, want 'null'", string(result))
+	}
+}
+
+func TestSafeMarshalJSON_Unmarshallable(t *testing.T) {
+	// Channel cannot be marshaled to JSON
+	ch := make(chan int)
+	result := safeMarshalJSON(ch)
+	if result != nil {
+		t.Error("expected nil for unmarshallable type (channel)")
+	}
+}
+
+func TestSafeMarshalJSON_Func(t *testing.T) {
+	// Functions cannot be marshaled to JSON
+	fn := func() {}
+	result := safeMarshalJSON(fn)
+	if result != nil {
+		t.Error("expected nil for unmarshallable type (func)")
+	}
+}
+
+// ==================== mustMarshalJSON Tests ====================
+
+func TestMustMarshalJSON_Valid(t *testing.T) {
+	data := map[string]string{"a": "b"}
+	result := mustMarshalJSON(data)
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+func TestDetectSynergy_NoPheromones(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	signal := s.detectSynergy()
+	if signal != nil {
+		t.Error("expected nil signal when no pheromones exist")
+	}
+}
+
+func TestDetectSynergy_WithSynergisticAgents(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.SignalThreshold = 0.3
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Deposit strong pheromones for 2 agents on same task type
+	s.DepositPheromone("agent-1", "coding", true)
+	s.DepositPheromone("agent-1", "coding", true)
+	s.DepositPheromone("agent-2", "coding", true)
+	s.DepositPheromone("agent-2", "coding", true)
+
+	// Set up agent performance with high specialization
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		Specialization: map[string]float64{"coding": 0.9},
+	}
+	s.agentPerformance["agent-2"] = &AgentPerformance{
+		Specialization: map[string]float64{"coding": 0.85},
+	}
+
+	signal := s.detectSynergy()
+	if signal == nil {
+		t.Fatal("expected synergy signal to be detected")
+	}
+	if signal.Type != "synergy" {
+		t.Errorf("expected type 'synergy', got %q", signal.Type)
+	}
+	if signal.Strength <= 0 {
+		t.Errorf("expected positive strength, got %f", signal.Strength)
+	}
+	if len(signal.Agents) != 2 {
+		t.Errorf("expected 2 agents, got %d", len(signal.Agents))
+	}
+}
+
+func TestDetectSynergy_LowScore(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.SignalThreshold = 0.3
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Deposit pheromones for 2 agents
+	s.DepositPheromone("agent-1", "coding", true)
+	s.DepositPheromone("agent-2", "coding", true)
+
+	// Low specialization (score won't exceed 1.5)
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		Specialization: map[string]float64{"coding": 0.3},
+	}
+	s.agentPerformance["agent-2"] = &AgentPerformance{
+		Specialization: map[string]float64{"coding": 0.3},
+	}
+
+	signal := s.detectSynergy()
+	if signal != nil {
+		t.Error("expected nil signal when synergy score is too low")
+	}
+}
+
+func TestDetectSynergy_SingleAgentPerTask(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	config.SignalThreshold = 0.3
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Only 1 agent with pheromone
+	s.DepositPheromone("agent-1", "coding", true)
+	s.DepositPheromone("agent-1", "coding", true)
+
+	signal := s.detectSynergy()
+	if signal != nil {
+		t.Error("expected nil signal with only 1 agent per task type")
+	}
+}
+
+func TestDetectInnovation_NoPerformanceData(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	signal := s.detectInnovation()
+	if signal != nil {
+		t.Error("expected nil signal when no performance data exists")
+	}
+}
+
+func TestDetectInnovation_WithInnovators(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Set up a worker so workerCount > 0
+	s.workers = map[string]*AgentInfo{"agent-1": {}}
+
+	// Agent with 4+ successes in last 5 tasks
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		RecentSuccess: []bool{false, true, true, true, true},
+	}
+
+	signal := s.detectInnovation()
+	if signal == nil {
+		t.Fatal("expected innovation signal to be detected")
+	}
+	if signal.Type != "innovation" {
+		t.Errorf("expected type 'innovation', got %q", signal.Type)
+	}
+	if signal.Confidence != 0.8 {
+		t.Errorf("expected confidence 0.8, got %f", signal.Confidence)
+	}
+}
+
+func TestDetectInnovation_LowSuccessRate(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	s.workers = map[string]*AgentInfo{"agent-1": {}}
+
+	// Agent with only 2 successes in last 5 tasks
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		RecentSuccess: []bool{false, false, true, true, false},
+	}
+
+	signal := s.detectInnovation()
+	if signal != nil {
+		t.Error("expected nil signal when success rate is too low")
+	}
+}
+
+func TestDetectInnovation_NoWorkers(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	// Innovator but no workers
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		RecentSuccess: []bool{true, true, true, true, true},
+	}
+
+	signal := s.detectInnovation()
+	if signal != nil {
+		t.Error("expected nil signal when workerCount is 0")
+	}
+}
+
+func TestDetectInnovation_InsufficientHistory(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	s := NewSwarmIntelligenceScheduler(baseScheduler, config, nil, nil)
+
+	s.workers = map[string]*AgentInfo{"agent-1": {}}
+
+	// Agent with only 3 recent successes (needs >= 5)
+	s.agentPerformance["agent-1"] = &AgentPerformance{
+		RecentSuccess: []bool{true, true, true},
+	}
+
+	signal := s.detectInnovation()
+	if signal != nil {
+		t.Error("expected nil signal when RecentSuccess < 5")
+	}
+}
+
+func TestSwarmIntelligence_HandleHelpRequest_ParseError(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Invalid payload (not JSON) - create message with nil payload, then override
+	helpMsg := a2a.NewMessage(a2a.MessageTypeHelpRequest, "agent1", "swarm_scheduler")
+	helpMsg.Payload = json.RawMessage("not json{{{")
+
+	err := scheduler.handleHelpRequest(helpMsg)
+	if err == nil {
+		t.Error("expected error for invalid payload")
+	}
+}
+
+func TestSwarmIntelligence_HandleHelpRequest_NoHelpers(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Valid payload but no workers registered
+	helpMsg := a2a.NewMessage(a2a.MessageTypeHelpRequest, "agent1", "swarm_scheduler").
+		WithPayload(&a2a.HelpRequestPayload{
+			TaskID:  "task1",
+			Reason:  "Need help",
+			Urgency: 3,
+		})
+
+	err := scheduler.handleHelpRequest(helpMsg)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSwarmIntelligence_HandleHelpRequest_WithHelpers(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add a worker with low load
+	worker := &AgentInfo{ID: "helper-1", MaxConcurrent: 5}
+	scheduler.workers["helper-1"] = worker
+
+	helpMsg := a2a.NewMessage(a2a.MessageTypeHelpRequest, "helper-1", "swarm_scheduler").
+		WithPayload(&a2a.HelpRequestPayload{
+			TaskID:  "task1",
+			Reason:  "Need help",
+			Urgency: 3,
+		})
+
+	err := scheduler.handleHelpRequest(helpMsg)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSwarmIntelligence_HandleHelpRequest_SenderIsHelper(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Add a worker, but sender IS the helper (should be excluded)
+	worker := &AgentInfo{ID: "helper-1", MaxConcurrent: 5}
+	scheduler.workers["helper-1"] = worker
+
+	helpMsg := a2a.NewMessage(a2a.MessageTypeHelpRequest, "helper-1", "swarm_scheduler").
+		WithPayload(&a2a.HelpRequestPayload{
+			TaskID:  "task1",
+			Reason:  "Need help",
+			Urgency: 3,
+		})
+
+	err := scheduler.handleHelpRequest(helpMsg)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	// helper-1 is excluded because msg.From == helper-1
+}
+
+func TestSwarmIntelligence_DetectSelfOrganization_FewWorkers(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// Less than 2 workers should return nil
+	workers := map[string]*AgentInfo{
+		"agent-1": {ID: "agent-1", MaxConcurrent: 5},
+	}
+	signal := scheduler.detectSelfOrganization(workers)
+	if signal != nil {
+		t.Error("expected nil signal with < 2 workers")
+	}
+}
+
+func TestSwarmIntelligence_DetectSelfOrganization_AllIdle(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// All idle (load=0) → activeRatio=0 → no signal
+	workers := map[string]*AgentInfo{
+		"agent-1": {ID: "agent-1", MaxConcurrent: 5},
+		"agent-2": {ID: "agent-2", MaxConcurrent: 5},
+		"agent-3": {ID: "agent-3", MaxConcurrent: 5},
+	}
+	signal := scheduler.detectSelfOrganization(workers)
+	if signal != nil {
+		t.Error("expected nil signal when all agents idle")
+	}
+}
+
+func TestSwarmIntelligence_DetectSelfOrganization_AllFull(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// All full (load >= MaxConcurrent) → no signal
+	workers := map[string]*AgentInfo{
+		"agent-1": {ID: "agent-1", MaxConcurrent: 2},
+		"agent-2": {ID: "agent-2", MaxConcurrent: 2},
+	}
+	workers["agent-1"].IncrementLoad()
+	workers["agent-1"].IncrementLoad()
+	workers["agent-2"].IncrementLoad()
+	workers["agent-2"].IncrementLoad()
+	signal := scheduler.detectSelfOrganization(workers)
+	if signal != nil {
+		t.Error("expected nil signal when all agents full")
+	}
+}
+
+func TestSwarmIntelligence_DetectSelfOrganization_Balanced(t *testing.T) {
+	baseScheduler := NewScheduler(SchedulerConfig{}, nil)
+	config := DefaultSwarmIntelligenceConfig()
+	router := a2a.NewRouter(a2a.RouterConfig{})
+	scheduler := NewSwarmIntelligenceScheduler(baseScheduler, config, router, nil)
+
+	// 3 active, 1 idle → activeRatio=0.75 → should detect self-organization
+	workers := map[string]*AgentInfo{
+		"agent-1": {ID: "agent-1", MaxConcurrent: 5},
+		"agent-2": {ID: "agent-2", MaxConcurrent: 5},
+		"agent-3": {ID: "agent-3", MaxConcurrent: 5},
+		"agent-4": {ID: "agent-4", MaxConcurrent: 5},
+	}
+	workers["agent-1"].IncrementLoad() // load=1
+	workers["agent-2"].IncrementLoad()
+	workers["agent-2"].IncrementLoad() // load=2
+	workers["agent-3"].IncrementLoad() // load=1
+	// agent-4 stays at load=0
+	signal := scheduler.detectSelfOrganization(workers)
+	if signal == nil {
+		t.Fatal("expected self-organization signal")
+	}
+	if signal.Type != "self_organization" {
+		t.Errorf("expected type self_organization, got %s", signal.Type)
+	}
+	if signal.Strength < 0.7 || signal.Strength > 0.8 {
+		t.Errorf("expected strength ~0.75, got %v", signal.Strength)
 	}
 }

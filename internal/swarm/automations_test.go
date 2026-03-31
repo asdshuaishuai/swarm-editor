@@ -683,3 +683,164 @@ func TestAutomationEngine_Close_Idempotent(t *testing.T) {
 	engine.Close()
 	engine.Close()
 }
+
+func TestMatchesTrigger_ComplexPayload(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		Trigger: AutomationTrigger{
+			Events: []string{"workflow_completed"},
+			Match: map[string]string{
+				"status":  "completed",
+				"count":   "3",
+				"enabled": "true",
+			},
+		},
+		Actions: []AutomationAction{{Type: "send_notification"}},
+	}
+
+	// Should match when all conditions are met
+	payload := map[string]any{
+		"status":  "completed",
+		"count":   3,
+		"enabled": true,
+	}
+	if !engine.matchesTrigger(a, "workflow_completed", payload) {
+		t.Error("expected match with all conditions met")
+	}
+
+	// Should not match when a condition is missing
+	delete(payload, "status")
+	if engine.matchesTrigger(a, "workflow_completed", payload) {
+		t.Error("expected no match when status is missing")
+	}
+
+	// Should not match when a condition has wrong value
+	payload["status"] = "failed"
+	if engine.matchesTrigger(a, "workflow_completed", payload) {
+		t.Error("expected no match when status is wrong")
+	}
+
+	// Should not match wrong event type
+	payload["status"] = "completed"
+	if engine.matchesTrigger(a, "workflow_failed", payload) {
+		t.Error("expected no match for wrong event type")
+	}
+}
+
+func TestMatchesTrigger_NestedObjectPayload(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		Trigger: AutomationTrigger{
+			Events: []string{"test_event"},
+			Match: map[string]string{
+				"data": `{"key":"value"}`,
+			},
+		},
+		Actions: []AutomationAction{{Type: "send_notification"}},
+	}
+
+	// Nested object should be JSON-marshaled for comparison
+	payload := map[string]any{
+		"data": map[string]string{"key": "value"},
+	}
+	if !engine.matchesTrigger(a, "test_event", payload) {
+		t.Error("expected match for nested object payload")
+	}
+
+	// Different nested object should not match
+	payload["data"] = map[string]string{"key": "different"}
+	if engine.matchesTrigger(a, "test_event", payload) {
+		t.Error("expected no match for different nested object")
+	}
+}
+
+func TestAutomationEngine_WebhookAction_InvalidScheme(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "webhook-bad-scheme",
+		Name: "Bad Scheme",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "call_webhook", Params: map[string]any{
+				"url": "ftp://evil.com/webhook",
+			}},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	engine.EvaluateEvent(context.Background(), "test.event", nil)
+	// Should not panic, just log error for invalid scheme
+}
+
+func TestAutomationEngine_WebhookAction_BlockedHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify blocked headers are NOT set
+		if r.Header.Get("Authorization") != "" {
+			t.Error("expected Authorization header to be blocked")
+		}
+		if r.Header.Get("Cookie") != "" {
+			t.Error("expected Cookie header to be blocked")
+		}
+		// Verify allowed header IS set
+		if r.Header.Get("X-Custom") != "ok" {
+			t.Error("expected X-Custom header to be set")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "webhook-headers",
+		Name: "Headers Test",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "call_webhook", Params: map[string]any{
+				"url":                  server.URL,
+				"allowPrivateNetworks": true,
+				"headers": map[string]any{
+					"Authorization":   "Bearer secret",
+					"Cookie":          "session=abc",
+					"X-Custom":        "ok",
+				},
+			}},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	engine.EvaluateEvent(context.Background(), "test.event", nil)
+	time.Sleep(100 * time.Millisecond)
+}
+
+func TestAutomationEngine_NotificationAction_WithLevel(t *testing.T) {
+	engine := NewAutomationEngine()
+
+	a := &Automation{
+		ID:   "notify-level",
+		Name: "Level Test",
+		Trigger: AutomationTrigger{
+			Events: []string{"test.event"},
+		},
+		Actions: []AutomationAction{
+			{Type: "send_notification", Params: map[string]any{
+				"message": "test message",
+				"level":   "warning",
+			}},
+		},
+		Enabled: true,
+	}
+	engine.AddAutomation(a)
+
+	// Should trigger without error (builtin handler uses level)
+	engine.EvaluateEvent(context.Background(), "test.event", nil)
+}

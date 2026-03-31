@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -484,4 +486,203 @@ func TestStdioTransportMessageRoundTrip(t *testing.T) {
 	r2.Close()
 	t1.Close()
 	t2.Close()
+}
+
+// ==================== TCPTransport Tests ====================
+
+func TestNewTCPTransport_NilConn(t *testing.T) {
+	tt := NewTCPTransport(nil)
+	if tt != nil {
+		t.Error("expected nil for nil conn")
+	}
+}
+
+func TestTCPTransport_Send_NilMessage(t *testing.T) {
+	conn, _ := net.Pipe()
+	defer conn.Close()
+
+	tt := NewTCPTransport(conn)
+	err := tt.Send(nil)
+	if err == nil {
+		t.Error("expected error for nil message")
+	}
+}
+
+func TestTCPTransport_Send_Closed(t *testing.T) {
+	conn, _ := net.Pipe()
+	tt := NewTCPTransport(conn)
+	tt.Close()
+
+	err := tt.Send(&Message{JSONRPC: "2.0"})
+	if err == nil {
+		t.Error("expected error for closed transport")
+	}
+}
+
+func TestTCPTransport_Receive_Closed(t *testing.T) {
+	conn, _ := net.Pipe()
+	tt := NewTCPTransport(conn)
+	tt.Close()
+
+	_, err := tt.Receive()
+	if err == nil {
+		t.Error("expected error for closed transport")
+	}
+}
+
+func TestTCPTransport_Close_Idempotent(t *testing.T) {
+	conn, _ := net.Pipe()
+	defer conn.Close()
+
+	tt := NewTCPTransport(conn)
+
+	if err := tt.Close(); err != nil {
+		t.Fatalf("first Close failed: %v", err)
+	}
+	if err := tt.Close(); err != nil {
+		t.Fatalf("second Close failed: %v", err)
+	}
+}
+
+func TestTCPTransport_Send_Success(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	tt := NewTCPTransport(client)
+	msg := &Message{
+		JSONRPC: "2.0",
+		ID:      &RequestID{Number: 1, IsNum: true},
+		Method:  "test",
+	}
+
+	// Send in goroutine
+	done := make(chan error, 1)
+	go func() {
+		done <- tt.Send(msg)
+	}()
+
+	// Read the message on server side
+	buf := make([]byte, 1024)
+	n, err := server.Read(buf)
+	if err != nil {
+		t.Fatalf("server read failed: %v", err)
+	}
+
+	// Verify 4-byte length prefix + message
+	if n < 4 {
+		t.Fatalf("expected at least 4 bytes, got %d", n)
+	}
+	length := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
+	if int(length) != n-4 {
+		t.Errorf("length mismatch: header says %d, but read %d bytes", length, n-4)
+	}
+
+	if err := <-done; err != nil {
+		t.Errorf("Send failed: %v", err)
+	}
+}
+
+func TestTCPTransport_Send_TooLarge(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	tt := NewTCPTransport(client)
+
+	// Create a message larger than maxMessageSize (10MB)
+	largeData := strings.Repeat("x", maxMessageSize+1)
+	params, _ := json.Marshal(map[string]any{"data": largeData})
+	msg := &Message{
+		JSONRPC: "2.0",
+		Method:  "test",
+		Params:  params,
+	}
+
+	err := tt.Send(msg)
+	if err == nil {
+		t.Error("expected error for message too large")
+	}
+}
+
+func TestTCPTransport_Receive_Success(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	tt := NewTCPTransport(client)
+
+	// Send a valid message from server side
+	msg := &Message{
+		JSONRPC: "2.0",
+		ID:      &RequestID{Number: 1, IsNum: true},
+		Method:  "test",
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	// Write 4-byte length prefix + message
+	length := uint32(len(data))
+	header := []byte{
+		byte(length >> 24),
+		byte(length >> 16),
+		byte(length >> 8),
+		byte(length),
+	}
+
+	// Write in goroutine since net.Pipe is synchronous
+	go func() {
+		server.Write(header)
+		server.Write(data)
+	}()
+
+	received, err := tt.Receive()
+	if err != nil {
+		t.Fatalf("Receive failed: %v", err)
+	}
+	if received.Method != "test" {
+		t.Errorf("expected method 'test', got '%s'", received.Method)
+	}
+}
+
+func TestTCPTransport_Receive_TooLarge(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	tt := NewTCPTransport(client)
+
+	// Send a length header that exceeds maxMessageSize
+	largeLength := uint32(maxMessageSize + 1)
+	header := []byte{
+		byte(largeLength >> 24),
+		byte(largeLength >> 16),
+		byte(largeLength >> 8),
+		byte(largeLength),
+	}
+
+	// Write in goroutine since net.Pipe is synchronous
+	go func() {
+		server.Write(header)
+	}()
+
+	_, err := tt.Receive()
+	if err == nil {
+		t.Error("expected error for message too large")
+	}
+}
+
+func TestTCPTransport_Receive_ConnectionClosed(t *testing.T) {
+	server, client := net.Pipe()
+	tt := NewTCPTransport(client)
+
+	// Close server immediately to simulate connection closed
+	server.Close()
+
+	_, err := tt.Receive()
+	if err == nil {
+		t.Error("expected error when connection closed")
+	}
 }

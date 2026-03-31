@@ -1157,13 +1157,6 @@ func (o *Orchestrator) executeWorkflow(ctx context.Context, workflow *Workflow) 
 	}
 }
 
-// setWorkflowStatus safely sets workflow status
-func (w *Workflow) setWorkflowStatus(status string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.Status = status
-}
-
 // executeSequential runs nodes one after another
 func (o *Orchestrator) executeSequential(ctx context.Context, w *Workflow) error {
 	startTime := time.Now()

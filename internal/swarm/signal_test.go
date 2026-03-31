@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestSignalBus_SendAndDrain(t *testing.T) {
@@ -100,6 +101,27 @@ func TestSignalBus_MaxBufferedSignals(t *testing.T) {
 	}
 	if signals[0].Input != 2 {
 		t.Errorf("expected first buffered signal input to be 2, got %v", signals[0].Input)
+	}
+}
+
+func TestSignalBus_SetMaxBufferedSignals_EdgeCases(t *testing.T) {
+	sb := NewSignalBus()
+
+	// Zero should default to 1
+	sb.SetMaxBufferedSignals(0)
+	sb.SendSignal("wf-1", &Signal{Name: "a"})
+	sb.SendSignal("wf-1", &Signal{Name: "b"})
+	if count := sb.GetPendingSignalCount("wf-1"); count != 1 {
+		t.Errorf("expected 1 buffered signal (max=0→1), got %d", count)
+	}
+	sb.DrainSignals("wf-1")
+
+	// Negative should default to 1
+	sb.SetMaxBufferedSignals(-5)
+	sb.SendSignal("wf-1", &Signal{Name: "c"})
+	sb.SendSignal("wf-1", &Signal{Name: "d"})
+	if count := sb.GetPendingSignalCount("wf-1"); count != 1 {
+		t.Errorf("expected 1 buffered signal (max=-5→1), got %d", count)
 	}
 }
 
@@ -255,5 +277,93 @@ func TestSignalBus_RemoveSignal(t *testing.T) {
 	removed = sb.RemoveSignal("wf1", "nonexistent")
 	if removed {
 		t.Error("expected false for non-existent signal")
+	}
+}
+
+func TestSignal_DeepCopy_Nil(t *testing.T) {
+	var s *Signal
+	cp := s.DeepCopy()
+	if cp != nil {
+		t.Error("expected nil for nil input")
+	}
+}
+
+func TestSignal_DeepCopy_Simple(t *testing.T) {
+	now := time.Now()
+	s := &Signal{
+		Name:      "test-signal",
+		Input:     "simple-string",
+		Timestamp: now,
+		Source:    "external",
+	}
+	cp := s.DeepCopy()
+
+	if cp.Name != "test-signal" {
+		t.Errorf("Name = %q, want 'test-signal'", cp.Name)
+	}
+	if cp.Input != "simple-string" {
+		t.Errorf("Input = %q, want 'simple-string'", cp.Input)
+	}
+	if cp.Source != "external" {
+		t.Errorf("Source = %q, want 'external'", cp.Source)
+	}
+	if !cp.Timestamp.Equal(now) {
+		t.Error("Timestamp should match")
+	}
+}
+
+func TestSignal_DeepCopy_MapInput(t *testing.T) {
+	s := &Signal{
+		Name:  "map-signal",
+		Input: map[string]any{"key": "value", "nested": map[string]any{"inner": 42}},
+	}
+	cp := s.DeepCopy()
+
+	// Verify values
+	inputMap := cp.Input.(map[string]any)
+	if inputMap["key"] != "value" {
+		t.Error("key should be copied")
+	}
+
+	// Verify independence
+	originalMap := s.Input.(map[string]any)
+	originalMap["key"] = "modified"
+	originalMap["nested"].(map[string]any)["inner"] = 99
+
+	cpMap := cp.Input.(map[string]any)
+	if cpMap["key"] == "modified" {
+		t.Error("map input should be deep copied")
+	}
+	if cpMap["nested"].(map[string]any)["inner"] == 99 {
+		t.Error("nested map should be deep copied")
+	}
+}
+
+func TestSignal_DeepCopy_NilInput(t *testing.T) {
+	s := &Signal{
+		Name:  "nil-input",
+		Input: nil,
+	}
+	cp := s.DeepCopy()
+	if cp.Input != nil {
+		t.Error("nil Input should remain nil")
+	}
+}
+
+func TestSignal_DeepCopy_SliceInput(t *testing.T) {
+	s := &Signal{
+		Name:  "slice-signal",
+		Input: []any{1, 2, 3},
+	}
+	cp := s.DeepCopy()
+	cpSlice := cp.Input.([]any)
+	if len(cpSlice) != 3 {
+		t.Errorf("slice len = %d, want 3", len(cpSlice))
+	}
+
+	// Verify independence
+	s.Input.([]any)[0] = 999
+	if cpSlice[0] == 999 {
+		t.Error("slice input should be deep copied")
 	}
 }

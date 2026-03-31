@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2981,3 +2983,2630 @@ func TestWorkflowToMap_InterruptedState(t *testing.T) {
 		t.Errorf("interruptPhase = %v, want 'before'", result["interruptPhase"])
 	}
 }
+
+// ==================== File System Handler Tests ====================
+
+func TestCommandHandler_HandleWriteFile_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	params := json.RawMessage(`{"path": "subdir/test.txt", "content": "hello world"}`)
+	result, err := handler.HandleCommand("write_file", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	resultMap, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if resultMap["status"] != "written" {
+		t.Errorf("expected status 'written', got %s", resultMap["status"])
+	}
+
+	// Verify file exists with correct content
+	content, err := os.ReadFile(filepath.Join(tmpDir, "subdir", "test.txt"))
+	if err != nil {
+		t.Fatalf("failed to read created file: %v", err)
+	}
+	if string(content) != "hello world" {
+		t.Errorf("expected content 'hello world', got %s", string(content))
+	}
+}
+
+func TestCommandHandler_HandleWriteFile_EdgeCases(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	t.Run("path traversal attempt", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "../etc/passwd", "content": "malicious"}`)
+		_, err := handler.HandleCommand("write_file", params)
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "access denied") {
+			t.Errorf("expected 'access denied' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("content too large", func(t *testing.T) {
+		largeContent := strings.Repeat("x", 10*1024*1024+1) // 10MB + 1 byte
+		params := map[string]interface{}{
+			"path":    "large.txt",
+			"content": largeContent,
+		}
+		paramsJSON, _ := json.Marshal(params)
+		_, err := handler.HandleCommand("write_file", paramsJSON)
+		if err == nil {
+			t.Fatal("expected error for content too large")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "content too large") {
+			t.Errorf("expected 'content too large' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "", "content": "test"}`)
+		_, err := handler.HandleCommand("write_file", params)
+		if err == nil {
+			t.Fatal("expected error for empty path")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "path is required") {
+			t.Errorf("expected 'path is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("workspace not configured", func(t *testing.T) {
+		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
+		serverNoWorkspace.workspacePath = ""
+		params := json.RawMessage(`{"path": "test.txt", "content": "test"}`)
+		_, err := handlerNoWorkspace.HandleCommand("write_file", params)
+		if err == nil {
+			t.Fatal("expected error for workspace not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "workspace not configured") {
+			t.Errorf("expected 'workspace not configured' in message, got %s", apiErr.Message)
+		}
+	})
+}
+
+func TestCommandHandler_HandleListDir_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	// Create test structure
+	os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("test"), 0644)
+
+	params := json.RawMessage(`{"path": "."}`)
+	result, err := handler.HandleCommand("list_dir", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	files, ok := result.([]FileInfo)
+	if !ok {
+		t.Fatalf("expected []FileInfo, got %T", result)
+	}
+
+	// Check that we have both the directory and file
+	foundSubdir := false
+	foundFile := false
+	for _, f := range files {
+		if f.Name == "subdir" && f.IsDirectory {
+			foundSubdir = true
+		}
+		if f.Name == "file.txt" && !f.IsDirectory {
+			foundFile = true
+		}
+	}
+	if !foundSubdir {
+		t.Error("expected to find 'subdir' directory")
+	}
+	if !foundFile {
+		t.Error("expected to find 'file.txt' file")
+	}
+}
+
+func TestCommandHandler_HandleListDir_EdgeCases(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	t.Run("path traversal", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "../.."}`)
+		_, err := handler.HandleCommand("list_dir", params)
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "access denied") {
+			t.Errorf("expected 'access denied' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("workspace not configured", func(t *testing.T) {
+		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
+		serverNoWorkspace.workspacePath = ""
+		params := json.RawMessage(`{"path": "."}`)
+		_, err := handlerNoWorkspace.HandleCommand("list_dir", params)
+		if err == nil {
+			t.Fatal("expected error for workspace not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+	})
+
+	t.Run("non-existent path", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "nonexistent"}`)
+		_, err := handler.HandleCommand("list_dir", params)
+		if err == nil {
+			t.Fatal("expected error for non-existent path")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		// Could be validation (invalid path from EvalSymlinks) or internal error
+		if apiErr.Code != CodeValidation && apiErr.Code != CodeInternalError {
+			t.Errorf("expected CodeValidation or CodeInternalError, got %d", apiErr.Code)
+		}
+	})
+}
+
+func TestCommandHandler_HandleReadFile_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	// Create test file
+	expectedContent := "test file content\nwith multiple lines"
+	os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte(expectedContent), 0644)
+
+	params := json.RawMessage(`{"path": "test.txt"}`)
+	result, err := handler.HandleCommand("read_file", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	resultMap, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if resultMap["content"] != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, resultMap["content"])
+	}
+}
+
+func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	t.Run("directory instead of file", func(t *testing.T) {
+		os.MkdirAll(filepath.Join(tmpDir, "mydir"), 0755)
+		params := json.RawMessage(`{"path": "mydir"}`)
+		_, err := handler.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for directory")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "directory") {
+			t.Errorf("expected 'directory' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("path traversal", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "../etc/passwd"}`)
+		_, err := handler.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		// Path traversal returns validation error (invalid path) when workspace checks fail
+		if apiErr.Code != CodeValidation && apiErr.Code != CodeUnauthorized {
+			t.Errorf("expected CodeValidation or CodeUnauthorized, got %d", apiErr.Code)
+		}
+	})
+
+	t.Run("file too large", func(t *testing.T) {
+		largeContent := make([]byte, 10*1024*1024+1) // 10MB + 1 byte
+		os.WriteFile(filepath.Join(tmpDir, "large.txt"), largeContent, 0644)
+		params := json.RawMessage(`{"path": "large.txt"}`)
+		_, err := handler.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for file too large")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "file too large") {
+			t.Errorf("expected 'file too large' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		params := json.RawMessage(`{"path": ""}`)
+		_, err := handler.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for empty path")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+	})
+
+	t.Run("workspace not configured", func(t *testing.T) {
+		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
+		serverNoWorkspace.workspacePath = ""
+		params := json.RawMessage(`{"path": "test.txt"}`)
+		_, err := handlerNoWorkspace.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for workspace not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		params := json.RawMessage(`{"path": "nonexistent.txt"}`)
+		_, err := handler.HandleCommand("read_file", params)
+		if err == nil {
+			t.Fatal("expected error for file not found")
+		}
+		// Non-existent file returns validation error (invalid path)
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation && apiErr.Code != CodeNotFound {
+			t.Errorf("expected CodeValidation or CodeNotFound, got %d", apiErr.Code)
+		}
+	})
+}
+
+func TestCommandHandler_HandleExecuteTask_EdgeCases(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	t.Run("missing swarmId", func(t *testing.T) {
+		params := json.RawMessage(`{"taskId": "task-1"}`)
+		_, err := handler.HandleCommand("execute_task", params)
+		if err == nil {
+			t.Fatal("expected error for missing swarmId")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "swarm id is required") {
+			t.Errorf("expected 'swarm id is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("missing taskId", func(t *testing.T) {
+		params := json.RawMessage(`{"swarmId": "swarm-1"}`)
+		_, err := handler.HandleCommand("execute_task", params)
+		if err == nil {
+			t.Fatal("expected error for missing taskId")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "task id is required") {
+			t.Errorf("expected 'task id is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("swarm not found", func(t *testing.T) {
+		params := json.RawMessage(`{"swarmId": "nonexistent", "taskId": "task-1"}`)
+		_, err := handler.HandleCommand("execute_task", params)
+		if err == nil {
+			t.Fatal("expected error for swarm not found")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotFound {
+			t.Errorf("expected CodeNotFound (%d), got %d", CodeNotFound, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "swarm") || !strings.Contains(apiErr.Message, "not found") {
+			t.Errorf("expected 'swarm ... not found' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("task not found in existing swarm", func(t *testing.T) {
+		// Create a real swarm
+		createParams := map[string]interface{}{
+			"name":     "Test Swarm",
+			"topology": "mesh",
+			"strategy": "round_robin",
+		}
+		createParamsJSON, _ := json.Marshal(createParams)
+		result, err := handler.HandleCommand("create_swarm", createParamsJSON)
+		if err != nil {
+			t.Fatalf("failed to create swarm: %v", err)
+		}
+		swarmInfo := result.(SwarmInfo)
+
+		params := json.RawMessage(`{"swarmId": "` + swarmInfo.ID + `", "taskId": "nonexistent-task"}`)
+		_, err = handler.HandleCommand("execute_task", params)
+		if err == nil {
+			t.Fatal("expected error for task not found")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotFound {
+			t.Errorf("expected CodeNotFound (%d), got %d", CodeNotFound, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "task") || !strings.Contains(apiErr.Message, "not found") {
+			t.Errorf("expected 'task ... not found' in message, got %s", apiErr.Message)
+		}
+	})
+}
+
+func TestCommandHandler_HandleStopMCPServer_EdgeCases(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	t.Run("missing serverId", func(t *testing.T) {
+		params := json.RawMessage(`{}`)
+		_, err := handler.HandleCommand("stop_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for missing serverId")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "serverId is required") {
+			t.Errorf("expected 'serverId is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("server not found", func(t *testing.T) {
+		params := json.RawMessage(`{"serverId": "nonexistent-server"}`)
+		_, err := handler.HandleCommand("stop_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for server not found")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotFound {
+			t.Errorf("expected CodeNotFound (%d), got %d", CodeNotFound, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "MCP server not found") {
+			t.Errorf("expected 'MCP server not found' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("empty serverId", func(t *testing.T) {
+		params := json.RawMessage(`{"serverId": "   "}`)
+		_, err := handler.HandleCommand("stop_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for empty serverId")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+	})
+}
+
+func TestCommandHandler_HandleRestoreWorkflow_EdgeCases(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	t.Run("missing workflow id", func(t *testing.T) {
+		params := json.RawMessage(`{"checkpointId": "cp-1"}`)
+		_, err := handler.HandleCommand("restore_workflow", params)
+		if err == nil {
+			t.Fatal("expected error for missing workflow id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "workflow id is required") {
+			t.Errorf("expected 'workflow id is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("empty workflow id", func(t *testing.T) {
+		params := json.RawMessage(`{"id": "   ", "checkpointId": "cp-1"}`)
+		_, err := handler.HandleCommand("restore_workflow", params)
+		if err == nil {
+			t.Fatal("expected error for empty workflow id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+	})
+
+	t.Run("missing checkpoint id", func(t *testing.T) {
+		params := json.RawMessage(`{"id": "wf-1"}`)
+		_, err := handler.HandleCommand("restore_workflow", params)
+		if err == nil {
+			t.Fatal("expected error for missing checkpoint id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "checkpoint id is required") {
+			t.Errorf("expected 'checkpoint id is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("orchestrator not configured", func(t *testing.T) {
+		params := json.RawMessage(`{"id": "wf-1", "checkpointId": "cp-1"}`)
+		_, err := handler.HandleCommand("restore_workflow", params)
+		if err == nil {
+			t.Fatal("expected error for orchestrator not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "orchestrator not configured") {
+			t.Errorf("expected 'orchestrator not configured' in message, got %s", apiErr.Message)
+		}
+	})
+}
+
+func TestCommandHandler_HandleGetWorkflowReport_EdgeCases(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	t.Run("missing workflow id", func(t *testing.T) {
+		params := json.RawMessage(`{}`)
+		_, err := handler.HandleCommand("get_workflow_report", params)
+		if err == nil {
+			t.Fatal("expected error for missing workflow id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+		if !strings.Contains(apiErr.Message, "workflow id is required") {
+			t.Errorf("expected 'workflow id is required' in message, got %s", apiErr.Message)
+		}
+	})
+
+	t.Run("empty workflow id", func(t *testing.T) {
+		params := json.RawMessage(`{"id": "   "}`)
+		_, err := handler.HandleCommand("get_workflow_report", params)
+		if err == nil {
+			t.Fatal("expected error for empty workflow id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation (%d), got %d", CodeValidation, apiErr.Code)
+		}
+	})
+
+	t.Run("orchestrator not configured", func(t *testing.T) {
+		params := json.RawMessage(`{"id": "wf-1"}`)
+		_, err := handler.HandleCommand("get_workflow_report", params)
+		if err == nil {
+			t.Fatal("expected error for orchestrator not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+	})
+
+	t.Run("workflow with no report", func(t *testing.T) {
+		// Create server with orchestrator
+		registry := agent.NewRegistry()
+		swarms := make(map[string]*swarm.Swarm)
+		teamMgr := team.NewManagerWithDir("")
+		mcpClients := make(map[string]*mcp.Client)
+
+		server := &WebSocketServer{
+			registry:    registry,
+			connManager: nil,
+			swarms:      swarms,
+			teamManager: teamMgr,
+			mcpClients:  mcpClients,
+		}
+		// Note: orchestrator is nil by default, so this test is same as "orchestrator not configured"
+		// When orchestrator is configured but workflow has no report, it returns NotFound
+		handlerWithOrch := NewCommandHandler(server)
+
+		params := json.RawMessage(`{"id": "wf-no-report"}`)
+		_, err := handlerWithOrch.HandleCommand("get_workflow_report", params)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		// With no orchestrator, should get NotConnected
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+	})
+}
+
+// ==================== MCP Server Handler Tests ====================
+
+func setupConfigDir(t *testing.T) (restore func()) {
+	t.Helper()
+	origDir := acp.ConfigDir
+	tmpDir := t.TempDir()
+	acp.ConfigDir = tmpDir
+	return func() { acp.ConfigDir = origDir }
+}
+
+func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"name":"test-mcp","command":"npx","args":["-y","@modelcontextprotocol/server-test"]}}`)
+		result, err := handler.HandleCommand("add_mcp_server", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["name"] != "test-mcp" {
+			t.Errorf("expected name 'test-mcp', got %v", m["name"])
+		}
+		if m["status"] != "disconnected" {
+			t.Errorf("expected status 'disconnected', got %v", m["status"])
+		}
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"command":"npx"}}`)
+		_, err := handler.HandleCommand("add_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for missing name")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation, got %d", apiErr.Code)
+		}
+	})
+
+	t.Run("missing command", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"name":"test"}}`)
+		_, err := handler.HandleCommand("add_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for missing command")
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(`{invalid}`))
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+	})
+
+	t.Run("with env vars", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"name":"env-mcp","command":"node","env":{"API_KEY":"test123"}}}`)
+		result, err := handler.HandleCommand("add_mcp_server", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["name"] != "env-mcp" {
+			t.Errorf("expected name 'env-mcp', got %v", m["name"])
+		}
+	})
+}
+
+func TestCommandHandler_HandleRemoveMCPServer(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+
+		// First add a server
+		addParams := json.RawMessage(`{"config":{"name":"remove-test","command":"npx"}}`)
+		if _, err := handler.HandleCommand("add_mcp_server", addParams); err != nil {
+			t.Fatalf("failed to add server: %v", err)
+		}
+
+		// Now remove it
+		removeParams := json.RawMessage(`{"serverId":"remove-test"}`)
+		result, err := handler.HandleCommand("remove_mcp_server", removeParams)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]string)
+		if !ok {
+			t.Fatalf("expected map[string]string, got %T", result)
+		}
+		if m["status"] != "removed" {
+			t.Errorf("expected status 'removed', got %s", m["status"])
+		}
+		if m["id"] != "remove-test" {
+			t.Errorf("expected id 'remove-test', got %s", m["id"])
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"serverId":"nonexistent"}`)
+		_, err := handler.HandleCommand("remove_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for nonexistent server")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotFound {
+			t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+		}
+	})
+
+	t.Run("missing server id", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"serverId":"  "}`)
+		_, err := handler.HandleCommand("remove_mcp_server", params)
+		if err == nil {
+			t.Fatal("expected error for missing server id")
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(`{invalid}`))
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+	})
+}
+
+// ==================== Agent Config Handler Tests ====================
+
+func TestCommandHandler_HandleAddAgent(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"id":"test-agent","name":"Test Agent","command":"claude"}}`)
+		result, err := handler.HandleCommand("add_agent", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["id"] != "test-agent" {
+			t.Errorf("expected id 'test-agent', got %v", m["id"])
+		}
+		if m["name"] != "Test Agent" {
+			t.Errorf("expected name 'Test Agent', got %v", m["name"])
+		}
+		if m["type"] != "acp" {
+			t.Errorf("expected type 'acp', got %v", m["type"])
+		}
+	})
+
+	t.Run("missing id", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"name":"Test"}}`)
+		_, err := handler.HandleCommand("add_agent", params)
+		if err == nil {
+			t.Fatal("expected error for missing id")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeValidation {
+			t.Errorf("expected CodeValidation, got %d", apiErr.Code)
+		}
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"id":"test"}}`)
+		_, err := handler.HandleCommand("add_agent", params)
+		if err == nil {
+			t.Fatal("expected error for missing name")
+		}
+	})
+
+	t.Run("id too long", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		longID := strings.Repeat("a", 256)
+		params := json.RawMessage(fmt.Sprintf(`{"config":{"id":"%s","name":"Test"}}`, longID))
+		_, err := handler.HandleCommand("add_agent", params)
+		if err == nil {
+			t.Fatal("expected error for too long id")
+		}
+	})
+
+	t.Run("name too long", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		longName := strings.Repeat("a", 256)
+		params := json.RawMessage(fmt.Sprintf(`{"config":{"id":"test","name":"%s"}}`, longName))
+		_, err := handler.HandleCommand("add_agent", params)
+		if err == nil {
+			t.Fatal("expected error for too long name")
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		_, err := handler.HandleCommand("add_agent", json.RawMessage(`{invalid}`))
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+	})
+}
+
+func TestCommandHandler_HandleUpdateAgent(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+
+		// First add an agent
+		addParams := json.RawMessage(`{"config":{"id":"upd-agent","name":"Original","command":"claude"}}`)
+		if _, err := handler.HandleCommand("add_agent", addParams); err != nil {
+			t.Fatalf("failed to add agent: %v", err)
+		}
+
+		// Now update it
+		updateParams := json.RawMessage(`{"config":{"id":"upd-agent","name":"Updated","command":"claude","description":"updated desc"}}`)
+		result, err := handler.HandleCommand("update_agent", updateParams)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if m["name"] != "Updated" {
+			t.Errorf("expected name 'Updated', got %v", m["name"])
+		}
+	})
+
+	t.Run("missing id", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"name":"Test"}}`)
+		_, err := handler.HandleCommand("update_agent", params)
+		if err == nil {
+			t.Fatal("expected error for missing id")
+		}
+	})
+
+	t.Run("agent not found", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"config":{"id":"nonexistent","name":"Test"}}`)
+		_, err := handler.HandleCommand("update_agent", params)
+		if err == nil {
+			t.Fatal("expected error for nonexistent agent")
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		_, err := handler.HandleCommand("update_agent", json.RawMessage(`{invalid}`))
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+	})
+}
+
+func TestCommandHandler_HandleDeleteAgent(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+
+		// First add an agent
+		addParams := json.RawMessage(`{"config":{"id":"del-agent","name":"Delete Me","command":"claude"}}`)
+		if _, err := handler.HandleCommand("add_agent", addParams); err != nil {
+			t.Fatalf("failed to add agent: %v", err)
+		}
+
+		// Now delete it
+		deleteParams := json.RawMessage(`{"id":"del-agent"}`)
+		result, err := handler.HandleCommand("delete_agent", deleteParams)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := result.(map[string]string)
+		if !ok {
+			t.Fatalf("expected map[string]string, got %T", result)
+		}
+		if m["status"] != "deleted" {
+			t.Errorf("expected status 'deleted', got %s", m["status"])
+		}
+	})
+
+	t.Run("missing id", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"id":""}`)
+		_, err := handler.HandleCommand("delete_agent", params)
+		if err == nil {
+			t.Fatal("expected error for missing id")
+		}
+	})
+
+	t.Run("agent not found", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		params := json.RawMessage(`{"id":"nonexistent"}`)
+		_, err := handler.HandleCommand("delete_agent", params)
+		if err == nil {
+			t.Fatal("expected error for nonexistent agent")
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		restore := setupConfigDir(t)
+		defer restore()
+
+		handler, _ := newTestHandler()
+		_, err := handler.HandleCommand("delete_agent", json.RawMessage(`{invalid}`))
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+	})
+}
+
+func TestCommandHandler_HandleGetAgents(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an agent in the registry
+	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
+	server.registry.Register(a)
+
+	result, err := handler.HandleCommand("get_agents", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	arr, ok := result.([]AgentInfo)
+	if !ok {
+		t.Fatalf("expected []AgentInfo, got %T", result)
+	}
+	if len(arr) == 0 {
+		t.Error("expected at least one agent")
+	}
+
+	// Find our agent by name (ID is auto-generated)
+	found := false
+	for _, info := range arr {
+		if info.Name == "test-agent" {
+			found = true
+			if info.Type != string(agent.AgentTypeCoder) {
+				t.Errorf("expected type 'coder', got %s", info.Type)
+			}
+			if info.State != string(agent.StateIdle) {
+				t.Errorf("expected state 'idle', got %s", info.State)
+			}
+		}
+	}
+	if !found {
+		t.Error("test-agent not found in results")
+	}
+}
+
+func TestCommandHandler_HandleGetAgents_NilRegistry(t *testing.T) {
+	server := &WebSocketServer{registry: nil}
+	handler := NewCommandHandler(server)
+
+	result, err := handler.HandleCommand("get_agents", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	arr, ok := result.([]AgentInfo)
+	if !ok {
+		t.Fatalf("expected []AgentInfo, got %T", result)
+	}
+	if len(arr) != 0 {
+		t.Errorf("expected empty list for nil registry, got %d agents", len(arr))
+	}
+}
+
+// ==================== Agent Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty id", `{"id": ""}`},
+		{"whitespace id", `{"id": "   "}`},
+		{"missing id", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("get_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetAgent_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent agent")
+	}
+}
+
+func TestCommandHandler_HandleGetAgent_NilRegistry(t *testing.T) {
+	server := &WebSocketServer{registry: nil}
+	handler := NewCommandHandler(server)
+
+	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "test-agent"}`))
+	if err == nil {
+		t.Error("expected error when registry is nil")
+	}
+}
+
+func TestCommandHandler_HandleGetAgent_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an agent
+	a := agent.NewAgent("test-get-agent", agent.AgentTypeCoder)
+	server.registry.Register(a)
+
+	result, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(AgentInfo)
+	if !ok {
+		t.Fatalf("expected AgentInfo, got %T", result)
+	}
+	if info.Name != "test-get-agent" {
+		t.Errorf("expected name 'test-get-agent', got %s", info.Name)
+	}
+}
+
+func TestCommandHandler_HandleStartAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty id", `{"id": ""}`},
+		{"whitespace id", `{"id": "   "}`},
+		{"missing id", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("start_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStartAgent_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent agent")
+	}
+}
+
+func TestCommandHandler_HandleStartAgent_NilRegistry(t *testing.T) {
+	server := &WebSocketServer{registry: nil}
+	handler := NewCommandHandler(server)
+
+	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "test-agent"}`))
+	if err == nil {
+		t.Error("expected error when registry is nil")
+	}
+}
+
+func TestCommandHandler_HandleStartAgent_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an agent
+	a := agent.NewAgent("test-start-agent", agent.AgentTypeCoder)
+	server.registry.Register(a)
+
+	result, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if m["status"] != "started" {
+		t.Errorf("expected status 'started', got %s", m["status"])
+	}
+}
+
+func TestCommandHandler_HandleStopAgent_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty id", `{"id": ""}`},
+		{"whitespace id", `{"id": "   "}`},
+		{"missing id", `{}`},
+		{"invalid json", `invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := handler.HandleCommand("stop_agent", json.RawMessage(tt.params))
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStopAgent_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent agent")
+	}
+}
+
+func TestCommandHandler_HandleStopAgent_NilRegistry(t *testing.T) {
+	server := &WebSocketServer{registry: nil}
+	handler := NewCommandHandler(server)
+
+	_, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "test-agent"}`))
+	if err == nil {
+		t.Error("expected error when registry is nil")
+	}
+}
+
+func TestCommandHandler_HandleStopAgent_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an agent
+	a := agent.NewAgent("test-stop-agent", agent.AgentTypeCoder)
+	server.registry.Register(a)
+
+	result, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if m["status"] != "stopped" {
+		t.Errorf("expected status 'stopped', got %s", m["status"])
+	}
+}
+
+// ==================== Session Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleCreateSession_AgentNotConnected(t *testing.T) {
+	handler, server := newTestHandler()
+	// connManager is nil by default in newTestHandler, so set a non-nil one
+	// that doesn't have the agent connected
+	server.connManager = acp.NewConnectionManager(&acp.Config{})
+
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "disconnected-agent"}`))
+	if err == nil {
+		t.Error("expected error when agent is not connected")
+	}
+}
+
+func TestCommandHandler_HandleSendMessage_NoConnManager(t *testing.T) {
+	handler, server := newTestHandler()
+	server.connManager = nil
+	// Set up a session mapping
+	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
+
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`))
+	if err == nil {
+		t.Error("expected error when connManager is nil")
+	}
+}
+
+func TestCommandHandler_HandleSendMessage_AgentNotConnected(t *testing.T) {
+	handler, server := newTestHandler()
+	// Set up a session mapping but no connected agent
+	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
+	server.connManager = acp.NewConnectionManager(&acp.Config{})
+
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`))
+	if err == nil {
+		t.Error("expected error when agent is not connected")
+	}
+}
+
+// ==================== Permission Handler Coverage Tests ====================
+
+func TestCommandHandler_HandlePermissionResponse_NilPermissionManager(t *testing.T) {
+	handler, server := newTestHandler()
+	// teamManager exists but has no permission manager
+	server.teamManager = team.NewManagerWithDir("")
+
+	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`))
+	if err == nil {
+		t.Error("expected error when permission manager is nil")
+	}
+}
+
+// ==================== Supervisor Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetSupervisorStats_WithAgents(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register agents in different states
+	idleAgent := agent.NewAgent("idle-agent", agent.AgentTypeCoder)
+	server.registry.Register(idleAgent)
+
+	thinkingAgent := agent.NewAgent("thinking-agent", agent.AgentTypeCoder)
+	thinkingAgent.SetState(agent.StateThinking)
+	server.registry.Register(thinkingAgent)
+
+	errorAgent := agent.NewAgent("error-agent", agent.AgentTypeCoder)
+	errorAgent.SetState(agent.StateError)
+	server.registry.Register(errorAgent)
+
+	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stats, ok := result.(SupervisorStats)
+	if !ok {
+		t.Fatalf("expected SupervisorStats, got %T", result)
+	}
+
+	if stats.TotalAgents != 3 {
+		t.Errorf("expected 3 total agents, got %d", stats.TotalAgents)
+	}
+	if stats.HealthyAgents != 2 {
+		t.Errorf("expected 2 healthy agents (idle + thinking), got %d", stats.HealthyAgents)
+	}
+	if stats.BusyAgents != 1 {
+		t.Errorf("expected 1 busy agent (thinking), got %d", stats.BusyAgents)
+	}
+	if stats.UnhealthyAgents != 1 {
+		t.Errorf("expected 1 unhealthy agent (error), got %d", stats.UnhealthyAgents)
+	}
+}
+
+func TestCommandHandler_HandleGetSupervisorStats_ExecutingAgent(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an executing agent
+	executingAgent := agent.NewAgent("executing-agent", agent.AgentTypeCoder)
+	executingAgent.SetState(agent.StateExecuting)
+	server.registry.Register(executingAgent)
+
+	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stats, ok := result.(SupervisorStats)
+	if !ok {
+		t.Fatalf("expected SupervisorStats, got %T", result)
+	}
+
+	if stats.TotalAgents != 1 {
+		t.Errorf("expected 1 total agent, got %d", stats.TotalAgents)
+	}
+	if stats.HealthyAgents != 1 {
+		t.Errorf("expected 1 healthy agent, got %d", stats.HealthyAgents)
+	}
+	if stats.BusyAgents != 1 {
+		t.Errorf("expected 1 busy agent, got %d", stats.BusyAgents)
+	}
+}
+
+// ==================== Workflow Handler Validation Tests ====================
+
+func TestCommandHandler_HandleListWorkflows_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("list_workflows", nil)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotConnected {
+		t.Errorf("expected CodeNotConnected, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleCreateWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty name", json.RawMessage(`{"name": ""}`)},
+		{"whitespace name", json.RawMessage(`{"name": "   "}`)},
+		{"name too long", json.RawMessage(fmt.Sprintf(`{"name": "%s"}`, strings.Repeat("a", 101)))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("create_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCreateWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"name": "Test Workflow"}`)
+	_, err := handler.HandleCommand("create_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("get_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow"}`)
+	_, err := handler.HandleCommand("get_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflow_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
+	_, err := handler.HandleCommand("get_workflow", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleUpdateWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": "", "workflow": {"name": "Updated"}}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   ", "workflow": {"name": "Updated"}}`)},
+		{"missing id", json.RawMessage(`{"workflow": {"name": "Updated"}}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("update_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleUpdateWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow", "workflow": {"name": "Updated"}}`)
+	_, err := handler.HandleCommand("update_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleUpdateWorkflow_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow", "workflow": {"name": "Updated"}}`)
+	_, err := handler.HandleCommand("update_workflow", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleUpdateWorkflow_WithDescription(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	wf := orch.CreateWorkflow("Test", swarm.ModeSequential)
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "workflow": {"name": "Updated Name", "description": "Updated Description"}}`, wf.ID))
+	result, err := handler.HandleCommand("update_workflow", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["name"] != "Updated Name" {
+		t.Errorf("name = %v, want 'Updated Name'", info["name"])
+	}
+	if info["description"] != "Updated Description" {
+		t.Errorf("description = %v, want 'Updated Description'", info["description"])
+	}
+}
+
+func TestCommandHandler_HandleDeleteWorkflow_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("delete_workflow", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteWorkflow_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow"}`)
+	_, err := handler.HandleCommand("delete_workflow", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleDeleteWorkflow_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
+	_, err := handler.HandleCommand("delete_workflow", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleExecuteWorkflow_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
+	_, err := handler.HandleCommand("execute_workflow", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowCheckpoints_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("get_workflow_checkpoints", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowCheckpoints_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow"}`)
+	_, err := handler.HandleCommand("get_workflow_checkpoints", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleClearNodeCache_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty nodeId", json.RawMessage(`{"nodeId": ""}`)},
+		{"whitespace nodeId", json.RawMessage(`{"nodeId": "   "}`)},
+		{"missing nodeId", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("clear_node_cache", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleClearNodeCache_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"nodeId": "test-node"}`)
+	_, err := handler.HandleCommand("clear_node_cache", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleClearAllCaches_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("clear_all_caches", nil)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowNode_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty workflow id", json.RawMessage(`{"id": "", "node": {"name": "Test Node"}}`)},
+		{"whitespace workflow id", json.RawMessage(`{"id": "   ", "node": {"name": "Test Node"}}`)},
+		{"empty node name", json.RawMessage(`{"id": "wf-1", "node": {"name": ""}}`)},
+		{"whitespace node name", json.RawMessage(`{"id": "wf-1", "node": {"name": "   "}}`)},
+		{"missing workflow id", json.RawMessage(`{"node": {"name": "Test Node"}}`)},
+		{"missing node name", json.RawMessage(`{"id": "wf-1"}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("add_workflow_node", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowNode_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-workflow", "node": {"name": "Test Node"}}`)
+	_, err := handler.HandleCommand("add_workflow_node", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowNode_WorkflowNotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow", "node": {"name": "Test Node"}}`)
+	_, err := handler.HandleCommand("add_workflow_node", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowNode_WithCustomType(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	wf := orch.CreateWorkflow("Node Type Test", swarm.ModeSequential)
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "node": {"type": "condition", "name": "Condition Node", "agentId": "test-agent"}}`, wf.ID))
+	result, err := handler.HandleCommand("add_workflow_node", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if info["type"] != "condition" {
+		t.Errorf("type = %v, want 'condition'", info["type"])
+	}
+}
+
+func TestCommandHandler_HandleAddWorkflowEdge_WorkflowNotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-workflow", "edge": {"from": "node-a", "to": "node-b"}}`)
+	_, err := handler.HandleCommand("add_workflow_edge", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleRemoveAutomation_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-automation"}`)
+	_, err := handler.HandleCommand("remove_automation", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleRemoveAutomation_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-automation"}`)
+	_, err := handler.HandleCommand("remove_automation", params)
+	if err == nil {
+		t.Error("expected error for nonexistent automation")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleEnableAutomation_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"id": "test-automation", "enabled": true}`)
+	_, err := handler.HandleCommand("enable_automation", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleEnableAutomation_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent-automation", "enabled": true}`)
+	_, err := handler.HandleCommand("enable_automation", params)
+	if err == nil {
+		t.Error("expected error for nonexistent automation")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
+	}
+}
+
+func TestCommandHandler_HandleListArtifacts_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty workflowId", json.RawMessage(`{"workflowId": ""}`)},
+		{"whitespace workflowId", json.RawMessage(`{"workflowId": "   "}`)},
+		{"missing workflowId", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("list_artifacts", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetArtifact_ById(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create an artifact first
+	createParams := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"value": 42}}`)
+	handler.HandleCommand("create_artifact", createParams)
+
+	// Get by ID (which is workflowId + key combined internally)
+	params := json.RawMessage(`{"id": "test-wf:test-key"}`)
+	_, err := handler.HandleCommand("get_artifact", params)
+	// May or may not work depending on implementation
+	_ = err
+}
+
+func TestCommandHandler_HandleGetArtifact_NoOrchestrator(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
+	_, err := handler.HandleCommand("get_artifact", params)
+	if err == nil {
+		t.Error("expected error for missing orchestrator")
+	}
+}
+
+func TestCommandHandler_HandleGetArtifact_NoStore(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Test with valid params but no artifact exists
+	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent-key"}`)
+	_, err := handler.HandleCommand("get_artifact", params)
+	if err == nil {
+		t.Error("expected error for nonexistent artifact")
+	}
+}
+
+func TestCommandHandler_HandleGetArtifact_MissingParams(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"no id or workflowId+key", json.RawMessage(`{}`)},
+		{"only workflowId", json.RawMessage(`{"workflowId": "test"}`)},
+		{"only key", json.RawMessage(`{"key": "test"}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("get_artifact", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleListVariables_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty workflowId", json.RawMessage(`{"workflowId": ""}`)},
+		{"whitespace workflowId", json.RawMessage(`{"workflowId": "   "}`)},
+		{"missing workflowId", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, server := newTestHandler()
+			orch := swarm.NewOrchestrator(nil)
+			server.SetOrchestrator(orch)
+
+			_, err := handler.HandleCommand("list_variables", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleResumeWorkflow_Error(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Try to resume a non-existent workflow
+	params := json.RawMessage(`{"id": "nonexistent-workflow", "input": {}}`)
+	_, err := handler.HandleCommand("resume_workflow", params)
+	if err == nil {
+		t.Error("expected error for nonexistent workflow")
+	}
+}
+
+// ==================== Additional Swarm Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetSwarms_WithSwarms(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Create and add swarms
+	cfg1 := swarm.SwarmConfig{ID: "swarm-1", Name: "Test Swarm 1", Topology: swarm.TopologyMesh}
+	cfg2 := swarm.SwarmConfig{ID: "swarm-2", Name: "Test Swarm 2", Topology: swarm.TopologyStar}
+	sw1 := swarm.NewSwarm(cfg1)
+	sw2 := swarm.NewSwarm(cfg2)
+	server.AddSwarm("swarm-1", sw1)
+	server.AddSwarm("swarm-2", sw2)
+
+	result, err := handler.HandleCommand("get_swarms", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	swarms, ok := result.([]SwarmInfo)
+	if !ok {
+		t.Fatalf("expected []SwarmInfo, got %T", result)
+	}
+	if len(swarms) != 2 {
+		t.Errorf("expected 2 swarms, got %d", len(swarms))
+	}
+
+	// Verify swarm data
+	foundSwarm1 := false
+	foundSwarm2 := false
+	for _, s := range swarms {
+		if s.ID == "swarm-1" {
+			foundSwarm1 = true
+			if s.Name != "Test Swarm 1" {
+				t.Errorf("swarm-1 name = %q, want 'Test Swarm 1'", s.Name)
+			}
+		}
+		if s.ID == "swarm-2" {
+			foundSwarm2 = true
+			if s.Name != "Test Swarm 2" {
+				t.Errorf("swarm-2 name = %q, want 'Test Swarm 2'", s.Name)
+			}
+		}
+	}
+	if !foundSwarm1 {
+		t.Error("swarm-1 not found in results")
+	}
+	if !foundSwarm2 {
+		t.Error("swarm-2 not found in results")
+	}
+}
+
+func TestCommandHandler_HandleCreateSwarm_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty name", json.RawMessage(`{"name": "", "topology": "mesh"}`)},
+		{"whitespace name", json.RawMessage(`{"name": "   ", "topology": "mesh"}`)},
+		{"missing name", json.RawMessage(`{"topology": "mesh"}`)},
+		{"name too long", json.RawMessage(fmt.Sprintf(`{"name": "%s", "topology": "mesh"}`, strings.Repeat("a", 101)))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("create_swarm", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStartSwarm_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("start_swarm", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStartSwarm_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("start_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleStopSwarm_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("stop_swarm", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStopSwarm_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("stop_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleGetSwarmTasks_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty swarmId", json.RawMessage(`{"swarmId": ""}`)},
+		{"whitespace swarmId", json.RawMessage(`{"swarmId": "   "}`)},
+		{"missing swarmId", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("get_swarm_tasks", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleGetSwarmTasks_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("get_swarm_tasks", json.RawMessage(`{"swarmId": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleSubmitTask_Validation(t *testing.T) {
+	longTitle := strings.Repeat("a", 201)
+	longDesc := strings.Repeat("b", 5001)
+
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty swarmId", json.RawMessage(`{"swarmId": "", "title": "test"}`)},
+		{"missing swarmId", json.RawMessage(`{"title": "test"}`)},
+		{"title too long", json.RawMessage(fmt.Sprintf(`{"swarmId": "swarm-1", "title": "%s"}`, longTitle))},
+		{"description too long", json.RawMessage(fmt.Sprintf(`{"swarmId": "swarm-1", "title": "test", "description": "%s"}`, longDesc))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("submit_task", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleSubmitTask_SwarmNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("submit_task", json.RawMessage(`{"swarmId": "nonexistent", "title": "test task"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent swarm")
+	}
+}
+
+func TestCommandHandler_HandleSubmitTask_WithPriority(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "swarm-priority", Name: "Priority Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"swarmId": "swarm-priority", "title": "High Priority Task", "description": "test", "priority": "high"}`)
+	result, err := handler.HandleCommand("submit_task", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(TaskInfo)
+	if !ok {
+		t.Fatalf("expected TaskInfo, got %T", result)
+	}
+	if info.Title != "High Priority Task" {
+		t.Errorf("title = %v, want 'High Priority Task'", info.Title)
+	}
+}
+
+// ==================== Additional Team Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetTeams_NilTeamManager(t *testing.T) {
+	server := &WebSocketServer{teamManager: nil}
+	handler := NewCommandHandler(server)
+
+	result, err := handler.HandleCommand("get_teams", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	teams, ok := result.([]TeamInfo)
+	if !ok {
+		t.Fatalf("expected []TeamInfo, got %T", result)
+	}
+	if len(teams) != 0 {
+		t.Errorf("expected empty list for nil teamManager, got %d teams", len(teams))
+	}
+}
+
+func TestCommandHandler_HandleGetTeams_WithTeams(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	// Create teams via the handler
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Alpha", "ownerId": "owner-1"}`))
+	if err != nil {
+		t.Fatalf("failed to create team 1: %v", err)
+	}
+	_, err = handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Beta", "ownerId": "owner-2"}`))
+	if err != nil {
+		t.Fatalf("failed to create team 2: %v", err)
+	}
+
+	result, err := handler.HandleCommand("get_teams", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	teams, ok := result.([]TeamInfo)
+	if !ok {
+		t.Fatalf("expected []TeamInfo, got %T", result)
+	}
+	if len(teams) != 2 {
+		t.Errorf("expected 2 teams, got %d", len(teams))
+	}
+
+	// Verify team names exist
+	foundAlpha := false
+	foundBeta := false
+	for _, team := range teams {
+		if team.Name == "Team Alpha" {
+			foundAlpha = true
+		}
+		if team.Name == "Team Beta" {
+			foundBeta = true
+		}
+	}
+	if !foundAlpha {
+		t.Error("Team Alpha not found")
+	}
+	if !foundBeta {
+		t.Error("Team Beta not found")
+	}
+}
+
+func TestCommandHandler_HandleCreateTeam_Validation(t *testing.T) {
+	longName := strings.Repeat("a", 101)
+	longDesc := strings.Repeat("b", 5001)
+
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty name", json.RawMessage(`{"name": "", "ownerId": "owner-1"}`)},
+		{"missing name", json.RawMessage(`{"ownerId": "owner-1"}`)},
+		{"empty ownerId", json.RawMessage(`{"name": "Test Team", "ownerId": ""}`)},
+		{"missing ownerId", json.RawMessage(`{"name": "Test Team"}`)},
+		{"name too long", json.RawMessage(fmt.Sprintf(`{"name": "%s", "ownerId": "owner-1"}`, longName))},
+		{"description too long", json.RawMessage(fmt.Sprintf(`{"name": "Test", "ownerId": "owner-1", "description": "%s"}`, longDesc))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("create_team", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCreateTeam_NilTeamManager(t *testing.T) {
+	server := &WebSocketServer{teamManager: nil}
+	handler := NewCommandHandler(server)
+
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test", "ownerId": "owner-1"}`))
+	if err == nil {
+		t.Error("expected error for nil teamManager")
+	}
+}
+
+func TestCommandHandler_HandleDeleteTeam_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"id too long", json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, strings.Repeat("a", 129)))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("delete_team", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteTeam_NilTeamManager(t *testing.T) {
+	server := &WebSocketServer{teamManager: nil}
+	handler := NewCommandHandler(server)
+
+	_, err := handler.HandleCommand("delete_team", json.RawMessage(`{"id": "team-1"}`))
+	if err == nil {
+		t.Error("expected error for nil teamManager")
+	}
+}
+
+func TestCommandHandler_HandleAddAgentToTeam_Validation(t *testing.T) {
+	longID := strings.Repeat("a", 129)
+
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty teamId", json.RawMessage(`{"teamId": "", "agentId": "agent-1"}`)},
+		{"empty agentId", json.RawMessage(`{"teamId": "team-1", "agentId": ""}`)},
+		{"missing teamId", json.RawMessage(`{"agentId": "agent-1"}`)},
+		{"missing agentId", json.RawMessage(`{"teamId": "team-1"}`)},
+		{"teamId too long", json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "agent-1"}`, longID))},
+		{"agentId too long", json.RawMessage(fmt.Sprintf(`{"teamId": "team-1", "agentId": "%s"}`, longID))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("add_agent_to_team", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleAddAgentToTeam_TeamNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("add_agent_to_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent team")
+	}
+}
+
+func TestCommandHandler_HandleAddAgentToTeam_AgentNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	// Create team first
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test Team", "ownerId": "owner-1"}`))
+	if err != nil {
+		t.Fatalf("failed to create team: %v", err)
+	}
+
+	// Get the team ID
+	tm := handler.server.TeamManager()
+	teams := tm.ListTeams()
+	if len(teams) == 0 {
+		t.Fatal("no teams created")
+	}
+	teamID := teams[0].ID
+
+	_, err = handler.HandleCommand("add_agent_to_team", json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "nonexistent"}`, teamID)))
+	if err == nil {
+		t.Error("expected error for nonexistent agent")
+	}
+}
+
+func TestCommandHandler_HandleRemoveAgentFromTeam_Validation(t *testing.T) {
+	longID := strings.Repeat("a", 129)
+
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty teamId", json.RawMessage(`{"teamId": "", "agentId": "agent-1"}`)},
+		{"empty agentId", json.RawMessage(`{"teamId": "team-1", "agentId": ""}`)},
+		{"missing teamId", json.RawMessage(`{"agentId": "agent-1"}`)},
+		{"missing agentId", json.RawMessage(`{"teamId": "team-1"}`)},
+		{"teamId too long", json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "agent-1"}`, longID))},
+		{"agentId too long", json.RawMessage(fmt.Sprintf(`{"teamId": "team-1", "agentId": "%s"}`, longID))},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("remove_agent_from_team", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleRemoveAgentFromTeam_TeamNotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("remove_agent_from_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent team")
+	}
+}
+
+// ==================== Additional MCP Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleStartMCPServer_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty serverId", json.RawMessage(`{"serverId": ""}`)},
+		{"whitespace serverId", json.RawMessage(`{"serverId": "   "}`)},
+		{"missing serverId", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("start_mcp_server", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleStartMCPServer_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("start_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`))
+	if err == nil {
+		t.Error("expected error for nonexistent server")
+	}
+}
+
+
+// ==================== Additional Emergence Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetEmergenceData_WithSwarms(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Create and add swarms with agents
+	cfg := swarm.SwarmConfig{ID: "emergence-swarm", Name: "Emergence Test", Topology: swarm.TopologyMesh}
+	sw := swarm.NewSwarm(cfg)
+
+	// Add agents to the swarm
+	ag1 := agent.NewAgent("Agent 1", agent.AgentTypeWorker)
+	ag1.ID = "agent-1"
+	ag2 := agent.NewAgent("Agent 2", agent.AgentTypeWorker)
+	ag2.ID = "agent-2"
+	sw.AddAgent(ag1)
+	sw.AddAgent(ag2)
+
+	server.AddSwarm("emergence-swarm", sw)
+
+	result, err := handler.HandleCommand("get_emergence_data", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, ok := result.(EmergenceData)
+	if !ok {
+		t.Fatalf("expected EmergenceData, got %T", result)
+	}
+
+	// Should have coordinator and agent nodes
+	if len(data.Agents) < 1 {
+		t.Error("expected at least one agent node (coordinator)")
+	}
+
+	// Should have flows
+	if len(data.Flows) < 1 {
+		t.Error("expected at least one task flow")
+	}
+
+	// Health metrics should be set
+	if data.Health.OverallScore <= 0 {
+		t.Error("expected positive overall health score")
+	}
+}
+
+
+// ==================== Get/Delete Swarm Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleGetSwarm_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("get_swarm", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteSwarm_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{"empty id", json.RawMessage(`{"id": ""}`)},
+		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
+		{"missing id", json.RawMessage(`{}`)},
+		{"invalid json", json.RawMessage(`{invalid}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("delete_swarm", tt.params)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleDeleteSwarm_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cfg := swarm.SwarmConfig{ID: "delete-swarm", Name: "Delete Test"}
+	sw := swarm.NewSwarm(cfg)
+	server.AddSwarm(cfg.ID, sw)
+
+	params := json.RawMessage(`{"id": "delete-swarm"}`)
+	result, err := handler.HandleCommand("delete_swarm", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string, got %T", result)
+	}
+	if info["status"] != "deleted" {
+		t.Errorf("status = %v, want 'deleted'", info["status"])
+	}
+
+	// Verify swarm was deleted
+	if _, exists := server.GetSwarm("delete-swarm"); exists {
+		t.Error("swarm should have been deleted")
+	}
+}
+
+

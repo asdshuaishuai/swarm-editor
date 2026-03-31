@@ -637,3 +637,19 @@ func TestClientConcurrentCalls(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestWithMaxMsgSize(t *testing.T) {
+	// Test that WithMaxMsgSize option sets the maxMsgSize field
+	client := NewClient("localhost:0", WithMaxMsgSize(1024*1024)) // 1MB
+
+	if client.maxMsgSize != 1024*1024 {
+		t.Errorf("expected maxMsgSize 1048576, got %d", client.maxMsgSize)
+	}
+
+	// Test default value (10MB = 10 << 20)
+	defaultClient := NewClient("localhost:0")
+	expectedDefault := uint32(10 << 20)
+	if defaultClient.maxMsgSize != expectedDefault {
+		t.Errorf("expected default maxMsgSize %d, got %d", expectedDefault, defaultClient.maxMsgSize)
+	}
+}

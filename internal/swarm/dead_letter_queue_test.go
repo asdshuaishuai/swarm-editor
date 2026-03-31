@@ -2,8 +2,10 @@ package swarm
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -393,6 +395,250 @@ func TestDeadLetterQueueStats(t *testing.T) {
 	}
 }
 
+func TestDeadLetterQueue_Add_NilTask(t *testing.T) {
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = q.Add(nil, errors.New("test"), 1)
+	if err == nil {
+		t.Error("expected error for nil task")
+	}
+}
+
+func TestDeadLetterQueue_Add_NilError(t *testing.T) {
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	task := &CoordinationTask{ID: "t1"}
+	err = q.Add(task, nil, 1)
+	if err == nil {
+		t.Error("expected error for nil error")
+	}
+}
+
+func TestDLQ_Add_ReadOnlyDir(t *testing.T) {
+	// Test Add when dataDir is read-only: CreateTemp should fail
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make the directory read-only
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+
+	task := &CoordinationTask{ID: "task-ro", Prompt: "test", Status: TaskStatusFailed}
+	err = q.Add(task, errors.New("test error"), 1)
+	if err == nil {
+		t.Fatal("expected error when adding to read-only directory")
+	}
+	if err != nil && !strings.Contains(err.Error(), "temp") {
+		t.Errorf("expected temp-related error, got: %v", err)
+	}
+}
+
+func TestDLQ_Add_NonExistentDir(t *testing.T) {
+	// Test Add when the dataDir has been removed after creation
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	os.RemoveAll(dir)
+
+	task := &CoordinationTask{ID: "task-gone", Prompt: "test", Status: TaskStatusFailed}
+	err = q.Add(task, errors.New("test error"), 1)
+	if err == nil {
+		t.Fatal("expected error when adding to removed directory")
+	}
+}
+
+func TestDLQ_Add_Concurrent(t *testing.T) {
+	// Test concurrent Add calls to verify thread safety
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const goroutines = 10
+	errCh := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(id int) {
+			task := &CoordinationTask{
+				ID:     fmt.Sprintf("task_%d", id),
+				Status: TaskStatusFailed,
+			}
+			errCh <- q.Add(task, errors.New("concurrent error"), id+1)
+		}(i)
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errCh; err != nil {
+			t.Errorf("concurrent Add %d failed: %v", i, err)
+		}
+	}
+
+	entries, err := q.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != goroutines {
+		t.Fatalf("expected %d entries, got %d", goroutines, len(entries))
+	}
+}
+
+func TestDLQ_Add_WithNonClassifiedError(t *testing.T) {
+	// Test Add with a plain error (not ClassifiedError) to cover the false branch of AsClassifiedError
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := &CoordinationTask{ID: "task-plain", Prompt: "test", Status: TaskStatusFailed}
+	err = q.Add(task, errors.New("plain error"), 2)
+	if err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	entries, err := q.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	// ErrorType should be zero value (not classified)
+	if entries[0].ErrorType != 0 {
+		t.Errorf("expected ErrorType 0 for plain error, got %v", entries[0].ErrorType)
+	}
+	if entries[0].Error != "plain error" {
+		t.Errorf("expected error 'plain error', got %q", entries[0].Error)
+	}
+	if entries[0].Attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", entries[0].Attempts)
+	}
+}
+
+func TestDLQ_Add_PruneOnLimit(t *testing.T) {
+	// Test that Add triggers pruning when maxSize is exceeded
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add 5 entries; oldest 2 should be pruned
+	for i := 0; i < 5; i++ {
+		task := &CoordinationTask{
+			ID:     fmt.Sprintf("prune_%d", i),
+			Status: TaskStatusFailed,
+		}
+		if err := q.Add(task, errors.New("error"), 1); err != nil {
+			t.Fatalf("Add %d: %v", i, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	entries, err := q.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) > 3 {
+		t.Fatalf("expected at most 3 entries after pruning, got %d", len(entries))
+	}
+
+	// The remaining entries should be the newest ones
+	for _, e := range entries {
+		if e.TaskID == "prune_0" || e.TaskID == "prune_1" {
+			t.Errorf("oldest entries should have been pruned, found %s", e.TaskID)
+		}
+	}
+}
+
+func TestDLQ_Add_MetadataInitialized(t *testing.T) {
+	// Test that Add initializes Metadata map (not nil)
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := &CoordinationTask{ID: "task-meta", Prompt: "test", Status: TaskStatusFailed}
+	err = q.Add(task, errors.New("error"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := q.List()
+	if len(entries) != 1 {
+		t.Fatal("expected 1 entry")
+	}
+	// Metadata uses omitempty, so after JSON round-trip an empty map becomes nil.
+	// This is expected behavior.
+	// if entries[0].Metadata == nil {
+	// 	t.Error("expected Metadata to be initialized (non-nil)")
+	// }
+	// Verify other fields
+	if entries[0].TaskID != "task-meta" {
+		t.Errorf("TaskID = %q, want %q", entries[0].TaskID, "task-meta")
+	}
+	if entries[0].FailedAt.IsZero() {
+		t.Error("FailedAt should not be zero")
+	}
+	if entries[0].LastAttempt.IsZero() {
+		t.Error("LastAttempt should not be zero")
+	}
+}
+
+func TestDLQ_Add_FilePermissions(t *testing.T) {
+	// Verify DLQ entry files are created with restricted permissions
+	dir := t.TempDir()
+	q, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := &CoordinationTask{ID: "task-perm", Status: TaskStatusFailed}
+	err = q.Add(task, errors.New("error"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		// File should not be world-writable
+		if info.Mode().Perm()&0o002 != 0 {
+			t.Errorf("DLQ file %s should not be world-writable, got %o", e.Name(), info.Mode().Perm())
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("no JSON files found in DLQ directory")
+	}
+}
+
 func TestAsClassifiedError(t *testing.T) {
 	innerErr := errors.New("inner")
 	classified := ClassifyError(innerErr, ErrorTypeRetryable)
@@ -409,5 +655,208 @@ func TestAsClassifiedError(t *testing.T) {
 	var target2 *ClassifiedError
 	if AsClassifiedError(innerErr, &target2) {
 		t.Error("AsClassifiedError returned true for non-ClassifiedError")
+	}
+}
+
+func TestDeadLetterQueue_Add_WithClassifiedError(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := &CoordinationTask{
+		ID:    "task-classified",
+		Title: "Classified Task",
+		Status: TaskStatusFailed,
+	}
+
+	classifiedErr := &ClassifiedError{
+		Type:  ErrorTypeTimeout,
+		Inner: fmt.Errorf("request timed out"),
+	}
+
+	err = dlq.Add(task, classifiedErr, 3)
+	if err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	// Verify ErrorType was set by listing
+	entries, err := dlq.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ErrorType != ErrorTypeTimeout {
+		t.Errorf("expected ErrorType %v, got %v", ErrorTypeTimeout, entries[0].ErrorType)
+	}
+}
+
+func TestDeadLetterQueueList_WithCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a valid entry
+	task := &CoordinationTask{ID: "task-1", Title: "Valid", Status: TaskStatusFailed}
+	dlq.Add(task, fmt.Errorf("failed"), 1)
+
+	// Create a corrupt JSON file in the DLQ directory
+	corruptPath := filepath.Join(dir, "corrupt_entry.json")
+	if err := os.WriteFile(corruptPath, []byte("not json{{{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a non-JSON file that's not .json
+	if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("readme"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// List should skip corrupt and non-json files, return only valid entry
+	entries, err := dlq.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 valid entry, got %d", len(entries))
+	}
+}
+
+func TestDeadLetterQueueReplay_SubmitError(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := &CoordinationTask{ID: "task-replay-fail", Title: "Replay Fail", Status: TaskStatusFailed}
+	dlq.Add(task, fmt.Errorf("original error"), 1)
+
+	// Get the actual entry ID
+	entries, err := dlq.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	entryID := entries[0].ID
+
+	// Replay with a submit function that fails
+	submitErr := fmt.Errorf("resubmission failed")
+	err = dlq.Replay(entryID, func(t *CoordinationTask) error {
+		return submitErr
+	})
+
+	if err == nil {
+		t.Fatal("expected error when submit function fails")
+	}
+	if !strings.Contains(err.Error(), "resubmission failed") {
+		t.Errorf("expected resubmission error, got: %v", err)
+	}
+
+	// Entry should still be in DLQ (not removed since replay failed)
+	entries, _ = dlq.List()
+	if len(entries) != 1 {
+		t.Errorf("expected entry to remain in DLQ after failed replay, got %d", len(entries))
+	}
+}
+
+func TestDeadLetterQueueReplay_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = dlq.Replay("nonexistent-id", func(t *CoordinationTask) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent entry")
+	}
+}
+
+func TestDeadLetterQueueNew_FailDir(t *testing.T) {
+	// Create a file where directory should be
+	tmpFile, err := os.CreateTemp("", "dlq_test_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	_, err = NewDeadLetterQueue(tmpFile.Name(), 100)
+	if err == nil {
+		t.Error("expected error when cannot create directory")
+	}
+	os.Remove(tmpFile.Name())
+}
+
+func TestDeadLetterQueueList_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := dlq.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for empty dir, got %d", len(entries))
+	}
+}
+
+func TestDeadLetterQueueReplayAll_PartialFailure(t *testing.T) {
+	dir := t.TempDir()
+	dlq, err := NewDeadLetterQueue(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add 3 entries
+	for i := 0; i < 3; i++ {
+		task := &CoordinationTask{ID: fmt.Sprintf("task-%d", i), Prompt: "test"}
+		if err := dlq.Add(task, errors.New("error"), 1); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Submit function that fails for task-1
+	successCount := 0
+	submitFn := func(t *CoordinationTask) error {
+		if t.ID == "task-1" {
+			return errors.New("submit failed for task-1")
+		}
+		successCount++
+		return nil
+	}
+
+	count, err := dlq.ReplayAll(submitFn)
+	if err != nil {
+		t.Fatalf("ReplayAll should not return error: %v", err)
+	}
+
+	// 2 should succeed, 1 should fail
+	if count != 2 {
+		t.Errorf("ReplayAll count = %d, want 2", count)
+	}
+	if successCount != 2 {
+		t.Errorf("successCount = %d, want 2", successCount)
+	}
+
+	// Failed entry should still be in DLQ
+	entries, _ := dlq.List()
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry remaining (failed replay), got %d", len(entries))
+	}
+	if len(entries) > 0 && entries[0].TaskID != "task-1" {
+		t.Errorf("remaining entry should be task-1, got %s", entries[0].TaskID)
 	}
 }

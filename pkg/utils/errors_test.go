@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -179,5 +180,11 @@ func TestAsAny(t *testing.T) {
 
 	if appErr.Message != "test error" {
 		t.Errorf("expected 'test error', got '%s'", appErr.Message)
+	}
+
+	// Test failure case - no matching type
+	var pathErr *os.PathError // non-matching type
+	if AsAny(err, &pathErr) {
+		t.Error("AsAny should return false for non-matching type")
 	}
 }

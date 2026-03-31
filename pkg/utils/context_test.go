@@ -128,6 +128,24 @@ func TestMergeContexts(t *testing.T) {
 	}
 }
 
+func TestMergeContexts_CancelViaReturnedCancel(t *testing.T) {
+	// Test canceling via the returned cancel function
+	ctx1 := context.Background()
+	ctx2 := context.Background()
+
+	merged, mergedCancel := MergeContexts(ctx1, ctx2)
+
+	// Cancel via the returned cancel function (not via parent)
+	mergedCancel()
+
+	select {
+	case <-merged.Done():
+		// Expected - context should be done when mergedCancel is called
+	case <-time.After(100 * time.Millisecond):
+		t.Error("merged context should be done when mergedCancel is called")
+	}
+}
+
 func TestContextWithValue(t *testing.T) {
 	ctx := context.Background()
 

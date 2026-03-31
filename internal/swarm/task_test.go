@@ -835,3 +835,168 @@ func TestTaskStatusIsTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestTask_SetMaxTurns(t *testing.T) {
+	prompt := acp.Prompt{
+		{Type: "text", Text: "Test prompt"},
+	}
+	task := NewTask("Test Task", "Test description", prompt)
+	if task.MaxTurns != 0 {
+		t.Errorf("initial MaxTurns = %d, want 0", task.MaxTurns)
+	}
+
+	task.SetMaxTurns(10)
+	if task.MaxTurns != 10 {
+		t.Errorf("SetMaxTurns(10): MaxTurns = %d, want 10", task.MaxTurns)
+	}
+
+	task.SetMaxTurns(0)
+	if task.MaxTurns != 0 {
+		t.Errorf("SetMaxTurns(0): MaxTurns = %d, want 0", task.MaxTurns)
+	}
+}
+
+func TestCanTransition(t *testing.T) {
+	tests := []struct {
+		from TaskState
+		to   TaskState
+		want bool
+	}{
+		// Valid transitions
+		{TaskStatePending, TaskStateRunning, true},
+		{TaskStatePending, TaskStateCancelled, true},
+		{TaskStateRunning, TaskStateCompleted, true},
+		{TaskStateRunning, TaskStateFailed, true},
+		{TaskStateRunning, TaskStateCancelled, true},
+		{TaskStateFailed, TaskStatePending, true},
+
+		// Invalid transitions (same state)
+		{TaskStatePending, TaskStatePending, false},
+		{TaskStateRunning, TaskStateRunning, false},
+		{TaskStateCompleted, TaskStateCompleted, false},
+		{TaskStateFailed, TaskStateFailed, false},
+		{TaskStateCancelled, TaskStateCancelled, false},
+
+		// Invalid transitions (wrong direction)
+		{TaskStatePending, TaskStateCompleted, false},
+		{TaskStatePending, TaskStateFailed, false},
+		{TaskStateRunning, TaskStatePending, false},
+		{TaskStateCompleted, TaskStateRunning, false},
+		{TaskStateCompleted, TaskStateFailed, false},
+		{TaskStateCompleted, TaskStatePending, false},
+		{TaskStateCompleted, TaskStateCancelled, false},
+		{TaskStateFailed, TaskStateRunning, false},
+		{TaskStateFailed, TaskStateCompleted, false},
+		{TaskStateFailed, TaskStateCancelled, false},
+		{TaskStateCancelled, TaskStateRunning, false},
+		{TaskStateCancelled, TaskStatePending, false},
+
+		// Unknown states
+		{TaskState("unknown"), TaskStateRunning, false},
+		{TaskStatePending, TaskState("unknown"), false},
+		{TaskState("unknown"), TaskState("unknown"), false},
+	}
+	for _, tt := range tests {
+		got := canTransition(tt.from, tt.to)
+		if got != tt.want {
+			t.Errorf("canTransition(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
+		}
+	}
+}
+
+func TestTask_Assign_InvalidTransition(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+
+	// Complete the task first
+	task.Assign(acp.AgentID("agent-1"))
+	task.Complete(nil)
+
+	// Cannot assign a completed task
+	if task.Assign(acp.AgentID("agent-2")) {
+		t.Error("Assign should fail for completed task")
+	}
+}
+
+func TestTask_Complete_FromPending(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+
+	// Cannot complete a pending task (must be running first)
+	if task.Complete(nil) {
+		t.Error("Complete should fail for pending task")
+	}
+}
+
+func TestTask_Fail_FromPending(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+
+	// Cannot fail a pending task
+	if task.Fail(nil) {
+		t.Error("Fail should fail for pending task")
+	}
+}
+
+func TestTask_Cancel_AlreadyCompleted(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+	task.Assign(acp.AgentID("agent-1"))
+	task.Complete(nil)
+
+	if task.Cancel(CancelReasonUser) {
+		t.Error("Cancel should fail for completed task")
+	}
+}
+
+func TestTask_Retry_FromPending(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+
+	// Cannot retry from pending (only failed -> pending)
+	if task.Retry() {
+		t.Error("Retry should fail from pending state")
+	}
+}
+
+func TestTask_Retry_ClearsError(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+	task.Assign(acp.AgentID("agent-1"))
+	task.Fail(func() error { return fmt.Errorf("some error") }())
+
+	if task.Error == "" {
+		t.Fatal("error should be set before retry")
+	}
+
+	task.Retry()
+
+	if task.Error != "" {
+		t.Errorf("error should be cleared after retry, got %q", task.Error)
+	}
+}
+
+func TestTask_Push_NilTask(t *testing.T) {
+	q := NewTaskQueue()
+
+	q.Push(nil) // Should be no-op, not panic
+
+	if q.Len() != 0 {
+		t.Error("Push should not add nil task to queue")
+	}
+}
+
+func TestTask_Cancel_NilMetadata(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+	task.Metadata = nil
+
+	if !task.Cancel(CancelReasonUser) {
+		t.Error("Cancel should succeed even with nil metadata")
+	}
+}
+
+func TestTask_Cancel_EmptyReason(t *testing.T) {
+	task := NewTask("test", "desc", nil)
+
+	if !task.Cancel("") {
+		t.Error("Cancel should succeed with empty reason")
+	}
+
+	if _, ok := task.Metadata["cancelReason"]; ok {
+		t.Error("cancelReason should not be set for empty reason")
+	}
+}

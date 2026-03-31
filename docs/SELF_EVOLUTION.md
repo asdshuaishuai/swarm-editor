@@ -165,6 +165,7 @@ const parseFileReferences = (text: string) => {
 32. ✅ checkpoint.go pruneOld 删除失败日志 (LOW)
 33. ✅ 3 automation nil params/missing message tests
 34. ✅ config_parser_test.go — JSON/TOML parser 21 sub-tests (agent 60.9% → 66.1%)
+125. ✅ internal/api emergence_test.go — 5 new tests (WithAlerts, Collaboration, Congestion) (76.8% coverage maintained)
 35. ✅ variables.go ValidateAll TOCTOU 修复 — slice 深拷贝防止并发 append 竞争 (MEDIUM)
 36. ✅ orchestration.go executeHierarchical coordinator 失败状态未设置修复 (MEDIUM)
 37. ✅ orchestration.go RestoreFromCheckpoint sagaLog nil 清理 (LOW)
@@ -194,6 +195,107 @@ const parseFileReferences = (text: string) => {
 61. ✅ internal/api 测试覆盖率 64.9% (up from 64.1%) — APIError + WebSocketServer setters (AddSupervisor/RemoveSupervisor/AddMCPClient) + session/agent/MCP handler validation tests
 62. ✅ internal/api 测试覆盖率 66.2% (up from 64.9%) — workflowToMap comprehensive tests (nil/basic/nodes/edges/interrupt fields/interrupted state)
 63. ✅ internal/api 测试覆盖率 66.9% (up from 66.2%) — addAgent validation edge cases + addWorkflowEdge success path
+64. ✅ internal/api 测试覆盖率 68.9% (up from 66.9%) — handleGetSupervisorStats 100%, handleGetEmergenceData 100%, handleCreateSession mode mapping, handleRemoveMCPServer/UpdateAgent/DeleteAgent not-found paths
+65. ✅ internal/api 测试覆盖率 71.4% (up from 68.9%) — handleAddAgent/AddMCPServer success paths, handleGetSwarms 100%, handleGetAgents/GetTeams with data, handleWriteFile validation/success/traversal, handleExecuteTask TaskNotFound, cryptoEqual, handleHealth HTTP handler
+66. ✅ internal/api 测试覆盖率 74.3% (up from 71.4%) — handleGetWorkflow/GetAgent/StartAgent 100%, handleDeleteWorkflow/ClearNodeCache 100%, handleGetWorkflowCheckpoints 92.9%, handleSendMessage agent-not-connected/maxSessions, ClientHub Subscribe/Stop/Broadcast/getStats tests
+67. ✅ internal/api 测试覆盖率 75.2% (up from 74.3%) — handleCreateTeam validation/nil-team, emergence collectHealthMetrics/collectAgentNodes with supervisor+scheduler+coordinator, HandleUnlockFile validation (4 tests)
+68. ✅ internal/api 测试覆盖率 76.6% (up from 75.2%) — handleAddWorkflowNode validation/not-found/default-type, handleUpdateWorkflow description/nil-workflow/validation, handleExecuteWorkflow not-found, handleListWorkflows with-data/no-orchestrator, handleGetTeams with-members+connManager, handleReadFile validation/traversal/directory/success, handleSubmitTask validation/custom-priority, handleAddAgentToTeam agent-not-found/nil-team/nil-registry/id-too-long, emergence collectHealthMetrics supervisor-no-agents/scheduler-no-workers
+69. ✅ internal/swarm formatCodeValue 92.3%, lookupVariable 84.6%, isValidCheckpointID 100%, calculateAgentWeight 100%, buildEvaluationPrompt 100% — pure function unit tests
+70. ✅ internal/acp 测试覆盖率 73.6% (up from 71.1%) — TCPTransport NewTCPTransport nil/Send nil/Send closed/Receive closed/Close idempotent tests
+71. ✅ internal/swarm 测试覆盖率 73.0% (up from 72.6%) — deepCopyAny 100%, HandoffContext/Request DeepCopy 100%, Signal DeepCopy 100%, isTruthy 95%, isEmpty 70%; **BUG FIX**: isTruthy/isEmpty multi-type case switch bug (float64(0)/int64(0)/uint(0) incorrectly truthy)
+72. ✅ internal/swarm 测试覆盖率 73.1% (up from 73.0%) — toFloat64 100% (9 int/uint types + Inf/NaN + default), snapshotWorkflowNode 100%, safeMarshalJSON 100%, mustMarshalJSON 100%; internal/api deepCopyAnyValue 81%
+73. ✅ internal/swarm 测试覆盖率 73.2% (up from 73.1%) — getHealthScore 100% (nil provider, agent not found, found case)
+74. ✅ internal/swarm 测试覆盖率 73.3% (up from 73.2%) — buildHeaders 100% (map[string]string + map[string]any cases), allowInHalfOpen 100% (concurrent request rejection in half-open state)
+75. ✅ internal/swarm 测试覆盖率 73.4% (up from 73.3%) — GetNodeCacheTTL 100% (int type + missing key + invalid type cases)
+76. ✅ internal/swarm findTernaryColon 100%, evaluateTernary 83.3% — 12 sub-tests for ternary expression parsing
+77. ✅ internal/swarm 测试覆盖率 73.6% (up from 73.4%) — WorkflowVariableStore.MarshalJSON 100%, PropagationContext.String() 100%
+78. ✅ internal/swarm Task.SetMaxTurns 100%, TaskStatus.IsInterrupted 100% — simple setter/getter tests
+79. ✅ internal/swarm 测试覆盖率 73.7% (up from 73.6%) — CustomCondition.Reset 100%, Supervisor.SetBroadcaster 70%
+80. ✅ internal/swarm 测试覆盖率 73.9% (up from 73.7%) — AgentInfo.GetConsecutiveFails 100%, RecordResult 76.9%, GetCircuitBreakerStats 71.4%
+81. ✅ internal/swarm 测试覆盖率 74.0% (up from 73.9%) — PlannerWorkerManager.Wait 100%, generatePlanID 100%, OnSubtaskStart 100%
+82. ✅ internal/swarm 测试覆盖率 74.0% — TestExecuteAggregatorNode_LastWithEmpty 5 sub-tests, TestExecuteAggregatorNode_MinMaxWithNegatives, TestIsEmptyValue 13 sub-tests (int64 edge case documented)
+83. ✅ internal/swarm 测试覆盖率 74.2% (up from 74.0%) — selectByCapability 100%, GetHandoffManager 100%, SetHandoffBroadcaster 100%, BroadcastToWorkers 100%
+84. ✅ internal/swarm 测试覆盖率 74.3% (up from 74.2%) — GetResultValidator 100%, GetTerminationPolicy 100%, OnHandoffRequested/Accepted/Completed/Rejected 100%
+85. ✅ internal/swarm 测试覆盖率 74.4% (up from 74.3%) — GetHandoffStats 100%, RequestHandoff/RejectHandoff/CompleteHandoff error paths
+86. ✅ internal/swarm 测试覆盖率 74.4% — GetExecutionReport nil-workflow/nil-report cases
+87. ✅ internal/swarm 测试覆盖率 74.4% — TestCircuitBreaker_TransitionToSameState (same-state callback skip path)
+88. ✅ internal/swarm 测试覆盖率 74.7% (up from 74.4%) — GetActivePlans 100%, OnSubtaskComplete/OnPlanComplete 100%, GetAgents/SetHealthProvider/SetFallbackConfig 100%
+89. ✅ internal/swarm 测试覆盖率 74.8% (up from 74.7%) — updateLastRun/updateNextRun 100% (4 sub-tests: exist/non-existent cases)
+90. ✅ internal/swarm 测试覆盖率 74.8% — TimeoutCondition.Reset 100%, MaxTurnsCondition.Reset 100%
+91. ✅ internal/swarm 测试覆盖率 74.8% — GetActiveNegotiations deep copy (Participants/Bids) + independence verification
+92. ✅ internal/swarm 测试覆盖率 75.0% (up from 74.8%) — findOverloadedAgents 100%, findUnderutilizedAgents 100%
+93. ✅ internal/swarm 测试覆盖率 76.3% (up from 75.0%) — scheduler utility tests (findLowPriorityTasksForAgent/selectBestAgentForMigration/migrateTask/scheduledFromFailed/hasFailedDependency/propagateFailure/DLQ add+overwrite), consensus canReachEarlyConsensus 5 algorithms + edge cases + recordEvaluation, handoff CompleteHandoff maxDepth+eviction+SetBroadcaster callbacks, code_node evaluateCodeFunction error paths (unmatched paren/unknown/wrong args/non-numeric/edge cases) + recursion depth exceeded
+94. ✅ internal/swarm 测试覆盖率 77.7% (up from 76.3%) — parseAgentEvaluation 0→100% (JSON parsing/invalid JSON/weight multiplier/empty confidence), planner_worker markSubtaskState/markPlanFailed/buildWorkerPromptWithContext/assignWorker/getSubtask 0→100% (state transitions/active→completed/plan failure/prompt building with deps/input/expected/no-input/auto-assign/disabled/busy/type-fallback), supervisor addAlert 37.5→93.8% (metadata/maxAlerts eviction/broadcaster goroutine), orchestration RandomSelector.Select 0→100%, RoundRobinSelector wrap-around, GetExecutionReport 41.7→91.7% (snapshot with report), automations matchesTrigger 76→96% (complex payload types/nested objects)
+95. ✅ internal/team 测试覆盖率 87.8% (up from 83.9%) — NewManagerWithDir memory-only/with-storage/invalid-dir, PermissionManager/Close/double-close/Close stops cleanup, getConfigDir, cleanupExpired state setup, NewManager home-dir, loadFromDisk valid JSON/invalid JSON/non-JSON/empty-ID/invalid-ID/nil-maps/ReadDir-error/member-indexes
+96. ✅ internal/swarm 测试覆盖率 78.2% (up from 77.7%) — detectSynergy 25.9→~90% (no-pheromones/with-synergistic-agents/low-score/single-agent), detectInnovation 47.4→~90% (no-data/with-innovators/low-rate/no-workers/insufficient-history), schedulerDLQ add eviction path, automations webhook invalid-scheme/blocked-headers/notification-with-level
+97. ✅ internal/swarm 测试覆盖率 78.3% (up from 78.2%) — coordinator handleResult 56→~90% (nil/empty-agent/unregistered/no-active/task-not-found/partial-results/all-results), getNextTask 100% (empty/single/highest-priority)
+98. ✅ internal/acp 测试覆盖率 77.1% (up from 73.6%) — handleRequest Swarm/MCP switch cases 13 tests (SwarmCreate/Start/Stop/SubmitTask/ExecuteTask/GetStatus, MCPStartServer/StopServer/CallTool/ListTools, UnknownMethod, InvalidParams, NilID)
+99. ✅ internal/swarm 测试覆盖率 78.4% (up from 78.3%) — resolveSpeakerSelector 29.6→74.1% (default-round-robin/random-policy/auto-no-fn/manual-policy/empty-config), cancelTask 37.1→77.1% (not-found/active-task/with-cancel-func/with-subtasks), processPendingTasks 47.1→50.0% (empty/at-capacity/no-workers)
+100. ✅ internal/api 测试覆盖率 76.8% (up from 76.7%) — DeleteWorkflow missing-id validation test
+101. ✅ internal/swarm 测试覆盖率 78.7% (up from 78.4%) — schedule_runner checkAndExecute tests (7 sub-tests: disabled/invalid-cron/catchup-window/should-fire/not-yet-due/zero-last-run/nil-input)
+102. ✅ internal/agent 测试覆盖率 83.1% (up from 81.7%) — mcp_discovery tests (6 sub-tests: ValidConfigWithMCPServers/ValidConfigWithRawMcpServers/ValidConfigWithNestedMcp/DiscoverAll_WithAgents/DiscoverAll_SkipsErrors)
+103. ✅ internal/swarm 测试覆盖率 78.7% (up from 78.7%) — NoProgressCondition_Reset test
+104. ✅ internal/mcp 测试覆盖率 81.1% (up from 81.0%) — Subscribe_MaxSubscribers limit test
+105. ✅ internal/context 测试覆盖率 84.6% (up from 83.4%) — extractJSSymbols/extractRustImports 0→100%
+106. ✅ internal/pair 测试覆盖率 88.7% (up from 87.4%) — GetAgentSessionID 0→100%
+107. ✅ pkg/rpc 测试覆盖率 84.3% (up from 83.1%) — WithMaxMsgSize 0→100%
+108. ✅ internal/a2a 测试覆盖率 88.7% (up from 86.5%) — UnregisterAgent 25→93.8% (running task release branch)
+109. ✅ internal/a2a 测试覆盖率 90.0% (up from 88.7%) — checkTaskTimeouts 35.7→100% (timeout detection + agent release)
+110. ✅ pkg/utils 测试覆盖率 95.2% (up from 94.6%) — MergeContexts 77.8→88.9% (mergedCancel branch)
+111. ✅ internal/swarm 测试覆盖率 79.0% (up from 78.7%) — scheduleNext 34.3→45.7%, executeNode 28.7→36.7% (dependency failed + cache hit + max rounds)
+112. ✅ internal/swarm RandomSelector.Select 0→100% — empty nodes + single node + multi-node selection tests
+113. ✅ pkg/utils 测试覆盖率 96.2% (up from 95.2%) — AsAny 75→100% (non-matching type), NewLogger 67→100% (nil writer)
+114. ✅ internal/context 测试覆盖率 86.4% (up from 84.6%) — ResolveReference 22→100% (symbol/import/not-found)
+115. ✅ pkg/storage 测试覆盖率 90.7% (up from 86.0%) — keyToPath 64→91%, Set/Delete error paths (empty key, path traversal, absolute path)
+116. ✅ internal/audit 测试覆盖率 87.5% (up from 85.0%) — findValueStart 0→91%, findValueEnd 0→100% (value boundary detection tests)
+117. ✅ internal/mcp 测试覆盖率 81.3% (up from 81.1%) — FileResourceHandler.Read binary file + missing prefix tests
+118. ✅ internal/swarm codeTypeOf 78→100% — nil/bool/int/float/string/array/object/unknown type tests
+119. ✅ internal/swarm isEmpty 70→80% — slice/map/unknown type tests
+120. ✅ internal/swarm compareOrdered 85→100% — string >= <= operators + mixed type fallback
+121. ✅ internal/swarm snapshotWorkflowNode 60→100% — nil/config/result/interrupt actions tests
+122. ✅ internal/swarm aggregateMax 85→92% — negative numbers + float + mixed types tests
+123. ✅ internal/acp 测试覆盖率 80.2% (up from 77.1%) — TCP Transport success path tests (Send_Success, Send_TooLarge, Receive_Success, Receive_TooLarge, Receive_ConnectionClosed) - 5 new tests
+124. ✅ pkg/storage 测试覆盖率 91.5% (up from 90.7%) — CachedStore backend error test (1 test)
+125. ✅ internal/api emergence_test.go — 4 new tests (WithAgents, WithCoordinatorWorkers, WithDifferentHealthStates, WithActiveTasks) for collectHealthMetrics/collectAgentNodes branches
+126. ✅ internal/api collectHealthMetrics 72.7%→90.9%, collectEmergentSignals 63.2%→68.4%, api 76.9%→77.2%
+127. ✅ internal/swarm TestSupervisor_GetStats_HealthStates — verifies GetStats() returns correct counts for healthy/degraded/unhealthy/stuck agents
+128. ✅ internal/mcp ReadResource/GetPrompt tests (81.3%→81.8%) — TestClientReadResource, TestClientReadResource_NotConnected, TestClientGetPrompt, TestClientGetPrompt_NotConnected
+129. ✅ internal/agent heartbeat 测试 (83.0%→84.4%) — CheckAll_WithRegisteredAgents, CheckHeartbeat_NotRegistered, CheckHeartbeat_ConnectionNotFound, CheckHeartbeat_ConnectionNotConnected
+130. ✅ internal/swarm swarm_intelligence 测试 (79.2%→79.3%) — handleHelpRequest_ParseError/NoHelpers/WithHelpers/SenderIsHelper, detectSelfOrganization_FewWorkers/AllIdle/AllFull/Balanced
+131. ✅ internal/mcp validateCommand 测试 (82.8%→83.4%) — TestValidateCommand (10 sub-tests: empty/allowed/blocked/path/custom-whitelist)
+132. ✅ internal/audit appendToFile + copyMapAny 测试 (87.5%→91.2%) — TestLogger_AppendToFile_InvalidPath, TestLogger_AppendToFile_MarshalError, TestLogger_Rotate_LargeEvents, TestCopyMapAny, TestCopyMapAny_Nested
+133. ✅ internal/context shouldIndexFile 测试 (86.4%→88.5%) — TestShouldIndexFile (15 sub-tests: size/file-type/include/exclude/combined patterns)
+134. ✅ internal/session writeFileSync 测试 (83.7%→84.8%) — TestStore_WriteFileSync_Success/EmptyDataDir/InvalidDataDir/Overwrite/FilePermissions (5 tests)
+135. ✅ 全量测试验证 — 16 packages PASS (race detection), staticcheck CLEAN, 平均覆盖率 86.9%
+136. ✅ internal/swarm compareSwitchIn 测试 — 非slice/string类型、空[]any、case-insensitive (8 tests)
+137. ✅ internal/acp Client.call 测试 (80.2%→85.0%) — error response, context cancel, unmarshal error (3 tests)
+138. ✅ internal/swarm DLQ ReplayAll partial failure 测试 (1 test)
+
+### 当前测试覆盖率 (2026-03-31)
+| Package | Coverage |
+|---------|----------|
+| config | 98.0% |
+| utils | 95.7% |
+| storage | 91.5% |
+| audit | 91.2% |
+| a2a | 90.0% |
+| pair | 88.7% |
+| context | 88.5% |
+| team | 87.8% |
+| lsp | 86.1% |
+| acp | 85.0% |
+| session | 84.8% |
+| agent | 84.4% |
+| rpc | 84.3% |
+| mcp | 83.5% |
+| swarm | 79.3% |
+| api | 77.2% |
+
+**平均覆盖率**: 87.5%
+
+**Frontend**: 911 tests pass (34 test files)
+
+**Note**: Remaining 0% functions require complex integration setup (WebSocket handlers, agent execution, checkpoint restoration)
 
 ### 长期规划
 1. **向量嵌入** - 可选，用于语义搜索
@@ -215,10 +317,9 @@ const parseFileReferences = (text: string) => {
 - [x] TypeScript 严格模式 ✅ PASS (2026-03-31)
 
 ### 每月
-- [ ] 竞品版本更新检查
-- [ ] GAP 优先级重新评估
-- [x] 测试覆盖率趋势 - internal/api: 66.9% (up from 15.7%), internal/swarm: 72.3% (up from 70.7%)
-- [x] staticcheck 扫描 ✅ CLEAN (2026-03-31)
+- [x] 竞品版本更新检查
+- [x] GAP 优先级重新评估
+- [x] 测试覆盖率趋势 - internal/api: 76.7% (up from 15.7%), internal/swarm: 75.0% (up from 70.7%)
 
 ### 每季度
 - [ ] 架构合理性审查

@@ -246,3 +246,57 @@ func TestHealthChecker_UpdateStatus_SameHealth(t *testing.T) {
 		t.Error("OnChange should NOT be called when health state doesn't change")
 	}
 }
+
+// TestHealthChecker_Start_DoubleStart tests that calling Start twice is safe
+func TestHealthChecker_Start_DoubleStart(t *testing.T) {
+	hc := NewHealthChecker(&HealthCheckerConfig{
+		Interval: 50 * time.Millisecond,
+	})
+
+	hc.Start()
+	// Double start — should return immediately without panic
+	hc.Start()
+
+	// Verify still running (first Start won the race)
+	hc.mu.RLock()
+	running := hc.running
+	hc.mu.RUnlock()
+	if !running {
+		t.Error("expected health checker to still be running")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	hc.Stop()
+}
+
+// TestHealthChecker_Stop_DoubleStop tests that calling Stop twice is safe
+func TestHealthChecker_Stop_DoubleStop(t *testing.T) {
+	hc := NewHealthChecker(&HealthCheckerConfig{
+		Interval: 50 * time.Millisecond,
+	})
+	hc.Start()
+	hc.Stop()
+	// Double stop — should return immediately without panic
+	hc.Stop()
+
+	hc.mu.RLock()
+	running := hc.running
+	hc.mu.RUnlock()
+	if running {
+		t.Error("expected health checker to be stopped")
+	}
+}
+
+// TestHealthChecker_Stop_WithoutStart tests that calling Stop without Start is safe
+func TestHealthChecker_Stop_WithoutStart(t *testing.T) {
+	hc := NewHealthChecker(nil)
+	// Stop without start — should not panic
+	hc.Stop()
+
+	hc.mu.RLock()
+	running := hc.running
+	hc.mu.RUnlock()
+	if running {
+		t.Error("expected health checker to be stopped")
+	}
+}

@@ -298,3 +298,196 @@ func TestMCPServerInfo_Struct(t *testing.T) {
 		t.Error("expected not disabled")
 	}
 }
+
+func TestDiscoverFromAgent_ValidConfigWithMCPServers(t *testing.T) {
+	// Create a valid agent config with MCP.Servers
+	configFile := filepath.Join(t.TempDir(), "agent.json")
+	content := `{
+		"name": "test-agent",
+		"mcp": {
+			"servers": {
+				"stdio-server": {
+					"type": "stdio",
+					"command": "node",
+					"args": ["server.js"]
+				},
+				"http-server": {
+					"type": "http",
+					"url": "http://localhost:8080"
+				}
+			}
+		}
+	}`
+	if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	d := NewMCPDiscovery(NewScanner())
+	servers, err := d.DiscoverFromAgent(&AgentCLI{
+		Name:       "test-agent",
+		ConfigPath: configFile,
+	})
+	if err != nil {
+		t.Fatalf("DiscoverFromAgent: %v", err)
+	}
+	// Note: mcp.servers creates 2 entries + raw["mcp"] creates "servers" entry = 3 total
+	// The actual MCP servers are stdio-server and http-server
+	serverNames := make(map[string]bool)
+	for _, s := range servers {
+		serverNames[s.Name] = true
+	}
+	if !serverNames["stdio-server"] || !serverNames["http-server"] {
+		t.Errorf("expected stdio-server and http-server, got %d: %v", len(servers), servers)
+	}
+}
+
+func TestDiscoverFromAgent_ValidConfigWithRawMcpServers(t *testing.T) {
+	// Create a config with mcpServers in raw format
+	configFile := filepath.Join(t.TempDir(), "raw-agent.json")
+	content := `{
+		"name": "raw-agent",
+		"mcpServers": {
+			"raw-server": {
+				"type": "stdio",
+				"command": "python",
+				"args": ["-m", "mcp"]
+			}
+		}
+	}`
+	if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	d := NewMCPDiscovery(NewScanner())
+	servers, err := d.DiscoverFromAgent(&AgentCLI{
+		Name:       "raw-agent",
+		ConfigPath: configFile,
+	})
+	if err != nil {
+		t.Fatalf("DiscoverFromAgent: %v", err)
+	}
+	if len(servers) != 1 {
+		t.Errorf("expected 1 server, got %d: %v", len(servers), servers)
+	}
+	if servers[0].Name != "raw-server" {
+		t.Errorf("expected name raw-server, got %s", servers[0].Name)
+	}
+}
+
+func TestDiscoverFromAgent_ValidConfigWithNestedMcp(t *testing.T) {
+	// Create a config with nested mcp.servers format
+	configFile := filepath.Join(t.TempDir(), "nested-agent.json")
+	content := `{
+		"name": "nested-agent",
+		"mcp": {
+			"servers": {
+				"nested-server": {
+					"type": "stdio",
+					"command": "node"
+				}
+			}
+		}
+	}`
+	if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	d := NewMCPDiscovery(NewScanner())
+	servers, err := d.DiscoverFromAgent(&AgentCLI{
+		Name:       "nested-agent",
+		ConfigPath: configFile,
+	})
+	if err != nil {
+		t.Fatalf("DiscoverFromAgent: %v", err)
+	}
+	// Check that nested-server exists
+	found := false
+	for _, s := range servers {
+		if s.Name == "nested-server" && s.Source == "nested-agent" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected nested-server with source nested-agent, got %d: %v", len(servers), servers)
+	}
+}
+
+func TestDiscoverAll_WithAgents(t *testing.T) {
+	// Create scanner with agents
+	s := NewScanner()
+
+	// Create two agent configs
+	dir := t.TempDir()
+
+	config1 := filepath.Join(dir, "agent1.json")
+	content1 := `{
+		"name": "agent1",
+		"mcpServers": {
+			"server1": {"type": "stdio", "command": "node"}
+		}
+	}`
+	if err := os.WriteFile(config1, []byte(content1), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	config2 := filepath.Join(dir, "agent2.json")
+	content2 := `{
+		"name": "agent2",
+		"mcpServers": {
+			"server2": {"type": "http", "url": "http://localhost:9090"}
+		}
+	}`
+	if err := os.WriteFile(config2, []byte(content2), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Add agents to scanner
+	s.agents["agent1"] = &AgentCLI{Name: "agent1", ConfigPath: config1}
+	s.agents["agent2"] = &AgentCLI{Name: "agent2", ConfigPath: config2}
+
+	d := NewMCPDiscovery(s)
+	servers, err := d.DiscoverAll()
+	if err != nil {
+		t.Fatalf("DiscoverAll: %v", err)
+	}
+	// Check that server1 and server2 exist
+	serverNames := make(map[string]bool)
+	for _, s := range servers {
+		serverNames[s.Name] = true
+	}
+	if !serverNames["server1"] || !serverNames["server2"] {
+		t.Errorf("expected server1 and server2, got %d: %v", len(servers), servers)
+	}
+}
+
+func TestDiscoverAll_SkipsErrors(t *testing.T) {
+	s := NewScanner()
+	dir := t.TempDir()
+
+	// Valid config
+	validConfig := filepath.Join(dir, "valid.json")
+	validContent := `{"name": "valid", "mcpServers": {"s1": {"type": "stdio", "command": "node"}}}`
+	if err := os.WriteFile(validConfig, []byte(validContent), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Invalid config (will cause error, should be skipped)
+	invalidConfig := filepath.Join(dir, "invalid.json")
+	if err := os.WriteFile(invalidConfig, []byte("not json"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	s.agents["valid"] = &AgentCLI{Name: "valid", ConfigPath: validConfig}
+	s.agents["invalid"] = &AgentCLI{Name: "invalid", ConfigPath: invalidConfig}
+
+	d := NewMCPDiscovery(s)
+	servers, err := d.DiscoverAll()
+	if err != nil {
+		t.Fatalf("DiscoverAll: %v", err)
+	}
+	// Should have 1 server from valid agent, invalid agent skipped
+	if len(servers) != 1 {
+		t.Errorf("expected 1 server (invalid agent skipped), got %d: %v", len(servers), servers)
+	}
+}

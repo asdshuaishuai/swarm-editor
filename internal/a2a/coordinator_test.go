@@ -1089,3 +1089,141 @@ func TestCoordinatorHandleHelpRequestNoRace(t *testing.T) {
 
 	<-done
 }
+
+func TestCoordinatorUnregisterAgentWithRunningTask(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{}, router)
+
+	ctx := context.Background()
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
+
+	// Register agent
+	coordinator.RegisterAgent("agent-1", []string{"coding"})
+
+	// Submit and assign a task
+	task := &CoordinationTask{
+		ID:         "task-1",
+		Priority:   1,
+		Status:     "running",
+		AssignedTo: []string{"agent-1"},
+	}
+	coordinator.runningTasks["task-1"] = task
+
+	// Unregister agent - should release task
+	coordinator.UnregisterAgent("agent-1")
+
+	// Verify agent removed
+	if coordinator.agents["agent-1"] != nil {
+		t.Error("Agent should be unregistered")
+	}
+
+	// Verify task was failed due to no agents
+	coordinator.mu.Lock()
+	completed := coordinator.completedTasks["task-1"]
+	coordinator.mu.Unlock()
+
+	if completed == nil {
+		t.Error("Task should be in completed tasks")
+	} else if completed.Status != "failed" {
+		t.Errorf("Task status should be 'failed', got '%s'", completed.Status)
+	}
+}
+
+func TestCoordinatorCheckTaskTimeouts(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{
+		TaskTimeout: 100 * time.Millisecond, // Short timeout for testing
+	}, router)
+
+	ctx := context.Background()
+	if err := coordinator.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer coordinator.Stop()
+
+	// Register agent
+	coordinator.RegisterAgent("agent-1", []string{"coding"})
+
+	// Set agent as busy
+	coordinator.mu.Lock()
+	coordinator.agents["agent-1"].Status = "busy"
+	coordinator.agents["agent-1"].CurrentTask = "task-1"
+
+	// Create a task that started in the past (before timeout threshold)
+	task := &CoordinationTask{
+		ID:         "task-1",
+		Priority:   1,
+		Status:     "running",
+		AssignedTo: []string{"agent-1"},
+		StartedAt:  time.Now().Add(-200 * time.Millisecond), // Started 200ms ago
+	}
+	coordinator.runningTasks["task-1"] = task
+	coordinator.mu.Unlock()
+
+	// Call checkTaskTimeouts
+	coordinator.checkTaskTimeouts()
+
+	// Verify task was timed out
+	coordinator.mu.Lock()
+	completed := coordinator.completedTasks["task-1"]
+	runningCount := len(coordinator.runningTasks)
+	agent := coordinator.agents["agent-1"]
+	coordinator.mu.Unlock()
+
+	if runningCount != 0 {
+		t.Errorf("Expected 0 running tasks, got %d", runningCount)
+	}
+
+	if completed == nil {
+		t.Error("Task should be in completed tasks after timeout")
+	} else if completed.Status != "failed" {
+		t.Errorf("Task status should be 'failed', got '%s'", completed.Status)
+	}
+
+	// Verify agent was released back to idle
+	if agent.Status != "idle" {
+		t.Errorf("Agent status should be 'idle', got '%s'", agent.Status)
+	}
+	if agent.CurrentTask != "" {
+		t.Errorf("Agent CurrentTask should be empty, got '%s'", agent.CurrentTask)
+	}
+}
+
+func TestCoordinatorCheckTaskTimeouts_NoTimeout(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{
+		TaskTimeout: 1 * time.Hour, // Long timeout
+	}, router)
+
+	// Register agent
+	coordinator.RegisterAgent("agent-1", []string{"coding"})
+
+	// Create a task that just started
+	task := &CoordinationTask{
+		ID:         "task-1",
+		Priority:   1,
+		Status:     "running",
+		AssignedTo: []string{"agent-1"},
+		StartedAt:  time.Now(), // Just started
+	}
+	coordinator.runningTasks["task-1"] = task
+
+	// Call checkTaskTimeouts
+	coordinator.checkTaskTimeouts()
+
+	// Verify task is still running (not timed out)
+	coordinator.mu.Lock()
+	running := coordinator.runningTasks["task-1"]
+	completed := coordinator.completedTasks["task-1"]
+	coordinator.mu.Unlock()
+
+	if running == nil {
+		t.Error("Task should still be running")
+	}
+	if completed != nil {
+		t.Error("Task should not be in completed tasks")
+	}
+}

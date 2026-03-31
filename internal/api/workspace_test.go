@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestWorkspaceManager_Create(t *testing.T) {
@@ -558,6 +559,51 @@ func TestHandleUnlockFile(t *testing.T) {
 			t.Errorf("expected 409, got %d", rec.Code)
 		}
 	})
+
+	t.Run("missing workspace id", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/workspaces//lock", bytes.NewReader([]byte(`{}`)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		m.HandleUnlockFile(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("empty filePath", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"filePath": "", "userId": "u1"})
+		req := httptest.NewRequest(http.MethodDelete, "/workspaces/ws-1/lock", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "ws-1")
+		rec := httptest.NewRecorder()
+		m.HandleUnlockFile(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("empty userId", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"filePath": "/f.go", "userId": ""})
+		req := httptest.NewRequest(http.MethodDelete, "/workspaces/ws-1/lock", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "ws-1")
+		rec := httptest.NewRecorder()
+		m.HandleUnlockFile(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("invalid json body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/workspaces/ws-1/lock", bytes.NewReader([]byte(`not json`)))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", "ws-1")
+		rec := httptest.NewRecorder()
+		m.HandleUnlockFile(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rec.Code)
+		}
+	})
 }
 
 func TestHandleUpdateCursor(t *testing.T) {
@@ -731,6 +777,89 @@ func TestDeepCopyAnyValue(t *testing.T) {
 		result := deepCopyAnyValue("hello")
 		if result != "hello" {
 			t.Error("string should pass through")
+		}
+	})
+
+	t.Run("bool pass through", func(t *testing.T) {
+		result := deepCopyAnyValue(true)
+		if result != true {
+			t.Error("bool should pass through")
+		}
+	})
+
+	t.Run("float64 pass through", func(t *testing.T) {
+		result := deepCopyAnyValue(float64(3.14))
+		if result != float64(3.14) {
+			t.Error("float64 should pass through")
+		}
+	})
+
+	t.Run("int64 pass through", func(t *testing.T) {
+		result := deepCopyAnyValue(int64(42))
+		if result != int64(42) {
+			t.Error("int64 should pass through")
+		}
+	})
+
+	t.Run("time.Time pass through", func(t *testing.T) {
+		now := time.Now()
+		result := deepCopyAnyValue(now)
+		if result.(time.Time) != now {
+			t.Error("time.Time should pass through")
+		}
+	})
+
+	t.Run("slice any deep copy", func(t *testing.T) {
+		original := []any{"a", 1, true}
+		cp := deepCopyAnyValue(original).([]any)
+		if len(cp) != 3 {
+			t.Errorf("len = %d, want 3", len(cp))
+		}
+		original[0] = "modified"
+		if cp[0] == "modified" {
+			t.Error("slice should be deep copied")
+		}
+	})
+
+	t.Run("slice string clone", func(t *testing.T) {
+		original := []string{"a", "b"}
+		cp := deepCopyAnyValue(original).([]string)
+		if len(cp) != 2 {
+			t.Errorf("len = %d, want 2", len(cp))
+		}
+		original[0] = "modified"
+		if cp[0] == "modified" {
+			t.Error("[]string should be cloned")
+		}
+	})
+
+	t.Run("map string string copy", func(t *testing.T) {
+		original := map[string]string{"a": "1"}
+		cp := deepCopyAnyValue(original).(map[string]string)
+		if cp["a"] != "1" {
+			t.Error("value should be copied")
+		}
+		original["a"] = "modified"
+		if cp["a"] == "modified" {
+			t.Error("map should be independent")
+		}
+	})
+
+	t.Run("nested map any deep copy", func(t *testing.T) {
+		original := map[string]any{"inner": map[string]any{"val": 42}}
+		cp := deepCopyAnyValue(original).(map[string]any)
+		original["inner"].(map[string]any)["val"] = 999
+		if cp["inner"].(map[string]any)["val"] == 999 {
+			t.Error("nested map should be deep copied")
+		}
+	})
+
+	t.Run("unserializable fallback", func(t *testing.T) {
+		// channel type can't be marshaled to JSON, should fall back to return as-is
+		ch := make(chan int, 1)
+		result := deepCopyAnyValue(ch)
+		if result != ch {
+			t.Error("unserializable type should return as-is")
 		}
 	})
 }

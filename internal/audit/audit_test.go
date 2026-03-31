@@ -452,3 +452,163 @@ func TestRedactString(t *testing.T) {
 		})
 	}
 }
+
+func TestFindValueStart(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		patternIdx  int
+		pattern     string
+		want        int
+	}{
+		{"pattern found at start", "password=secret", 0, "password", 9},
+		{"pattern found in middle", "user=admin password=secret", 11, "password", 20},
+		{"pattern not found", "user=admin", 0, "token", -1},
+		{"pattern at end without separator", "user=admin password", 11, "password", -1},
+		{"pattern with colon separator", "token: value", 0, "token", 7},
+		{"pattern with equals separator", `key="value"`, 0, "key", 5},
+		{"empty string", "", 0, "password", -1},
+		{"pattern at end of string", "prefix password", 7, "password", -1}, // no separator after pattern
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := findValueStart(tt.input, tt.patternIdx, tt.pattern); got != tt.want {
+				t.Errorf("findValueStart(%q, %d, %q) = %d, want %d", tt.input, tt.patternIdx, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFindValueEnd(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		pos   int
+		want  int
+	}{
+		{"simple value", "password=secret", 9, 15},
+		{"value with comma", "key=value,other=data", 4, 9},
+		{"value with space", "key=value other", 4, 9},
+		{"value at end", "token=xyz", 6, 9},
+		{"pos beyond string", "short", 10, 10},
+		{"value with quote at end", `key=value"`, 4, 9}, // quote stops the scan
+		{"empty after pos", "key=", 4, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := findValueEnd(tt.input, tt.pos); got != tt.want {
+				t.Errorf("findValueEnd(%q, %d) = %d, want %d", tt.input, tt.pos, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogger_AppendToFile_InvalidPath(t *testing.T) {
+	// Test appendToFile with an invalid file path (directory that doesn't exist)
+	// This tests the error path where os.OpenFile fails
+	l := NewLogger("/nonexistent/directory/audit.log", 100)
+
+	// Log should still succeed in memory even if file write fails
+	l.Log("api", "user1", "create", "workflow", "wf-1", nil, true, "")
+
+	// Event should be in memory
+	if l.GetEventCount() != 1 {
+		t.Errorf("expected 1 event in memory, got %d", l.GetEventCount())
+	}
+}
+
+func TestLogger_AppendToFile_MarshalError(t *testing.T) {
+	// Test appendToFile with a value that cannot be marshaled to JSON
+	// Create a circular reference which causes json.Marshal to fail
+	type Circular struct {
+		Self *Circular
+	}
+	circular := &Circular{}
+	circular.Self = circular
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "audit.log")
+	l := NewLogger(filePath, 100)
+
+	// Log with circular reference in details - should trigger marshal error path
+	l.Log("api", "user1", "create", "workflow", "wf-1", map[string]any{"circular": circular}, true, "")
+
+	// Event should still be in memory (file write may have failed silently)
+	if l.GetEventCount() != 1 {
+		t.Errorf("expected 1 event in memory, got %d", l.GetEventCount())
+	}
+}
+
+func TestLogger_Rotate_LargeEvents(t *testing.T) {
+	// Test rotation with large number of events
+	l := NewLogger("", 20)
+
+	for i := 0; i < 100; i++ {
+		l.Log("api", "user1", "create", "workflow", "wf", map[string]any{"index": i}, true, "")
+	}
+
+	// Should have rotated - count should be less than 100
+	if l.GetEventCount() > 50 {
+		t.Errorf("expected rotation to reduce events, got %d", l.GetEventCount())
+	}
+}
+
+func TestCopyMapAny(t *testing.T) {
+	tests := []struct {
+		name string
+		src  map[string]any
+		want map[string]any
+	}{
+		{"nil map", nil, nil},
+		{"empty map", map[string]any{}, map[string]any{}},
+		{"simple map", map[string]any{"key": "value"}, map[string]any{"key": "value"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := copyMapAny(tt.src)
+
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("expected nil, got %v", got)
+				}
+				return
+			}
+
+			// Verify contents match
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("key %q: expected %v, got %v", k, v, got[k])
+				}
+			}
+
+			// Verify it's a copy (modifying copy doesn't affect original)
+			if len(got) > 0 {
+				got["__test_key__"] = "test"
+				if _, exists := tt.src["__test_key__"]; exists {
+					t.Error("modifying copy should not affect original")
+				}
+			}
+		})
+	}
+}
+
+func TestCopyMapAny_Nested(t *testing.T) {
+	src := map[string]any{"outer": map[string]any{"inner": 123}}
+	got := copyMapAny(src)
+
+	if len(got) != len(src) {
+		t.Errorf("expected %d keys, got %d", len(src), len(got))
+	}
+
+	// Verify nested structure exists
+	outer, ok := got["outer"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'outer' to be a map")
+	}
+	if outer["inner"] != 123 {
+		t.Errorf("expected inner=123, got %v", outer["inner"])
+	}
+}

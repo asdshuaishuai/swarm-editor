@@ -206,3 +206,65 @@ func TestPromptMessageStruct(t *testing.T) {
 		t.Errorf("expected text 'Hello', got %q", msg.Content.Text)
 	}
 }
+
+// TestExecutePrompt_TemplateParseError tests that malformed templates return an error
+func TestExecutePrompt_TemplateParseError(t *testing.T) {
+	pm := NewPromptManager()
+	prompt := &Prompt{
+		Name:     "bad-template",
+		Template: "{{.name", // Missing closing }}
+	}
+	if err := pm.RegisterPrompt(prompt); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
+
+	_, err := pm.ExecutePrompt(context.Background(), "bad-template", map[string]string{
+		"name": "World",
+	})
+	if err == nil {
+		t.Error("expected error from malformed template")
+	}
+}
+
+// TestExecutePrompt_TemplateExecuteError tests template execution errors
+func TestExecutePrompt_TemplateExecuteError(t *testing.T) {
+	pm := NewPromptManager()
+	// Template that references another undefined template
+	prompt := &Prompt{
+		Name:     "undefined-template-ref",
+		Template: `{{template "nonexistent" .}}`,
+	}
+	if err := pm.RegisterPrompt(prompt); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
+
+	_, err := pm.ExecutePrompt(context.Background(), "undefined-template-ref", map[string]string{
+		"name": "World",
+	})
+	if err == nil {
+		t.Error("expected error from undefined template reference")
+	}
+}
+
+// TestExecutePrompt_TemplateBadFieldAccess tests template with bad field access
+func TestExecutePrompt_TemplateBadFieldAccess(t *testing.T) {
+	pm := NewPromptManager()
+	// Template that tries to call a method on a string
+	prompt := &Prompt{
+		Name:     "bad-method-call",
+		Template: `{{.name.InvalidMethod}}`,
+	}
+	if err := pm.RegisterPrompt(prompt); err != nil {
+		t.Fatalf("RegisterPrompt failed: %v", err)
+	}
+
+	// This should not error at parse time, but might fail at execute time
+	// depending on how Go template handles missing methods
+	_, err := pm.ExecutePrompt(context.Background(), "bad-method-call", map[string]string{
+		"name": "World",
+	})
+	// Template execution may or may not error - just verify no panic
+	if err != nil {
+		t.Logf("Template execution error (expected for bad method): %v", err)
+	}
+}

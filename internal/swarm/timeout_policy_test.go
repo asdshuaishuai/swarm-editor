@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -409,5 +410,132 @@ func TestGetTimeoutStage(t *testing.T) {
 	regularErr := context.DeadlineExceeded
 	if stage := GetTimeoutStage(regularErr); stage != TimeoutStageNone {
 		t.Errorf("GetTimeoutStage = %v, want TimeoutStageNone", stage)
+	}
+}
+
+func TestMonitorStartToClose_ZeroDuration(t *testing.T) {
+	// StartToClose = 0 should return immediately
+	m := NewTimeoutManager(TimeoutPolicy{StartToClose: 0})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tracker := &TimeoutTracker{
+		TaskID:  "task-1",
+		StartedAt: atomic.Value{},
+		Completed: atomic.Bool{},
+		ctx:      ctx,
+	}
+	tracker.StartedAt.Store(time.Now())
+
+	done := make(chan struct{})
+	go func() {
+		m.monitorStartToClose(ctx, tracker)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good - returned immediately for zero duration
+	case <-time.After(time.Second):
+		t.Fatal("monitorStartToClose should return immediately for zero duration")
+	}
+}
+
+func TestMonitorStartToClose_FiresTimeout(t *testing.T) {
+	m := NewTimeoutManager(TimeoutPolicy{StartToClose: 50 * time.Millisecond})
+
+	var mu sync.Mutex
+	var firedTaskID string
+	var firedStage TimeoutStage
+	m.OnTimeout(func(taskID string, stage TimeoutStage) {
+		mu.Lock()
+		defer mu.Unlock()
+		firedTaskID = taskID
+		firedStage = stage
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tracker := &TimeoutTracker{
+		TaskID:  "task-fire",
+		StartedAt: atomic.Value{},
+		Completed: atomic.Bool{},
+		ctx:      ctx,
+	}
+	tracker.StartedAt.Store(time.Now())
+
+	m.monitorStartToClose(ctx, tracker)
+
+	mu.Lock()
+	if firedTaskID != "task-fire" {
+		t.Errorf("expected taskID 'task-fire', got %q", firedTaskID)
+	}
+	if firedStage != TimeoutStageStartToClose {
+		t.Errorf("expected stage %v, got %v", TimeoutStageStartToClose, firedStage)
+	}
+	mu.Unlock()
+}
+
+func TestMonitorStartToClose_AlreadyCompleted(t *testing.T) {
+	m := NewTimeoutManager(TimeoutPolicy{StartToClose: 50 * time.Millisecond})
+
+	var mu sync.Mutex
+	fired := false
+	m.OnTimeout(func(taskID string, stage TimeoutStage) {
+		mu.Lock()
+		defer mu.Unlock()
+		fired = true
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tracker := &TimeoutTracker{
+		TaskID:  "task-done",
+		StartedAt: atomic.Value{},
+		Completed: atomic.Bool{},
+		ctx:      ctx,
+	}
+	tracker.StartedAt.Store(time.Now())
+	tracker.Completed.Store(true) // Already completed
+
+	m.monitorStartToClose(ctx, tracker)
+
+	mu.Lock()
+	if fired {
+		t.Error("expected no timeout to fire for already completed task")
+	}
+	mu.Unlock()
+}
+
+func TestMonitorStartToClose_ContextCancelled(t *testing.T) {
+	m := NewTimeoutManager(TimeoutPolicy{StartToClose: 5 * time.Second})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tracker := &TimeoutTracker{
+		TaskID:  "task-cancel",
+		StartedAt: atomic.Value{},
+		Completed: atomic.Bool{},
+		ctx:      ctx,
+	}
+	tracker.StartedAt.Store(time.Now())
+
+	done := make(chan struct{})
+	go func() {
+		m.monitorStartToClose(ctx, tracker)
+		close(done)
+	}()
+
+	// Cancel context after a short delay
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Good - returned on context cancel
+	case <-time.After(time.Second):
+		t.Fatal("monitorStartToClose should return when context cancelled")
 	}
 }

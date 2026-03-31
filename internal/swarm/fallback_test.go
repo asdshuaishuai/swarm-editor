@@ -198,3 +198,67 @@ func TestDefaultFallbackConfig(t *testing.T) {
 		t.Fatalf("expected by_health strategy, got %s", config.Strategy)
 	}
 }
+
+// Direct tests for getHealthScore
+func TestFallbackChain_getHealthScore_NilProvider(t *testing.T) {
+	fc := &FallbackChain{health: nil}
+	score := fc.getHealthScore("any-agent")
+	if score != 0.5 {
+		t.Errorf("expected 0.5 for nil health provider, got %f", score)
+	}
+}
+
+func TestFallbackChain_getHealthScore_AgentNotFound(t *testing.T) {
+	fc := &FallbackChain{
+		health: &mockHealthProvider{health: map[string]*AgentHealth{
+			"other-agent": {Score: 0.9},
+		}},
+	}
+	score := fc.getHealthScore("missing-agent")
+	if score != 0.5 {
+		t.Errorf("expected 0.5 for missing agent, got %f", score)
+	}
+}
+
+func TestFallbackChain_getHealthScore_AgentFound(t *testing.T) {
+	fc := &FallbackChain{
+		health: &mockHealthProvider{health: map[string]*AgentHealth{
+			"target-agent": {Score: 0.85},
+		}},
+	}
+	score := fc.getHealthScore("target-agent")
+	if score != 0.85 {
+		t.Errorf("expected 0.85, got %f", score)
+	}
+}
+
+func TestFallbackChain_selectByCapability(t *testing.T) {
+	// selectByCapability currently delegates to selectByHealth
+	agents := &mockAgentListProvider{
+		agents: []*acp.AgentConnection{
+			{ID: "agent_1"},
+			{ID: "agent_2"},
+		},
+	}
+	health := &mockHealthProvider{
+		health: map[string]*AgentHealth{
+			"agent_1": {Score: 0.9},
+			"agent_2": {Score: 0.7},
+		},
+	}
+
+	fc := &FallbackChain{
+		agents:  agents,
+		health:  health,
+		config:  DefaultFallbackConfig(),
+	}
+
+	result := fc.selectByCapability()
+	if len(result) != 2 {
+		t.Errorf("expected 2 agents, got %d", len(result))
+	}
+	// Should be sorted by health (highest first)
+	if result[0].ID != "agent_1" {
+		t.Errorf("expected agent_1 (highest health) first, got %s", result[0].ID)
+	}
+}

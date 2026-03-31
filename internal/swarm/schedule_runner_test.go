@@ -532,3 +532,251 @@ func TestScheduleRunnerContextCancellation(t *testing.T) {
 		t.Fatal("Stop did not complete in time")
 	}
 }
+
+func TestScheduleRunner_updateLastRun(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	runner := NewScheduleRunner(store, orch, nil)
+
+	// Create a schedule
+	sc := &ScheduleConfig{
+		ID:      "schedule-1",
+		Cron:    "0 * * * *",
+		Enabled: true,
+	}
+	store.AddSchedule(sc)
+
+	// Update last run
+	now := time.Now()
+	runner.updateLastRun("schedule-1", now)
+
+	// Verify update
+	retrieved := store.GetSchedule("schedule-1")
+	if retrieved == nil {
+		t.Fatal("schedule not found")
+	}
+	if retrieved.State.LastRun.IsZero() {
+		t.Error("LastRun should be set")
+	}
+}
+
+func TestScheduleRunner_updateLastRun_NonExistent(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	runner := NewScheduleRunner(store, orch, nil)
+
+	// Update last run for non-existent schedule (should not panic)
+	now := time.Now()
+	runner.updateLastRun("non-existent", now)
+}
+
+func TestScheduleRunner_updateNextRun(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	runner := NewScheduleRunner(store, orch, nil)
+
+	// Create a schedule
+	sc := &ScheduleConfig{
+		ID:      "schedule-1",
+		Cron:    "0 * * * *",
+		Enabled: true,
+	}
+	store.AddSchedule(sc)
+
+	// Update next run
+	nextTime := time.Now().Add(1 * time.Hour)
+	runner.updateNextRun("schedule-1", nextTime)
+
+	// Verify update
+	retrieved := store.GetSchedule("schedule-1")
+	if retrieved == nil {
+		t.Fatal("schedule not found")
+	}
+	if retrieved.State.NextRun.IsZero() {
+		t.Error("NextRun should be set")
+	}
+}
+
+func TestScheduleRunner_updateNextRun_NonExistent(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	runner := NewScheduleRunner(store, orch, nil)
+
+	// Update next run for non-existent schedule (should not panic)
+	nextTime := time.Now().Add(1 * time.Hour)
+	runner.updateNextRun("non-existent", nextTime)
+}
+
+// ==================== checkAndExecute Additional Tests ====================
+
+func TestScheduleRunnerCheckAndExecute_CatchUpWindow(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	// Create a schedule with catch-up enabled and old last run
+	// The key is to set up a schedule that would NOT fire normally
+	// but has catch-up enabled
+	sc := &ScheduleConfig{
+		ID:            "sched-catchup",
+		Name:          "CatchUp Test",
+		WorkflowID:    "wf-1",
+		Cron:          "0 0 1 1 *", // Once per year (won't fire normally)
+		Enabled:       true,
+		CatchUp:       true,
+		CatchUpWindow: 1 * time.Hour,
+		State: ScheduleRuntimeState{
+			LastRun: time.Now().Add(-3 * time.Hour), // Too old to catch up
+		},
+	}
+	store.AddSchedule(sc)
+
+	// checkAndExecute should update lastRun to skip past the gap
+	runner.checkAndExecute()
+
+	// Verify lastRun was updated (not zero and recent)
+	retrieved := store.GetSchedule("sched-catchup")
+	if retrieved == nil {
+		t.Fatal("schedule not found")
+	}
+	// The lastRun should have been updated to something more recent
+	if time.Since(retrieved.State.LastRun) > 2*time.Hour {
+		t.Error("lastRun should have been updated to skip past the gap")
+	}
+}
+
+func TestScheduleRunnerCheckAndExecute_ShouldFire(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	// Create a workflow
+	wf := orch.CreateWorkflow("test-wf", ModeSequential)
+	wf.AddNode(&WorkflowNode{ID: "node-1", Type: "agent"})
+
+	// Create a schedule that should fire (last run was 2 minutes ago)
+	sc := &ScheduleConfig{
+		ID:         "sched-fire",
+		Name:       "Fire Test",
+		WorkflowID: wf.ID,
+		Cron:       "* * * * *", // Every minute
+		Enabled:    true,
+		State: ScheduleRuntimeState{
+			LastRun: time.Now().Add(-2 * time.Minute),
+		},
+	}
+	store.AddSchedule(sc)
+
+	// checkAndExecute should trigger execution
+	runner.checkAndExecute()
+
+	// Give some time for goroutine to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify broadcast was called
+	if b.eventCount() == 0 {
+		t.Error("expected execution to be triggered")
+	}
+}
+
+func TestScheduleRunnerCheckAndExecute_NotYetDue(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	// Create a schedule that should NOT fire yet (last run was just now)
+	sc := &ScheduleConfig{
+		ID:         "sched-notdue",
+		Name:       "Not Due Test",
+		WorkflowID: "wf-1",
+		Cron:       "0 0 * * *", // Once per day at midnight
+		Enabled:    true,
+		State: ScheduleRuntimeState{
+			LastRun: time.Now(),
+		},
+	}
+	store.AddSchedule(sc)
+
+	// checkAndExecute should not trigger execution
+	runner.checkAndExecute()
+
+	// Verify no broadcast
+	if b.eventCount() != 0 {
+		t.Errorf("expected no execution, got %d events", b.eventCount())
+	}
+
+	// Verify nextRun was updated
+	retrieved := store.GetSchedule("sched-notdue")
+	if retrieved == nil {
+		t.Fatal("schedule not found")
+	}
+	if retrieved.State.NextRun.IsZero() {
+		t.Error("nextRun should have been updated")
+	}
+}
+
+func TestScheduleRunnerCheckAndExecute_ZeroLastRun(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	// Create a schedule with zero last run
+	sc := &ScheduleConfig{
+		ID:         "sched-zero",
+		Name:       "Zero LastRun Test",
+		WorkflowID: "wf-1",
+		Cron:       "* * * * *",
+		Enabled:    true,
+		State: ScheduleRuntimeState{
+			LastRun: time.Time{}, // Zero value
+		},
+	}
+	store.AddSchedule(sc)
+
+	// checkAndExecute should handle zero last run
+	runner.checkAndExecute()
+
+	// No panic = success
+}
+
+func TestScheduleRunnerCheckAndExecute_NilInput(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	// Create a workflow
+	wf := orch.CreateWorkflow("test-wf", ModeSequential)
+	wf.AddNode(&WorkflowNode{ID: "node-1", Type: "agent"})
+
+	// Create a schedule with nil input
+	sc := &ScheduleConfig{
+		ID:         "sched-nil-input",
+		Name:       "Nil Input Test",
+		WorkflowID: wf.ID,
+		Cron:       "* * * * *",
+		Enabled:    true,
+		Input:      nil, // nil input
+		State: ScheduleRuntimeState{
+			LastRun: time.Now().Add(-2 * time.Minute),
+		},
+	}
+	store.AddSchedule(sc)
+
+	// checkAndExecute should handle nil input
+	runner.checkAndExecute()
+
+	// Give some time for goroutine
+	time.Sleep(50 * time.Millisecond)
+
+	// No panic = success
+}

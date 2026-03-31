@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -197,6 +198,37 @@ func TestExecuteAggregatorNode_Avg(t *testing.T) {
 	}
 }
 
+func TestExecuteAggregatorNode_AvgEmpty(t *testing.T) {
+	// Test avg with empty inputs (count == 0 branch)
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "avg",
+		"inputs":   []any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != 0.0 {
+		t.Errorf("expected 0.0 for empty avg, got %v", result.Result)
+	}
+	if result.Count != 0 {
+		t.Errorf("expected count 0, got %d", result.Count)
+	}
+}
+
+func TestExecuteAggregatorNode_AvgNonNumeric(t *testing.T) {
+	// Test avg with non-numeric inputs (count stays 0)
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "avg",
+		"inputs":   []any{"a", "b", "c"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != 0.0 {
+		t.Errorf("expected 0.0 for non-numeric avg, got %v", result.Result)
+	}
+}
+
 func TestExecuteAggregatorNode_MinMax(t *testing.T) {
 	minResult, err := ExecuteAggregatorNode(context.Background(), map[string]any{
 		"strategy": "min",
@@ -263,11 +295,24 @@ func TestExecuteAggregatorNode_DefaultStrategy(t *testing.T) {
 
 func TestExecuteAggregatorNode_InvalidStrategy(t *testing.T) {
 	_, err := ExecuteAggregatorNode(context.Background(), map[string]any{
-		"strategy": "invalid",
+		"strategy": "unknown_strategy",
 		"inputs":   []any{1, 2},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid strategy")
+	}
+}
+
+func TestAggregateByStrategy_Default(t *testing.T) {
+	// Test that unknown strategy falls back to concat
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"inputs": []any{1, 2, 3},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Strategy != AggConcat {
+		t.Errorf("expected default strategy 'concat', got %q", result.Strategy)
 	}
 }
 
@@ -326,5 +371,142 @@ func TestExecuteAggregatorNode_NumericStringInputs(t *testing.T) {
 	// Sum of integers returns int
 	if result.Result != 60 {
 		t.Errorf("expected 60, got %v", result.Result)
+	}
+}
+
+func TestExecuteAggregatorNode_LastWithEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		inputs   []any
+		expected any
+	}{
+		{"last non-empty", []any{"first", "middle", "last"}, "last"},
+		{"last with empty at end", []any{"first", "middle", "", "last", nil}, "last"},
+		{"all empty", []any{"", nil, ""}, nil},
+		{"empty slice", []any{}, nil},
+		{"skip empty to find earlier", []any{"valid", "", nil}, "valid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+				"strategy": "last",
+				"inputs":   tt.inputs,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result.Result)
+			}
+		})
+	}
+}
+
+func TestExecuteAggregatorNode_MinMaxWithNegatives(t *testing.T) {
+	// Test min with all negative
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "min",
+		"inputs":   []any{-5, -3, -8, -1, -9},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != -9 {
+		t.Errorf("min (negative): expected -9, got %v", result.Result)
+	}
+
+	// Test max with all negative
+	result, err = ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "max",
+		"inputs":   []any{-5, -3, -8, -1, -9},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != -1 {
+		t.Errorf("max (negative): expected -1, got %v", result.Result)
+	}
+}
+
+func TestIsEmptyValue(t *testing.T) {
+	tests := []struct {
+		input    any
+		expected bool
+	}{
+		{nil, true},
+		{"", true},
+		{0, true},          // 0 (int) is considered empty by design
+		{0.0, true},        // 0.0 (float64) is considered empty by design
+		{int64(0), false},  // int64 is NOT handled by switch, falls through to default
+		{false, true},      // false is considered empty by design (!v)
+		{1, false},         // non-zero int is not empty
+		{true, false},      // true is not empty
+		{[]any{}, true},
+		{[]any{1}, false},
+		{map[string]any{}, true},
+		{map[string]any{"key": "val"}, false},
+		{"non-empty", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%v-%v", tt.input, tt.expected), func(t *testing.T) {
+			result := isEmptyValue(tt.input)
+			if result != tt.expected {
+				t.Errorf("isEmptyValue(%v) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExecuteAggregatorNode_MaxWithNegatives(t *testing.T) {
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "max",
+		"inputs":   []any{-5, -3, -8, -1},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != -1 {
+		t.Errorf("expected max=-1, got %v", result.Result)
+	}
+}
+
+func TestExecuteAggregatorNode_MaxFloat(t *testing.T) {
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "max",
+		"inputs":   []any{3.14, 2.71, 1.41},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != 3.14 {
+		t.Errorf("expected max=3.14, got %v", result.Result)
+	}
+}
+
+func TestExecuteAggregatorNode_MinFloat(t *testing.T) {
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "min",
+		"inputs":   []any{3.14, 2.71, 1.41},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != 1.41 {
+		t.Errorf("expected min=1.41, got %v", result.Result)
+	}
+}
+
+func TestExecuteAggregatorNode_MaxWithMixedTypes(t *testing.T) {
+	result, err := ExecuteAggregatorNode(context.Background(), map[string]any{
+		"strategy": "max",
+		"inputs":   []any{5, 3.7, 8, 2.1},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != 8 {
+		t.Errorf("expected max=8, got %v", result.Result)
 	}
 }

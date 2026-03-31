@@ -1000,3 +1000,107 @@ func TestAddMessage_MetadataInitialized(t *testing.T) {
 }
 
 var _ = sort.IsSorted // Ensure sort is used
+
+func TestStore_WriteFileSync_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "test-session-1"
+	data := []byte(`{"id":"test-session-1","status":"active"}`)
+
+	store.writeFileSync(sessionID, data)
+
+	// Verify file was created
+	path := filepath.Join(tmpDir, sessionID+".json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file not created: %v", err)
+	}
+	if string(content) != string(data) {
+		t.Errorf("file content mismatch: got %q, want %q", string(content), string(data))
+	}
+}
+
+func TestStore_WriteFileSync_EmptyDataDir(t *testing.T) {
+	// Store with empty dataDir should not write
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This should return early without error
+	store.writeFileSync("test-session", []byte("data"))
+	// No assertion needed - just ensuring no panic
+}
+
+func TestStore_WriteFileSync_InvalidDataDir(t *testing.T) {
+	// Create a file where directory should be
+	tmpFile, err := os.CreateTemp("", "store_test_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Create store with a path that's a file, not directory
+	store := &Store{
+		dataDir: tmpPath, // This is a file, not a directory
+	}
+
+	// writeFileSync should handle the error gracefully
+	store.writeFileSync("test-session", []byte("data"))
+	// No panic = success
+}
+
+func TestStore_WriteFileSync_Overwrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "overwrite-test"
+
+	// First write
+	store.writeFileSync(sessionID, []byte(`{"version":1}`))
+
+	// Second write should overwrite
+	store.writeFileSync(sessionID, []byte(`{"version":2}`))
+
+	// Verify content is from second write
+	path := filepath.Join(tmpDir, sessionID+".json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file not found: %v", err)
+	}
+	if !strings.Contains(string(content), `"version":2`) {
+		t.Errorf("expected version:2, got %s", string(content))
+	}
+}
+
+func TestStore_WriteFileSync_FilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "perm-test"
+	store.writeFileSync(sessionID, []byte(`{"id":"perm-test"}`))
+
+	path := filepath.Join(tmpDir, sessionID+".json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("file not found: %v", err)
+	}
+
+	// File should have restricted permissions (0600)
+	expectedPerm := os.FileMode(0600)
+	if info.Mode().Perm() != expectedPerm {
+		t.Errorf("expected permissions %o, got %o", expectedPerm, info.Mode().Perm())
+	}
+}

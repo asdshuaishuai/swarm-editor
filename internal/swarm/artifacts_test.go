@@ -587,3 +587,74 @@ func TestDeepCopyAny_NestedStructures(t *testing.T) {
 		t.Error("deeply nested structure should be independent")
 	}
 }
+
+func TestDeepCopyAny_SliceBool(t *testing.T) {
+	original := []bool{true, false, true}
+	cp := deepCopyAny(original).([]bool)
+	if len(cp) != 3 {
+		t.Errorf("len = %d, want 3", len(cp))
+	}
+	original[0] = false
+	if cp[0] != true {
+		t.Error("slice should be independent")
+	}
+}
+
+func TestDeepCopyAny_SliceMapStringAny(t *testing.T) {
+	original := []map[string]any{
+		{"a": 1},
+		nil,
+		{"b": 2},
+	}
+	cp := deepCopyAny(original).([]map[string]any)
+	if len(cp) != 3 {
+		t.Errorf("len = %d, want 3", len(cp))
+	}
+	if cp[1] != nil {
+		t.Error("nil element should remain nil")
+	}
+
+	// Verify independence
+	original[0]["a"] = 999
+	if cp[0]["a"] == 999 {
+		t.Error("inner maps should be deep copied")
+	}
+}
+
+func TestDeepCopyAny_MapStringInt(t *testing.T) {
+	original := map[string]int{"a": 1, "b": 2}
+	cp := deepCopyAny(original).(map[string]int)
+	if cp["a"] != 1 || cp["b"] != 2 {
+		t.Error("values should be copied")
+	}
+	original["a"] = 999
+	if cp["a"] == 999 {
+		t.Error("map should be independent")
+	}
+}
+
+func TestDeepCopyAny_MapStringFloat64(t *testing.T) {
+	original := map[string]float64{"pi": 3.14, "e": 2.71}
+	cp := deepCopyAny(original).(map[string]float64)
+	if cp["pi"] != 3.14 {
+		t.Error("values should be copied")
+	}
+	original["pi"] = 99.9
+	if cp["pi"] == 99.9 {
+		t.Error("map should be independent")
+	}
+}
+
+func TestDeepCopyAny_EmptyCollections(t *testing.T) {
+	// Empty map[string]any
+	m := deepCopyAny(map[string]any{}).(map[string]any)
+	if len(m) != 0 {
+		t.Error("empty map should remain empty")
+	}
+
+	// Empty []any
+	s := deepCopyAny([]any{}).([]any)
+	if len(s) != 0 {
+		t.Error("empty slice should remain empty")
+	}
+}

@@ -505,6 +505,13 @@ func (s *Supervisor) ClearAlerts() {
 	s.alerts = make([]*SupervisorAlert, 0)
 }
 
+// SetAlertsForTest sets alerts for testing purposes
+func (s *Supervisor) SetAlertsForTest(alerts []*SupervisorAlert) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.alerts = alerts
+}
+
 // OnAgentStuck registers callback for stuck agents
 func (s *Supervisor) OnAgentStuck(fn func(agent *agent.Agent, duration time.Duration)) {
 	s.mu.Lock()

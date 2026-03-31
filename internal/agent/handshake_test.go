@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -443,5 +444,78 @@ func TestHandshakeManagerNegotiateCapabilities(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHeartbeatChecker_CheckAll_WithRegisteredAgents(t *testing.T) {
+	hc := NewHeartbeatChecker(100*time.Millisecond, 50*time.Millisecond)
+	hc.RegisterAgent("agent-1")
+	hc.RegisterAgent("agent-2")
+
+	// Manually trigger checkAll by starting and waiting for at least one tick
+	hc.Start()
+	time.Sleep(200 * time.Millisecond)
+	hc.Stop()
+
+	// Both agents should have updated heartbeats
+	status1 := hc.GetStatus("agent-1")
+	if status1 == nil {
+		t.Fatal("expected status for agent-1")
+	}
+	if !status1.Healthy {
+		t.Error("expected agent-1 to be healthy after checkAll")
+	}
+	if !status1.LastHeartbeat.After(time.Now().Add(-time.Second)) {
+		t.Error("expected LastHeartbeat to be recent")
+	}
+	if status1.Consecutive != 0 {
+		t.Errorf("expected Consecutive=0, got %d", status1.Consecutive)
+	}
+
+	status2 := hc.GetStatus("agent-2")
+	if status2 == nil {
+		t.Fatal("expected status for agent-2")
+	}
+	if !status2.Healthy {
+		t.Error("expected agent-2 to be healthy after checkAll")
+	}
+}
+
+func TestHeartbeatChecker_CheckHeartbeat_NotRegistered(t *testing.T) {
+	hc := NewHeartbeatChecker(0, 0)
+	connMgr := acp.NewConnectionManager(nil)
+
+	result := hc.CheckHeartbeat(context.Background(), "nonexistent", connMgr)
+	if result != nil {
+		t.Error("expected nil for unregistered agent")
+	}
+}
+
+func TestHeartbeatChecker_CheckHeartbeat_ConnectionNotFound(t *testing.T) {
+	hc := NewHeartbeatChecker(0, 0)
+	connMgr := acp.NewConnectionManager(nil)
+	hc.RegisterAgent("agent-1")
+
+	result := hc.CheckHeartbeat(context.Background(), "agent-1", connMgr)
+	if result == nil {
+		t.Fatal("expected status for registered agent")
+	}
+	if result.Consecutive != 1 {
+		t.Errorf("expected Consecutive=1 after connection not found, got %d", result.Consecutive)
+	}
+}
+
+func TestHeartbeatChecker_CheckHeartbeat_ConnectionNotConnected(t *testing.T) {
+	hc := NewHeartbeatChecker(0, 0)
+	connMgr := acp.NewConnectionManager(&acp.Config{})
+	hc.RegisterAgent("agent-1")
+
+	// Connection manager has no connections, so GetConnection returns false
+	result := hc.CheckHeartbeat(context.Background(), "agent-1", connMgr)
+	if result == nil {
+		t.Fatal("expected status for registered agent")
+	}
+	if result.Consecutive != 1 {
+		t.Errorf("expected Consecutive=1 after connection not found, got %d", result.Consecutive)
 	}
 }

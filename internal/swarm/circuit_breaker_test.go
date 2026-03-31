@@ -1,6 +1,7 @@
 package swarm
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -393,5 +394,152 @@ func TestCircuitBreaker_IsHalfOpen(t *testing.T) {
 	cb.Allow()
 	if !cb.IsHalfOpen() {
 		t.Error("circuit should be half-open after reset timeout")
+	}
+}
+
+func TestCircuitBreaker_HalfOpenConcurrentLimit(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 1,
+		Timeout:          50 * time.Millisecond,
+	})
+	defer cb.Close()
+
+	// Trip the circuit
+	cb.RecordFailure()
+	if cb.State() != StateOpen {
+		t.Fatal("circuit should be open")
+	}
+
+	// Wait for reset timeout
+	time.Sleep(100 * time.Millisecond)
+
+	// First Allow() should transition to half-open and succeed
+	if !cb.Allow() {
+		t.Error("first Allow() in half-open should succeed")
+	}
+
+	// Second Allow() while one request is in-flight should be rejected
+	// (half-open only allows 1 concurrent request)
+	if cb.Allow() {
+		t.Error("second Allow() in half-open should be rejected (concurrent limit)")
+	}
+}
+
+func TestCircuitBreaker_TransitionToSameState(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 1,
+		Timeout:          50 * time.Millisecond,
+	})
+	defer cb.Close()
+
+	// Set up callback
+	callbackCalled := false
+	cb.OnStateChange(func(from, to CircuitState) {
+		callbackCalled = true
+	})
+
+	// Transitioning to the same state should not trigger callback
+	// The circuit starts in StateClosed, so we try to set it to StateClosed again
+	// This is tricky since transitionTo is not exposed directly
+	// We can test by calling Allow() when already closed (no transition)
+	// or by checking that consecutive RecordSuccess doesn't trigger multiple callbacks
+
+	// Allow() in closed state should succeed without state change
+	if !cb.Allow() {
+		t.Error("Allow() should succeed in closed state")
+	}
+
+	// RecordSuccess in closed state should not trigger state change
+	cb.RecordSuccess()
+
+	// Callback should not have been called (no state change)
+	if callbackCalled {
+		t.Error("callback should not be called for same-state transition")
+	}
+}
+
+func TestCircuitStateString(t *testing.T) {
+	tests := []struct {
+		state CircuitState
+		want  string
+	}{
+		{StateClosed, "closed"},
+		{StateOpen, "open"},
+		{StateHalfOpen, "half-open"},
+		{CircuitState(99), "unknown"},
+		{CircuitState(-1), "unknown"},
+	}
+	for _, tt := range tests {
+		got := tt.state.String()
+		if got != tt.want {
+			t.Errorf("CircuitState(%d).String() = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestCircuitBreaker_StateChangeCallbackHalfOpenToClosed(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 1,
+		SuccessThreshold: 2,
+		Timeout:          50 * time.Millisecond,
+	})
+	defer cb.Close()
+
+	var mu sync.Mutex
+	var transitions []string
+	cb.OnStateChange(func(from, to CircuitState) {
+		mu.Lock()
+		transitions = append(transitions, fmt.Sprintf("%s->%s", from, to))
+		mu.Unlock()
+	})
+
+	// Trip the circuit
+	cb.RecordFailure()
+	if cb.State() != StateOpen {
+		t.Fatalf("expected open, got %s", cb.State())
+	}
+
+	// Wait for timeout then call Allow() to trigger half-open transition
+	time.Sleep(60 * time.Millisecond)
+	cb.Allow() // This triggers the open->half-open transition
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("expected half-open, got %s", cb.State())
+	}
+
+	// Record enough successes to close
+	cb.RecordSuccess()
+	cb.RecordSuccess()
+	if cb.State() != StateClosed {
+		t.Fatalf("expected closed, got %s", cb.State())
+	}
+
+	// Wait for goroutine callbacks to complete
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Should have seen all three transitions (order may vary due to goroutine scheduling)
+	expected := map[string]bool{
+		"closed->open":       false,
+		"open->half-open":    false,
+		"half-open->closed":  false,
+	}
+
+	if len(transitions) != len(expected) {
+		t.Fatalf("expected %d transitions, got %d: %v", len(expected), len(transitions), transitions)
+	}
+
+	for _, tr := range transitions {
+		if _, ok := expected[tr]; !ok {
+			t.Errorf("unexpected transition: %q", tr)
+		}
+		expected[tr] = true
+	}
+
+	for tr, found := range expected {
+		if !found {
+			t.Errorf("missing transition: %q", tr)
+		}
 	}
 }

@@ -129,6 +129,24 @@ func TestContextManager_WithIndexer_ResolveReference(t *testing.T) {
 	if len(importFiles) != 1 {
 		t.Errorf("expected 1 file importing 'fmt', got %d", len(importFiles))
 	}
+
+	// Test ResolveReference - symbol found
+	file := cm.ResolveReference("main")
+	if file == nil {
+		t.Error("expected to resolve 'main' symbol")
+	}
+
+	// Test ResolveReference - import found
+	file = cm.ResolveReference("fmt")
+	if file == nil {
+		t.Error("expected to resolve 'fmt' import")
+	}
+
+	// Test ResolveReference - not found
+	file = cm.ResolveReference("nonexistent")
+	if file != nil {
+		t.Error("expected nil for nonexistent reference")
+	}
 }
 
 func TestContextManager_RecordAccess(t *testing.T) {

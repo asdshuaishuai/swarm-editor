@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -329,6 +330,37 @@ func TestWorkflowAPI_RestoreCheckpoint(t *testing.T) {
 			t.Errorf("expected 404, got %d", w.Code)
 		}
 	})
+
+	t.Run("success", func(t *testing.T) {
+		orchestrator := swarm.NewOrchestrator(nil)
+		// Create a workflow with a condition node (non-agent, executes internally)
+		wf := orchestrator.CreateWorkflow("restore-test", swarm.ModeSequential)
+		wf.AddNode(&swarm.WorkflowNode{ID: "n1", Type: "condition", Config: map[string]any{"left": 1, "operator": ">", "right": 0}})
+
+		// Execute to auto-create checkpoint (sequential mode creates checkpoint before each node)
+		ctx := context.Background()
+		err := orchestrator.Execute(ctx, wf.ID)
+		// Execution may succeed or fail — either way, checkpoints should be created
+		_ = err
+
+		// Find the checkpoint
+		cps := orchestrator.GetCheckpoints(wf.ID)
+		if len(cps) == 0 {
+			t.Fatal("expected at least one checkpoint after execution")
+		}
+
+		api := NewWorkflowAPI(orchestrator)
+		body, _ := json.Marshal(RestoreCheckpointRequest{CheckpointID: cps[0].ID})
+		req := httptest.NewRequest(http.MethodPost, "/workflows/"+wf.ID+"/restore", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		api.HandleRestoreCheckpoint(w, req)
+
+		if w.Code != http.StatusOK {
+			respBody := w.Body.String()
+			t.Errorf("expected 200, got %d: %s", w.Code, respBody)
+		}
+	})
 }
 
 func TestWorkflowAPI_AddEdge_EdgeCases(t *testing.T) {
@@ -444,6 +476,20 @@ func TestWorkflowAPI_DeleteWorkflow_NotFound(t *testing.T) {
 	}
 }
 
+func TestWorkflowAPI_DeleteWorkflow_MissingID(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	req := httptest.NewRequest(http.MethodDelete, "/workflows/", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+	api.HandleDeleteWorkflow(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestWorkflowAPI_GetCheckpoints_MissingID(t *testing.T) {
 	orchestrator := swarm.NewOrchestrator(nil)
 	api := NewWorkflowAPI(orchestrator)
@@ -490,4 +536,108 @@ func TestWorkflowAPI_AddNode_EdgeCases(t *testing.T) {
 			t.Errorf("expected 400, got %d", w.Code)
 		}
 	})
+}
+
+func TestWorkflowAPI_ExecuteWorkflow_Success(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	workflow := orchestrator.CreateWorkflow("exec-test", swarm.ModeSequential)
+	workflow.AddNode(&swarm.WorkflowNode{
+		ID:   "n1",
+		Name: "Check",
+		Type: "condition",
+		Config: map[string]any{
+			"left":     1,
+			"operator": "==",
+			"right":    1,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/execute", nil)
+	req.SetPathValue("id", workflow.ID)
+	w := httptest.NewRecorder()
+
+	api.HandleExecuteWorkflow(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkflowAPI_CreateWorkflow_InvalidJSON(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	req := httptest.NewRequest(http.MethodPost, "/workflows", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	api.HandleCreateWorkflow(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWorkflowAPI_CreateWorkflow_DefaultMode(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	body, _ := json.Marshal(CreateWorkflowRequest{Name: "default-mode"})
+	req := httptest.NewRequest(http.MethodPost, "/workflows", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	api.HandleCreateWorkflow(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp CreateWorkflowResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.ID == "" {
+		t.Error("expected non-empty workflow ID")
+	}
+}
+
+func TestWorkflowAPI_HandleAddEdge_InvalidNodes(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+	body, _ := json.Marshal(AddEdgeRequest{From: "nonexistent", To: "also-nonexistent"})
+	req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/edges", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", workflow.ID)
+	w := httptest.NewRecorder()
+
+	api.HandleAddEdge(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid edge nodes, got %d", w.Code)
+	}
+}
+
+func TestWorkflowAPI_AddNode_MissingName(t *testing.T) {
+	orchestrator := swarm.NewOrchestrator(nil)
+	api := NewWorkflowAPI(orchestrator)
+
+	workflow := orchestrator.CreateWorkflow("Test", swarm.ModeSequential)
+
+	body, _ := json.Marshal(AddNodeRequest{Type: "agent"})
+	req := httptest.NewRequest(http.MethodPost, "/workflows/"+workflow.ID+"/nodes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", workflow.ID)
+	w := httptest.NewRecorder()
+
+	api.HandleAddNode(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
 }

@@ -1092,3 +1092,260 @@ func TestHandoffManager_SetBroadcaster(t *testing.T) {
 	hm := NewHandoffManager(nil)
 	hm.SetBroadcaster(nil) // Should not panic
 }
+
+func TestHandoffManager_SetBroadcaster_WithBroadcaster(t *testing.T) {
+	registry := agent.NewRegistry()
+	agent1 := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	agent2 := agent.NewAgent("agent-2", agent.AgentTypeCoder)
+	registry.Register(agent1)
+	registry.Register(agent2)
+
+	hm := NewHandoffManager(registry)
+
+	// Track callback invocations
+	var mu sync.Mutex
+	var requestedCount, completedCount int
+
+	hm.mu.Lock()
+	hm.onHandoffRequested = func(req *HandoffRequest) {
+		mu.Lock()
+		defer mu.Unlock()
+		requestedCount++
+	}
+	hm.onHandoffCompleted = func(req *HandoffRequest) {
+		mu.Lock()
+		defer mu.Unlock()
+		completedCount++
+	}
+	hm.mu.Unlock()
+
+	// Request a handoff → should trigger callback
+	ctx := context.Background()
+	req, err := hm.RequestHandoff(ctx, string(agent1.ID), string(agent2.ID), "task-1", "test reason", nil)
+	if err != nil {
+		t.Fatalf("RequestHandoff failed: %v", err)
+	}
+
+	mu.Lock()
+	if requestedCount != 1 {
+		t.Errorf("expected 1 requested callback, got %d", requestedCount)
+	}
+	mu.Unlock()
+
+	// Complete handoff → should trigger completed callback
+	hm.AcceptHandoff(ctx, req.ID, "summary")
+	hm.CompleteHandoff(ctx, req.ID)
+
+	mu.Lock()
+	if completedCount != 1 {
+		t.Errorf("expected 1 completed callback, got %d", completedCount)
+	}
+	mu.Unlock()
+
+	// Set broadcaster to nil → should clear callbacks (no panic)
+	hm.SetBroadcaster(nil)
+}
+
+func TestCompleteHandoff_MaxDepth(t *testing.T) {
+	registry := agent.NewRegistry()
+	agent1 := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	agent2 := agent.NewAgent("agent-2", agent.AgentTypeCoder)
+	registry.Register(agent1)
+	registry.Register(agent2)
+
+	hm := NewHandoffManager(registry)
+	hm.SetMaxDepth(2) // Set low maxDepth for testing
+
+	ctx := context.Background()
+
+	// Complete handoff for task-1: depth becomes 1, then cleaned up (else branch)
+	req1, err := hm.RequestHandoff(ctx, string(agent1.ID), string(agent2.ID), "task-1", "test", nil)
+	if err != nil {
+		t.Fatalf("RequestHandoff failed: %v", err)
+	}
+	hm.AcceptHandoff(ctx, req1.ID, "summary")
+	if err := hm.CompleteHandoff(ctx, req1.ID); err != nil {
+		t.Fatalf("CompleteHandoff failed: %v", err)
+	}
+
+	// After completion, depth is cleaned up (else branch in CompleteHandoff)
+	hm.mu.RLock()
+	_, inDepth := hm.handoffDepth["task-1"]
+	_, blocked := hm.handoffDepthBlocked["task-1"]
+	hm.mu.RUnlock()
+
+	if inDepth {
+		t.Error("expected handoffDepth to be cleaned up after completion (else branch)")
+	}
+	if blocked {
+		t.Error("expected task-1 to NOT be blocked (depth < maxDepth)")
+	}
+
+	// New handoff for task-1 should succeed (depth was reset)
+	_, err = hm.RequestHandoff(ctx, string(agent1.ID), string(agent2.ID), "task-1", "test", nil)
+	if err != nil {
+		t.Errorf("expected handoff to succeed after depth cleanup, got: %v", err)
+	}
+}
+
+func TestCompleteHandoff_CompletedEviction(t *testing.T) {
+	registry := agent.NewRegistry()
+	agent1 := agent.NewAgent("agent-1", agent.AgentTypeCoder)
+	agent2 := agent.NewAgent("agent-2", agent.AgentTypeCoder)
+	registry.Register(agent1)
+	registry.Register(agent2)
+
+	hm := NewHandoffManager(registry)
+	ctx := context.Background()
+
+	// Add more than 200 completed handoffs to trigger eviction
+	completed := 0
+	for i := range 210 {
+		req, err := hm.RequestHandoff(ctx, string(agent1.ID), string(agent2.ID), fmt.Sprintf("task-%d", i), "test", nil)
+		if err != nil {
+			t.Fatalf("RequestHandoff %d failed: %v", i, err)
+		}
+		if err := hm.AcceptHandoff(ctx, req.ID, "summary"); err != nil {
+			t.Fatalf("AcceptHandoff %d failed: %v", i, err)
+		}
+		if err := hm.CompleteHandoff(ctx, req.ID); err != nil {
+			t.Fatalf("CompleteHandoff %d failed: %v", i, err)
+		}
+		completed++
+	}
+
+	if completed != 210 {
+		t.Fatalf("expected 210 completed handoffs, got %d", completed)
+	}
+
+	// Completed handoffs should be pruned to ~100 (200/2)
+	hm.mu.RLock()
+	completedCount := len(hm.completed)
+	hm.mu.RUnlock()
+
+	// Eviction triggers at 201st completion (len > 200): removes 101 oldest, leaves 100
+	// Then 9 more completions add 9 entries: 100 + 9 = 109
+	if completedCount != 109 {
+		t.Errorf("expected completed count 109, got %d", completedCount)
+	}
+}
+
+func TestHandoffContext_DeepCopy_Nil(t *testing.T) {
+	var hc *HandoffContext
+	cp := hc.DeepCopy()
+	if cp != nil {
+		t.Error("expected nil for nil input")
+	}
+}
+
+func TestHandoffContext_DeepCopy_Empty(t *testing.T) {
+	hc := &HandoffContext{}
+	cp := hc.DeepCopy()
+	if cp == nil {
+		t.Fatal("expected non-nil copy")
+	}
+	if cp.CurrentState != "" {
+		t.Errorf("CurrentState = %q, want empty", cp.CurrentState)
+	}
+	if cp.ConversationHistory != nil {
+		t.Error("ConversationHistory should be nil for empty input")
+	}
+	if cp.Metadata != nil {
+		t.Error("Metadata should be nil for empty input")
+	}
+}
+
+func TestHandoffContext_DeepCopy_Full(t *testing.T) {
+	hc := &HandoffContext{
+		ConversationHistory: []acp.ContentBlock{
+			{Type: "text", Text: "hello"},
+			{Type: "text", Text: "world"},
+		},
+		FilesModified:  []string{"a.go", "b.go"},
+		CurrentState:   "active",
+		NextSteps:      []string{"step1", "step2"},
+		Instructions:   "continue",
+		Metadata:       map[string]any{"key": "value"},
+		ContextVariables: map[string]any{"count": 42},
+	}
+	cp := hc.DeepCopy()
+
+	// Verify values copied
+	if cp.CurrentState != "active" {
+		t.Errorf("CurrentState = %q, want 'active'", cp.CurrentState)
+	}
+	if len(cp.ConversationHistory) != 2 {
+		t.Errorf("ConversationHistory len = %d, want 2", len(cp.ConversationHistory))
+	}
+	if len(cp.FilesModified) != 2 {
+		t.Errorf("FilesModified len = %d, want 2", len(cp.FilesModified))
+	}
+	if len(cp.NextSteps) != 2 {
+		t.Errorf("NextSteps len = %d, want 2", len(cp.NextSteps))
+	}
+	if cp.Instructions != "continue" {
+		t.Errorf("Instructions = %q, want 'continue'", cp.Instructions)
+	}
+
+	// Verify independence - modify original
+	hc.ConversationHistory[0].Text = "modified"
+	hc.FilesModified[0] = "modified.go"
+	hc.NextSteps[0] = "modified"
+	hc.Metadata["key"] = "modified"
+	hc.ContextVariables["count"] = 99
+
+	if cp.ConversationHistory[0].Text == "modified" {
+		t.Error("ConversationHistory should be independent copy")
+	}
+	if cp.FilesModified[0] == "modified.go" {
+		t.Error("FilesModified should be independent copy")
+	}
+	if cp.NextSteps[0] == "modified" {
+		t.Error("NextSteps should be independent copy")
+	}
+	if cp.Metadata["key"] == "modified" {
+		t.Error("Metadata should be independent copy")
+	}
+	if cp.ContextVariables["count"] == 99 {
+		t.Error("ContextVariables should be independent copy")
+	}
+}
+
+func TestHandoffRequest_DeepCopy_Nil(t *testing.T) {
+	var r *HandoffRequest
+	cp := r.DeepCopy()
+	if cp != nil {
+		t.Error("expected nil for nil input")
+	}
+}
+
+func TestHandoffRequest_DeepCopy_Full(t *testing.T) {
+	now := time.Now()
+	r := &HandoffRequest{
+		ID:        "req-1",
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		TaskID:    "task-1",
+		Reason:    "specialization",
+		Context: &HandoffContext{
+			CurrentState: "working",
+			Metadata:     map[string]any{"info": "data"},
+		},
+		Status:    HandoffStatePending,
+		CreatedAt: now,
+	}
+	cp := r.DeepCopy()
+
+	if cp.ID != "req-1" {
+		t.Errorf("ID = %q, want 'req-1'", cp.ID)
+	}
+	if cp.Context.CurrentState != "working" {
+		t.Errorf("Context.CurrentState = %q, want 'working'", cp.Context.CurrentState)
+	}
+
+	// Verify independence
+	r.Context.Metadata["info"] = "modified"
+	if cp.Context.Metadata["info"] == "modified" {
+		t.Error("Context should be deep copied")
+	}
+}

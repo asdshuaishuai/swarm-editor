@@ -1092,3 +1092,36 @@ func TestMakeSuggestionCallbackOutsideLock(t *testing.T) {
 		t.Error("onSuggestion callback should have been called")
 	}
 }
+
+func TestPairSessionSendMessage_NotActive(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+	// Don't start the session — state is PairStateIdle
+
+	err := session.SendMessage(driver.ID, "test")
+	if err == nil {
+		t.Fatal("expected error when session is not active")
+	}
+}
+
+func TestPairSessionSendMessage_Reverse(t *testing.T) {
+	driver := agent.NewAgent("driver", agent.AgentTypeCoder)
+	navigator := agent.NewAgent("navigator", agent.AgentTypeReviewer)
+	session := NewPairSession(driver, navigator)
+	session.Start(context.Background())
+
+	// Navigator sends to driver
+	err := session.SendMessage(navigator.ID, "Hello driver!")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	messages := session.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+	if messages[0].To != driver.ID {
+		t.Error("To should be driver when navigator sends")
+	}
+}

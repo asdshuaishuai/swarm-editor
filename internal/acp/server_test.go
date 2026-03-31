@@ -1797,3 +1797,376 @@ func TestClientOnPermissionRequestHandlerRace(t *testing.T) {
 
 	cancel()
 }
+
+// ==================== handleRequest: Swarm/MCP switch cases ====================
+
+func TestServerHandleRequest_SwarmCreate(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	paramsJSON := []byte(`{"name":"test-swarm"}`)
+	server.handleRequest(&Message{
+		ID: &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmCreate,
+		Params: paramsJSON,
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+	// Response message has Result set, not Method
+	if sentMsg.Error != nil {
+		t.Errorf("expected no error, got %v", sentMsg.Error)
+	}
+}
+
+func TestServerHandleRequest_SwarmStart(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmStart,
+		Params: []byte(`{}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_SwarmStop(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmStop,
+		Params: []byte(`{"swarmId":"s1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_SwarmSubmitTask(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmSubmitTask,
+		Params: []byte(`{"title":"test task"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_SwarmExecuteTask(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmExecuteTask,
+		Params: []byte(`{"taskId":"t1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_SwarmGetStatus(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmGetStatus,
+		Params: []byte(`{"swarmId":"s1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_MCPStartServer(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodMCPStartServer,
+		Params: []byte(`{"serverId":"mcp-1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_MCPStopServer(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodMCPStopServer,
+		Params: []byte(`{"serverId":"mcp-1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_MCPCallTool(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodMCPCallTool,
+		Params: []byte(`{"serverId":"mcp-1","name":"tool1"}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_MCPListTools(t *testing.T) {
+	var sentMsg *Message
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { sentMsg = msg; return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodMCPListTools,
+		Params: []byte(`{}`),
+	})
+
+	if sentMsg == nil {
+		t.Fatal("expected message to be sent")
+	}
+}
+
+func TestServerHandleRequest_UnknownMethod(t *testing.T) {
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	// Should not panic, should send error response
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: "unknown/method",
+		Params: []byte(`{}`),
+	})
+}
+
+func TestServerHandleRequest_InvalidParams(t *testing.T) {
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	// Invalid JSON params should trigger error response, not panic
+	server.handleRequest(&Message{
+		ID:     &RequestID{Number: 1, IsNum: true},
+		Method: MethodSwarmCreate,
+		Params: []byte(`{invalid json`),
+	})
+}
+
+func TestServerHandleRequest_NilID(t *testing.T) {
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error { return nil },
+	}
+	server := NewServer(&MockHandler{}, transport)
+	server.ctx = context.Background()
+
+	// nil ID — should not panic
+	server.handleRequest(&Message{
+		ID:     nil,
+		Method: MethodSwarmCreate,
+		Params: []byte(`{}`),
+	})
+}
+
+// TestClientCallErrorResponse tests that call returns error when server responds with error
+func TestClientCallErrorResponse(t *testing.T) {
+	respCh := make(chan *Message, 1)
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error {
+			// When a request is sent, respond with an error
+			if msg.ID != nil {
+				go func() {
+					respCh <- &Message{
+						ID:    msg.ID,
+						Error: &Error{Code: -32000, Message: "internal error"},
+					}
+				}()
+			}
+			return nil
+		},
+		receiveFunc: func() (*Message, error) {
+			select {
+			case resp := <-respCh:
+				return resp, nil
+			case <-time.After(5 * time.Second):
+				return nil, io.EOF
+			}
+		},
+	}
+
+	client := NewClient(transport)
+	ctx := context.Background()
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for readLoop to start
+	time.Sleep(20 * time.Millisecond)
+
+	_, err := client.Initialize(ctx, &InitializeParams{
+		ProtocolVersion: ProtocolVersion,
+	})
+
+	if err == nil {
+		t.Error("Initialize should fail with error response")
+	}
+}
+
+// TestClientCallContextCanceled tests that call returns ctx.Err() when context is canceled
+func TestClientCallContextCanceled(t *testing.T) {
+	// Use a channel that never gets sent to - simulate blocking
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error {
+			return nil // Send succeeds, but no response will come
+		},
+		receiveFunc: func() (*Message, error) {
+			// Block for a long time
+			time.Sleep(10 * time.Second)
+			return nil, io.EOF
+		},
+	}
+
+	client := NewClient(transport)
+	ctx := context.Background()
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for readLoop to start
+	time.Sleep(20 * time.Millisecond)
+
+	// Create a context that's already canceled
+	ctxWithCancel, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.Initialize(ctxWithCancel, &InitializeParams{
+		ProtocolVersion: ProtocolVersion,
+	})
+
+	if err == nil {
+		t.Error("Initialize should fail with canceled context")
+	}
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+// TestClientCallResultUnmarshalError tests handling of unmarshal errors
+func TestClientCallResultUnmarshalError(t *testing.T) {
+	respCh := make(chan *Message, 1)
+	transport := &MockTransport{
+		sendFunc: func(msg *Message) error {
+			// When a request is sent, respond with invalid result
+			if msg.ID != nil {
+				go func() {
+					respCh <- &Message{
+						ID:     msg.ID,
+						Result: json.RawMessage(`"not an object"`),
+					}
+				}()
+			}
+			return nil
+		},
+		receiveFunc: func() (*Message, error) {
+			select {
+			case resp := <-respCh:
+				return resp, nil
+			case <-time.After(5 * time.Second):
+				return nil, io.EOF
+			}
+		},
+	}
+
+	client := NewClient(transport)
+	ctx := context.Background()
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for readLoop to start
+	time.Sleep(20 * time.Millisecond)
+
+	_, err := client.Initialize(ctx, &InitializeParams{
+		ProtocolVersion: ProtocolVersion,
+	})
+
+	// Should get an unmarshal error
+	if err == nil {
+		t.Error("Initialize should fail with unmarshal error")
+	}
+}

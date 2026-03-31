@@ -552,3 +552,70 @@ func TestCachedStoreExpiredEntry(t *testing.T) {
 		t.Errorf("Expected 'updated' after expiration, got '%s'", string(v2))
 	}
 }
+
+// TestCachedStoreGetBackendError tests that CachedStore.Get propagates backend errors
+func TestCachedStoreGetBackendError(t *testing.T) {
+	backend := NewMemoryBackend()
+	store := NewStore(backend)
+	cached := NewCachedStore(*store, 100*time.Millisecond)
+	ctx := context.Background()
+
+	// Get non-existent key should return ErrNotFound from backend
+	_, err := cached.Get(ctx, "nonexistent_key")
+	if err == nil {
+		if err != ErrNotFound {
+				t.Errorf("Expected ErrNotFound, got %v", err)
+			}
+	}
+}
+
+// Test FileBackend keyToPath validation
+func TestFileBackendKeyValidation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "filebackend_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	backend, err := NewFileBackend(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{"empty key", "", true},
+		{"path traversal", "../etc/passwd", true},
+		{"absolute path unix", "/etc/passwd", true},
+		{"valid key", "valid_key", false},
+		{"nested valid", "nested/valid/key", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test via Set
+			err := backend.Set(ctx, tt.key, []byte("test"))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Set(%q) error = %v, wantErr %v", tt.key, err, tt.wantErr)
+			}
+
+			// Test via Get
+			_, err = backend.Get(ctx, tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Get(%q) error = %v, wantErr %v", tt.key, err, tt.wantErr)
+			}
+
+			// Test via Delete
+			err = backend.Delete(ctx, tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Delete(%q) error = %v, wantErr %v", tt.key, err, tt.wantErr)
+			}
+		})
+	}
+}

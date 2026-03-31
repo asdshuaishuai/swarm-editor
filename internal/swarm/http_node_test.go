@@ -269,6 +269,11 @@ func TestBuildHeaders(t *testing.T) {
 			map[string]string{"Content-Type": "application/json", "Auth": "Bearer token"},
 		},
 		{
+			"map[string]string",
+			map[string]any{"headers": map[string]string{"Content-Type": "application/json", "X-Custom": "value"}},
+			map[string]string{"Content-Type": "application/json", "X-Custom": "value"},
+		},
+		{
 			"no headers",
 			map[string]any{},
 			map[string]string{},
@@ -287,6 +292,11 @@ func TestBuildHeaders(t *testing.T) {
 			"case-insensitive dangerous header blocking",
 			map[string]any{"headers": map[string]any{"host": "evil.com", "HOST": "evil.com", "authorization": "Bearer stolen"}},
 			map[string]string{}, // All variants should be blocked
+		},
+		{
+			"map[string]string dangerous blocked",
+			map[string]any{"headers": map[string]string{"Host": "evil.com", "X-Allowed": "ok"}},
+			map[string]string{"X-Allowed": "ok"},
 		},
 	}
 

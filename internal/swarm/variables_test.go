@@ -1,7 +1,9 @@
 package swarm
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -434,5 +436,60 @@ func TestValidateVariableValue(t *testing.T) {
 		if !tt.hasErr && err != nil {
 			t.Errorf("type=%s value=%v: unexpected error: %v", tt.typ, tt.value, err)
 		}
+	}
+}
+
+func TestWorkflowVariableStore_MarshalJSON(t *testing.T) {
+	s := NewWorkflowVariableStore()
+	// Empty store
+	data, err := s.MarshalJSON()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != `{"workflows":{}}` {
+		t.Errorf("empty store: got %s", data)
+	}
+
+	// Add some variables (must use AddVariable first, then SetVariableValue)
+	if err := s.AddVariable("wf-1", &WorkflowVariable{ID: "var-1", Key: "name", Type: VarTypeString}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := s.AddVariable("wf-1", &WorkflowVariable{ID: "var-2", Key: "count", Type: VarTypeNumber}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := s.AddVariable("wf-2", &WorkflowVariable{ID: "var-3", Key: "flag", Type: VarTypeBoolean}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Set values
+	s.SetVariableValue("wf-1", "name", "test")
+	s.SetVariableValue("wf-1", "count", 42)
+	s.SetVariableValue("wf-2", "flag", true)
+
+	data, err = s.MarshalJSON()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should contain both workflows
+	if !bytes.Contains(data, []byte("wf-1")) {
+		t.Error("expected wf-1 in output")
+	}
+	if !bytes.Contains(data, []byte("wf-2")) {
+		t.Error("expected wf-2 in output")
+	}
+}
+
+func TestPropagationContext_String(t *testing.T) {
+	// nil context
+	var pc *PropagationContext
+	if got := pc.String(); got != "PropagationContext(nil)" {
+		t.Errorf("nil context: got %q", got)
+	}
+
+	// Valid context
+	pc = NewPropagationContext("trace-1")
+	got := pc.String()
+	if !strings.Contains(got, "trace-1") {
+		t.Errorf("expected trace ID in output, got %s", got)
 	}
 }

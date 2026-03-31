@@ -275,3 +275,119 @@ func TestGetNodeCacheTTL_NoExpiration(t *testing.T) {
 		t.Fatalf("expected 0 (no expiration), got %v", ttl)
 	}
 }
+
+func TestGetNodeCacheTTL_IntType(t *testing.T) {
+	node := &WorkflowNode{
+		Config: map[string]any{"cacheTTL": 120}, // int, not float64
+	}
+	ttl := GetNodeCacheTTL(node)
+	if ttl != 120*time.Second {
+		t.Fatalf("expected 120s, got %v", ttl)
+	}
+}
+
+func TestGetNodeCacheTTL_IntDisabled(t *testing.T) {
+	node := &WorkflowNode{
+		Config: map[string]any{"cacheTTL": -1}, // int negative
+	}
+	ttl := GetNodeCacheTTL(node)
+	if ttl != -1 {
+		t.Fatalf("expected -1 (disabled), got %v", ttl)
+	}
+}
+
+func TestGetNodeCacheTTL_IntNoExpiration(t *testing.T) {
+	node := &WorkflowNode{
+		Config: map[string]any{"cacheTTL": 0}, // int zero
+	}
+	ttl := GetNodeCacheTTL(node)
+	if ttl != 0 {
+		t.Fatalf("expected 0 (no expiration), got %v", ttl)
+	}
+}
+
+func TestGetNodeCacheTTL_MissingKey(t *testing.T) {
+	node := &WorkflowNode{
+		Config: map[string]any{"other": "value"}, // no cacheTTL
+	}
+	ttl := GetNodeCacheTTL(node)
+	if ttl != DefaultCacheTTL {
+		t.Fatalf("expected default TTL %v, got %v", DefaultCacheTTL, ttl)
+	}
+}
+
+func TestGetNodeCacheTTL_InvalidType(t *testing.T) {
+	node := &WorkflowNode{
+		Config: map[string]any{"cacheTTL": "invalid"}, // string, not number
+	}
+	ttl := GetNodeCacheTTL(node)
+	if ttl != DefaultCacheTTL {
+		t.Fatalf("expected default TTL %v, got %v", DefaultCacheTTL, ttl)
+	}
+}
+
+func TestResultCache_Prune_WithNodeKeys(t *testing.T) {
+	c := NewResultCache()
+
+	// Set entries with node IDs
+	c.Set("node1-key1", "result1", 50*time.Millisecond, "node1")
+	c.Set("node1-key2", "result2", 50*time.Millisecond, "node1")
+	c.Set("node2-key1", "result3", 5*time.Minute, "node2")
+
+	time.Sleep(60 * time.Millisecond)
+
+	pruned := c.Prune()
+	if pruned != 2 {
+		t.Fatalf("expected 2 pruned entries, got %d", pruned)
+	}
+
+	// node1 should have no keys (both expired)
+	c.mu.RLock()
+	node1Keys := c.nodeKeys["node1"]
+	node2Keys := c.nodeKeys["node2"]
+	c.mu.RUnlock()
+
+	if len(node1Keys) != 0 {
+		t.Errorf("expected node1 to have 0 keys after all expired, got %d", len(node1Keys))
+	}
+	if len(node2Keys) != 1 {
+		t.Errorf("expected node2 to have 1 key, got %d", len(node2Keys))
+	}
+
+	// node1 should be removed from nodeKeys entirely
+	c.mu.RLock()
+	_, node1Exists := c.nodeKeys["node1"]
+	c.mu.RUnlock()
+
+	if node1Exists {
+		t.Error("expected node1 to be removed from nodeKeys map")
+	}
+}
+
+func TestResultCache_Prune_NoExpiration(t *testing.T) {
+	c := NewResultCache()
+
+	c.Set("no-expiry", "result", 0) // TTL=0 means no expiration
+	c.Set("with-expiry", "result2", 50*time.Millisecond)
+
+	time.Sleep(60 * time.Millisecond)
+
+	pruned := c.Prune()
+	if pruned != 1 {
+		t.Fatalf("expected 1 pruned entry, got %d", pruned)
+	}
+
+	// no-expiry should survive
+	_, ok := c.Get("no-expiry")
+	if !ok {
+		t.Error("expected 'no-expiry' entry to survive prune")
+	}
+}
+
+func TestResultCache_Prune_Empty(t *testing.T) {
+	c := NewResultCache()
+	pruned := c.Prune()
+	if pruned != 0 {
+		t.Errorf("expected 0 pruned entries for empty cache, got %d", pruned)
+	}
+}

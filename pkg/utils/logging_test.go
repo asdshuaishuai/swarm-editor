@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,19 @@ func TestNewLogger(t *testing.T) {
 
 	if logger.level != LogLevelInfo {
 		t.Errorf("expected level %d, got %d", LogLevelInfo, logger.level)
+	}
+}
+
+func TestNewLogger_NilWriter(t *testing.T) {
+	// Test that nil writer defaults to os.Stderr
+	logger := NewLogger(nil, LogLevelInfo)
+
+	if logger == nil {
+		t.Fatal("logger should not be nil")
+	}
+
+	if logger.out != os.Stderr {
+		t.Error("nil writer should default to os.Stderr")
 	}
 }
 

@@ -63,7 +63,10 @@ func TestExecuteConditionNode_Ordered(t *testing.T) {
 		{"less equal false", 10, "<=", 5, false},
 		{"string greater", "b", ">", "a", true},
 		{"string less", "a", "<", "b", true},
+		{"string greater equal", "b", ">=", "a", true},
+		{"string less equal", "a", "<=", "b", true},
 		{"float comparison", 3.14, ">", 3.13, true},
+		{"mixed type fallback", 10, ">", "hello", false}, // non-numeric string vs number
 	}
 
 	for _, tt := range tests {
@@ -348,6 +351,22 @@ func TestToFloat64(t *testing.T) {
 		{"not a number", 0, false},
 		{"true", 0, false},
 		{nil, 0, false},
+		// Additional type coverage (Round 72)
+		{int32(32), 32.0, true},
+		{int16(16), 16.0, true},
+		{int8(8), 8.0, true},
+		{uint(1), 1.0, true},
+		{uint64(64), 64.0, true},
+		{uint32(32), 32.0, true},
+		{uint16(16), 16.0, true},
+		{uint8(8), 8.0, true},
+		{"Inf", 0, false}, // Inf values rejected
+		{"NaN", 0, false}, // NaN values rejected
+		{"+Inf", 0, false},
+		{"-Inf", 0, false},
+		{true, 0, false}, // default case: non-numeric, non-string
+		{[]int{1, 2}, 0, false},
+		{map[string]int{"a": 1}, 0, false},
 	}
 
 	for _, tt := range tests {
@@ -401,6 +420,93 @@ func TestIsEmpty(t *testing.T) {
 	if isEmpty(1) {
 		t.Error("1 should not be empty")
 	}
+	// Additional type coverage for isEmpty (same bug as isTruthy: multi-type case)
+	t.Run("float64 zero", func(t *testing.T) {
+		if !isEmpty(float64(0)) {
+			t.Error("float64 zero should be empty")
+		}
+	})
+	t.Run("float64 nonzero", func(t *testing.T) {
+		if isEmpty(float64(3.14)) {
+			t.Error("float64 nonzero should not be empty")
+		}
+	})
+	t.Run("int64 zero", func(t *testing.T) {
+		if !isEmpty(int64(0)) {
+			t.Error("int64 zero should be empty")
+		}
+	})
+	t.Run("uint zero", func(t *testing.T) {
+		if !isEmpty(uint(0)) {
+			t.Error("uint zero should be empty")
+		}
+	})
+	// Cover all remaining numeric types
+	t.Run("int32 zero", func(t *testing.T) {
+		if !isEmpty(int32(0)) {
+			t.Error("int32 zero should be empty")
+		}
+	})
+	t.Run("int32 nonzero", func(t *testing.T) {
+		if isEmpty(int32(1)) {
+			t.Error("int32 nonzero should not be empty")
+		}
+	})
+	t.Run("int64 zero", func(t *testing.T) {
+		if !isEmpty(int64(0)) {
+			t.Error("int64 zero should be empty")
+		}
+	})
+	t.Run("int64 nonzero", func(t *testing.T) {
+		if isEmpty(int64(1)) {
+			t.Error("int64 nonzero should not be empty")
+		}
+	})
+	t.Run("uint64 zero", func(t *testing.T) {
+		if !isEmpty(uint64(0)) {
+			t.Error("uint64 zero should be empty")
+		}
+	})
+	t.Run("uint32 zero", func(t *testing.T) {
+		if !isEmpty(uint32(0)) {
+			t.Error("uint32 zero should be empty")
+		}
+	})
+	t.Run("float32 zero", func(t *testing.T) {
+		if !isEmpty(float32(0)) {
+			t.Error("float32 zero should be empty")
+		}
+	})
+	t.Run("float32 nonzero", func(t *testing.T) {
+		if isEmpty(float32(3.14)) {
+			t.Error("float32 nonzero should not be empty")
+		}
+	})
+	t.Run("empty slice", func(t *testing.T) {
+		if !isEmpty([]any{}) {
+			t.Error("empty slice should be empty")
+		}
+	})
+	t.Run("non-empty slice", func(t *testing.T) {
+		if isEmpty([]any{1, 2, 3}) {
+			t.Error("non-empty slice should not be empty")
+		}
+	})
+	t.Run("empty map", func(t *testing.T) {
+		if !isEmpty(map[string]any{}) {
+			t.Error("empty map should be empty")
+		}
+	})
+	t.Run("non-empty map", func(t *testing.T) {
+		if isEmpty(map[string]any{"key": "value"}) {
+			t.Error("non-empty map should not be empty")
+		}
+	})
+	t.Run("unknown type", func(t *testing.T) {
+		if isEmpty(struct{}{}) {
+			t.Error("unknown type (struct) should not be empty")
+		}
+	})
 }
 
 func TestIsTruthy(t *testing.T) {
@@ -425,6 +531,139 @@ func TestIsTruthy(t *testing.T) {
 	if !isTruthy(true) {
 		t.Error("true should be truthy")
 	}
+
+	// Additional type coverage
+	t.Run("empty slice", func(t *testing.T) {
+		if isTruthy([]any{}) {
+			t.Error("empty slice should not be truthy")
+		}
+	})
+	t.Run("non-empty slice", func(t *testing.T) {
+		if !isTruthy([]any{1}) {
+			t.Error("non-empty slice should be truthy")
+		}
+	})
+	t.Run("empty map", func(t *testing.T) {
+		if isTruthy(map[string]any{}) {
+			t.Error("empty map should not be truthy")
+		}
+	})
+	t.Run("non-empty map", func(t *testing.T) {
+		if !isTruthy(map[string]any{"k": "v"}) {
+			t.Error("non-empty map should be truthy")
+		}
+	})
+	t.Run("float64 zero", func(t *testing.T) {
+		if isTruthy(float64(0)) {
+			t.Error("float64 zero should not be truthy")
+		}
+	})
+	t.Run("float64 nonzero", func(t *testing.T) {
+		if !isTruthy(float64(3.14)) {
+			t.Error("float64 nonzero should be truthy")
+		}
+	})
+	t.Run("int64 zero", func(t *testing.T) {
+		if isTruthy(int64(0)) {
+			t.Error("int64 zero should not be truthy")
+		}
+	})
+	t.Run("int64 nonzero", func(t *testing.T) {
+		if !isTruthy(int64(42)) {
+			t.Error("int64 nonzero should be truthy")
+		}
+	})
+	t.Run("uint zero", func(t *testing.T) {
+		if isTruthy(uint(0)) {
+			t.Error("uint zero should not be truthy")
+		}
+	})
+	t.Run("uint nonzero", func(t *testing.T) {
+		if !isTruthy(uint(1)) {
+			t.Error("uint nonzero should be truthy")
+		}
+	})
+	// Cover all remaining numeric types
+	t.Run("int32 zero", func(t *testing.T) {
+		if isTruthy(int32(0)) {
+			t.Error("int32 zero should not be truthy")
+		}
+	})
+	t.Run("int32 nonzero", func(t *testing.T) {
+		if !isTruthy(int32(1)) {
+			t.Error("int32 nonzero should be truthy")
+		}
+	})
+	t.Run("int16 zero", func(t *testing.T) {
+		if isTruthy(int16(0)) {
+			t.Error("int16 zero should not be truthy")
+		}
+	})
+	t.Run("int16 nonzero", func(t *testing.T) {
+		if !isTruthy(int16(1)) {
+			t.Error("int16 nonzero should be truthy")
+		}
+	})
+	t.Run("int8 zero", func(t *testing.T) {
+		if isTruthy(int8(0)) {
+			t.Error("int8 zero should not be truthy")
+		}
+	})
+	t.Run("int8 nonzero", func(t *testing.T) {
+		if !isTruthy(int8(1)) {
+			t.Error("int8 nonzero should be truthy")
+		}
+	})
+	t.Run("uint64 zero", func(t *testing.T) {
+		if isTruthy(uint64(0)) {
+			t.Error("uint64 zero should not be truthy")
+		}
+	})
+	t.Run("uint64 nonzero", func(t *testing.T) {
+		if !isTruthy(uint64(1)) {
+			t.Error("uint64 nonzero should be truthy")
+		}
+	})
+	t.Run("uint32 zero", func(t *testing.T) {
+		if isTruthy(uint32(0)) {
+			t.Error("uint32 zero should not be truthy")
+		}
+	})
+	t.Run("uint32 nonzero", func(t *testing.T) {
+		if !isTruthy(uint32(1)) {
+			t.Error("uint32 nonzero should be truthy")
+		}
+	})
+	t.Run("uint16 zero", func(t *testing.T) {
+		if isTruthy(uint16(0)) {
+			t.Error("uint16 zero should not be truthy")
+		}
+	})
+	t.Run("uint16 nonzero", func(t *testing.T) {
+		if !isTruthy(uint16(1)) {
+			t.Error("uint16 nonzero should be truthy")
+		}
+	})
+	t.Run("uint8 zero", func(t *testing.T) {
+		if isTruthy(uint8(0)) {
+			t.Error("uint8 zero should not be truthy")
+		}
+	})
+	t.Run("uint8 nonzero", func(t *testing.T) {
+		if !isTruthy(uint8(1)) {
+			t.Error("uint8 nonzero should be truthy")
+		}
+	})
+	t.Run("float32 zero", func(t *testing.T) {
+		if isTruthy(float32(0)) {
+			t.Error("float32 zero should not be truthy")
+		}
+	})
+	t.Run("float32 nonzero", func(t *testing.T) {
+		if !isTruthy(float32(3.14)) {
+			t.Error("float32 nonzero should be truthy")
+		}
+	})
 }
 
 func TestExecuteConditionNode_InArray(t *testing.T) {
