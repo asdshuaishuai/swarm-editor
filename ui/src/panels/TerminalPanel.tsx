@@ -1,17 +1,42 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Trash2, ChevronUp, ChevronDown, Terminal } from 'lucide-react'
+import { Terminal as XTerm } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { useTerminal } from '../hooks/useTerminal'
+import '@xterm/xterm/css/xterm.css'
 
-export interface TerminalEntry {
+// Catppuccin-inspired theme matching Swarm Editor dark mode
+const darkTheme = {
+  background: '#0d1117',
+  foreground: '#cdd6f4',
+  cursor: '#89b4fa',
+  cursorAccent: '#0d1117',
+  selectionBackground: '#45475a80',
+  black: '#45475a',
+  red: '#f38ba8',
+  green: '#a6e3a1',
+  yellow: '#f9e2af',
+  blue: '#89b4fa',
+  magenta: '#f5c2e7',
+  cyan: '#94e2d5',
+  white: '#bac2de',
+  brightBlack: '#585b70',
+  brightRed: '#f38ba8',
+  brightGreen: '#a6e3a1',
+  brightYellow: '#f9e2af',
+  brightBlue: '#89b4fa',
+  brightMagenta: '#f5c2e7',
+  brightCyan: '#94e2d5',
+  brightWhite: '#a6adc8',
+}
+
+interface TerminalTab {
   id: string
-  type: 'info' | 'success' | 'error' | 'warning' | 'command'
-  message: string
-  timestamp: Date
-  details?: string
+  label: string
 }
 
 interface TerminalPanelProps {
-  entries: TerminalEntry[]
-  onClear: () => void
   onClose?: () => void
   defaultHeight?: number
   minHeight?: number
@@ -19,44 +44,121 @@ interface TerminalPanelProps {
 }
 
 export default function TerminalPanel({
-  entries,
-  onClear,
   onClose,
-  defaultHeight = 200,
-  minHeight = 100,
+  defaultHeight = 250,
+  minHeight = 120,
   maxHeight = 500,
 }: TerminalPanelProps) {
   const [height, setHeight] = useState(defaultHeight)
   const [isResizing, setIsResizing] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const outputRef = useRef<HTMLDivElement>(null)
+  const [tabs] = useState<TerminalTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const xtermRef = useRef<XTerm | null>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
   const resizeStartY = useRef(0)
   const resizeStartHeight = useRef(0)
 
-  // Auto-scroll to bottom when new entries are added
+  // Active terminal connection
+  const { connected, connect, disconnect, sendInput, resize, wsRef } = useTerminal()
+
+  // Create xterm instance
   useEffect(() => {
-    if (outputRef.current && !isCollapsed) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight
+    if (!containerRef.current || xtermRef.current) return
+
+    const xterm = new XTerm({
+      theme: darkTheme,
+      fontSize: 13,
+      fontFamily: "'Fira Code', 'Cascadia Code', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      scrollback: 5000,
+      allowProposedApi: true,
+    })
+
+    const fitAddon = new FitAddon()
+    const webLinksAddon = new WebLinksAddon()
+
+    xterm.loadAddon(fitAddon)
+    xterm.loadAddon(webLinksAddon)
+    xterm.open(containerRef.current)
+
+    xtermRef.current = xterm
+    fitAddonRef.current = fitAddon
+
+    // Bridge xterm input -> WebSocket
+    xterm.onData((data) => {
+      sendInput(data)
+    })
+
+    // Fit after mount
+    try { fitAddon.fit() } catch { /* ignore if container not visible */ }
+
+    return () => {
+      webLinksAddon.dispose()
+      fitAddon.dispose()
+      xterm.dispose()
+      xtermRef.current = null
+      fitAddonRef.current = null
     }
-  }, [entries, isCollapsed])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Connect WebSocket when terminal mounts
+  useEffect(() => {
+    connect()
+    return () => { disconnect() }
+  }, [connect, disconnect])
+
+  // Bridge WebSocket binary -> xterm
+  useEffect(() => {
+    const ws = wsRef.current
+    if (!ws) return
+
+    const handler = (ev: MessageEvent) => {
+      if (ev.data instanceof ArrayBuffer) {
+        const decoder = new TextDecoder()
+        xtermRef.current?.write(decoder.decode(ev.data))
+      }
+    }
+    ws.addEventListener('message', handler)
+    return () => { ws.removeEventListener('message', handler) }
+  }, [connected]) // re-attach when connection changes
+
+  // Fit on resize/uncollapse
+  useEffect(() => {
+    if (!isCollapsed && fitAddonRef.current) {
+      const timer = setTimeout(() => {
+        try { fitAddonRef.current?.fit() } catch { /* ignore */ }
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [isCollapsed, height])
+
+  // Send resize to PTY when xterm dimensions change
+  useEffect(() => {
+    if (!xtermRef.current || !connected) return
+    const handler = () => {
+      try {
+        const { cols, rows } = xtermRef.current!
+        if (cols && rows) resize(cols, rows)
+      } catch { /* ignore */ }
+    }
+    const disposable = xtermRef.current.onResize(handler)
+    return () => { disposable.dispose() }
+  }, [connected, resize])
 
   // Handle resize
   useEffect(() => {
     if (!isResizing) return
-
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = resizeStartY.current - e.clientY
-      const newHeight = Math.min(maxHeight, Math.max(minHeight, resizeStartHeight.current + deltaY))
-      setHeight(newHeight)
+      setHeight(Math.min(maxHeight, Math.max(minHeight, resizeStartHeight.current + deltaY)))
     }
-
-    const handleMouseUp = () => {
-      setIsResizing(false)
-    }
-
+    const handleMouseUp = () => setIsResizing(false)
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
@@ -70,51 +172,13 @@ export default function TerminalPanel({
     resizeStartHeight.current = height
   }
 
+  // Focus terminal on click
+  const focusTerminal = () => {
+    xtermRef.current?.focus()
+  }
+
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed)
-  }
-
-  const getEntryColor = (type: TerminalEntry['type']) => {
-    switch (type) {
-      case 'success':
-        return 'text-success'
-      case 'error':
-        return 'text-error'
-      case 'warning':
-        return 'text-warning'
-      case 'command':
-        return 'text-info'
-      default:
-        return 'text-text-secondary'
-    }
-  }
-
-  const getEntryIcon = (type: TerminalEntry['type']) => {
-    switch (type) {
-      case 'success':
-        return '✓'
-      case 'error':
-        return '✗'
-      case 'warning':
-        return '⚠'
-      case 'command':
-        return '›'
-      default:
-        return '●'
-    }
-  }
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  }
-
-  if (entries.length === 0) {
-    return null
   }
 
   return (
@@ -122,34 +186,51 @@ export default function TerminalPanel({
       className={`flex flex-col bg-mac-panel border-t border-glass-border ${isResizing ? 'select-none' : ''}`}
       style={{ height: isCollapsed ? 'auto' : height }}
     >
-      {/* Resize Handle */}
       {!isCollapsed && (
         <div
           className="h-1 bg-glass-border hover:bg-accent cursor-ns-resize transition-colors"
           onMouseDown={handleResizeStart}
         />
       )}
-
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-glass/50 border-b border-glass-border">
-        <div className="flex items-center gap-2">
-          <Terminal size={14} className="text-accent" />
-          <span className="text-xs font-semibold text-text-primary">Terminal</span>
-          <span className="text-xs text-text-tertiary px-1.5 py-0.5 bg-glass rounded-mac">({entries.length})</span>
+      <div className="flex items-center justify-between px-3 py-1.5 bg-glass/50 border-b border-glass-border">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Terminal size={14} className="text-accent flex-shrink-0" />
+          {tabs.length > 0 ? (
+            <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTabId(tab.id)}
+                  className={`px-2 py-0.5 text-xs rounded-mac transition-colors whitespace-nowrap ${
+                    tab.id === activeTabId
+                      ? 'bg-accent/10 text-accent font-medium'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-xs font-medium text-text-primary">Terminal</span>
+          )}
+          {connected && (
+            <span className="text-[10px] text-success flex-shrink-0" title="Connected">&#9679;</span>
+          )}
         </div>
-
         <div className="flex items-center gap-1">
           <button
-            onClick={onClear}
-            className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
-            title="Clear Output"
-            aria-label="Clear Output"
+            onClick={() => { xtermRef.current?.clear(); xtermRef.current?.focus() }}
+            className="p-1 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
+            title="Clear Terminal"
+            aria-label="Clear Terminal"
           >
             <Trash2 size={14} />
           </button>
           <button
             onClick={toggleCollapse}
-            className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
+            className="p-1 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
             title={isCollapsed ? 'Expand' : 'Collapse'}
             aria-label={isCollapsed ? 'Expand' : 'Collapse'}
             aria-expanded={!isCollapsed}
@@ -159,7 +240,7 @@ export default function TerminalPanel({
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
+              className="p-1 hover:bg-card-hover rounded-mac text-text-secondary hover:text-text-primary transition-colors"
               title="Close"
               aria-label="Close"
             >
@@ -168,32 +249,16 @@ export default function TerminalPanel({
           )}
         </div>
       </div>
-
-      {/* Output Area */}
+      {/* Terminal */}
       {!isCollapsed && (
         <div
-          ref={outputRef}
-          className="flex-1 overflow-y-auto font-mono text-xs p-3 space-y-1.5 bg-mac-bg/50"
-        >
-          {entries.map((entry) => (
-            <div key={entry.id} className="flex items-start gap-2">
-              <span className="text-text-tertiary shrink-0 tabular-nums">
-                [{formatTime(entry.timestamp)}]
-              </span>
-              <span className={`shrink-0 font-bold ${getEntryColor(entry.type)}`}>
-                {getEntryIcon(entry.type)}
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className={`${getEntryColor(entry.type)} leading-relaxed`}>{entry.message}</span>
-                {entry.details && (
-                  <pre className="mt-1.5 p-3 bg-glass/50 rounded-mac text-text-secondary whitespace-pre-wrap overflow-x-auto text-xs border border-glass-border">
-                    {entry.details}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+          ref={containerRef}
+          className="flex-1 min-h-0"
+          onClick={focusTerminal}
+          style={{ padding: '2px 4px' }}
+          role="region"
+          aria-label="Terminal"
+        />
       )}
     </div>
   )

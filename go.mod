@@ -9,8 +9,10 @@ require golang.org/x/text v0.35.0
 require github.com/gorilla/websocket v1.5.3
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
 	github.com/robfig/cron/v3 v3.0.1
+	go.uber.org/goleak v1.3.0
 	golang.org/x/time v0.15.0
 )
 

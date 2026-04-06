@@ -6,7 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -18,32 +18,39 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
+	"github.com/swarm-editor/swarm-editor/internal/lsp"
 	"github.com/swarm-editor/swarm-editor/internal/mcp"
 	"github.com/swarm-editor/swarm-editor/internal/swarm"
 	"github.com/swarm-editor/swarm-editor/internal/team"
+	"github.com/swarm-editor/swarm-editor/internal/terminal"
 )
 
 var ErrSendBufferFull = errors.New("send buffer full")
+var ErrHubDraining = errors.New("hub is draining")
+
+var wsLog = log.With("component", "WebSocket")
+var hubLog = log.With("component", "Hub")
 
 // ==================== API Error Codes ====================
 // JSON-RPC standard codes
 const (
-	CodeParseError    = -32700
+	CodeParseError     = -32700
 	CodeInvalidRequest = -32600
 	CodeMethodNotFound = -32601
-	CodeInvalidParams = -32602
-	CodeInternalError = -32603
+	CodeInvalidParams  = -32602
+	CodeInternalError  = -32603
 )
 
 // Application-specific error codes (positive range to avoid JSON-RPC conflicts)
 const (
-	CodeNotFound       = -32001
-	CodeValidation     = -32002
-	CodeUnauthorized   = -32003
-	CodeRateLimited    = -32004
-	CodeConflict       = -32005
-	CodeNotConnected   = -32006
-	CodeLimitExceeded  = -32007
+	CodeNotFound      = -32001
+	CodeValidation    = -32002
+	CodeUnauthorized  = -32003
+	CodeRateLimited   = -32004
+	CodeConflict      = -32005
+	CodeNotConnected  = -32006
+	CodeLimitExceeded = -32007
 )
 
 // APIError represents a typed API error with error code
@@ -84,6 +91,89 @@ func errLimitExceeded(msg string) *APIError {
 // errUnauthorized returns an unauthorized API error
 func errUnauthorized(msg string) *APIError {
 	return NewAPIError(CodeUnauthorized, msg)
+}
+
+// ==================== Error Type Assertions (Kubernetes-style) ====================
+
+// IsNotFound returns true if the error is a not-found error
+func IsNotFound(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeNotFound
+	}
+	return false
+}
+
+// IsValidation returns true if the error is a validation error
+func IsValidation(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeValidation
+	}
+	return false
+}
+
+// IsUnauthorized returns true if the error is an unauthorized error
+func IsUnauthorized(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeUnauthorized
+	}
+	return false
+}
+
+// IsRateLimited returns true if the error is a rate-limited error
+func IsRateLimited(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeRateLimited
+	}
+	return false
+}
+
+// IsConflict returns true if the error is a conflict error
+func IsConflict(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeConflict
+	}
+	return false
+}
+
+// IsNotConnected returns true if the error is a not-connected error
+func IsNotConnected(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeNotConnected
+	}
+	return false
+}
+
+// IsLimitExceeded returns true if the error is a limit-exceeded error
+func IsLimitExceeded(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeLimitExceeded
+	}
+	return false
+}
+
+// IsInternal returns true if the error is an internal error
+func IsInternal(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == CodeInternalError
+	}
+	return false
+}
+
+// GetAPIError extracts the APIError from an error, returns nil if not an APIError
+func GetAPIError(err error) *APIError {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	return nil
 }
 
 // ==================== WebSocket Protocol Types ====================
@@ -314,8 +404,14 @@ type WebSocketServer struct {
 	// Workspace
 	workspacePath string // Root directory for file operations
 
+	// LSP
+	lspManager *lsp.Manager
+
 	// Emergence
 	emergenceService *EmergenceService // Real-time emergence dashboard data
+
+	// Terminal
+	terminalMgr *terminal.Manager
 
 	// Workflow
 	orchestrator *swarm.Orchestrator // Orchestrator for workflow commands
@@ -386,6 +482,14 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		emergenceService = NewEmergenceService(supervisor, nil, nil)
 	}
 
+	// Initialize LSP manager for code intelligence
+	rootDir := lsp.ResolveWorkspacePath(cfg.WorkspacePath)
+	lspScanner := lsp.NewScanner()
+	lspManager := lsp.NewManager(rootDir, lspScanner)
+
+	// Initialize terminal manager for real PTY sessions
+	terminalMgr := terminal.NewManager(cfg.WorkspacePath)
+
 	s := &WebSocketServer{
 		addr:             cfg.Addr,
 		registry:         cfg.Registry,
@@ -396,6 +500,8 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		mcpClients:       cfg.MCPClients,
 		workspacePath:    cfg.WorkspacePath,
 		emergenceService: emergenceService,
+		lspManager:       lspManager,
+		terminalMgr:      terminalMgr,
 		authToken:        cfg.AuthToken,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -408,6 +514,15 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 
 	s.handler = NewCommandHandler(s)
 	s.hub = NewClientHub(s)
+
+	// Wire LSP diagnostics push: when LSP server sends publishDiagnostics,
+	// broadcast immediately to all connected clients (Cursor/Windsurf pattern).
+	lspManager.OnDiagnostics(func(uri string, diags []lsp.Diagnostic) {
+		s.hub.Broadcast("lsp_diagnostics_update", map[string]any{
+			"uri":         uri,
+			"diagnostics": diags,
+		})
+	})
 
 	return s
 }
@@ -424,6 +539,7 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/terminal/ws", s.HandleTerminalWebSocket)
 
 	server := &http.Server{
 		Addr:           s.addr,
@@ -438,7 +554,7 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[WebSocket] Server shutdown goroutine panic: %v", r)
+				wsLog.Error("Server shutdown goroutine panic", "panic", r)
 			}
 			s.wg.Done()
 		}()
@@ -447,33 +563,53 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("[WebSocket] Server shutdown error: %v", err)
+			wsLog.Error("Server shutdown error", "error", err)
 		}
 	}()
 
 	s.wg.Add(1)
-	go s.hub.Run(s.ctx)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				wsLog.Error("Hub.Run panic", "panic", r)
+			}
+			s.wg.Done()
+		}()
+		s.hub.Run(s.ctx)
+	}()
 
 	// Connect team manager to hub for event broadcasting
 	if s.teamManager != nil {
 		s.teamManager.SetBroadcaster(s.hub)
 	}
 
-	log.Printf("[WebSocket] Server starting on %s", s.addr)
+	wsLog.Info("Server starting", "addr", s.addr)
 	return server.ListenAndServe()
 }
 
-// Stop stops the WebSocket server
+// Stop stops the WebSocket server with graceful shutdown:
+// 1. Drain: reject new connections (but let existing handlers finish)
+// 2. Cancel: signal all goroutines to stop
+// 3. Wait: for all goroutines to complete
+// 4. Close: all client connections
 func (s *WebSocketServer) Stop() {
+	// Phase 1: Start drain - reject new connections
+	s.hub.Drain()
+
+	// Phase 2: Signal shutdown
 	s.mu.Lock()
 	cancel := s.cancel
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+
+	// Phase 3: Wait for in-flight handlers to complete
 	s.wg.Wait()
+
+	// Phase 4: Close all connections
 	s.hub.Stop()
-	log.Printf("[WebSocket] Server stopped")
+	wsLog.Info("Server stopped")
 }
 
 // Context returns the server's lifecycle context
@@ -600,6 +736,13 @@ func (s *WebSocketServer) ScheduleRunner() *swarm.ScheduleRunner {
 	return s.scheduleRunner
 }
 
+// LSPManager returns the LSP manager
+func (s *WebSocketServer) LSPManager() *lsp.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lspManager
+}
+
 // ListMCPClients returns all MCP clients
 func (s *WebSocketServer) ListMCPClients() map[string]*mcp.Client {
 	s.mu.RLock()
@@ -627,6 +770,13 @@ func (s *WebSocketServer) AddMCPClient(id string, client *mcp.Client) {
 	s.mcpClients[id] = client
 }
 
+// RemoveMCPClient removes an MCP client from the registry
+func (s *WebSocketServer) RemoveMCPClient(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.mcpClients, id)
+}
+
 // handleWebSocket handles WebSocket upgrade requests
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Check auth token if required
@@ -647,7 +797,7 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 
 		// Use constant-time comparison to prevent timing attacks
 		if !cryptoEqual(token, s.authToken) {
-			log.Printf("[WebSocket] Authentication failed for %q (invalid token)", r.RemoteAddr)
+			wsLog.Warn("Authentication failed", "remote_addr", r.RemoteAddr, "reason", "invalid token")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -655,14 +805,18 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[WebSocket] Upgrade error: %v", err)
+		wsLog.Warn("Upgrade error", "error", err)
 		return
 	}
 
 	clientID := "client_" + uuid.New().String()[:8]
 	client := NewClient(clientID, conn, s)
 
-	s.hub.Register(client)
+	if err := s.hub.Register(client); err != nil {
+		conn.Close()
+		wsLog.Warn("Rejected client", "client_id", clientID, "error", err)
+		return
+	}
 
 	s.wg.Add(1)
 	go client.ReadLoop()
@@ -680,7 +834,7 @@ func cryptoEqual(a, b string) bool {
 func (s *WebSocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {
-		log.Printf("[WebSocket] Health check write error: %v", err)
+		wsLog.Warn("Health check write error", "error", err)
 	}
 }
 
@@ -693,9 +847,10 @@ type ClientHub struct {
 	broadcast     chan *WSEvent
 	subscriptions map[string]map[string]struct{}
 
-	mu     sync.RWMutex
-	ctx    context.Context
-	cancel context.CancelFunc
+	mu       sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	draining bool // true after Drain() called — reject new registrations
 }
 
 // NewClientHub creates a new client hub
@@ -713,7 +868,9 @@ func (h *ClientHub) Run(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	h.mu.Lock()
 	h.ctx, h.cancel = context.WithCancel(ctx)
+	h.mu.Unlock()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -732,8 +889,11 @@ func (h *ClientHub) Run(ctx context.Context) {
 
 // Stop stops the hub
 func (h *ClientHub) Stop() {
-	if h.cancel != nil {
-		h.cancel()
+	h.mu.Lock()
+	cancel := h.cancel
+	h.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 
 	h.mu.Lock()
@@ -744,20 +904,46 @@ func (h *ClientHub) Stop() {
 	h.mu.Unlock()
 }
 
-// Register registers a new client
-func (h *ClientHub) Register(client *Client) {
+// Drain stops accepting new connections as the first phase of graceful shutdown.
+// This implements the nats-inspired two-phase shutdown:
+//   - Phase 1 (Drain): reject new registrations but let existing handlers continue
+//   - Phase 2 (Stop): cancel context, wait for handlers, then close connections
+//
+// Drain() is called automatically by Stop(). Manual calling is only needed
+// when you want to reject new connections before starting the full shutdown.
+func (h *ClientHub) Drain() {
 	h.mu.Lock()
+	h.draining = true
+	h.mu.Unlock()
+	hubLog.Info("Draining, rejecting new connections")
+}
+
+// IsDraining reports whether the hub is in drain mode.
+func (h *ClientHub) IsDraining() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.draining
+}
+
+// Register registers a new client. Returns ErrHubDraining if the hub is shutting down.
+func (h *ClientHub) Register(client *Client) error {
+	h.mu.Lock()
+	if h.draining {
+		h.mu.Unlock()
+		return fmt.Errorf("hub is draining: %w", ErrHubDraining)
+	}
 	h.clients[client.ID] = client
 	clientCount := len(h.clients)
 	h.mu.Unlock()
 
-	log.Printf("[Hub] Client registered: %s (total: %d)", client.ID, clientCount)
+	hubLog.Info("Client registered", "client_id", client.ID, "total", clientCount)
 
 	// Send event outside lock to avoid blocking on I/O
 	client.SendEvent("connected", map[string]any{
 		"clientId": client.ID,
 		"time":     time.Now().Format(time.RFC3339),
 	})
+	return nil
 }
 
 // Unregister unregisters a client
@@ -782,22 +968,25 @@ func (h *ClientHub) Unregister(client *Client) {
 		count := len(h.server.sessionToAgent)
 		h.server.sessionToAgent = make(map[string]string)
 		h.server.mu.Unlock()
-		log.Printf("[Hub] Client unregistered: %s (total: %d), cleaned %d stale session mappings", client.ID, clientCount, count)
+		hubLog.Info("Client unregistered", "client_id", client.ID, "total", clientCount, "cleaned_sessions", count)
 		return
 	}
 	h.server.mu.Unlock()
 
-	log.Printf("[Hub] Client unregistered: %s (total: %d)", client.ID, clientCount)
+	hubLog.Info("Client unregistered", "client_id", client.ID, "total", clientCount)
 }
 
 // Broadcast broadcasts an event to all clients
 func (h *ClientHub) Broadcast(eventType string, payload any) {
 	// Guard against Broadcast called before Run() initializes h.ctx
-	if h.ctx == nil {
+	h.mu.RLock()
+	ctx := h.ctx
+	h.mu.RUnlock()
+	if ctx == nil {
 		return
 	}
 	select {
-	case <-h.ctx.Done():
+	case <-ctx.Done():
 		// Hub is stopped, drop the event
 		return
 	default:
@@ -807,7 +996,7 @@ func (h *ClientHub) Broadcast(eventType string, payload any) {
 		Type:    eventType,
 		Payload: payload,
 	}:
-	case <-h.ctx.Done():
+	case <-ctx.Done():
 		// Hub stopped while sending, drop the event
 	}
 }
@@ -835,13 +1024,13 @@ func (h *ClientHub) broadcastEvent(event *WSEvent) {
 
 	data, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("[Hub] Failed to marshal event: %v", err)
+		hubLog.Error("Failed to marshal event", "error", err)
 		return
 	}
 
 	for _, client := range clients {
 		if err := client.SendRaw(data); err != nil {
-			log.Printf("[Hub] Failed to send to client %s: %v", client.ID, err)
+			hubLog.Warn("Failed to send to client", "client_id", client.ID, "error", err)
 		}
 	}
 }
@@ -932,7 +1121,7 @@ const wsPingPeriod = 30 * time.Second
 func (c *Client) ReadLoop() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Client %s] ReadLoop panic: %v", c.ID, r)
+			wsLog.Error("ReadLoop panic", "client_id", c.ID, "panic", r)
 		}
 		c.server.Hub().Unregister(c)
 		c.Close()
@@ -951,7 +1140,7 @@ func (c *Client) ReadLoop() {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[WebSocket] Ping ticker panic for client %s: %v", c.ID, r)
+				wsLog.Error("Ping ticker panic", "client_id", c.ID, "panic", r)
 			}
 			c.server.wg.Done()
 		}()
@@ -977,7 +1166,7 @@ func (c *Client) ReadLoop() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("[Client %s] Read error: %v", c.ID, err)
+				wsLog.Warn("Read error", "client_id", c.ID, "error", err)
 			}
 			return
 		}
@@ -990,7 +1179,7 @@ func (c *Client) ReadLoop() {
 func (c *Client) WriteLoop() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Client %s] WriteLoop panic: %v", c.ID, r)
+			wsLog.Error("WriteLoop panic", "client_id", c.ID, "panic", r)
 		}
 		c.server.wg.Done()
 	}()
@@ -1005,7 +1194,7 @@ func (c *Client) WriteLoop() {
 			err := c.conn.WriteMessage(websocket.TextMessage, data)
 			c.mu.Unlock()
 			if err != nil {
-				log.Printf("[Client %s] Write error: %v", c.ID, err)
+				wsLog.Warn("Write error", "client_id", c.ID, "error", err)
 				return
 			}
 		}
@@ -1016,7 +1205,7 @@ func (c *Client) WriteLoop() {
 func (c *Client) handleMessage(data []byte) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Client %s] handleMessage panic: %v", c.ID, r)
+			wsLog.Error("handleMessage panic", "client_id", c.ID, "panic", r)
 		}
 	}()
 
@@ -1029,7 +1218,7 @@ func (c *Client) handleMessage(data []byte) {
 	result, err := c.server.Handler().HandleCommand(req.Method, req.Params)
 	if err != nil {
 		// Log error for debugging
-		log.Printf("[WebSocket] Command error for %q: %v", req.Method, err)
+		wsLog.Warn("Command error", "method", req.Method, "error", err)
 		// Use typed error code if available, otherwise generic internal error
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
@@ -1062,12 +1251,12 @@ func (c *Client) SendResult(id string, result any) {
 
 	data, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("[Client %s] Failed to marshal response: %v", c.ID, err)
+		wsLog.Error("Failed to marshal response", "client_id", c.ID, "error", err)
 		return
 	}
 
 	if err := c.SendRaw(data); err != nil {
-		log.Printf("[Client %s] Failed to send response: %v", c.ID, err)
+		wsLog.Warn("Failed to send response", "client_id", c.ID, "error", err)
 	}
 }
 
@@ -1083,12 +1272,12 @@ func (c *Client) SendError(id string, code int, message string) {
 
 	data, err := json.Marshal(resp)
 	if err != nil {
-		log.Printf("[Client %s] Failed to marshal error: %v", c.ID, err)
+		wsLog.Error("Failed to marshal error", "client_id", c.ID, "error", err)
 		return
 	}
 
 	if err := c.SendRaw(data); err != nil {
-		log.Printf("[Client %s] Failed to send error: %v", c.ID, err)
+		wsLog.Warn("Failed to send error", "client_id", c.ID, "error", err)
 	}
 }
 
@@ -1101,12 +1290,12 @@ func (c *Client) SendEvent(eventType string, payload any) {
 
 	data, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("[Client %s] Failed to marshal event: %v", c.ID, err)
+		wsLog.Error("Failed to marshal event", "client_id", c.ID, "error", err)
 		return
 	}
 
 	if err := c.SendRaw(data); err != nil {
-		log.Printf("[Client %s] Failed to send event: %v", c.ID, err)
+		wsLog.Warn("Failed to send event", "client_id", c.ID, "error", err)
 	}
 }
 
@@ -1143,7 +1332,7 @@ func checkOrigin(r *http.Request, allowedOrigins []string) bool {
 	if len(allowedOrigins) == 0 {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			log.Printf("[WebSocket] WARNING: No allowed origins configured, accepting connection from: %s", origin)
+			wsLog.Warn("No allowed origins configured, accepting connection", "origin", origin)
 		}
 		return true
 	}
@@ -1168,6 +1357,6 @@ func checkOrigin(r *http.Request, allowedOrigins []string) bool {
 		}
 	}
 
-	log.Printf("[WebSocket] Rejected connection from origin: %s", origin)
+	wsLog.Warn("Rejected connection from origin", "origin", origin)
 	return false
 }
