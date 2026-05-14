@@ -4,6 +4,7 @@ package acp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -89,7 +90,7 @@ const (
 // Sentinel errors
 var (
 	// ErrNoConnection is returned when trying to execute without an ACP connection
-	ErrNoConnection = fmt.Errorf("no ACP connection available")
+	ErrNoConnection = errors.New("no ACP connection available")
 )
 
 // NewRequest creates a new JSON-RPC request

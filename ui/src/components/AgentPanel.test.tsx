@@ -281,7 +281,13 @@ describe('AgentPanel', () => {
     const stopButtons = screen.getAllByRole('button')
     const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
     fireEvent.click(stopButton!)
-    
+
+    // Component shows a ConfirmDialog before stopping - confirm it
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Stop Agent' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Agent' }))
+
     await waitFor(() => {
       expect(mockStopAgent).toHaveBeenCalledWith('1')
     })
@@ -584,6 +590,12 @@ describe('AgentPanel state colors', () => {
     const stopButtons = screen.getAllByRole('button')
     const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
     fireEvent.click(stopButton!)
+
+    // Component shows a ConfirmDialog before stopping - confirm it
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Stop Agent' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Agent' }))
 
     // Should not crash - error is logged
     await waitFor(() => {

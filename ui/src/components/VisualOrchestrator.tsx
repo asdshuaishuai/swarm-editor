@@ -276,10 +276,15 @@ export function VisualOrchestrator({ initialWorkflow, onSave, onRun }: VisualOrc
         {workflow.nodes.map(node => (
           <div
             key={node.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`${node.name} - ${node.type} - ${node.status}`}
+            aria-pressed={selectedNode?.id === node.id}
             className={`absolute cursor-move select-none ${selectedNode?.id === node.id ? 'z-10' : 'z-0'}`}
             style={{ left: node.x, top: node.y }}
             onMouseDown={(e) => handleNodeMouseDown(e, node)}
             onClick={(e) => handleNodeClick(e, node)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode(node) }}}
           >
             <div className={`w-32 h-20 bg-card rounded-mac border flex flex-col items-center justify-center transition-all ${
               selectedNode?.id === node.id
@@ -410,10 +415,13 @@ export function VisualOrchestrator({ initialWorkflow, onSave, onRun }: VisualOrc
         {/* Agent Palette */}
         <div className="flex-1 overflow-y-auto p-3">
           <h4 className="text-xs font-semibold text-text-tertiary mb-2 uppercase tracking-wider">Agents</h4>
-          <div className="space-y-2">
+          <div className="space-y-2" role="listbox" aria-label="Available agents">
             {agents.map(agent => (
               <div
                 key={agent.id}
+                role="option"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAddNode(agent) }}}
                 className="p-2 bg-glass hover:bg-card-hover rounded-mac cursor-pointer transition-colors"
                 onClick={() => handleAddNode(agent)}
               >

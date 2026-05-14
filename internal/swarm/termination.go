@@ -141,8 +141,8 @@ func (c *NoProgressCondition) Reset() {
 
 // CustomCondition allows arbitrary termination logic via a function.
 type CustomCondition struct {
-	name      string
-	check     func(turnCount int, lastOutput string) bool
+	name  string
+	check func(turnCount int, lastOutput string) bool
 }
 
 // NewCustomCondition creates a termination condition from a custom function.
@@ -179,9 +179,9 @@ func (c *CustomCondition) Reset() {}
 //	policy.Add(NewTimeoutCondition(5 * time.Minute))
 //	// Terminates on first condition met (OR logic)
 type CompositeTerminationPolicy struct {
-	mu          sync.Mutex
-	mode        TerminationMode
-	conditions  []TerminationCondition
+	mu         sync.Mutex
+	mode       TerminationMode
+	conditions []TerminationCondition
 }
 
 // TerminationMode determines how conditions are combined.

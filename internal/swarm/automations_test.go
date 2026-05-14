@@ -109,11 +109,11 @@ func TestAutomationEngine_Disabled(t *testing.T) {
 	})
 
 	a := &Automation{
-		ID:       "auto-disabled",
-		Name:     "disabled-auto",
-		Enabled:  false,
-		Trigger:  AutomationTrigger{Events: []string{"workflow.failed"}},
-		Actions:  []AutomationAction{{Type: "send_notification"}},
+		ID:      "auto-disabled",
+		Name:    "disabled-auto",
+		Enabled: false,
+		Trigger: AutomationTrigger{Events: []string{"workflow.failed"}},
+		Actions: []AutomationAction{{Type: "send_notification"}},
 	}
 	engine.AddAutomation(a)
 
@@ -196,11 +196,11 @@ func TestAutomationEngine_FireCount(t *testing.T) {
 	})
 
 	a := &Automation{
-		ID:       "auto-count",
-		Name:     "count-auto",
-		Enabled:  true,
-		Trigger:  AutomationTrigger{Events: []string{"workflow.failed"}},
-		Actions:  []AutomationAction{{Type: "send_notification"}},
+		ID:      "auto-count",
+		Name:    "count-auto",
+		Enabled: true,
+		Trigger: AutomationTrigger{Events: []string{"workflow.failed"}},
+		Actions: []AutomationAction{{Type: "send_notification"}},
 	}
 	engine.AddAutomation(a)
 
@@ -267,11 +267,11 @@ func TestAutomationEngine_ConcurrentEvaluate(t *testing.T) {
 	// Add 10 automations
 	for i := 0; i < 10; i++ {
 		engine.AddAutomation(&Automation{
-			ID:       fmt.Sprintf("auto-%d", i),
-			Name:     fmt.Sprintf("auto-%d", i),
-			Enabled:  true,
-			Trigger:  AutomationTrigger{Events: []string{"test"}},
-			Actions:  []AutomationAction{{Type: "send_notification"}},
+			ID:      fmt.Sprintf("auto-%d", i),
+			Name:    fmt.Sprintf("auto-%d", i),
+			Enabled: true,
+			Trigger: AutomationTrigger{Events: []string{"test"}},
+			Actions: []AutomationAction{{Type: "send_notification"}},
 		})
 	}
 
@@ -621,7 +621,7 @@ func TestAutomationEngine_WebhookAction_NilParams(t *testing.T) {
 
 func TestAutomation_LastFired(t *testing.T) {
 	a := &Automation{
-		ID: "test-auto",
+		ID:        "test-auto",
 		lastFired: time.Now().Add(-1 * time.Hour),
 		fireCount: 5,
 	}
@@ -808,9 +808,9 @@ func TestAutomationEngine_WebhookAction_BlockedHeader(t *testing.T) {
 				"url":                  server.URL,
 				"allowPrivateNetworks": true,
 				"headers": map[string]any{
-					"Authorization":   "Bearer secret",
-					"Cookie":          "session=abc",
-					"X-Custom":        "ok",
+					"Authorization": "Bearer secret",
+					"Cookie":        "session=abc",
+					"X-Custom":      "ok",
 				},
 			}},
 		},

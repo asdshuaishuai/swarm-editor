@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import SettingsPanel from './SettingsPanel'
 import * as useSettingsModule from '../hooks/useSettings'
@@ -17,8 +17,31 @@ const mockSettings: useSettingsModule.Settings = {
   autoSave: true,
   autoSaveDelay: 1000,
   minimap: true,
-  lineNumbers: true,
+  lineNumbers: 'on',
   wordWrap: true,
+  bracketPairColorization: true,
+  stickyScroll: true,
+  indentGuides: true,
+  renderWhitespace: 'selection',
+  cursorBlinking: 'blink',
+  cursorStyle: 'line',
+  // R5121: VS Code parity settings
+  smoothScrolling: true,
+  cursorSmoothCaretAnimation: false,
+  linkedEditing: true,
+  scrollBeyondLastLine: false,
+  formatOnPaste: true,
+  mouseWheelZoom: false,
+  semanticHighlighting: true,
+  // R5169: Inlay Hints & Breadcrumbs settings
+  inlayHints: true,
+  breadcrumbs: true,
+  // R5122: Autocomplete settings
+  quickSuggestions: true,
+  acceptSuggestionOnEnter: 'smart',
+  tabCompletion: 'on',
+  wordBasedSuggestions: 'matchingDocuments',
+  suggestOnTriggerCharacters: true,
   notifications: true,
   sounds: false,
   apiKey: '',
@@ -65,8 +88,6 @@ const mockSettings: useSettingsModule.Settings = {
 
 const mockUseSettings = {
   settings: mockSettings,
-  isLoading: false,
-  syncError: null,
   updateSetting: vi.fn(),
   setSettings: vi.fn(),
   resetSettings: vi.fn(),
@@ -185,6 +206,13 @@ describe('SettingsPanel', () => {
       render(<SettingsPanel />)
       const resetButton = screen.getByText('Reset to Defaults')
       await userEvent.click(resetButton)
+
+      // Component shows a ConfirmDialog before resetting - confirm it
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument()
+      })
+      await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+
       expect(mockUseSettings.resetSettings).toHaveBeenCalled()
       expect(mockUseTheme.setTheme).toHaveBeenCalledWith('dark')
     })
@@ -398,28 +426,6 @@ describe('SettingsPanel', () => {
 
     it('shows sound effects setting', () => {
       expect(screen.getByText('Sound Effects')).toBeInTheDocument()
-    })
-  })
-
-  describe('loading state', () => {
-    it('shows loading indicator when syncing', () => {
-      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
-        ...mockUseSettings,
-        isLoading: true,
-      })
-      render(<SettingsPanel />)
-      expect(screen.getByText('Syncing settings with backend...')).toBeInTheDocument()
-    })
-  })
-
-  describe('error state', () => {
-    it('shows error message when sync fails', () => {
-      vi.mocked(useSettingsModule.useSettings).mockReturnValue({
-        ...mockUseSettings,
-        syncError: 'Connection refused',
-      })
-      render(<SettingsPanel />)
-      expect(screen.getByText(/Failed to sync settings/)).toBeInTheDocument()
     })
   })
 

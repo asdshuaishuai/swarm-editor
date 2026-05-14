@@ -32,9 +32,9 @@ type WorkflowArtifact struct {
 	ID          string               `json:"id"`
 	WorkflowID  string               `json:"workflowId"`
 	NodeID      string               `json:"nodeId,omitempty"`
-	Key         string               `json:"key"`         // unique key within workflow scope
+	Key         string               `json:"key"` // unique key within workflow scope
 	Type        WorkflowArtifactType `json:"type"`
-	Data        any                  `json:"data"`        // the actual artifact content
+	Data        any                  `json:"data"` // the actual artifact content
 	Description string               `json:"description,omitempty"`
 	Version     int                  `json:"version"`
 	CreatedAt   time.Time            `json:"createdAt"`
@@ -50,7 +50,7 @@ type WorkflowArtifact struct {
 type WorkflowArtifactStore struct {
 	mu         sync.RWMutex
 	artifacts  map[string]*WorkflowArtifact // keyed by workflowID:key
-	maxPerNode int                         // max artifacts per (workflowID, nodeID), 0 = unlimited
+	maxPerNode int                          // max artifacts per (workflowID, nodeID), 0 = unlimited
 }
 
 // NewWorkflowArtifactStore creates a new artifact store.
@@ -291,7 +291,7 @@ func (s *WorkflowArtifactStore) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(map[string]any{
 		"artifacts": artifacts,
-		"count":      len(artifacts),
+		"count":     len(artifacts),
 	})
 }
 
@@ -367,7 +367,8 @@ func deepCopyAny(v any) any {
 			if m == nil {
 				cp[i] = nil
 			} else {
-				cp[i] = deepCopyAny(m).(map[string]any)
+				// Safe assertion: m is map[string]any in this case branch, deepCopyAny preserves type
+				cp[i] = deepCopyAny(m).(map[string]any) //nolint:errcheck
 			}
 		}
 		return cp

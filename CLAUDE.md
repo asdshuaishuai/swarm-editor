@@ -21,8 +21,10 @@ Swarm Editor 是一个基于 ACP (Agent Client Protocol) 协议的**多Agent协�
 | 优先级 | GAP | 竞品方案 | 状态 |
 |--------|-----|----------|------|
 | P1 | 代码库索引 | Cursor @Codebase | ✅ 已实现 |
-| P2 | @Files 语法 | Cursor `@Files path` | 待开发 |
+| P2 | @Files 语法 | Cursor `@Files path` | ✅ 已实现 |
+| P2 | LSP 桥接 | Cursor/Windsurf 内置 | ✅ 已实现 |
 | P3 | 内联补全 | Cursor Tab 补全 | 待开发 |
+| P3 | Monaco 集成补全 | Cursor/Windsurf | 待开发 |
 
 详细文档: `docs/SELF_EVOLUTION.md`, `internal/swarm/FEATURE_CLASSIFICATION.md`
 
@@ -89,6 +91,12 @@ cd ui && npm run build  # 生产构建
 - `connection.go`: AgentConnection 管理，会话创建和 Prompt 发送
 - Agent 通过 stdio 与编辑器通信，协议格式为 JSON-RPC 2.0
 
+### internal/lsp - LSP 协议桥接
+- `scanner.go`: 检测系统已安装的 LSP 服务器（gopls, rust-analyzer, pyright 等）
+- `client.go`: LSP 客户端，管理单个 LSP 服务器进程，支持 completion/hover/definition/references/didOpen/didChange/didClose
+- `manager.go`: 多语言 LSP 管理器，按文件扩展名路由到对应 LSP 服务器
+- WebSocket API: lsp_completion, lsp_hover, lsp_definition, lsp_references, lsp_did_open, lsp_did_change, lsp_did_close, lsp_status
+
 ### internal/agent - 智能体系统
 - `agent.go`: Agent 结构体，状态管理，委托给 ACP 连接执行
 - `registry.go`: Agent 注册表
@@ -127,6 +135,15 @@ Agent 配置文件位于 `~/.swarm-editor/agents.json`，定义外部 Agent 的�
 - 测试中使用 `vi.useFakeTimers()` 时，用 `vi.advanceTimersByTimeAsync()` 代替 `waitFor`
 
 ## 自进化历史
+
+### Round 4946 (2026-04-03)
+- **方向转变**: 从 bug 审计转向竞品架构差距分析
+- **发现**: 6轮0-bug不是代码完美，是审计方法论盲区——编辑器层是空壳
+- **新增 LSP 桥接**: client.go (LSP 协议客户端) + manager.go (多语言路由) + 8个 WebSocket API
+- **修复 getWorkspace()**: 前端 stub 改为调用后端 `get_workspace` 命令
+- **新增 workspaceStore**: 全局前端状态管理（workspace, fileTree, editor state）
+- **新增 lspApi**: 前端 LSP API 服务层
+- **质量验证**: 19 Go packages PASS, TypeScript clean, staticcheck CLEAN
 
 ### Round 4781 (2026-03-31)
 - **方向修正**: 从"工作流引擎"回归"多Agent协调编辑器"

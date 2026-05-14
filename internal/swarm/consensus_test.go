@@ -1194,12 +1194,12 @@ func TestCanReachEarlyConsensus_AllAlgorithms(t *testing.T) {
 	}{
 		// Supermajority: worstCaseRate >= 0.667 or bestCaseRate < 0.667
 		// With 10 agents, remaining = 10 - currentVotes
-		{"Supermajority_9approve_0reject", ConsensusSupermajority, 9, 0, true},  // 9/9 >= 0.667 (remaining=1, worst=9/(9+1.5)=0.857)
+		{"Supermajority_9approve_0reject", ConsensusSupermajority, 9, 0, true}, // 9/9 >= 0.667 (remaining=1, worst=9/(9+1.5)=0.857)
 		{"Supermajority_2approve_0reject", ConsensusSupermajority, 2, 0, false},
 		{"Supermajority_0approve_3reject", ConsensusSupermajority, 0, 3, false}, // bestCase=(10.5)/(13.5)=0.778 >= 0.667
 
 		// Weighted: worstCaseRate >= threshold or bestCaseRate < threshold
-		{"Weighted_7approve_0reject", ConsensusWeighted, 7, 0, true},  // worstCase=7/(7+4.5)=0.609 >= 0.6
+		{"Weighted_7approve_0reject", ConsensusWeighted, 7, 0, true}, // worstCase=7/(7+4.5)=0.609 >= 0.6
 		{"Weighted_2approve_0reject", ConsensusWeighted, 2, 0, false},
 		{"Weighted_0approve_3reject", ConsensusWeighted, 0, 3, false}, // bestCase=10.5/13.5=0.778 >= 0.6
 
@@ -1262,8 +1262,8 @@ func TestCanReachEarlyConsensus_EdgeCases(t *testing.T) {
 
 	// Unanimity with ExpectedEvaluationCount set
 	active2 := &ActiveTaskEvaluation{
-		Algorithm:              ConsensusUnanimity,
-		Evaluations:            make(map[string]Evaluation),
+		Algorithm:               ConsensusUnanimity,
+		Evaluations:             make(map[string]Evaluation),
 		ExpectedEvaluationCount: 3,
 	}
 	for i := 0; i < 2; i++ {
@@ -1285,8 +1285,8 @@ func TestCanReachEarlyConsensus_EdgeCases(t *testing.T) {
 
 	// ExpectedEvaluationCount=0 and no agents → false (unanimity fallback)
 	active3 := &ActiveTaskEvaluation{
-		Algorithm:              ConsensusUnanimity,
-		Evaluations:            make(map[string]Evaluation),
+		Algorithm:               ConsensusUnanimity,
+		Evaluations:             make(map[string]Evaluation),
 		ExpectedEvaluationCount: 0,
 	}
 	if engine.canReachEarlyConsensus(active3) {
@@ -1806,4 +1806,3 @@ func TestConsensus_CastVote_NonExistentTask(t *testing.T) {
 		t.Errorf("expected 'task not found' error, got: %v", err)
 	}
 }
-

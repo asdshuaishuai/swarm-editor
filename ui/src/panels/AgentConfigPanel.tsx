@@ -300,6 +300,7 @@ export default function AgentConfigPanel({
                     }
                     disabled={!!editingAgent}
                     className="w-full input-mac disabled:opacity-50"
+                    autoFocus={!editingAgent}
                     placeholder="claude-code"
                   />
                 </div>
@@ -498,7 +499,7 @@ export default function AgentConfigPanel({
 
             {/* Error Message */}
             {saveError && (
-              <div className="p-3 bg-error/10 border border-error/30 rounded-mac text-sm text-error">
+              <div role="alert" aria-live="polite" className="p-3 bg-error/10 border border-error/30 rounded-mac text-sm text-error">
                 {saveError}
               </div>
             )}

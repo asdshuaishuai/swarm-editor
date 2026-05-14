@@ -191,8 +191,8 @@ func TestGetParserForFile(t *testing.T) {
 		{"config.JSON", "json"}, // case insensitive
 		{"config.toml", "toml"},
 		{"config.TOML", "toml"},
-		{"config.yml", ""},  // nil for yaml
-		{"config.yaml", ""}, // nil for yaml
+		{"config.yml", ""},     // nil for yaml
+		{"config.yaml", ""},    // nil for yaml
 		{"config.txt", "json"}, // default to json
 		{"noext", "json"},      // no extension defaults to json
 	}

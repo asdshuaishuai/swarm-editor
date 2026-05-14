@@ -3,14 +3,19 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"sync/atomic"
 
 	"github.com/google/uuid"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var serverLog = log.With("component", "ACP")
+var clientLog = log.With("component", "ACPClient")
 
 // Method names as defined by ACP
 const (
@@ -177,9 +182,12 @@ func (s *Server) SendUpdate(sessionID SessionID, update *Update) error {
 	}
 	msg, err := NewNotification(MethodSessionUpdate, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("create session update notification: %w", err)
 	}
-	return s.transport.Send(msg)
+	if err := s.transport.Send(msg); err != nil {
+		return fmt.Errorf("send session update: %w", err)
+	}
+	return nil
 }
 
 // RequestPermission requests permission from the client
@@ -193,7 +201,7 @@ func (s *Server) RequestPermission(ctx context.Context, sessionID SessionID, req
 
 	msg, err := NewRequest(reqID, MethodSessionRequestPerm, request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create permission request: %w", err)
 	}
 
 	respCh := make(chan *Message, 1)
@@ -208,7 +216,7 @@ func (s *Server) RequestPermission(ctx context.Context, sessionID SessionID, req
 	}()
 
 	if err := s.transport.Send(msg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("send permission request: %w", err)
 	}
 
 	select {
@@ -218,7 +226,7 @@ func (s *Server) RequestPermission(ctx context.Context, sessionID SessionID, req
 		}
 		var outcome PermissionOutcome
 		if err := json.Unmarshal(resp.Result, &outcome); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unmarshal permission outcome: %w", err)
 		}
 		return &outcome, nil
 	case <-ctx.Done():
@@ -238,13 +246,13 @@ func (s *Server) readLoop() {
 
 		msg, err := s.transport.Receive()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// Normal shutdown
 				return
 			}
 			// Non-EOF error: transport may recover, but log and exit readLoop
 			// to avoid busy-loop when transport returns permanent errors
-			log.Printf("server readLoop: receive error: %v", err)
+			serverLog.Warn("readLoop receive error", "error", err)
 			return
 		}
 
@@ -254,7 +262,7 @@ func (s *Server) readLoop() {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("server handleRequest panic: %v", r)
+						serverLog.Error("handleRequest panic", "panic", r)
 					}
 					s.wg.Done()
 				}()
@@ -266,7 +274,7 @@ func (s *Server) readLoop() {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("server handleNotification panic: %v", r)
+						serverLog.Error("handleNotification panic", "panic", r)
 					}
 					s.wg.Done()
 				}()
@@ -407,7 +415,7 @@ func (s *Server) handleRequest(msg *Message) {
 	}
 
 	if err := s.transport.Send(resp); err != nil {
-		log.Printf("server handleRequest: failed to send response: %v", err)
+		serverLog.Error("handleRequest failed to send response", "error", err)
 	}
 }
 
@@ -427,6 +435,13 @@ func (s *Server) handleResponse(msg *Message) {
 	var id int64
 	if msg.ID.IsNum {
 		id = msg.ID.Number
+	} else {
+		// ACP uses numeric IDs only; string-ID responses are dropped
+		// Log this for debugging non-conformant clients
+		serverLog.Warn("Dropping response with non-numeric ID (ACP uses numeric IDs only)",
+			"string_id", msg.ID.String)
+		s.mu.RUnlock()
+		return
 	}
 	ch, ok := s.pendingRequests[id]
 	s.mu.RUnlock()
@@ -435,7 +450,7 @@ func (s *Server) handleResponse(msg *Message) {
 		select {
 		case ch <- msg:
 		default:
-			log.Printf("[ACP Server] duplicate response for request %d, dropping", id)
+			serverLog.Warn("Duplicate response for request, dropping", "request_id", id)
 		}
 	}
 }
@@ -527,7 +542,7 @@ func (c *Client) OnPermissionRequest(handler func(sessionID SessionID, request *
 func (c *Client) Initialize(ctx context.Context, params *InitializeParams) (*InitializeResult, error) {
 	var result InitializeResult
 	if err := c.call(ctx, MethodInitialize, params, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize: %w", err)
 	}
 	return &result, nil
 }
@@ -536,7 +551,7 @@ func (c *Client) Initialize(ctx context.Context, params *InitializeParams) (*Ini
 func (c *Client) SessionNew(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
 	var result SessionNewResult
 	if err := c.call(ctx, MethodSessionNew, params, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("session new: %w", err)
 	}
 	return &result, nil
 }
@@ -545,7 +560,7 @@ func (c *Client) SessionNew(ctx context.Context, params *SessionNewParams) (*Ses
 func (c *Client) SessionPrompt(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error) {
 	var result SessionPromptResult
 	if err := c.call(ctx, MethodSessionPrompt, params, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("session prompt: %w", err)
 	}
 	return &result, nil
 }
@@ -566,9 +581,12 @@ func (c *Client) SendUpdate(sessionID SessionID, update *Update) error {
 	}
 	msg, err := NewNotification(MethodSessionUpdate, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("create session update notification: %w", err)
 	}
-	return c.transport.Send(msg)
+	if err := c.transport.Send(msg); err != nil {
+		return fmt.Errorf("send session update: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) call(ctx context.Context, method string, params any, result any) error {
@@ -577,7 +595,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 
 	msg, err := NewRequest(reqID, method, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("create %s request: %w", method, err)
 	}
 
 	respCh := make(chan *Message, 1)
@@ -592,7 +610,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	}()
 
 	if err := c.transport.Send(msg); err != nil {
-		return err
+		return fmt.Errorf("send %s request: %w", method, err)
 	}
 
 	select {
@@ -601,7 +619,9 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 			return resp.Error
 		}
 		if result != nil && resp.Result != nil {
-			return json.Unmarshal(resp.Result, result)
+			if err := json.Unmarshal(resp.Result, result); err != nil {
+				return fmt.Errorf("unmarshal %s response: %w", method, err)
+			}
 		}
 		return nil
 	case <-ctx.Done():
@@ -621,13 +641,13 @@ func (c *Client) readLoop() {
 
 		msg, err := c.transport.Receive()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// Normal shutdown
 				return
 			}
 			// Non-EOF error: transport may recover, but log and exit readLoop
 			// to avoid busy-loop when transport returns permanent errors
-			log.Printf("client readLoop: receive error: %v", err)
+			clientLog.Warn("readLoop receive error", "error", err)
 			return
 		}
 
@@ -636,6 +656,12 @@ func (c *Client) readLoop() {
 			var id int64
 			if msg.ID.IsNum {
 				id = msg.ID.Number
+			} else {
+				// ACP uses numeric IDs only; string-ID responses are dropped
+				// Log this for debugging non-conformant agents
+				clientLog.Warn("Dropping response with non-numeric ID (ACP uses numeric IDs only)",
+					"string_id", msg.ID.String)
+				continue
 			}
 			c.mu.RLock()
 			ch, ok := c.pendingRequests[id]
@@ -645,7 +671,7 @@ func (c *Client) readLoop() {
 				select {
 				case ch <- msg:
 				default:
-					log.Printf("[ACP Client] duplicate response for request %d, dropping", id)
+					clientLog.Warn("Duplicate response for request, dropping", "request_id", id)
 				}
 			}
 		} else if msg.Method != "" {
@@ -680,18 +706,18 @@ func (c *Client) handleNotification(msg *Message) {
 					// Send response
 					resp, respErr := NewResponse(msg.ID, outcome)
 					if respErr != nil {
-						log.Printf("client handleNotification: failed to create response: %v", respErr)
+						clientLog.Error("handleNotification failed to create response", "error", respErr)
 						return
 					}
 					if sendErr := c.transport.Send(resp); sendErr != nil {
-						log.Printf("client handleNotification: failed to send response: %v", sendErr)
+						clientLog.Error("handleNotification failed to send response", "error", sendErr)
 					}
 				} else {
 					// MEDIUM: Send error response when handler fails (previously silently ignored)
-					log.Printf("client handleNotification: permission handler error: %v", handlerErr)
+					clientLog.Error("Permission handler error", "error", handlerErr)
 					errResp := NewErrorResponse(msg.ID, -32603, handlerErr.Error(), nil)
 					if sendErr := c.transport.Send(errResp); sendErr != nil {
-						log.Printf("client handleNotification: failed to send error response: %v", sendErr)
+						clientLog.Error("handleNotification failed to send error response", "error", sendErr)
 					}
 				}
 			}

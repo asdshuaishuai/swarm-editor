@@ -328,7 +328,7 @@ func TestHasPermission_InvalidRole(t *testing.T) {
 }
 
 func TestGetPermissions_ReturnsCorrectPermissions(t *testing.T) {
-		perms := GetPermissions(RoleOwner)
+	perms := GetPermissions(RoleOwner)
 	if perms == nil {
 		t.Fatal("expected permissions for owner")
 	}

@@ -554,7 +554,7 @@ func TestEmergenceService_CollectEmergentSignals_WithCriticalAlerts(t *testing.T
 // SetAlertsForTest allows tests to inject alerts - added to supervisor for testing
 // This is a helper that supervisor_test.go uses via direct field access
 
-func TestEmergenceService_CollectEmergentSignals_CollaborationActive(t *testing.T) {
+func TestEmergenceService_CollectEmergentSignals_CollaborationActive_Old(t *testing.T) {
 	// Test collectEmergentSignals with collaboration signal (WorkerCount > 2 && ActiveTasks > 0)
 	connMgr := acp.NewConnectionManager(nil)
 	coordinator := swarm.NewCoordinator(swarm.CoordinatorConfig{}, connMgr)

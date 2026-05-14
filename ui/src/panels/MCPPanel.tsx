@@ -189,6 +189,8 @@ export default function MCPPanel() {
           </div>
         </div>
         <button
+          role="switch"
+          aria-checked={settings.mcpEnabled}
           onClick={() => {
             const newState = !settings.mcpEnabled
             updateSetting('mcpEnabled', newState)
@@ -257,6 +259,7 @@ export default function MCPPanel() {
                   onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
                   className="w-full input-mac"
                   placeholder="my-mcp-server"
+                  autoFocus
                 />
               </div>
 
@@ -306,6 +309,8 @@ export default function MCPPanel() {
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-text-primary">Auto-start on launch</span>
                 <button
+                  role="switch"
+                  aria-checked={newServer.autoStart}
                   onClick={() => setNewServer({ ...newServer, autoStart: !newServer.autoStart })}
                   className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
                     newServer.autoStart ? 'bg-accent' : 'bg-glass border border-glass-border'
@@ -366,6 +371,7 @@ export default function MCPPanel() {
                   value={editingServer.name}
                   onChange={(e) => setEditingServer({ ...editingServer, name: e.target.value })}
                   className="w-full input-mac"
+                  autoFocus
                 />
               </div>
 
@@ -399,6 +405,8 @@ export default function MCPPanel() {
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-text-primary">Auto-start on launch</span>
                 <button
+                  role="switch"
+                  aria-checked={editingServer.autoStart}
                   onClick={() => setEditingServer({ ...editingServer, autoStart: !editingServer.autoStart })}
                   className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
                     editingServer.autoStart ? 'bg-accent' : 'bg-glass border border-glass-border'

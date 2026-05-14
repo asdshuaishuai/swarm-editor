@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 interface ConfirmDialogProps {
@@ -21,9 +21,11 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const isDanger = variant === 'danger'
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
-  // Handle Escape key to cancel
+  // Handle Escape key to cancel + auto-focus cancel button for keyboard users
   useEffect(() => {
+    cancelRef.current?.focus()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onCancel()
@@ -56,8 +58,9 @@ export function ConfirmDialog({
 
         <div className="flex justify-end gap-2">
           <button
+            ref={cancelRef}
             onClick={onCancel}
-            className="px-3 py-1.5 text-sm font-medium text-text-secondary hover:text-text-primary bg-slate-800 hover:bg-slate-700 rounded-mac transition-colors"
+            className="px-3 py-1.5 text-sm font-medium text-text-secondary hover:text-text-primary bg-surface hover:bg-card-hover rounded-mac transition-colors"
           >
             {cancelLabel}
           </button>

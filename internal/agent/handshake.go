@@ -5,14 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"slices"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var negotiatorLog = log.With("component", "Negotiator")
 
 // HandshakeManager handles ACP protocol handshakes with discovered agents
 type HandshakeManager struct {
@@ -156,11 +158,30 @@ func (h *HandshakeManager) negotiateCapabilities(agentCaps acp.AgentCapabilities
 	return caps
 }
 
-// GetConnection returns a connection by agent ID
+// GetConnection returns a deep copy of a connection by agent ID
 func (h *HandshakeManager) GetConnection(agentID string) *HandshakeConnection {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return h.connections[agentID]
+	conn, ok := h.connections[agentID]
+	if !ok {
+		return nil
+	}
+	cp := *conn
+	if len(cp.Capabilities.SupportedMethods) > 0 {
+		cp.Capabilities.SupportedMethods = make([]string, len(conn.Capabilities.SupportedMethods))
+		copy(cp.Capabilities.SupportedMethods, conn.Capabilities.SupportedMethods)
+	}
+	if len(cp.Capabilities.SupportedContentTypes) > 0 {
+		cp.Capabilities.SupportedContentTypes = make([]string, len(conn.Capabilities.SupportedContentTypes))
+		copy(cp.Capabilities.SupportedContentTypes, conn.Capabilities.SupportedContentTypes)
+	}
+	if cp.Capabilities.Features != nil {
+		cp.Capabilities.Features = make(map[string]bool, len(conn.Capabilities.Features))
+		for k, v := range conn.Capabilities.Features {
+			cp.Capabilities.Features[k] = v
+		}
+	}
+	return &cp
 }
 
 // RemoveConnection removes a connection
@@ -170,14 +191,29 @@ func (h *HandshakeManager) RemoveConnection(agentID string) {
 	delete(h.connections, agentID)
 }
 
-// GetAllConnections returns all active connections
+// GetAllConnections returns deep copies of all active connections
 func (h *HandshakeManager) GetAllConnections() []*HandshakeConnection {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	connections := make([]*HandshakeConnection, 0, len(h.connections))
 	for _, conn := range h.connections {
-		connections = append(connections, conn)
+		cp := *conn
+		if len(cp.Capabilities.SupportedMethods) > 0 {
+			cp.Capabilities.SupportedMethods = make([]string, len(conn.Capabilities.SupportedMethods))
+			copy(cp.Capabilities.SupportedMethods, conn.Capabilities.SupportedMethods)
+		}
+		if len(cp.Capabilities.SupportedContentTypes) > 0 {
+			cp.Capabilities.SupportedContentTypes = make([]string, len(conn.Capabilities.SupportedContentTypes))
+			copy(cp.Capabilities.SupportedContentTypes, conn.Capabilities.SupportedContentTypes)
+		}
+		if cp.Capabilities.Features != nil {
+			cp.Capabilities.Features = make(map[string]bool, len(conn.Capabilities.Features))
+			for k, v := range conn.Capabilities.Features {
+				cp.Capabilities.Features[k] = v
+			}
+		}
+		connections = append(connections, &cp)
 	}
 	return connections
 }
@@ -440,7 +476,7 @@ func (n *CapabilityNegotiator) Negotiate(agentID string, remoteCaps AgentCapabil
 
 	n.negotiatedOps[agentID] = supportedOps
 
-	log.Printf("[Negotiator] Negotiated %d operations with agent %s", len(supportedOps), agentID)
+	negotiatorLog.Info("Negotiated operations", "count", len(supportedOps), "agent_id", agentID)
 
 	return supportedOps
 }

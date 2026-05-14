@@ -46,10 +46,10 @@ type SwitchBranch struct {
 
 // SwitchResult represents the output of a switch node.
 type SwitchResult struct {
-	Branch   string `json:"branch"`
-	Matched  bool   `json:"matched"`
-	Rules    int    `json:"rules"`
-	Evaluated int   `json:"evaluated"`
+	Branch    string `json:"branch"`
+	Matched   bool   `json:"matched"`
+	Rules     int    `json:"rules"`
+	Evaluated int    `json:"evaluated"`
 }
 
 // ExecuteSwitchNode evaluates switch rules and selects the matching branch.
@@ -79,8 +79,8 @@ func ExecuteSwitchNode(config map[string]any) (*SwitchResult, error) {
 
 	if len(branches) == 0 {
 		return &SwitchResult{
-			Branch:   "",
-			Matched:  false,
+			Branch:    "",
+			Matched:   false,
 			Evaluated: 0,
 		}, nil
 	}

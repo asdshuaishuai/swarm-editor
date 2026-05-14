@@ -1682,13 +1682,13 @@ func TestPermissionManager_CleanupExpired(t *testing.T) {
 		ExpiresAt:  time.Now().Add(-time.Hour),
 		CreatedAt:  time.Now().Add(-2 * time.Hour),
 	}
-	resolvedAt := time.Now().Add(-10 * time.Minute)
+	resolvedAt := time.Now().Add(-2 * time.Minute)
 	resolvedReq := &PermissionRequest{
 		ID:         "resolved-1",
 		Permission: PermRemoveMember,
 		Status:     StatusApproved,
-		ResolvedAt:  &resolvedAt,
-		CreatedAt:   time.Now().Add(-2 * time.Hour),
+		ResolvedAt: &resolvedAt,
+		CreatedAt:  time.Now().Add(-2 * time.Hour),
 	}
 
 	pm2.mu.Lock()
@@ -1696,25 +1696,48 @@ func TestPermissionManager_CleanupExpired(t *testing.T) {
 	pm2.requests["resolved-1"] = resolvedReq
 	pm2.mu.Unlock()
 
-	// Call cleanup directly (normally called by goroutine)
-	// We can't easily trigger the ticker, but we can test the manual cleanup path
-	// by using Stop which cancels context, and the expired request check
-	// happens inside the locked section.
+	// Call cleanupOnce directly to test the cleanup logic
+	pm2.cleanupOnce()
 
 	// Verify expired request was marked as expired
 	pm2.mu.RLock()
 	if pm2.requests["expired-1"] == nil {
 		t.Fatal("expired request should still exist (not deleted by staleness check)")
 	}
-	if pm2.requests["expired-1"].Status != StatusPending {
-		// cleanupExpired hasn't run yet (30s ticker)
-		// The test verifies we can set up the state without panicking
-		t.Logf("expired request status: %s (cleanup not yet triggered, expected)", pm2.requests["expired-1"].Status)
+	if pm2.requests["expired-1"].Status != StatusExpired {
+		t.Errorf("expected expired request status to be StatusExpired, got %s", pm2.requests["expired-1"].Status)
 	}
+	// Resolved request is not old enough for staleness removal (only 10min)
 	if pm2.requests["resolved-1"] == nil {
-		t.Fatal("resolved request should still exist")
+		t.Fatal("resolved request should still exist (not old enough for staleness removal)")
 	}
 	pm2.mu.RUnlock()
+}
+
+func TestPermissionManager_CleanupExpired_RemovesOldResolved(t *testing.T) {
+	pm := NewPermissionManager(time.Hour)
+	defer pm.Stop()
+
+	// Add a resolved request old enough to be cleaned up (10 min > 5 min threshold)
+	resolvedAt := time.Now().Add(-10 * time.Minute)
+	pm.mu.Lock()
+	pm.requests["old-resolved"] = &PermissionRequest{
+		ID:         "old-resolved",
+		Permission: PermInviteMember,
+		Status:     StatusApproved,
+		ResolvedAt: &resolvedAt,
+		CreatedAt:  time.Now().Add(-2 * time.Hour),
+	}
+	pm.mu.Unlock()
+
+	pm.cleanupOnce()
+
+	// Old resolved request should be removed
+	pm.mu.RLock()
+	if pm.requests["old-resolved"] != nil {
+		t.Error("old resolved request should be removed by staleness cleanup")
+	}
+	pm.mu.RUnlock()
 }
 
 func TestNewManager_WithHomeDir(t *testing.T) {
@@ -1843,15 +1866,15 @@ func TestManager_LoadFromDisk_WithMemberIndexes(t *testing.T) {
 
 	// Write a team with members and agents to verify index rebuild
 	team := map[string]any{
-		"ID":          "team-indexed",
-		"Name":        "Indexed Team",
-		"Owner":       "user-1",
-		"Members":     map[string]any{"user-1": map[string]any{"id": "user-1", "role": "owner", "joinedAt": "2026-01-01T00:00:00Z"}},
-		"Agents":      map[string]any{},
-		"AgentIDs":    []string{},
-		"Workspaces":  map[string]any{},
-		"CreatedAt":   "2026-01-01T00:00:00Z",
-		"Settings":    map[string]any{},
+		"ID":         "team-indexed",
+		"Name":       "Indexed Team",
+		"Owner":      "user-1",
+		"Members":    map[string]any{"user-1": map[string]any{"id": "user-1", "role": "owner", "joinedAt": "2026-01-01T00:00:00Z"}},
+		"Agents":     map[string]any{},
+		"AgentIDs":   []string{},
+		"Workspaces": map[string]any{},
+		"CreatedAt":  "2026-01-01T00:00:00Z",
+		"Settings":   map[string]any{},
 	}
 	data, _ := json.Marshal(team)
 	os.WriteFile(filepath.Join(tempDir, "team-indexed.json"), data, 0644)
@@ -1891,7 +1914,7 @@ func TestPermissionManager_Stop(t *testing.T) {
 
 	select {
 	case <-done:
-			// Good
+		// Good
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop took too long")
 	}

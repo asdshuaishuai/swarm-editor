@@ -4,11 +4,14 @@ package swarm
 
 import (
 	"context"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var circuitBreakerLog = log.With("component", "CircuitBreaker")
 
 // CircuitState represents the state of a circuit breaker
 type CircuitState int32
@@ -137,7 +140,7 @@ func (cb *CircuitBreaker) Allow() bool {
 			onStateChange := cb.onStateChange
 			cb.mu.Unlock()
 
-			log.Printf("[CircuitBreaker] State transition: open -> half-open")
+			circuitBreakerLog.Info("State transition: open -> half-open")
 			if onStateChange != nil {
 				go onStateChange(StateOpen, StateHalfOpen)
 			}
@@ -194,7 +197,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 		onStateChange = cb.onStateChange
 		cb.mu.Unlock()
 
-		log.Printf("[CircuitBreaker] State transition: %s -> %s", oldState, StateClosed)
+		circuitBreakerLog.Info("State transition", "from", oldState, "to", StateClosed)
 		if onStateChange != nil {
 			go onStateChange(oldState, StateClosed)
 		}
@@ -234,7 +237,7 @@ func (cb *CircuitBreaker) RecordFailure() {
 		onStateChange = cb.onStateChange
 		cb.mu.Unlock()
 
-		log.Printf("[CircuitBreaker] State transition: %s -> %s", oldState, StateOpen)
+		circuitBreakerLog.Info("State transition", "from", oldState, "to", StateOpen)
 		if onStateChange != nil {
 			go onStateChange(oldState, StateOpen)
 		}
@@ -266,10 +269,10 @@ func (cb *CircuitBreaker) transitionTo(newState CircuitState) {
 		onStateChange := cb.onStateChange
 		cb.mu.Unlock()
 
-		log.Printf("[CircuitBreaker] State transition: %s -> %s", oldState, newState)
+		circuitBreakerLog.Info("State transition", "from", oldState, "to", newState)
 
 		if onStateChange != nil {
-			go onStateChange(oldState, newState)
+			onStateChange(oldState, newState)
 		}
 	}
 }
@@ -325,7 +328,7 @@ func (cb *CircuitBreaker) Reset() {
 	oldState := CircuitState(cb.state.Swap(int32(StateClosed)))
 	if oldState != StateClosed {
 		cb.lastStateChange = time.Now()
-		log.Printf("[CircuitBreaker] State transition (reset): %s -> %s", oldState, StateClosed)
+		circuitBreakerLog.Info("State transition (reset)", "from", oldState, "to", StateClosed)
 		if cb.onStateChange != nil {
 			go cb.onStateChange(oldState, StateClosed)
 		}

@@ -8,8 +8,8 @@ import (
 
 // mockBroadcaster captures broadcast events for testing.
 type mockBroadcaster struct {
-	mu      sync.Mutex
-	events  []map[string]any
+	mu     sync.Mutex
+	events []map[string]any
 }
 
 func (m *mockBroadcaster) Broadcast(eventType string, payload any) {
@@ -149,9 +149,19 @@ func TestScheduleRunnerHandleOverlapSkip(t *testing.T) {
 	// Add schedule to store so skipCount can be updated
 	store.AddSchedule(sc)
 
-	// handleOverlap should return false (skip)
-	if runner.handleOverlap(sc) {
-		t.Error("expected handleOverlap to return false for skip policy with running execution")
+	// handleOverlap should return overlapSkipped (not overlapProceed)
+	action := runner.handleOverlap(sc)
+	if action == overlapProceed {
+		t.Error("expected handleOverlap to NOT return overlapProceed for skip policy with running execution")
+	}
+
+	// Caller is responsible for updating skip count when action is overlapSkipped
+	if action == overlapSkipped {
+		store.mu.Lock()
+		if s, ok := store.schedules[sc.ID]; ok {
+			s.State.SkipCount++
+		}
+		store.mu.Unlock()
 	}
 
 	// Verify skip count was incremented
@@ -186,9 +196,9 @@ func TestScheduleRunnerHandleOverlapAllow(t *testing.T) {
 	}
 	runner.mu.Unlock()
 
-	// handleOverlap should return true (allow concurrent)
-	if !runner.handleOverlap(sc) {
-		t.Error("expected handleOverlap to return true for allow policy")
+	// handleOverlap should return overlapProceed (allow concurrent)
+	if runner.handleOverlap(sc) != overlapProceed {
+		t.Error("expected handleOverlap to return overlapProceed for allow policy")
 	}
 }
 
@@ -218,9 +228,9 @@ func TestScheduleRunnerHandleOverlapQueueOne(t *testing.T) {
 	}
 	runner.mu.Unlock()
 
-	// First overlap should queue
-	if runner.handleOverlap(sc) {
-		t.Error("expected handleOverlap to return false (queue) for first overlap")
+	// First overlap should queue (return overlapSkip, not overlapProceed)
+	if runner.handleOverlap(sc) == overlapProceed {
+		t.Error("expected handleOverlap to NOT return overlapProceed (queue) for first overlap")
 	}
 
 	runner.mu.Lock()
@@ -230,8 +240,8 @@ func TestScheduleRunnerHandleOverlapQueueOne(t *testing.T) {
 	runner.mu.Unlock()
 
 	// Second overlap should not queue again (only one buffered)
-	if runner.handleOverlap(sc) {
-		t.Error("expected handleOverlap to return false (already queued)")
+	if runner.handleOverlap(sc) == overlapProceed {
+		t.Error("expected handleOverlap to NOT return overlapProceed (already queued)")
 	}
 
 	runner.mu.Lock()
@@ -779,4 +789,227 @@ func TestScheduleRunnerCheckAndExecute_NilInput(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// No panic = success
+}
+
+// ==================== StatusSnapshot Additional Coverage ====================
+
+func TestScheduleRunnerStatusSnapshot_WithRunningSchedules(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	now := time.Now()
+
+	// Populate runningSchedules
+	runner.mu.Lock()
+	runner.runningSchedules["sched-run-1"] = &runningExecution{
+		ScheduleID:  "sched-run-1",
+		ExecutionID: "exec-001",
+		StartedAt:   now.Add(-30 * time.Second),
+	}
+	runner.runningSchedules["sched-run-2"] = &runningExecution{
+		ScheduleID:  "sched-run-2",
+		ExecutionID: "exec-002",
+		StartedAt:   now.Add(-10 * time.Second),
+	}
+	runner.mu.Unlock()
+
+	snapshot := runner.StatusSnapshot()
+
+	// Verify counts
+	if snapshot["status"] != string(ScheduleRunnerStopped) {
+		t.Errorf("expected stopped, got %v", snapshot["status"])
+	}
+	if snapshot["runningCount"] != 2 {
+		t.Errorf("expected runningCount 2, got %v", snapshot["runningCount"])
+	}
+	if snapshot["queuedCount"] != 0 {
+		t.Errorf("expected queuedCount 0, got %v", snapshot["queuedCount"])
+	}
+
+	// Verify runningSchedules slice content
+	runningList, ok := snapshot["runningSchedules"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected runningSchedules to be []map[string]any, got %T", snapshot["runningSchedules"])
+	}
+	if len(runningList) != 2 {
+		t.Fatalf("expected 2 running schedules, got %d", len(runningList))
+	}
+
+	// Build a set of schedule IDs from the result for verification
+	foundIDs := make(map[string]bool)
+	for _, entry := range runningList {
+		sid, ok := entry["scheduleId"].(string)
+		if !ok {
+			t.Errorf("expected scheduleId to be string, got %T", entry["scheduleId"])
+			continue
+		}
+		foundIDs[sid] = true
+
+		// Verify executionId is present
+		if _, hasExecID := entry["executionId"]; !hasExecID {
+			t.Errorf("missing executionId for schedule %q", sid)
+		}
+		// Verify startedAt is present
+		if _, hasStartedAt := entry["startedAt"]; !hasStartedAt {
+			t.Errorf("missing startedAt for schedule %q", sid)
+		}
+	}
+
+	if !foundIDs["sched-run-1"] {
+		t.Error("expected sched-run-1 in runningSchedules")
+	}
+	if !foundIDs["sched-run-2"] {
+		t.Error("expected sched-run-2 in runningSchedules")
+	}
+
+	// Verify queuedExecutions is empty slice
+	queuedList, ok := snapshot["queuedExecutions"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected queuedExecutions to be []map[string]any, got %T", snapshot["queuedExecutions"])
+	}
+	if len(queuedList) != 0 {
+		t.Errorf("expected 0 queued executions, got %d", len(queuedList))
+	}
+}
+
+func TestScheduleRunnerStatusSnapshot_WithQueuedExecutions(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	now := time.Now()
+
+	// Populate queuedExecutions for two different schedules
+	runner.mu.Lock()
+	runner.queuedExecutions["sched-q-1"] = []*queuedExecution{
+		{ScheduleID: "sched-q-1", Input: map[string]any{"key": "val1"}, QueuedAt: now.Add(-2 * time.Minute)},
+		{ScheduleID: "sched-q-1", Input: map[string]any{"key": "val2"}, QueuedAt: now.Add(-1 * time.Minute)},
+	}
+	runner.queuedExecutions["sched-q-2"] = []*queuedExecution{
+		{ScheduleID: "sched-q-2", Input: nil, QueuedAt: now.Add(-30 * time.Second)},
+	}
+	runner.mu.Unlock()
+
+	snapshot := runner.StatusSnapshot()
+
+	// Verify counts
+	if snapshot["runningCount"] != 0 {
+		t.Errorf("expected runningCount 0, got %v", snapshot["runningCount"])
+	}
+	if snapshot["queuedCount"] != 3 {
+		t.Errorf("expected queuedCount 3, got %v", snapshot["queuedCount"])
+	}
+
+	// Verify queuedExecutions slice content
+	queuedList, ok := snapshot["queuedExecutions"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected queuedExecutions to be []map[string]any, got %T", snapshot["queuedExecutions"])
+	}
+	if len(queuedList) != 3 {
+		t.Fatalf("expected 3 queued executions, got %d", len(queuedList))
+	}
+
+	// Count per schedule
+	countBySchedule := make(map[string]int)
+	for _, entry := range queuedList {
+		sid, ok := entry["scheduleId"].(string)
+		if !ok {
+			t.Errorf("expected scheduleId to be string, got %T", entry["scheduleId"])
+			continue
+		}
+		countBySchedule[sid]++
+
+		// Verify queuedAt is present
+		if _, hasQueuedAt := entry["queuedAt"]; !hasQueuedAt {
+			t.Errorf("missing queuedAt for schedule %q", sid)
+		}
+	}
+
+	if countBySchedule["sched-q-1"] != 2 {
+		t.Errorf("expected 2 queued for sched-q-1, got %d", countBySchedule["sched-q-1"])
+	}
+	if countBySchedule["sched-q-2"] != 1 {
+		t.Errorf("expected 1 queued for sched-q-2, got %d", countBySchedule["sched-q-2"])
+	}
+
+	// Verify runningSchedules is empty slice
+	runningList, ok := snapshot["runningSchedules"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected runningSchedules to be []map[string]any, got %T", snapshot["runningSchedules"])
+	}
+	if len(runningList) != 0 {
+		t.Errorf("expected 0 running schedules, got %d", len(runningList))
+	}
+}
+
+func TestScheduleRunnerStatusSnapshot_WithBoth(t *testing.T) {
+	store := NewScheduleStore()
+	orch := NewOrchestrator(NewScheduler(SchedulerConfig{}, nil))
+	b := &mockBroadcaster{}
+
+	runner := NewScheduleRunner(store, orch, b)
+
+	now := time.Now()
+
+	// Populate both runningSchedules and queuedExecutions
+	runner.mu.Lock()
+	runner.runningSchedules["sched-both-1"] = &runningExecution{
+		ScheduleID:  "sched-both-1",
+		ExecutionID: "exec-b1",
+		StartedAt:   now.Add(-15 * time.Second),
+	}
+	runner.queuedExecutions["sched-both-1"] = []*queuedExecution{
+		{ScheduleID: "sched-both-1", Input: map[string]any{"x": 1}, QueuedAt: now.Add(-5 * time.Second)},
+	}
+	runner.queuedExecutions["sched-both-2"] = []*queuedExecution{
+		{ScheduleID: "sched-both-2", Input: map[string]any{"y": 2}, QueuedAt: now},
+	}
+	runner.mu.Unlock()
+
+	snapshot := runner.StatusSnapshot()
+
+	// Verify combined counts
+	if snapshot["runningCount"] != 1 {
+		t.Errorf("expected runningCount 1, got %v", snapshot["runningCount"])
+	}
+	if snapshot["queuedCount"] != 2 {
+		t.Errorf("expected queuedCount 2, got %v", snapshot["queuedCount"])
+	}
+
+	// Verify running
+	runningList, ok := snapshot["runningSchedules"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected runningSchedules to be []map[string]any, got %T", snapshot["runningSchedules"])
+	}
+	if len(runningList) != 1 {
+		t.Fatalf("expected 1 running schedule, got %d", len(runningList))
+	}
+	if runningList[0]["scheduleId"] != "sched-both-1" {
+		t.Errorf("expected scheduleId sched-both-1, got %v", runningList[0]["scheduleId"])
+	}
+	if runningList[0]["executionId"] != "exec-b1" {
+		t.Errorf("expected executionId exec-b1, got %v", runningList[0]["executionId"])
+	}
+
+	// Verify queued
+	queuedList, ok := snapshot["queuedExecutions"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected queuedExecutions to be []map[string]any, got %T", snapshot["queuedExecutions"])
+	}
+	if len(queuedList) != 2 {
+		t.Fatalf("expected 2 queued executions, got %d", len(queuedList))
+	}
+
+	// Verify return map has all expected top-level keys
+	expectedKeys := []string{"status", "runningCount", "queuedCount", "runningSchedules", "queuedExecutions"}
+	for _, key := range expectedKeys {
+		if _, exists := snapshot[key]; !exists {
+			t.Errorf("missing key %q in snapshot", key)
+		}
+	}
 }

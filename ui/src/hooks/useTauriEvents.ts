@@ -211,6 +211,8 @@ export function useACPEvents() {
     client.on('connect', () => {
       logger.info('WebSocket', 'Connected to backend')
       getStore().setConnected(true)
+      // P1 fix: Notify EditorPanel to re-send LSP didOpen for tracked files after reconnect
+      window.dispatchEvent(new CustomEvent('ws-reconnect'))
     })
 
     client.on('disconnect', () => {

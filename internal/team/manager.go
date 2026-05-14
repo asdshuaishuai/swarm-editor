@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,7 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var teamLog = log.With("component", "Team")
 
 // ErrPermissionDenied is returned when an operation lacks required permissions.
 var ErrPermissionDenied = errors.New("permission denied")
@@ -613,7 +615,7 @@ func NewManagerWithDir(storageDir string) *Manager {
 	if storageDir != "" {
 		if err := os.MkdirAll(storageDir, 0755); err != nil {
 			// Log warning but continue with in-memory only mode
-			log.Printf("[Team] Warning: Failed to create teams storage directory: %v", err)
+			teamLog.Warn("Failed to create teams storage directory", "error", err)
 			storageDir = "" // Disable persistence on error
 		}
 	}
@@ -702,7 +704,7 @@ func (m *Manager) loadFromDisk() {
 		// Validate team ID to prevent path traversal from crafted filenames
 		// Team IDs must be alphanumeric with underscores/hyphens, matching generateTeamID format
 		if team.ID == "" || !isValidTeamID(team.ID) {
-			log.Printf("[Team] Skipping team with invalid ID from file %s", file.Name())
+			teamLog.Warn("Skipping team with invalid ID", "file", file.Name())
 			continue
 		}
 
@@ -787,7 +789,8 @@ func (m *Manager) CreateTeamWithDesc(name, description, owner string) (*Team, er
 
 	// Persist to disk
 	if err := m.saveToDisk(team); err != nil {
-		log.Printf("[Team] Warning: Failed to persist team %s: %v", id, err)
+		delete(m.teams, id) // Rollback in-memory state
+		return nil, fmt.Errorf("failed to persist team %s: %w", id, err)
 	}
 
 	return team, nil
@@ -855,7 +858,7 @@ func (m *Manager) DeleteTeam(id string) {
 
 	// Remove from disk
 	if err := m.deleteFromDisk(id); err != nil {
-		log.Printf("[Team] Warning: failed to delete team %s from disk: %v", id, err)
+		teamLog.Warn("Failed to delete team from disk", "team_id", id, "error", err)
 	}
 }
 
@@ -1002,7 +1005,9 @@ func (m *Manager) AddMemberWithPermission(teamID, userID string, role MemberRole
 
 	// Persist
 	if err := m.saveToDisk(team); err != nil {
-		log.Printf("[Team] Warning: failed to persist team %s: %v", teamID, err)
+		// HIGH: Return error instead of swallowing - caller must know persistence failed
+		// to avoid silent data loss on restart
+		return fmt.Errorf("failed to persist team %s: %w", teamID, err)
 	}
 
 	return nil
@@ -1045,7 +1050,7 @@ func (m *Manager) RemoveMemberWithPermission(teamID, userID, removedBy string) e
 
 	// Persist
 	if err := m.saveToDisk(team); err != nil {
-		log.Printf("[Team] Warning: failed to persist team %s: %v", teamID, err)
+		return fmt.Errorf("failed to persist team %s: %w", teamID, err)
 	}
 
 	return nil
@@ -1083,7 +1088,13 @@ func (m *Manager) AddAgentWithPermission(teamID, agentID, addedBy string) error 
 
 	// Persist
 	if err := m.saveToDisk(team); err != nil {
-		log.Printf("[Team] Warning: failed to persist team %s: %v", teamID, err)
+		// Rollback index update
+		m.byAgent[agentID] = removeStringFromSlice(m.byAgent[agentID], teamID)
+		// Rollback agent addition under team's lock
+		team.mu.Lock()
+		team.AgentIDs = removeStringFromSlice(team.AgentIDs, agentID)
+		team.mu.Unlock()
+		return fmt.Errorf("failed to persist team %s: %w", teamID, err)
 	}
 
 	return nil
@@ -1121,7 +1132,13 @@ func (m *Manager) RemoveAgentWithPermission(teamID, agentID, removedBy string) e
 
 	// Persist
 	if err := m.saveToDisk(team); err != nil {
-		log.Printf("[Team] Warning: failed to persist team %s: %v", teamID, err)
+		// Rollback index update - restore agent to index
+		m.byAgent[agentID] = append(m.byAgent[agentID], teamID)
+		// Rollback agent removal under team's lock
+		team.mu.Lock()
+		team.AgentIDs = append(team.AgentIDs, agentID)
+		team.mu.Unlock()
+		return fmt.Errorf("failed to persist team %s: %w", teamID, err)
 	}
 
 	return nil

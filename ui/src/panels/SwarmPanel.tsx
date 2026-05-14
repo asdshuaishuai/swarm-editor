@@ -15,6 +15,7 @@ import { Swarm, TopologyType, TaskStrategy } from '../types'
 import { api } from '../services'
 import SwarmCoordinatorPanel from './SwarmCoordinatorPanel'
 import { logger } from '../utils'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const topologyIcons: Record<TopologyType, string> = {
   star: '★',
@@ -175,10 +176,19 @@ export default function SwarmPanel() {
     }
   }
 
-  const handleStopSwarm = async (swarmId: string, e: React.MouseEvent) => {
+  const [stopSwarmConfirm, setStopSwarmConfirm] = useState<{ id: string; name: string } | null>(null)
+
+  const confirmStopSwarm = (swarmId: string, swarmName: string, e: React.MouseEvent) => {
     e.stopPropagation()
+    setStopSwarmConfirm({ id: swarmId, name: swarmName })
+  }
+
+  const handleStopSwarm = async () => {
+    if (!stopSwarmConfirm) return
+    const { id } = stopSwarmConfirm
+    setStopSwarmConfirm(null)
     try {
-      await api.swarm.stopSwarm(swarmId)
+      await api.swarm.stopSwarm(id)
       if (!mountedRef.current) return
       await loadSwarms()
       if (!mountedRef.current) return
@@ -207,7 +217,7 @@ export default function SwarmPanel() {
       isActive={activeSwarm?.id === swarm.id}
       onSelect={() => handleSelectSwarm(swarm)}
       onStart={(e) => handleStartSwarm(swarm.id, e)}
-      onStop={(e) => handleStopSwarm(swarm.id, e)}
+      onStop={(e) => confirmStopSwarm(swarm.id, swarm.name, e)}
     />
   ))
 
@@ -312,6 +322,7 @@ export default function SwarmPanel() {
                   }
                   className="w-full input-mac"
                   placeholder="My Swarm"
+                  autoFocus
                 />
               </div>
 
@@ -319,10 +330,12 @@ export default function SwarmPanel() {
                 <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                   Topology
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Topology selection">
                   {(Object.keys(topologyIcons) as TopologyType[]).map((t) => (
                     <button
                       key={t}
+                      role="radio"
+                      aria-checked={newSwarm.topology === t}
                       onClick={() => setNewSwarm({ ...newSwarm, topology: t })}
                       className={`flex flex-col items-center gap-1.5 p-3 rounded-mac text-sm transition-all duration-200 ${
                         newSwarm.topology === t
@@ -411,6 +424,17 @@ export default function SwarmPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {stopSwarmConfirm && (
+        <ConfirmDialog
+          title="Stop Swarm"
+          message={`Are you sure you want to stop "${stopSwarmConfirm.name}"? All running tasks will be terminated.`}
+          confirmLabel="Stop Swarm"
+          variant="danger"
+          onConfirm={handleStopSwarm}
+          onCancel={() => setStopSwarmConfirm(null)}
+        />
       )}
     </div>
   )

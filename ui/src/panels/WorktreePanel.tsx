@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import { api, FileEntry } from '../services'
+import { api, FileEntry, gitApi } from '../services'
 import { logger } from '../utils'
 
 interface WorktreeInfo {
@@ -39,6 +39,14 @@ export function WorktreePanel() {
       // 获取当前工作目录作为主 worktree
       const workspace = await api.fs.getWorkspace()
 
+      // 获取当前 git 分支
+      let currentBranch = 'main'
+      try {
+        currentBranch = await gitApi.getBranch()
+      } catch {
+        // Not a git repo
+      }
+
       // 扫描 agents 配置获取关联的 worktrees
       const agents = await api.agent.getAgents()
 
@@ -48,7 +56,7 @@ export function WorktreePanel() {
       const mainWorktree: WorktreeInfo = {
         id: 'main',
         path: workspace,
-        branch: 'main', // TODO: 从 git 获取真实分支
+        branch: currentBranch,
         head: 'current',
         isCurrent: true,
         status: 'available'
@@ -203,6 +211,8 @@ export function WorktreePanel() {
           onClick={() => entry.isDirectory && toggleDir(entry.path)}
           className="w-full flex items-center gap-1.5 px-2 py-0.5 hover:bg-slate-800/50 transition-colors text-left"
           style={{ paddingLeft: `${8 + depth * 12}px` }}
+          aria-expanded={entry.isDirectory ? expandedDirs.has(entry.path) : undefined}
+          aria-label={entry.name}
         >
           {entry.isDirectory && (
             <svg
@@ -210,11 +220,12 @@ export function WorktreePanel() {
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           )}
-          {!entry.isDirectory && <span className="w-3" />}
+          {!entry.isDirectory && <span className="w-3" aria-hidden="true" />}
           {getFileIcon(entry.name, entry.isDirectory)}
           <span className="text-xs text-slate-300 truncate">{entry.name}</span>
         </button>
@@ -243,7 +254,7 @@ export function WorktreePanel() {
       </div>
 
       {/* Worktree List */}
-      <div className="border-b border-[#1f1f21]">
+      <div className="border-b border-[#1f1f21]" role="listbox" aria-label="Worktrees">
         {loading ? (
           <div className="flex items-center justify-center py-4">
             <Loader2 className="w-5 h-5 text-slate-500 animate-spin" />
@@ -252,6 +263,8 @@ export function WorktreePanel() {
           worktrees.map((wt) => (
             <button
               key={wt.id}
+              role="option"
+              aria-selected={selectedWorktree === wt.id}
               onClick={() => setSelectedWorktree(wt.id)}
               className={`w-full px-3 py-2 text-left hover:bg-slate-800/50 transition-colors border-l-2 ${
                 selectedWorktree === wt.id

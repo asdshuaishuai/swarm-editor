@@ -864,16 +864,18 @@ func TestOnFailedCallbackWithConnect(t *testing.T) {
 	}
 }
 
-func TestProbeNetworkAgentTimeout(t *testing.T) {
+func TestProbeNetworkAgentWithContextTimeout(t *testing.T) {
 	config := DiscoveryConfig{
 		ScanTimeout: 100 * time.Millisecond,
 	}
 	service := NewDiscoveryService(config, NewRegistry(), nil, nil)
 
 	// Probe non-existent address
-	agent := service.probeNetworkAgent("127.0.0.1:59998")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	agent := service.probeNetworkAgentWithContext(ctx, "127.0.0.1:59998")
 	if agent != nil {
-		t.Error("probeNetworkAgent should return nil for non-existent address")
+		t.Error("probeNetworkAgentWithContext should return nil for non-existent address")
 	}
 }
 
@@ -886,6 +888,7 @@ func TestDiscoveryServiceWithLifecycle(t *testing.T) {
 	}
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 	service := NewDiscoveryService(config, registry, lifecycle, nil)
 
 	ctx := context.Background()

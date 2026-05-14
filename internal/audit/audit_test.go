@@ -455,11 +455,11 @@ func TestRedactString(t *testing.T) {
 
 func TestFindValueStart(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		patternIdx  int
-		pattern     string
-		want        int
+		name       string
+		input      string
+		patternIdx int
+		pattern    string
+		want       int
 	}{
 		{"pattern found at start", "password=secret", 0, "password", 9},
 		{"pattern found in middle", "user=admin password=secret", 11, "password", 20},

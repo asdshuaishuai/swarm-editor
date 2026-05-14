@@ -4,14 +4,17 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// coordinatorLog is a scoped logger for the Coordinator component.
+var coordinatorLog = log.With("component", "Coordinator")
 
 const maxCoordinatorCompletedTasks = 500
 const maxCoordinatorPendingTasks = 1000
@@ -216,6 +219,12 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.running = true
 
+	// Recreate channels if they were closed by a previous Stop() call.
+	// Receiving from a closed channel returns zero immediately, so without
+	// this, the coordinator goroutines would busy-wait after Stop()+Start().
+	c.resultChan = make(chan *TaskResult, 100)
+	c.broadcastChan = make(chan *CoordinatorMessage, 100)
+
 	// Start message handling loops
 	c.wg.Add(2)
 	go c.coordinatorLoop()
@@ -239,6 +248,11 @@ func (c *Coordinator) Stop() {
 
 	// Wait for all background goroutines to finish
 	c.wg.Wait()
+
+	// Close channels after goroutines exit to unblock any potential senders
+	// Safe because running=false prevents Start() from re-opening them
+	close(c.resultChan)
+	close(c.broadcastChan)
 }
 
 // SubmitTask submits a task for coordination
@@ -329,7 +343,7 @@ func (c *Coordinator) coordinatorLoop() {
 	defer c.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Coordinator] coordinatorLoop panic: %v", r)
+			coordinatorLog.Error("coordinatorLoop panic", "error", r)
 		}
 	}()
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -352,7 +366,7 @@ func (c *Coordinator) resultProcessingLoop() {
 	defer c.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Coordinator] resultProcessingLoop panic: %v", r)
+			coordinatorLog.Error("resultProcessingLoop panic", "error", r)
 		}
 	}()
 	for {
@@ -368,20 +382,22 @@ func (c *Coordinator) resultProcessingLoop() {
 // processPendingTasks processes pending tasks
 func (c *Coordinator) processPendingTasks() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if len(c.pendingTasks) == 0 {
+		c.mu.Unlock()
 		return
 	}
 
 	// Check capacity
 	if len(c.activeTasks) >= c.config.MaxConcurrent {
+		c.mu.Unlock()
 		return
 	}
 
 	// Get next task by priority
 	task := c.getNextTask()
 	if task == nil {
+		c.mu.Unlock()
 		return
 	}
 
@@ -394,12 +410,15 @@ func (c *Coordinator) processPendingTasks() {
 	}
 
 	// Check if task needs decomposition
+	// CRITICAL: Release lock before spawning goroutine — decomposeTask
+	// re-acquires c.mu.Lock(), and the mutex is non-recursive.
 	if c.needsDecomposition(task) {
+		c.mu.Unlock()
 		c.wg.Add(1)
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Coordinator] decomposeTask panic for %q: %v", task.ID, r)
+					coordinatorLog.Error("decomposeTask panic", "task_id", task.ID, "error", r)
 				}
 				c.wg.Done()
 			}()
@@ -413,6 +432,7 @@ func (c *Coordinator) processPendingTasks() {
 	if !assigned {
 		// Put back in queue if no workers available
 		c.pendingTasks = append([]*CoordinationTask{task}, c.pendingTasks...)
+		c.mu.Unlock()
 		return
 	}
 
@@ -422,12 +442,13 @@ func (c *Coordinator) processPendingTasks() {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Coordinator] executeTask panic for %q: %v", task.ID, r)
+				coordinatorLog.Error("executeTask panic", "task_id", task.ID, "error", r)
 			}
 			c.wg.Done()
 		}()
 		c.executeTask(task)
 	}()
+	c.mu.Unlock()
 }
 
 // getNextTask gets the next highest priority task
@@ -456,7 +477,7 @@ func (c *Coordinator) needsDecomposition(task *CoordinationTask) bool {
 func (c *Coordinator) decomposeTask(task *CoordinationTask) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Coordinator] decomposeTask panic for task %s: %v", task.ID, r)
+			coordinatorLog.Error("decomposeTask panic", "task_id", task.ID, "error", r)
 		}
 	}()
 
@@ -464,6 +485,8 @@ func (c *Coordinator) decomposeTask(task *CoordinationTask) {
 	defer c.mu.Unlock()
 
 	task.Status = TaskStatusDecomposing
+	// Add parent task to activeTasks so it remains trackable during decomposition
+	c.activeTasks[task.ID] = task
 
 	// Simple decomposition heuristic (c.mu held for createSubtasks)
 	subtasks := c.createSubtasks(task)
@@ -474,6 +497,8 @@ func (c *Coordinator) decomposeTask(task *CoordinationTask) {
 		st.ParentID = task.ID
 		c.pendingTasks = append(c.pendingTasks, st)
 	}
+	// Parent task remains in activeTasks until all subtasks complete
+	// It will be removed when all subtasks are done (handled in handleResult)
 	task.Status = TaskStatusPending
 }
 
@@ -558,7 +583,7 @@ func (c *Coordinator) selectBestWorker(task *CoordinationTask, available []strin
 func (c *Coordinator) executeTask(task *CoordinationTask) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Coordinator] executeTask panic for task %s: %v", task.ID, r)
+			coordinatorLog.Error("executeTask panic", "task_id", task.ID, "error", r)
 		}
 	}()
 
@@ -597,7 +622,7 @@ func (c *Coordinator) executeTask(task *CoordinationTask) {
 			defer c.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Coordinator] executeOnWorker panic for task %s agent %s: %v", t.ID, aID, r)
+					coordinatorLog.Error("executeOnWorker panic", "task_id", t.ID, "agent_id", aID, "error", r)
 				}
 			}()
 			c.executeOnWorkerWithMaxTurns(t, aID, w, mt)
@@ -660,16 +685,26 @@ func (c *Coordinator) executeOnWorkerWithMaxTurns(task *CoordinationTask, agentI
 	}
 	taskResult.Duration = taskResult.CompletedAt.Sub(taskResult.StartedAt)
 
-	// Send result (non-blocking to prevent deadlock during shutdown)
+	// Send result with context check to prevent panic on closed channel during shutdown
+	// The select checks c.ctx.Done() first to avoid sending on a closed resultChan
+	c.mu.RLock()
+	coordCtx := c.ctx
+	c.mu.RUnlock()
+
 	select {
+	case <-coordCtx.Done():
+		coordinatorLog.Info("Context cancelled, discarding result", "task_id", task.ID, "agent_id", agentID)
 	case c.resultChan <- taskResult:
+		// Sent successfully
 	default:
-		log.Printf("[Coordinator] resultChan full, discarding result for task %s from agent %s", task.ID, agentID)
+		coordinatorLog.Warn("resultChan full, discarding result", "task_id", task.ID, "agent_id", agentID)
 	}
 }
 
 // handleWorkerError handles errors from workers
 func (c *Coordinator) handleWorkerError(task *CoordinationTask, agentID string, err error) {
+	coordinatorLog.Error("Worker error", "agent_id", agentID, "task_id", task.ID, "error", err)
+
 	c.mu.Lock()
 
 	if task.Results == nil {
@@ -790,15 +825,16 @@ func (c *Coordinator) completeTask(task *CoordinationTask) {
 		c.completedTasks = c.completedTasks[len(c.completedTasks)-maxCoordinatorCompletedTasks:]
 	}
 
+	// Extract finalResult BEFORE releasing lock to prevent data race on task.Results
+	var finalResult *TaskResult
+	for _, r := range task.Results {
+		finalResult = r
+		break
+	}
 	onComplete := c.onTaskComplete
 	c.mu.Unlock()
 
 	if onComplete != nil {
-		var finalResult *TaskResult
-		for _, r := range task.Results {
-			finalResult = r
-			break
-		}
 		onComplete(task, finalResult)
 	}
 }

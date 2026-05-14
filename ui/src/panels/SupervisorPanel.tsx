@@ -166,11 +166,15 @@ export function SupervisorPanel() {
     icon: React.ReactNode,
     children?: React.ReactNode,
     badge?: number
-  ) => (
+  ) => {
+    const isExpanded = expandedSection === id
+    return (
     <div className="border-b border-[#1f1f21] last:border-b-0">
       <button
         onClick={() => toggleSection(id)}
         className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-800/30 transition-colors"
+        aria-expanded={isExpanded}
+        aria-controls={`section-${id}`}
       >
         <div className="flex items-center gap-2">
           {icon}
@@ -192,13 +196,13 @@ export function SupervisorPanel() {
           </svg>
         </div>
       </button>
-      {expandedSection === id && (
-        <div className="pb-2">
+      {isExpanded && (
+        <div id={`section-${id}`} className="pb-2">
           {children}
         </div>
       )}
     </div>
-  )
+  )}
 
   return (
     <div className="flex flex-col h-full bg-[#0f0f10] border-l border-[#1f1f21]">

@@ -6,14 +6,17 @@ package audit
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var auditLog = log.With("component", "Audit")
 
 // copyMapAny creates a shallow copy of a map[string]any.
 // Used to prevent callers from mutating internal state via shared map references.
@@ -28,24 +31,24 @@ func copyMapAny(src map[string]any) map[string]any {
 
 // Event represents a single audit event.
 type Event struct {
-	Timestamp    time.Time         `json:"timestamp"`
-	EventType    string            `json:"eventType"`
-	Actor        string            `json:"actor"`      // who performed the action
-	Action       string            `json:"action"`     // what action was taken
-	ResourceType string            `json:"resourceType"` // type of resource (workflow, agent, etc.)
-	ResourceID   string            `json:"resourceId"`  // ID of the affected resource
-	Details      map[string]any    `json:"details,omitempty"` // additional context
-	IPAddress    string            `json:"ipAddress,omitempty"`
-	UserAgent    string            `json:"userAgent,omitempty"`
-	Success      bool              `json:"success"`
-	Error        string            `json:"error,omitempty"`
+	Timestamp    time.Time      `json:"timestamp"`
+	EventType    string         `json:"eventType"`
+	Actor        string         `json:"actor"`             // who performed the action
+	Action       string         `json:"action"`            // what action was taken
+	ResourceType string         `json:"resourceType"`      // type of resource (workflow, agent, etc.)
+	ResourceID   string         `json:"resourceId"`        // ID of the affected resource
+	Details      map[string]any `json:"details,omitempty"` // additional context
+	IPAddress    string         `json:"ipAddress,omitempty"`
+	UserAgent    string         `json:"userAgent,omitempty"`
+	Success      bool           `json:"success"`
+	Error        string         `json:"error,omitempty"`
 }
 
 // Logger provides thread-safe audit logging with file persistence.
 type Logger struct {
 	mu       sync.RWMutex
 	events   []Event
-	maxSize  int // max events in memory before rotation
+	maxSize  int    // max events in memory before rotation
 	filePath string // path to audit log file
 	enabled  bool
 }
@@ -66,7 +69,7 @@ func NewLogger(filePath string, maxSize int) *Logger {
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Printf("[Audit] Warning: failed to create audit directory %s: %v", dir, err)
+			auditLog.Warn("Failed to create audit directory", "dir", dir, "error", err)
 		}
 	}
 	return l
@@ -265,17 +268,17 @@ func (l *Logger) rotate() {
 func (l *Logger) appendToFile(event Event) {
 	data, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("[Audit] Failed to marshal event: %v", err)
+		auditLog.Error("Failed to marshal event", "error", err)
 		return
 	}
 	f, err := os.OpenFile(l.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		log.Printf("[Audit] Failed to open audit file %s: %v", l.filePath, err)
+		auditLog.Error("Failed to open audit file", "path", l.filePath, "error", err)
 		return
 	}
 	defer f.Close()
 	if _, err := fmt.Fprintf(f, "%s\n", data); err != nil {
-		log.Printf("[Audit] Failed to write audit event: %v", err)
+		auditLog.Error("Failed to write audit event", "error", err)
 	}
 }
 

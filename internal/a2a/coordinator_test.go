@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -601,6 +602,55 @@ func TestCoordinatorHandlePheromone(t *testing.T) {
 	key := "coding:auth-module"
 	if coordinator.pheromones[key] == nil {
 		t.Error("Expected pheromone trail to be created")
+	}
+}
+
+func TestCoordinatorTrimPheromones(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{MaxPheromones: 3}, router)
+
+	// Add 5 pheromone trails via handlePheromone (exceeds limit of 3)
+	for i := 0; i < 5; i++ {
+		msg := NewMessage(MessageTypePheromone, "agent1", "coordinator").
+			WithPayload(&PheromonePayload{
+				PheromoneType: "coding",
+				Location:      fmt.Sprintf("task%d", i),
+				Strength:      0.5,
+				Decay:         0.1,
+			})
+		if err := coordinator.handlePheromone(msg); err != nil {
+			t.Fatalf("handlePheromone failed for task%d: %v", i, err)
+		}
+	}
+
+	if len(coordinator.pheromones) != 3 {
+		t.Errorf("expected 3 pheromones after trim, got %d", len(coordinator.pheromones))
+	}
+
+	// The oldest entries should be removed (task0, task1)
+	if coordinator.pheromones["coding:task0"] != nil {
+		t.Error("oldest pheromone (task0) should be trimmed")
+	}
+	if coordinator.pheromones["coding:task1"] != nil {
+		t.Error("second oldest pheromone (task1) should be trimmed")
+	}
+	// Newest entries should remain
+	if coordinator.pheromones["coding:task4"] == nil {
+		t.Error("newest pheromone (task4) should remain")
+	}
+}
+
+func TestCoordinatorTrimPheromonesUnlimited(t *testing.T) {
+	router := NewRouter(RouterConfig{})
+	coordinator := NewCoordinator(CoordinatorConfig{MaxPheromones: 0}, router)
+
+	for i := 0; i < 100; i++ {
+		coordinator.leavePheromone("coding", fmt.Sprintf("task%d", i))
+	}
+
+	// With MaxPheromones=0, no trimming should occur
+	if len(coordinator.pheromones) != 100 {
+		t.Errorf("expected 100 pheromones with unlimited config, got %d", len(coordinator.pheromones))
 	}
 }
 

@@ -356,7 +356,7 @@ func TestDelete(t *testing.T) {
 func TestDelete_Concurrent(t *testing.T) {
 	store, _ := NewStore("")
 	for i := 0; i < 20; i++ {
-		store.Create("s-"+string(rune('0'+i)), "a1")
+		store.Create(fmt.Sprintf("s-%d", i), "a1")
 	}
 
 	var wg sync.WaitGroup
@@ -364,7 +364,7 @@ func TestDelete_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			store.Delete("s-" + string(rune('0'+i)))
+			store.Delete(fmt.Sprintf("s-%d", i))
 		}(i)
 	}
 	wg.Wait()
@@ -511,7 +511,7 @@ func TestGetStats(t *testing.T) {
 func TestGetStats_Concurrent(t *testing.T) {
 	store, _ := NewStore("")
 	for i := 0; i < 20; i++ {
-		store.Create("s-"+string(rune('0'+i)), "a1")
+		store.Create(fmt.Sprintf("s-%d", i), "a1")
 	}
 
 	var wg sync.WaitGroup
@@ -894,11 +894,11 @@ func TestValidateSessionID(t *testing.T) {
 		{"session-1", true},
 		{"abc_123", true},
 		{"", false},
-		{strings.Repeat("a", 256), true},      // exactly at limit
-		{strings.Repeat("a", 257), false},     // over limit
-		{"../etc/passwd", false},              // path traversal
-		{"foo/bar", false},                    // forward slash
-		{"foo\\bar", false},                   // backslash
+		{strings.Repeat("a", 256), true},  // exactly at limit
+		{strings.Repeat("a", 257), false}, // over limit
+		{"../etc/passwd", false},          // path traversal
+		{"foo/bar", false},                // forward slash
+		{"foo\\bar", false},               // backslash
 		{"normal-session-id", true},
 	}
 	for _, tt := range tests {
@@ -1102,5 +1102,373 @@ func TestStore_WriteFileSync_FilePermissions(t *testing.T) {
 	expectedPerm := os.FileMode(0600)
 	if info.Mode().Perm() != expectedPerm {
 		t.Errorf("expected permissions %o, got %o", expectedPerm, info.Mode().Perm())
+	}
+}
+
+// --- Coverage improvement tests for low-coverage functions ---
+
+func TestLoadFromDisk_UnreadableFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a valid JSON session file
+	session := &Session{
+		ID:        "unreadable-session",
+		AgentID:   "agent-1",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Messages:  []Message{},
+		Status:    "active",
+		Metadata:  map[string]any{},
+	}
+	data, _ := json.Marshal(session)
+	path := filepath.Join(tmpDir, "unreadable-session.json")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Make the file unreadable (no read permission)
+	if err := os.Chmod(path, 0000); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	// Ensure permissions are restored for cleanup
+	defer os.Chmod(path, 0644)
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	// The unreadable file should be skipped (logged as warning)
+	if store.Get("unreadable-session") != nil {
+		t.Error("unreadable session file should be skipped")
+	}
+}
+
+func TestLoadFromDisk_ReadOnlyDir(t *testing.T) {
+	// Use manual temp dir instead of t.TempDir() to control cleanup timing.
+	tmpDir, err := os.MkdirTemp("", "store_readonly_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Make directory read-only to trigger loadFromDisk error
+	if err := os.Chmod(tmpDir, 0333); err != nil {
+		t.Fatalf("Chmod dir: %v", err)
+	}
+
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		// loadFromDisk errors are non-fatal in NewStore
+		t.Fatalf("NewStore should not return error even if loadFromDisk fails: %v", err)
+	}
+
+	// Restore permissions so writeWorker can flush and cleanup succeeds
+	os.Chmod(tmpDir, 0755)
+
+	// Store should still be usable after loadFromDisk error
+	s := store.Create("test-after-readonly", "agent-x")
+	if s == nil {
+		t.Error("Create should work after loadFromDisk error")
+	}
+	store.Close()
+}
+
+func TestNewStore_LoadFromDiskError(t *testing.T) {
+	// Use a file path (not directory) as dataDir to trigger MkdirAll failure
+	tmpFile, err := os.CreateTemp("", "store_data_*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// NewStore with a file path as dataDir should still succeed
+	// (loadFromDisk error is non-fatal)
+	store, err := NewStore(tmpPath)
+	if err != nil {
+		t.Fatalf("NewStore should succeed even with invalid dataDir: %v", err)
+	}
+	if store == nil {
+		t.Fatal("store should not be nil")
+	}
+	// Verify store is functional
+	s := store.Create("post-error-session", "agent-1")
+	if s == nil {
+		t.Error("Create should work after loadFromDisk error")
+	}
+}
+
+func TestWriteFileSync_ReadOnlyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make the data directory read-only to trigger CreateTemp failure
+	if err := os.Chmod(tmpDir, 0555); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	defer os.Chmod(tmpDir, 0755)
+
+	// writeFileSync should handle the error gracefully (log and return)
+	store.writeFileSync("readonly-test", []byte(`{"id":"readonly-test"}`))
+	// No assertion needed - just verifying no panic
+}
+
+func TestWriteFileSync_RenameToDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a directory at the target path to make rename fail
+	targetPath := filepath.Join(tmpDir, "dir-target.json")
+	if err := os.MkdirAll(targetPath, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// writeFileSync should handle the rename error gracefully
+	store.writeFileSync("dir-target", []byte(`{"id":"dir-target"}`))
+	// No assertion needed - just verifying no panic/error propagation
+}
+
+func TestWriteWorker_DrainOnClose(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rapidly create sessions to enqueue writes without waiting for drain
+	for i := 0; i < 20; i++ {
+		store.Create(fmt.Sprintf("drain-%d", i), "agent-drain")
+	}
+
+	// Close should drain remaining writes
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Verify at least some writes completed
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	jsonCount := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			jsonCount++
+		}
+	}
+	if jsonCount == 0 {
+		t.Error("expected at least some session files to be written after drain")
+	}
+}
+
+func TestEnqueueWrite_QueueFull(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rapidly create many sessions to try to fill the 100-capacity write queue.
+	// The writeWorker does disk I/O which is slower than in-memory enqueue,
+	// so with enough sessions the queue should overflow and trigger the drop path.
+	for i := 0; i < 500; i++ {
+		store.Create(fmt.Sprintf("queue-full-%d", i), "agent-qf")
+	}
+
+	store.WaitForWrites()
+	store.Close()
+
+	// Verify store is still in a valid state
+	list := store.List()
+	if len(list) == 0 {
+		t.Error("store should have sessions even if some writes were dropped")
+	}
+}
+
+func TestCopySession_NilSession(t *testing.T) {
+	// copySession with nil should not panic
+	result := copySession(nil)
+	// json.Marshal(nil *Session) produces "null", json.Unmarshal("null", &Session{})
+	// sets the struct to zero value, so result should be a non-nil empty Session
+	if result == nil {
+		t.Fatal("copySession(nil) should not return nil")
+	}
+	if result.ID != "" {
+		t.Errorf("copySession(nil).ID = %q, want empty", result.ID)
+	}
+}
+
+func TestCopySession_WithUnserializableMetadata(t *testing.T) {
+	// Session with a function value in Metadata should cause Marshal to fail
+	s := &Session{
+		ID:        "bad-meta",
+		AgentID:   "agent-1",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Status:    "active",
+		Metadata:  map[string]any{"fn": func() {}},
+	}
+
+	result := copySession(s)
+	if result != nil {
+		t.Error("copySession with unserializable metadata should return nil")
+	}
+}
+
+func TestAddMessage_ExceedsMaxMessages(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+
+	// Add more than 1000 messages
+	for i := 0; i < 1005; i++ {
+		err := store.AddMessage("s1", Message{
+			Role:    "user",
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("msg-%d", i)}},
+		})
+		if err != nil {
+			t.Fatalf("AddMessage %d: %v", i, err)
+		}
+	}
+
+	session := store.Get("s1")
+	if session == nil {
+		t.Fatal("session should exist")
+	}
+	// Should be trimmed to 1000
+	if len(session.Messages) != 1000 {
+		t.Errorf("len(Messages) = %d, want 1000 (max trim)", len(session.Messages))
+	}
+	// First message should be msg-5 (the oldest kept after trimming 5)
+	if session.Messages[0].Content[0].Text != "msg-5" {
+		t.Errorf("first message = %q, want 'msg-5'", session.Messages[0].Content[0].Text)
+	}
+	// Last message should be msg-1004
+	if session.Messages[999].Content[0].Text != "msg-1004" {
+		t.Errorf("last message = %q, want 'msg-1004'", session.Messages[999].Content[0].Text)
+	}
+}
+
+func TestCreate_ClosedStore(t *testing.T) {
+	store, _ := NewStore("")
+	store.Close()
+	s := store.Create("s1", "a1")
+	if s != nil {
+		t.Error("Create on closed store should return nil")
+	}
+}
+
+// --- Additional coverage improvement tests ---
+
+func TestDeleteFromDisk_PermissionDenied(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, _ := NewStore(tmpDir)
+	store.Create("perm-del-session", "agent-1")
+	store.WaitForWrites()
+
+	// Verify file exists
+	path := filepath.Join(tmpDir, "perm-del-session.json")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("session file should exist: %v", err)
+	}
+
+	// Make parent directory read-only to trigger os.Remove failure
+	if err := os.Chmod(tmpDir, 0555); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	defer os.Chmod(tmpDir, 0755)
+
+	// Delete should succeed in memory but fail on disk (logged as warning)
+	err := store.Delete("perm-del-session")
+	if err != nil {
+		t.Fatalf("Delete should succeed in memory: %v", err)
+	}
+	// Session should be removed from memory
+	if store.Get("perm-del-session") != nil {
+		t.Error("session should be removed from memory even if disk delete fails")
+	}
+}
+
+func TestSearch_MultipleResults(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+	store.Create("s2", "a1")
+
+	// Both sessions have messages containing "common"
+	store.AddMessage("s1", Message{
+		Role:    "user",
+		Content: []ContentBlock{{Type: "text", Text: "common pattern here"}},
+	})
+	store.AddMessage("s2", Message{
+		Role:    "user",
+		Content: []ContentBlock{{Type: "text", Text: "another common match"}},
+	})
+
+	results := store.Search("common")
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	// Results should be sorted by UpdatedAt descending (most recent first)
+	if !results[0].UpdatedAt.After(results[1].UpdatedAt) || results[0].UpdatedAt.Equal(results[1].UpdatedAt) {
+		t.Error("results should be sorted by UpdatedAt descending")
+	}
+}
+
+func TestSearch_NonTextContentBlocks(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+
+	store.AddMessage("s1", Message{
+		Role: "user",
+		Content: []ContentBlock{
+			{Type: "resource", Resource: &Resource{URI: "file:///test.go", MimeType: "text/x-go"}},
+			{Type: "image", Image: &ImageData{URL: "http://example.com/img.png", Format: "png"}},
+			{Type: "text", Text: "findme"},
+		},
+	})
+
+	// Search for text that only appears in a text block
+	results := store.Search("findme")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].ID != "s1" {
+		t.Errorf("expected s1, got %s", results[0].ID)
+	}
+
+	// Search for something in a resource URI - should NOT match (Search only checks text blocks)
+	results = store.Search("test.go")
+	if len(results) != 0 {
+		t.Errorf("Search should not match resource URIs, got %d results", len(results))
+	}
+
+	// Search for something in an image URL - should NOT match
+	results = store.Search("example.com")
+	if len(results) != 0 {
+		t.Errorf("Search should not match image URLs, got %d results", len(results))
+	}
+}
+
+func TestSearch_NoMatchInNonTextBlocks(t *testing.T) {
+	store, _ := NewStore("")
+	store.Create("s1", "a1")
+
+	// Session with only non-text content blocks
+	store.AddMessage("s1", Message{
+		Role: "user",
+		Content: []ContentBlock{
+			{Type: "resource", Resource: &Resource{URI: "file:///search-target.go"}},
+			{Type: "image", Image: &ImageData{Format: "png"}},
+		},
+	})
+
+	results := store.Search("search-target")
+	if len(results) != 0 {
+		t.Errorf("Search should not find text in resource URIs, got %d results", len(results))
 	}
 }

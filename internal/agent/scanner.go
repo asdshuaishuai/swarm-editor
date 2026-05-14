@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var scannerLog = log.With("component", "Scanner")
 
 // AgentCLI represents a detected coding agent CLI
 type AgentCLI struct {
@@ -253,7 +256,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]*AgentCLI, error) {
 		go func(k KnownAgent) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Scanner] scanAgent panic for %q: %v", k.Name, r)
+					scannerLog.Error("scanAgent panic", "name", k.Name, "panic", r)
 				}
 				wg.Done()
 			}()
@@ -266,7 +269,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]*AgentCLI, error) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Scanner] Wait group cleanup panic: %v", r)
+				scannerLog.Error("Wait group cleanup panic", "panic", r)
 			}
 		}()
 		wg.Wait()
@@ -364,11 +367,15 @@ func (s *Scanner) getVersion(ctx context.Context, execPath string) (string, erro
 
 	// Try common version flags
 	flags := []string{"--version", "-v", "version", "--version-short"}
+	const maxVersionOutput = 64 * 1024 // 64KB limit for version output
 
 	for _, flag := range flags {
 		cmd := exec.CommandContext(ctx, execPath, flag)
 		output, err := cmd.CombinedOutput()
 		if err == nil && len(output) > 0 {
+			if len(output) > maxVersionOutput {
+				output = output[:maxVersionOutput]
+			}
 			version := strings.TrimSpace(string(output))
 			// Clean up version string
 			version = strings.Split(version, "\n")[0]
@@ -474,27 +481,30 @@ func expandHomeWithDir(path, homeDir string) string {
 	return path
 }
 
-// GetAgent returns an agent by ID
+// GetAgent returns a deep copy of an agent by ID to prevent mutation of internal state
 func (s *Scanner) GetAgent(id string) (*AgentCLI, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	agent, ok := s.agents[id]
-	return agent, ok
+	if !ok {
+		return nil, false
+	}
+	return copyAgentCLI(agent), true
 }
 
-// GetAgents returns all detected agents
+// GetAgents returns deep copies of all detected agents
 func (s *Scanner) GetAgents() []*AgentCLI {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	agents := make([]*AgentCLI, 0, len(s.agents))
 	for _, agent := range s.agents {
-		agents = append(agents, agent)
+		agents = append(agents, copyAgentCLI(agent))
 	}
 	return agents
 }
 
-// GetAgentsByProvider returns agents by provider
+// GetAgentsByProvider returns deep copies of agents by provider
 func (s *Scanner) GetAgentsByProvider(provider string) []*AgentCLI {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -502,10 +512,32 @@ func (s *Scanner) GetAgentsByProvider(provider string) []*AgentCLI {
 	var agents []*AgentCLI
 	for _, agent := range s.agents {
 		if agent.Provider == provider {
-			agents = append(agents, agent)
+			agents = append(agents, copyAgentCLI(agent))
 		}
 	}
 	return agents
+}
+
+// copyAgentCLI creates a deep copy of an AgentCLI to prevent mutation of internal state
+func copyAgentCLI(a *AgentCLI) *AgentCLI {
+	cp := *a
+	if cp.Capabilities != nil {
+		cp.Capabilities = make([]string, len(a.Capabilities))
+		copy(cp.Capabilities, a.Capabilities)
+	}
+	if cp.EnvVars != nil {
+		cp.EnvVars = make(map[string]string, len(a.EnvVars))
+		for k, v := range a.EnvVars {
+			cp.EnvVars[k] = v
+		}
+	}
+	if cp.Metadata != nil {
+		cp.Metadata = make(map[string]any, len(a.Metadata))
+		for k, v := range a.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return &cp
 }
 
 // CheckStatus checks the status of an agent

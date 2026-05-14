@@ -18,6 +18,13 @@ vi.mock('./store/appStore', () => ({
 // Mock hooks
 vi.mock('./hooks', () => ({
   useACPEvents: vi.fn(),
+  useTheme: vi.fn(() => ({
+    theme: 'dark',
+    effectiveTheme: 'dark',
+    setTheme: vi.fn(),
+    toggleTheme: vi.fn(),
+    isDark: true,
+  })),
 }))
 
 // Mock child components
@@ -56,6 +63,18 @@ vi.mock('./components/PermissionDialog', () => ({
 
 vi.mock('./components/CommandPalette', () => ({
   CommandPalette: () => <div data-testid="command-palette" />,
+}))
+
+vi.mock('./components/SearchPanel', () => ({
+  SearchPanel: () => <div data-testid="search-panel" />,
+}))
+
+vi.mock('./components/ErrorBoundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('./components/StatusBar', () => ({
+  default: () => <div data-testid="status-bar" />,
 }))
 
 vi.mock('./components/HandoffDialog', () => ({

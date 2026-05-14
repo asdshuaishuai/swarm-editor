@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,7 +16,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var checkpointLog = log.With("component", "Checkpoint")
 
 // CoordinatorSnapshot represents a snapshot of coordinator state at a point in time.
 // Snapshots use the same atomic write pattern as session/store.go
@@ -53,11 +56,13 @@ func NewCheckpointStore(dataDir string, maxKeep int) (*CheckpointStore, error) {
 
 // Save atomically writes a checkpoint. Uses the same temp-file-then-rename
 // pattern as session/store.go for crash safety.
+// The mutex is held for the entire operation to prevent races with LoadLatest.
 func (s *CheckpointStore) Save(activeTasks []*CoordinationTask, pendingTasks []*CoordinationTask) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.sequence++
 	seq := s.sequence
-	s.mu.Unlock()
 
 	cp := &CoordinatorSnapshot{
 		ID:           fmt.Sprintf("ckpt_%d_%s", seq, uuid.New().String()[:8]),
@@ -106,6 +111,14 @@ func (s *CheckpointStore) Save(activeTasks []*CoordinationTask, pendingTasks []*
 // LoadLatest recovers the most recent valid checkpoint.
 // Returns nil if no checkpoints exist (fresh start).
 func (s *CheckpointStore) LoadLatest() (*CoordinatorSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.loadLatestLocked()
+}
+
+// loadLatestLocked is the internal implementation that assumes s.mu is held.
+func (s *CheckpointStore) loadLatestLocked() (*CoordinatorSnapshot, error) {
 	entries, err := os.ReadDir(s.dataDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -123,12 +136,12 @@ func (s *CheckpointStore) LoadLatest() (*CoordinatorSnapshot, error) {
 		}
 		data, err := os.ReadFile(filepath.Join(s.dataDir, entry.Name()))
 		if err != nil {
-			log.Printf("[Checkpoint] skipping unreadable file %s: %v", entry.Name(), err)
+			checkpointLog.Warn("Skipping unreadable file", "file", entry.Name(), "error", err)
 			continue
 		}
 		var cp CoordinatorSnapshot
 		if err := json.Unmarshal(data, &cp); err != nil {
-			log.Printf("[Checkpoint] skipping corrupt file %s: %v", entry.Name(), err)
+			checkpointLog.Warn("Skipping corrupt file", "file", entry.Name(), "error", err)
 			continue
 		}
 		if cp.Timestamp.After(latestTime) {
@@ -178,7 +191,7 @@ func (s *CheckpointStore) pruneOld() {
 	// Delete oldest if over limit
 	for i := range len(files) - s.maxKeep {
 		if err := os.Remove(filepath.Join(s.dataDir, files[i].name)); err != nil {
-			log.Printf("[Checkpoint] failed to prune %s: %v", files[i].name, err)
+			checkpointLog.Warn("Failed to prune", "file", files[i].name, "error", err)
 		}
 	}
 }

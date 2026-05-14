@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -4281,6 +4282,114 @@ func TestCommandHandler_HandleCreateSession_AgentNotConnected(t *testing.T) {
 	}
 }
 
+func TestCommandHandler_HandleCreateSession_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Set up a real test connection
+	cm := acp.NewConnectionManager(&acp.Config{})
+	conn, _, cleanup := acp.NewTestConnection("test-agent")
+	defer cleanup()
+	cm.RegisterTestConnection(conn)
+	server.connManager = cm
+
+	result, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent", "mode": "editing"}`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	info, ok := result.(SessionInfo)
+	if !ok {
+		t.Fatal("expected SessionInfo result")
+	}
+	if info.AgentID != "test-agent" {
+		t.Errorf("expected agentId test-agent, got %s", info.AgentID)
+	}
+	if info.Mode != "editing" {
+		t.Errorf("expected mode editing, got %s", info.Mode)
+	}
+	if info.ID == "" {
+		t.Error("expected non-empty session ID")
+	}
+	if info.CreatedAt == "" {
+		t.Error("expected non-empty createdAt")
+	}
+
+	// Verify session -> agent mapping was stored
+	server.mu.RLock()
+	mapped, exists := server.sessionToAgent[info.ID]
+	server.mu.RUnlock()
+	if !exists {
+		t.Error("expected session to agent mapping to be stored")
+	}
+	if mapped != "test-agent" {
+		t.Errorf("expected mapped agent test-agent, got %s", mapped)
+	}
+}
+
+func TestCommandHandler_HandleCreateSession_SessionModes(t *testing.T) {
+	tests := []struct {
+		mode string
+	}{
+		{"planning"},
+		{"editing"},
+		{"code"},
+		{"reviewing"},
+		{"review"},
+		{"pair_driver"},
+		{"pair_navigator"},
+		{"swarm"},
+		{"default"},
+		{""},
+	}
+
+	for _, tt := range tests {
+		t.Run("mode_"+tt.mode, func(t *testing.T) {
+			handler, server := newTestHandler()
+			cm := acp.NewConnectionManager(&acp.Config{})
+			conn, _, cleanup := acp.NewTestConnection("mode-agent")
+			defer cleanup()
+			cm.RegisterTestConnection(conn)
+			server.connManager = cm
+
+			params := fmt.Sprintf(`{"agentId": "mode-agent", "mode": %q}`, tt.mode)
+			result, err := handler.HandleCommand("create_session", json.RawMessage(params))
+			if err != nil {
+				t.Fatalf("unexpected error for mode %q: %v", tt.mode, err)
+			}
+			if result == nil {
+				t.Fatal("expected non-nil result")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleCreateSession_MaxSessions(t *testing.T) {
+	handler, server := newTestHandler()
+
+	cm := acp.NewConnectionManager(&acp.Config{})
+	conn, _, cleanup := acp.NewTestConnection("max-agent")
+	defer cleanup()
+	cm.RegisterTestConnection(conn)
+	server.connManager = cm
+
+	// Fill up sessionToAgent to maxSessions
+	server.mu.Lock()
+	server.sessionToAgent = make(map[string]string, maxSessions)
+	for i := 0; i < maxSessions; i++ {
+		server.sessionToAgent[fmt.Sprintf("sess-%d", i)] = "agent"
+	}
+	server.mu.Unlock()
+
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "max-agent"}`))
+	if err == nil {
+		t.Error("expected error when max sessions reached")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Errorf("expected APIError, got %T: %v", err, err)
+	}
+}
+
 func TestCommandHandler_HandleSendMessage_NoConnManager(t *testing.T) {
 	handler, server := newTestHandler()
 	server.connManager = nil
@@ -5489,7 +5598,6 @@ func TestCommandHandler_HandleStartMCPServer_NotFound(t *testing.T) {
 	}
 }
 
-
 // ==================== Additional Emergence Handler Coverage Tests ====================
 
 func TestCommandHandler_HandleGetEmergenceData_WithSwarms(t *testing.T) {
@@ -5534,7 +5642,6 @@ func TestCommandHandler_HandleGetEmergenceData_WithSwarms(t *testing.T) {
 		t.Error("expected positive overall health score")
 	}
 }
-
 
 // ==================== Get/Delete Swarm Handler Coverage Tests ====================
 
@@ -5609,4 +5716,474 @@ func TestCommandHandler_HandleDeleteSwarm_Success(t *testing.T) {
 	}
 }
 
+// ==================== Round 4799: Additional Coverage ====================
 
+func TestCommandHandler_HandleGetTeams_WithConnManager(t *testing.T) {
+	server := newTestServer()
+	// Set a non-nil connManager to cover the connManager != nil branch
+	server.connManager = acp.NewConnectionManager(&acp.Config{})
+	handler := NewCommandHandler(server)
+
+	// Create a team with a member that has no connection
+	tm := server.TeamManager()
+	tmTeam, err := tm.CreateTeam("conn-test", "owner-1")
+	if err != nil {
+		t.Fatalf("failed to create team: %v", err)
+	}
+	if err := tmTeam.AddMember(&team.Member{
+		ID:   "agent-no-conn",
+		Name: "NoConn Agent",
+		Role: team.RoleDeveloper,
+	}); err != nil {
+		t.Fatalf("failed to add member: %v", err)
+	}
+
+	result, err := handler.HandleCommand("get_teams", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	teams, ok := result.([]TeamInfo)
+	if !ok {
+		t.Fatalf("expected []TeamInfo, got %T", result)
+	}
+	if len(teams) != 1 {
+		t.Fatalf("expected 1 team, got %d", len(teams))
+	}
+	if len(teams[0].Members) != 1 {
+		t.Fatalf("expected 1 member, got %d", len(teams[0].Members))
+	}
+	// Member has no connection, so Online should be false
+	if teams[0].Members[0].Online {
+		t.Error("member should not be online (no connection)")
+	}
+}
+
+func TestCommandHandler_HandleGetTeams_EmptyConnManager(t *testing.T) {
+	server := newTestServer()
+	server.connManager = acp.NewConnectionManager(&acp.Config{})
+	handler := NewCommandHandler(server)
+
+	// Create a team with no members
+	_, err := server.TeamManager().CreateTeam("empty-team", "owner-1")
+	if err != nil {
+		t.Fatalf("failed to create team: %v", err)
+	}
+
+	result, err := handler.HandleCommand("get_teams", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	teams, ok := result.([]TeamInfo)
+	if !ok {
+		t.Fatalf("expected []TeamInfo, got %T", result)
+	}
+	if len(teams) != 1 {
+		t.Fatalf("expected 1 team, got %d", len(teams))
+	}
+	if len(teams[0].Members) != 0 {
+		t.Errorf("expected 0 members, got %d", len(teams[0].Members))
+	}
+}
+
+func TestCommandHandler_HandleWriteFile_SymlinkTraversal(t *testing.T) {
+	dir := t.TempDir()
+	server := newTestServer()
+	server.workspacePath = dir
+	handler := NewCommandHandler(server)
+
+	t.Run("path traversal via symlink", func(t *testing.T) {
+		// Create a symlink inside workspace pointing outside
+		if err := os.Symlink(dir, filepath.Join(dir, "escape")); err != nil {
+			t.Skip("symlink creation failed")
+		}
+
+		params, _ := json.Marshal(map[string]string{
+			"path":    "escape/../../etc/passwd_test",
+			"content": "test",
+		})
+		_, err := handler.HandleCommand("write_file", params)
+		if err == nil {
+			t.Error("expected error for symlink traversal")
+		}
+	})
+}
+
+func TestCommandHandler_HandleWriteFile_ContentTooLarge(t *testing.T) {
+	dir := t.TempDir()
+	server := newTestServer()
+	server.workspacePath = dir
+	handler := NewCommandHandler(server)
+
+	largeContent := strings.Repeat("x", 10<<20+1) // 10MB + 1 byte
+	params, _ := json.Marshal(map[string]string{
+		"path":    "test.txt",
+		"content": largeContent,
+	})
+	_, err := handler.HandleCommand("write_file", params)
+	if err == nil {
+		t.Error("expected error for content too large")
+	}
+}
+
+func TestCommandHandler_HandleWriteFile_NestedDir(t *testing.T) {
+	dir := t.TempDir()
+	server := newTestServer()
+	server.workspacePath = dir
+	handler := NewCommandHandler(server)
+
+	params, _ := json.Marshal(map[string]string{
+		"path":    "sub/dir/deep/file.txt",
+		"content": "nested content",
+	})
+	result, err := handler.HandleCommand("write_file", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, ok := result.(map[string]string)
+	if !ok || status["status"] != "written" {
+		t.Error("expected status 'written'")
+	}
+
+	// Verify file exists with correct content
+	data, err := os.ReadFile(filepath.Join(dir, "sub/dir/deep/file.txt"))
+	if err != nil {
+		t.Fatalf("failed to read written file: %v", err)
+	}
+	if string(data) != "nested content" {
+		t.Errorf("expected 'nested content', got %q", string(data))
+	}
+}
+
+func TestCommandHandler_HandleGetAgents_WithRegisteredAgent(t *testing.T) {
+	handler, server := newTestHandler()
+
+	// Register an agent via the registry
+	ag := agent.NewAgent("test-agent-1", agent.AgentTypeCoder)
+	server.registry.Register(ag)
+
+	result, err := handler.HandleCommand("get_agents", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	agents, ok := result.([]AgentInfo)
+	if !ok {
+		t.Fatalf("expected []AgentInfo, got %T", result)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+}
+
+func TestCommandHandler_HandleExportWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	wf := orch.CreateWorkflow("export-test", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Step 1", Type: "agent"})
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("export_workflow", params)
+	if err != nil {
+		t.Fatalf("export workflow: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if m["format"] != "json" {
+		t.Errorf("format = %v, want json", m["format"])
+	}
+	if m["size"] == nil {
+		t.Error("missing size field")
+	}
+}
+
+func TestCommandHandler_HandleImportWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create a workflow, export it, then import
+	wf := orch.CreateWorkflow("original", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Step 1", Type: "agent"})
+
+	exportResult, err := handler.HandleCommand("export_workflow", json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID)))
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	data := exportResult.(map[string]any)["data"].(string)
+
+	params := json.RawMessage(fmt.Sprintf(`{"name": "imported", "data": %s}`, string(data)))
+	importResult, err := handler.HandleCommand("import_workflow", params)
+	if err != nil {
+		t.Fatalf("import workflow: %v", err)
+	}
+
+	m, ok := importResult.(map[string]any)
+	if !ok {
+		t.Fatal("expected map result")
+	}
+	if m["id"] == wf.ID {
+		t.Error("imported workflow should have different ID")
+	}
+}
+
+func TestCommandHandler_HandleImportWorkflow_SizeLimit(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create payload larger than 1MB limit
+	largeData := strings.Repeat("x", 2<<20) // 2MB
+	params := json.RawMessage(fmt.Sprintf(`{"name": "big", "data": %q}`, largeData))
+	_, err := handler.HandleCommand("import_workflow", params)
+	if err == nil {
+		t.Fatal("expected error for oversized import payload")
+	}
+}
+
+func TestCommandHandler_HandleValidateWorkflow_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	wf := orch.CreateWorkflow("valid", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Start", Type: "agent"})
+	wf.AddNode(&swarm.WorkflowNode{ID: "n2", Name: "End", Type: "agent"})
+	wf.AddEdge(&swarm.WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("validate_workflow", params)
+	if err != nil {
+		t.Fatalf("validate workflow: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["valid"] != true {
+		t.Errorf("expected valid=true, got %v", m["valid"])
+	}
+}
+
+func TestCommandHandler_HandleValidateWorkflow_Invalid(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	// Create a workflow with duplicate node IDs via direct manipulation
+	wf := orch.CreateWorkflow("invalid", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "A", Type: "agent"})
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "B", Type: "agent"})
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("validate_workflow", params)
+	if err != nil {
+		t.Fatalf("validate workflow: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["valid"] != false {
+		t.Errorf("expected valid=false, got %v", m["valid"])
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowStatus_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	wf := orch.CreateWorkflow("status-test", swarm.ModeSequential)
+	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Step 1", Type: "agent"})
+	wf.AddNode(&swarm.WorkflowNode{ID: "n2", Name: "Step 2", Type: "agent"})
+	wf.AddEdge(&swarm.WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
+
+	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
+	result, err := handler.HandleCommand("get_workflow_status", params)
+	if err != nil {
+		t.Fatalf("get workflow status: %v", err)
+	}
+
+	status, ok := result.(*swarm.WorkflowStatus)
+	if !ok {
+		t.Fatal("expected WorkflowStatus result")
+	}
+	if status.ID != wf.ID {
+		t.Errorf("ID = %q, want %q", status.ID, wf.ID)
+	}
+	if status.Name != "status-test" {
+		t.Errorf("Name = %q, want %q", status.Name, "status-test")
+	}
+	if status.NodeCount != 2 {
+		t.Errorf("NodeCount = %d, want 2", status.NodeCount)
+	}
+	if status.EdgeCount != 1 {
+		t.Errorf("EdgeCount = %d, want 1", status.EdgeCount)
+	}
+	if len(status.NodeStatuses) != 2 {
+		t.Fatalf("NodeStatuses = %d, want 2", len(status.NodeStatuses))
+	}
+	if status.NodeStatuses[0].Name != "Step 1" {
+		t.Errorf("node 0 name = %q, want Step 1", status.NodeStatuses[0].Name)
+	}
+}
+
+func TestCommandHandler_HandleGetWorkflowStatus_NotFound(t *testing.T) {
+	handler, server := newTestHandler()
+	orch := swarm.NewOrchestrator(nil)
+	server.SetOrchestrator(orch)
+
+	params := json.RawMessage(`{"id": "nonexistent"}`)
+	_, err := handler.HandleCommand("get_workflow_status", params)
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
+
+func TestCommandHandler_HandleSearchFiles_Success(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	// Create test structure
+	os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "node_modules", "pkg"), 0755) // should be excluded
+	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "utils.go"), []byte("package main"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "src", "app.ts"), []byte("console.log"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "node_modules", "pkg", "index.js"), []byte("module"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# readme"), 0644)
+
+	t.Run("search by name", func(t *testing.T) {
+		params := json.RawMessage(`{"query": ".go"}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap, ok := result.(map[string][]FileInfo)
+		if !ok {
+			t.Fatalf("expected map[string][]FileInfo, got %T", result)
+		}
+
+		files := resultMap["files"]
+		if len(files) < 2 {
+			t.Errorf("expected at least 2 .go files, got %d", len(files))
+		}
+
+		// Verify node_modules is excluded
+		for _, f := range files {
+			if strings.Contains(f.Path, "node_modules") {
+				t.Errorf("node_modules should be excluded, got %s", f.Path)
+			}
+		}
+	})
+
+	t.Run("case insensitive search", func(t *testing.T) {
+		params := json.RawMessage(`{"query": "README"}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap := result.(map[string][]FileInfo)
+		files := resultMap["files"]
+		if len(files) != 1 {
+			t.Fatalf("expected 1 README.md, got %d", len(files))
+		}
+		if files[0].Name != "README.md" {
+			t.Errorf("expected README.md, got %s", files[0].Name)
+		}
+	})
+
+	t.Run("limit results", func(t *testing.T) {
+		params := json.RawMessage(`{"query": "", "limit": 1}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap := result.(map[string][]FileInfo)
+		files := resultMap["files"]
+		if len(files) != 0 {
+			t.Errorf("expected 0 results for empty query, got %d", len(files))
+		}
+	})
+
+	t.Run("subdirectory files found", func(t *testing.T) {
+		params := json.RawMessage(`{"query": "app.ts"}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap := result.(map[string][]FileInfo)
+		files := resultMap["files"]
+		if len(files) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(files))
+		}
+		if files[0].Path != filepath.Join("src", "app.ts") {
+			t.Errorf("expected src/app.ts, got %s", files[0].Path)
+		}
+	})
+}
+
+func TestCommandHandler_HandleSearchFiles_EdgeCases(t *testing.T) {
+	handler, server := newTestHandler()
+	tmpDir := t.TempDir()
+	server.workspacePath = tmpDir
+
+	t.Run("workspace not configured", func(t *testing.T) {
+		handlerNoWS, serverNoWS := newTestHandler()
+		serverNoWS.workspacePath = ""
+		params := json.RawMessage(`{"query": "test"}`)
+		_, err := handlerNoWS.HandleCommand("search_files", params)
+		if err == nil {
+			t.Fatal("expected error for workspace not configured")
+		}
+		apiErr, ok := err.(*APIError)
+		if !ok {
+			t.Fatalf("expected APIError, got %T", err)
+		}
+		if apiErr.Code != CodeNotConnected {
+			t.Errorf("expected CodeNotConnected (%d), got %d", CodeNotConnected, apiErr.Code)
+		}
+	})
+
+	t.Run("no matches", func(t *testing.T) {
+		os.WriteFile(filepath.Join(tmpDir, "existing.txt"), []byte("data"), 0644)
+		params := json.RawMessage(`{"query": "nonexistent_file_xyz"}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap := result.(map[string][]FileInfo)
+		if len(resultMap["files"]) != 0 {
+			t.Errorf("expected 0 results, got %d", len(resultMap["files"]))
+		}
+	})
+
+	t.Run("hidden directories excluded", func(t *testing.T) {
+		os.MkdirAll(filepath.Join(tmpDir, ".hidden", "sub"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, ".hidden", "sub", "secret.txt"), []byte("secret"), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "visible.txt"), []byte("visible"), 0644)
+
+		params := json.RawMessage(`{"query": ".txt"}`)
+		result, err := handler.HandleCommand("search_files", params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		resultMap := result.(map[string][]FileInfo)
+		for _, f := range resultMap["files"] {
+			if strings.Contains(f.Path, ".hidden") {
+				t.Errorf("hidden directory should be excluded, got %s", f.Path)
+			}
+		}
+	})
+}

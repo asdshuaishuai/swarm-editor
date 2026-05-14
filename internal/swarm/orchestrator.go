@@ -4,14 +4,16 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var orchestratorLog = log.With("component", "Swarm")
 
 // TopologyType defines the swarm topology
 type TopologyType string
@@ -131,7 +133,7 @@ func (s *Swarm) AddAgent(a *agent.Agent) {
 	defer s.mu.Unlock()
 	s.agents[a.ID] = a
 	if err := s.registry.Register(a); err != nil {
-		log.Printf("[Swarm] Failed to register agent %s: %v", a.ID, err)
+		orchestratorLog.Warn("Failed to register agent", "agent_id", a.ID, "error", err)
 	}
 
 	// Update topology edges
@@ -144,7 +146,7 @@ func (s *Swarm) RemoveAgent(id acp.AgentID) {
 	defer s.mu.Unlock()
 	delete(s.agents, id)
 	if err := s.registry.Unregister(id); err != nil {
-		log.Printf("[Swarm] Failed to unregister agent %s: %v", id, err)
+		orchestratorLog.Warn("Failed to unregister agent", "agent_id", id, "error", err)
 	}
 	s.buildTopology()
 }
@@ -455,8 +457,7 @@ func (s *Swarm) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error
 	if err == nil {
 		validation := s.resultValidator.Validate(result)
 		if !validation.Valid {
-			log.Printf("[Swarm] Task %s result validation failed: %s (severity: %s)",
-				task.ID, validation.Reason, validation.Severity)
+			orchestratorLog.Warn("Task result validation failed", "task_id", task.ID, "reason", validation.Reason, "severity", validation.Severity)
 			if validation.Severity == "error" {
 				err = fmt.Errorf("result validation failed: %s", validation.Reason)
 				result.Error = err.Error()
@@ -561,7 +562,7 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 			defer s.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Swarm] executeOnAgentsWithPrompt goroutine panic for agent %s: %v", ag.ID, r)
+					orchestratorLog.Error("executeOnAgentsWithPrompt goroutine panic", "agent_id", ag.ID, "panic", r)
 				}
 			}()
 
@@ -741,7 +742,7 @@ func (s *Swarm) BroadcastToWorkers(ctx context.Context, message string) map[acp.
 			defer s.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Swarm] BroadcastToWorkers goroutine panic for agent %s: %v", agentID, r)
+					orchestratorLog.Error("BroadcastToWorkers goroutine panic", "agent_id", agentID, "panic", r)
 				}
 			}()
 			_, err := agent.Execute(ctx, acp.Prompt{

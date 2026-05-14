@@ -95,7 +95,7 @@ export function WorkspacePanel() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-[#1f1f21]">
+      <div className="flex border-b border-[#1f1f21]" role="tablist" aria-label="Workspace views">
         {[
           { id: 'sessions', label: 'Sessions', icon: '💬' },
           { id: 'files', label: 'Files', icon: '📁' },
@@ -109,6 +109,9 @@ export function WorkspacePanel() {
                 ? 'text-white bg-slate-800/50 border-b-2 border-blue-500'
                 : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'
             }`}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`${tab.id}-panel`}
           >
             <span className="mr-1">{tab.icon}</span>
             {tab.label}
@@ -119,7 +122,7 @@ export function WorkspacePanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'sessions' && (
-          <div className="py-1">
+          <div id="sessions-panel" role="tabpanel" aria-label="Sessions" className="py-1">
             {sessions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
                 <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -161,7 +164,7 @@ export function WorkspacePanel() {
         )}
 
         {activeTab === 'files' && (
-          <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+          <div id="files-panel" role="tabpanel" aria-label="Files" className="flex flex-col items-center justify-center py-8 px-4 text-center">
             <svg className="w-10 h-10 text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
@@ -171,7 +174,7 @@ export function WorkspacePanel() {
         )}
 
         {activeTab === 'agents' && (
-          <div className="py-1">
+          <div id="agents-panel" role="tabpanel" aria-label="Agents" className="py-1">
             {agents.length === 0 ? (
               <div className="text-center py-4 text-slate-500 text-xs">
                 No agents configured

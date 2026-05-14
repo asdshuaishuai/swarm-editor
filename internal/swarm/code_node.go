@@ -60,7 +60,7 @@ type CodeResult struct {
 //   - Variables injected as global read-only bindings
 //   - Supports: loops, conditionals, functions, closures, classes
 //   - Safety: 10MB memory limit, 30s timeout, no Go runtime APIs
-func ExecuteCodeNode(config map[string]any) (*CodeResult, error) {
+func ExecuteCodeNode(ctx context.Context, config map[string]any) (*CodeResult, error) {
 	code := getStringConfig(config, "code", "")
 	if code == "" {
 		return &CodeResult{Output: nil, Type: "null"}, nil
@@ -85,14 +85,14 @@ func ExecuteCodeNode(config map[string]any) (*CodeResult, error) {
 	language := getStringConfig(config, "language", "expression")
 	switch language {
 	case "javascript":
-		return executeCodeNodeJavaScript(config, code, vars)
+		return executeCodeNodeJavaScript(ctx, config, code, vars)
 	default:
 		return executeCodeNodeExpression(code, vars)
 	}
 }
 
 // executeCodeNodeJavaScript runs code using the goja JS engine.
-func executeCodeNodeJavaScript(config map[string]any, code string, vars map[string]any) (*CodeResult, error) {
+func executeCodeNodeJavaScript(ctx context.Context, config map[string]any, code string, vars map[string]any) (*CodeResult, error) {
 	// Determine timeout (default 30s for JS, max 5 minutes)
 	timeoutMs := 30000
 	if v, ok := config["timeout_ms"]; ok {
@@ -107,7 +107,7 @@ func executeCodeNodeJavaScript(config map[string]any, code string, vars map[stri
 	}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	executor := &GojaExecutor{}
@@ -617,7 +617,12 @@ func findArithmeticOp(expr string) int {
 	inStr := false
 	strChar := byte(0)
 
-	// Track last-seen operator at each precedence level
+	// Track last-seen operator at each precedence level.
+	// For left-to-right evaluation of non-associative operators (-, /),
+	// we must split at the rightmost lowest-precedence operator so the
+	// recursive call on the left side handles earlier operators first.
+	// Example: "10 - 3 - 2" splits at the last "-" → left="10 - 3", right="2"
+	//   → left recurses to (10-3)=7 → 7-2=5 (correct, not 9).
 	var addSubIdx, mulDivIdx, powIdx int
 	addSubIdx = -1
 	mulDivIdx = -1
@@ -663,24 +668,18 @@ func findArithmeticOp(expr string) int {
 				if lastCh == '(' || lastCh == '[' || lastCh == ',' || lastCh == '=' || lastCh == '!' || lastCh == '<' || lastCh == '>' {
 					continue
 				}
-				if addSubIdx == -1 {
-					addSubIdx = i
-				}
+				addSubIdx = i // track rightmost for correct left-to-right evaluation
 			}
 			if ch == '*' && powIdx == -1 {
-				if mulDivIdx == -1 {
-					mulDivIdx = i
-				}
+				mulDivIdx = i // track rightmost for correct left-to-right evaluation
 			}
 			if ch == '/' || ch == '%' {
-				if mulDivIdx == -1 {
-					mulDivIdx = i
-				}
+				mulDivIdx = i // track rightmost for correct left-to-right evaluation
 			}
 		}
 	}
 
-	// Return lowest-precedence operator found (evaluated last = found first for left-to-right)
+	// Return rightmost lowest-precedence operator for correct left-to-right evaluation
 	if addSubIdx >= 0 {
 		return addSubIdx
 	}

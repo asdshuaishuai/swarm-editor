@@ -638,7 +638,7 @@ func TestPlannerWorkerManager_BuildWorkerPromptWithContext(t *testing.T) {
 	}
 
 	ctx := &promptContext{
-		Goal: "Complete the project",
+		Goal:          "Complete the project",
 		DependencyIDs: []string{"st0"},
 		DepResults: map[string]*SubtaskResult{
 			"st0": {SubtaskID: "st0", Output: "Previous result data", Success: true},

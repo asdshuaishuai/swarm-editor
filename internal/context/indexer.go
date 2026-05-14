@@ -30,16 +30,16 @@ const (
 
 // FileInfo represents indexed file information
 type FileInfo struct {
-	Path         string      `json:"path"`
-	AbsPath      string      `json:"absPath"`
-	FileType     FileType    `json:"fileType"`
-	Size         int64       `json:"size"`
-	LastModified time.Time   `json:"lastModified"`
-	Symbols      []Symbol    `json:"symbols,omitempty"`
-	Imports      []string    `json:"imports,omitempty"`
-	Exports      []string    `json:"exports,omitempty"`
-	Hash         string      `json:"hash,omitempty"`
-	IndexedAt    time.Time   `json:"indexedAt"`
+	Path         string    `json:"path"`
+	AbsPath      string    `json:"absPath"`
+	FileType     FileType  `json:"fileType"`
+	Size         int64     `json:"size"`
+	LastModified time.Time `json:"lastModified"`
+	Symbols      []Symbol  `json:"symbols,omitempty"`
+	Imports      []string  `json:"imports,omitempty"`
+	Exports      []string  `json:"exports,omitempty"`
+	Hash         string    `json:"hash,omitempty"`
+	IndexedAt    time.Time `json:"indexedAt"`
 }
 
 // Symbol represents a code symbol (function, class, interface, etc.)
@@ -141,11 +141,11 @@ func DefaultExcludePatterns() []string {
 type Indexer struct {
 	config IndexConfig
 
-	mu       sync.RWMutex
-	files    map[string]*FileInfo // path -> FileInfo
-	symbols  map[string][]*FileInfo // symbol name -> files containing it
-	imports  map[string][]*FileInfo // import path -> files using it
-	byType   map[FileType][]*FileInfo
+	mu      sync.RWMutex
+	files   map[string]*FileInfo   // path -> FileInfo
+	symbols map[string][]*FileInfo // symbol name -> files containing it
+	imports map[string][]*FileInfo // import path -> files using it
+	byType  map[FileType][]*FileInfo
 
 	lastIndex time.Time
 	stats     IndexStats
@@ -153,22 +153,22 @@ type Indexer struct {
 
 // IndexStats holds indexing statistics
 type IndexStats struct {
-	TotalFiles    int       `json:"totalFiles"`
-	TotalSymbols  int       `json:"totalSymbols"`
-	TotalSize     int64     `json:"totalSize"`
+	TotalFiles    int           `json:"totalFiles"`
+	TotalSymbols  int           `json:"totalSymbols"`
+	TotalSize     int64         `json:"totalSize"`
 	IndexDuration time.Duration `json:"indexDuration"`
-	LastIndexed   time.Time `json:"lastIndexed"`
-	Errors        int       `json:"errors"`
+	LastIndexed   time.Time     `json:"lastIndexed"`
+	Errors        int           `json:"errors"`
 }
 
 // NewIndexer creates a new codebase indexer
 func NewIndexer(config IndexConfig) *Indexer {
 	return &Indexer{
-		config:   config,
-		files:    make(map[string]*FileInfo),
-		symbols:  make(map[string][]*FileInfo),
-		imports:  make(map[string][]*FileInfo),
-		byType:   make(map[FileType][]*FileInfo),
+		config:  config,
+		files:   make(map[string]*FileInfo),
+		symbols: make(map[string][]*FileInfo),
+		imports: make(map[string][]*FileInfo),
+		byType:  make(map[FileType][]*FileInfo),
 	}
 }
 

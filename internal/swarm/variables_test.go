@@ -90,10 +90,10 @@ func TestWorkflowVariable_Validate(t *testing.T) {
 
 func TestWorkflowVariable_Snapshot(t *testing.T) {
 	v := &WorkflowVariable{
-		ID:   "var-1",
-		Name: "Test",
-		Key:  "test",
-		Type: VarTypeString,
+		ID:    "var-1",
+		Name:  "Test",
+		Key:   "test",
+		Type:  VarTypeString,
 		Value: "hello",
 	}
 	snap := v.Snapshot()
@@ -111,10 +111,10 @@ func TestWorkflowVariable_Snapshot(t *testing.T) {
 func TestWorkflowVariable_SnapshotDeepCopy(t *testing.T) {
 	// Test map deep copy isolation
 	v := &WorkflowVariable{
-		ID:   "var-1",
-		Name: "Test",
-		Key:  "test",
-		Type: VarTypeJSON,
+		ID:    "var-1",
+		Name:  "Test",
+		Key:   "test",
+		Type:  VarTypeJSON,
 		Value: map[string]any{"nested": "data", "count": 42},
 	}
 	snap := v.Snapshot()
@@ -375,7 +375,7 @@ func TestWorkflowVariableStore_ConcurrentAccess(t *testing.T) {
 	// Pre-populate
 	for i := 0; i < 10; i++ {
 		s.AddVariable("wf-1", &WorkflowVariable{
-			ID:   fmt.Sprintf("var-%d", i),
+			ID:    fmt.Sprintf("var-%d", i),
 			Key:   fmt.Sprintf("key-%d", i),
 			Type:  VarTypeString,
 			Value: fmt.Sprintf("val-%d", i),

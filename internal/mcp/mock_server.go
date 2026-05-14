@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var mockMCPLog = log.With("component", "MockMCP")
 
 // MockMCPServer represents a fake MCP server for testing
 type MockMCPServer struct {
@@ -119,7 +121,7 @@ func (s *MockMCPServer) handleConnection(conn net.Conn) {
 			responseData = append(responseData, '\n')
 			_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write(responseData); err != nil {
-				log.Printf("[MockMCP] Write error: %v", err)
+				mockMCPLog.Warn("Write error", "error", err)
 			}
 		}
 	}
@@ -350,7 +352,7 @@ func (m *InProcessMock) run() {
 		response := m.server.handleMessage(msg)
 		if response != nil {
 			if err := encoder.Encode(response); err != nil {
-				log.Printf("[MockMCP] Encode error: %v", err)
+				mockMCPLog.Error("Encode error", "error", err)
 			}
 		}
 	}

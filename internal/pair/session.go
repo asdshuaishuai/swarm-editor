@@ -669,3 +669,69 @@ func generateSuggestionID() string {
 func generateMessageID() string {
 	return "msg_" + uuid.New().String()[:8]
 }
+
+// copyPairSession creates a deep copy of a PairSession for safe read-only access.
+// This prevents callers from mutating internal state.
+func copyPairSession(p *PairSession) *PairSession {
+	if p == nil {
+		return nil
+	}
+
+	// Create new PairSession to avoid copying mutex by value
+	cp := &PairSession{
+		ID:          p.ID,
+		SessionID:   p.SessionID,
+		State:       p.State,
+		CurrentFile: p.CurrentFile,
+		CursorPos:   p.CursorPos,
+		Selection:   p.Selection,
+		CreatedAt:   p.CreatedAt,
+		SwitchCount: p.SwitchCount,
+		MaxTurns:    p.MaxTurns,
+		CurrentTurn: p.CurrentTurn,
+		// ctx and cancel intentionally not copied - they're runtime state
+		// callbacks intentionally not copied - they're function pointers
+	}
+
+	// Copy Driver and Navigator (shallow copy is fine - they're managed by Registry)
+	if p.Driver != nil {
+		cp.Driver = p.Driver
+	}
+	if p.Navigator != nil {
+		cp.Navigator = p.Navigator
+	}
+
+	// Deep copy CurrentRole map
+	if p.CurrentRole != nil {
+		cp.CurrentRole = make(map[acp.AgentID]Role, len(p.CurrentRole))
+		for k, v := range p.CurrentRole {
+			cp.CurrentRole[k] = v
+		}
+	}
+
+	// Deep copy TurnHistory slice
+	if p.TurnHistory != nil {
+		cp.TurnHistory = make([]Turn, len(p.TurnHistory))
+		copy(cp.TurnHistory, p.TurnHistory)
+	}
+
+	// Deep copy Edits slice
+	if p.Edits != nil {
+		cp.Edits = make([]CodeEdit, len(p.Edits))
+		copy(cp.Edits, p.Edits)
+	}
+
+	// Deep copy Messages slice
+	if p.Messages != nil {
+		cp.Messages = make([]PairMessage, len(p.Messages))
+		copy(cp.Messages, p.Messages)
+	}
+
+	// Deep copy Suggestions slice
+	if p.Suggestions != nil {
+		cp.Suggestions = make([]Suggestion, len(p.Suggestions))
+		copy(cp.Suggestions, p.Suggestions)
+	}
+
+	return cp
+}

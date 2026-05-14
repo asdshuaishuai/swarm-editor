@@ -145,6 +145,8 @@ export default function AgentScannerPanel() {
         <div className="flex items-center gap-3">
           <span className="text-sm text-text-primary">Auto-scan</span>
           <button
+            role="switch"
+            aria-checked={autoScan}
             onClick={() => updateSetting('agentAutoScan', !autoScan)}
             className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
               autoScan ? 'bg-accent' : 'bg-glass border border-glass-border'

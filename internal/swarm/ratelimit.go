@@ -126,8 +126,8 @@ func (rl *RateLimiter) getOrCreateAgentLimiter(agentID string) *rate.Limiter {
 	// Create default limiter (double-checked locking pattern)
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	if limiter, ok := rl.agents[agentID]; ok {
-		return limiter
+	if existing, ok := rl.agents[agentID]; ok {
+		return existing
 	}
 
 	rps := float64(rl.config.DefaultAgentRPM) / 60.0

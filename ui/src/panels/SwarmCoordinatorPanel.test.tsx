@@ -529,8 +529,11 @@ describe('SwarmCoordinatorPanel task execution', () => {
     // Click on task to select it
     fireEvent.click(screen.getByText('Cancel Task'))
 
-    // Click Cancel button
+    // Click Cancel button (opens ConfirmDialog)
     fireEvent.click(screen.getByText('Cancel'))
+
+    // Confirm the cancellation in the dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Task' }))
 
     // Task status should change to failed
     expect(screen.getByText('failed')).toBeInTheDocument()
@@ -651,6 +654,9 @@ describe('SwarmCoordinatorPanel task execution', () => {
     // Now click Cancel on Task B (while Task A details might have been shown briefly)
     // But since Task B is now selected, canceling should affect Task B
     fireEvent.click(screen.getByText('Cancel'))
+
+    // Confirm the cancellation in the dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Task' }))
 
     // Task B should be failed
     expect(screen.getByText('failed')).toBeInTheDocument()
@@ -1166,8 +1172,11 @@ describe('SwarmCoordinatorPanel error handling', () => {
     fireEvent.click(taskOneElements[0]) // Click the first occurrence (in task list)
     expect(screen.getByText('Task Details')).toBeInTheDocument()
 
-    // Click Cancel on the selected task
+    // Click Cancel on the selected task (opens ConfirmDialog)
     fireEvent.click(screen.getByText('Cancel'))
+
+    // Confirm the cancellation in the dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Task' }))
 
     // Wait for state update
     await vi.advanceTimersByTimeAsync(100)
@@ -1437,9 +1446,12 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
     fireEvent.click(runningTaskElements[0])
     expect(screen.getByText('Cancel')).toBeInTheDocument()
 
-    // Click Cancel - this will call handleCancelTask('task-1')
+    // Click Cancel - this opens the ConfirmDialog for task-1
     // selectedTask.id === 'task-1' so it WILL update selectedTask
     fireEvent.click(screen.getByText('Cancel'))
+
+    // Confirm the cancellation in the dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Task' }))
 
     // Let React process
     await vi.advanceTimersByTimeAsync(0)

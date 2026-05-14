@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -187,13 +188,21 @@ func TestLongTermMemory_Delete(t *testing.T) {
 	}
 }
 
-func TestLongTermMemory_Unbounded(t *testing.T) {
-	m := NewLongTermMemory(0)
-	for i := range 200 {
-		m.Set("key", i)
+func TestLongTermMemory_DefaultBounded(t *testing.T) {
+	m := NewLongTermMemory(0) // 0 now defaults to DefaultLongTermMemorySize (1000)
+
+	for i := range 2000 {
+		m.Set(fmt.Sprintf("key%d", i), i)
 	}
-	if m.Len() != 1 {
-		t.Errorf("unbounded memory should keep 1 key, got %d", m.Len())
+
+	// Should be bounded at 1000
+	if m.Len() != 1000 {
+		t.Errorf("LongTermMemory should be bounded at 1000, got %d", m.Len())
+	}
+
+	// Verify that the actually got stored
+	if m.Len() < 1000 {
+		t.Errorf("Expected at least 1000 entries, got %d", m.Len())
 	}
 }
 

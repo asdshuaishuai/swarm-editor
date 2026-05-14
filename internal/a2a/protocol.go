@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"slices"
 	"sync"
 	"time"
@@ -671,7 +670,7 @@ func (r *Router) sendWithRetry(ctx context.Context, agent *AgentEndpoint, msg *M
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[A2A] sendWithRetry SendFunc panic: %v", r)
+					a2aLog.Error("sendWithRetry SendFunc panic", "panic", r)
 				}
 			}()
 			resultCh <- sendResult{err: agent.SendFunc(msg)}
@@ -796,7 +795,7 @@ func (r *Router) processMessage(msg *Message) {
 
 	for _, handler := range handlers {
 		if err := handler(msg); err != nil {
-			log.Printf("[A2A] Handler error for message type %s: %v", msg.Type, err)
+			a2aLog.Error("Handler error", "message_type", msg.Type, "error", err)
 		}
 	}
 }

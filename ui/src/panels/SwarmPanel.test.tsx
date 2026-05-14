@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import SwarmPanel, { SwarmCard } from './SwarmPanel'
@@ -783,8 +783,15 @@ describe('SwarmPanel API error handling', () => {
     render(<SwarmPanel />)
     const stopBtn = screen.getByTitle('Stop Swarm')
     fireEvent.click(stopBtn)
+
+    // Component shows a ConfirmDialog before stopping - confirm it
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop Swarm' }))
+
     // Error should be logged but not crash
-    expect(screen.getByText('Active Swarm')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Active Swarm')).toBeInTheDocument()
+    })
   })
 
   it('handles loadSwarms error', async () => {
@@ -1057,6 +1064,10 @@ describe('SwarmPanel successful operations', () => {
     const stopBtn = screen.getByTitle('Stop Swarm')
     await userEvent.click(stopBtn)
 
+    // Component shows a ConfirmDialog before stopping - confirm it
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Stop Swarm' }))
+
     // Should call stopSwarm API
     await waitFor(() => {
       expect(api.swarm.stopSwarm).toHaveBeenCalledWith('1')
@@ -1073,6 +1084,7 @@ describe('SwarmPanel successful operations', () => {
     const mockSetSwarms = vi.fn()
 
     // Mock API to return swarms with agent IDs
+    vi.mocked(api.swarm.getSwarms).mockReset()
     vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([
       {
         id: 'swarm-1',

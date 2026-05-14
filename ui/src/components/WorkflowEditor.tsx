@@ -231,6 +231,26 @@ class MoveNodesCommand implements Command {
   }
 }
 
+// Auto-layout command with undo support (stores old positions for restoration)
+class AutoLayoutCommand implements Command {
+  private _oldPositions: Map<string, { x: number; y: number }>
+  constructor(oldNodes: WorkflowNode[], private newNodes: WorkflowNode[]) {
+    this._oldPositions = new Map(oldNodes.map((nd) => [nd.id, { x: nd.x, y: nd.y }]))
+  }
+  execute(_n: WorkflowNode[], e: WorkflowEdge[]) {
+    return { nodes: this.newNodes, edges: e }
+  }
+  undo(_n: WorkflowNode[], e: WorkflowEdge[]) {
+    return {
+      nodes: this.newNodes.map((nd) => {
+        const old = this._oldPositions.get(nd.id)
+        return old ? { ...nd, x: old.x, y: old.y } : nd
+      }),
+      edges: e,
+    }
+  }
+}
+
 // Resize a node with undo support (React Flow-style node resize)
 class ResizeNodeCommand implements Command {
   constructor(
@@ -1412,12 +1432,12 @@ export function WorkflowEditor({
     setViewport({ x: width / 2 - centerX, y: height / 2 - centerY, scale: 1 })
   }, [nodes, width, height])
 
-  // Auto layout
+  // Auto layout (with undo support via command pattern)
   const handleAutoLayout = useCallback(() => {
     const positioned = autoLayout(nodes, edges, width, height)
-    setNodes(positioned)
+    applyCommand(new AutoLayoutCommand(nodes, positioned))
     handleFit()
-  }, [nodes, edges, width, height, handleFit])
+  }, [nodes, edges, width, height, applyCommand, handleFit])
 
   // Add node
   const handleAddNode = useCallback(() => {
@@ -1906,6 +1926,8 @@ export function WorkflowEditor({
             onContextMenu={(e) => { e.preventDefault(); handleCloseContextMenu() }}
           />
           <div
+            role="menu"
+            aria-label="Workflow context menu"
             className="fixed z-50 bg-mac-panel border border-mac-border rounded-lg shadow-xl py-1 min-w-[160px] text-sm"
             ref={(el) => {
               if (!el) return
@@ -1921,6 +1943,7 @@ export function WorkflowEditor({
               <>
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary"
+                  role="menuitem"
                   onClick={() => {
                     const n = contextMenu.target as WorkflowNode
                     setClipboard([n])
@@ -1931,6 +1954,7 @@ export function WorkflowEditor({
                 </button>
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary"
+                  role="menuitem"
                   onClick={() => {
                     const n = contextMenu.target as WorkflowNode
                     applyCommand(new PasteNodesCommand([n]))
@@ -1942,6 +1966,7 @@ export function WorkflowEditor({
                 {(contextMenu.target as WorkflowNode).type !== 'start' && (contextMenu.target as WorkflowNode).type !== 'end' && (
                   <button
                     className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-error"
+                    role="menuitem"
                     onClick={() => {
                       const n = contextMenu.target as WorkflowNode
                       setSelectedNodes([n])
@@ -1956,7 +1981,7 @@ export function WorkflowEditor({
             )}
             {contextMenu.type === 'edge' && (
               <>
-                <div className="px-3 py-1 text-xs text-text-secondary uppercase tracking-wide">Edge Type</div>
+                <div className="px-3 py-1 text-xs text-text-secondary uppercase tracking-wide" role="group" aria-label="Edge type options">Edge Type</div>
                 {(['bezier', 'straight', 'step', 'smoothstep'] as EdgeStyle[]).map((type) => {
                   const edgeObj = contextMenu.target as WorkflowEdge
                   const currentType = edgeObj.edgeType || 'bezier'
@@ -1966,6 +1991,8 @@ export function WorkflowEditor({
                       className={`w-full text-left px-3 py-1.5 hover:bg-mac-hover text-sm ${
                         currentType === type ? 'text-accent font-medium' : 'text-text-primary'
                       }`}
+                      role="menuitemradio"
+                      aria-checked={currentType === type}
                       onClick={() => {
                         handleChangeEdgeType(edgeObj, type)
                         handleCloseContextMenu()
@@ -1978,6 +2005,7 @@ export function WorkflowEditor({
                 <div className="border-t border-glass-border my-1" />
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-error/10 text-error text-sm"
+                  role="menuitem"
                   onClick={() => {
                     const e = contextMenu.target as WorkflowEdge
                     setSelectedEdge(e)
@@ -1993,6 +2021,7 @@ export function WorkflowEditor({
               <>
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary disabled:opacity-40"
+                  role="menuitem"
                   disabled={clipboard.length === 0}
                   onClick={() => { handlePaste(); handleCloseContextMenu() }}
                 >
@@ -2000,12 +2029,14 @@ export function WorkflowEditor({
                 </button>
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary"
+                  role="menuitem"
                   onClick={() => { handleSelectAll(); handleCloseContextMenu() }}
                 >
                   Select All
                 </button>
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary"
+                  role="menuitem"
                   onClick={() => { handleAutoLayout(); handleCloseContextMenu() }}
                 >
                   Auto Layout
@@ -2013,6 +2044,7 @@ export function WorkflowEditor({
                 <div className="border-t border-mac-border my-1" />
                 <button
                   className="w-full text-left px-3 py-1.5 hover:bg-mac-hover text-text-primary"
+                  role="menuitem"
                   onClick={() => { handleFit(); handleCloseContextMenu() }}
                 >
                   Fit View

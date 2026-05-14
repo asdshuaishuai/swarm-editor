@@ -134,8 +134,8 @@ func TestExecuteWaitNode_DurationTakesPrecedence(t *testing.T) {
 	ctx := context.Background()
 	future := time.Now().Add(10 * time.Second).Format(time.RFC3339)
 	result, err := ExecuteWaitNode(ctx, map[string]any{
-		"duration": 1,    // 1 second — should take precedence
-		"until":   future, // 10 seconds
+		"duration": 1,      // 1 second — should take precedence
+		"until":    future, // 10 seconds
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,7 +148,7 @@ func TestExecuteWaitNode_DurationTakesPrecedence(t *testing.T) {
 func TestExecuteWaitNode_DurationMsTakesPrecedence(t *testing.T) {
 	ctx := context.Background()
 	_, err := ExecuteWaitNode(ctx, map[string]any{
-		"duration":    10, // 10 seconds
+		"duration":    10,  // 10 seconds
 		"duration_ms": 100, // 100ms — should take precedence
 	})
 	if err != nil {

@@ -245,9 +245,9 @@ func TestSchedulerSelectRoundRobin(t *testing.T) {
 	scheduler := NewScheduler(SchedulerConfig{}, nil)
 
 	agents := []*AgentInfo{
-		{ID: "agent-1", totalTasks: 5},
-		{ID: "agent-2", totalTasks: 2},
-		{ID: "agent-3", totalTasks: 3},
+		{ID: "agent-1", currentLoad: 5},
+		{ID: "agent-2", currentLoad: 2},
+		{ID: "agent-3", currentLoad: 3},
 	}
 
 	selected := scheduler.selectRoundRobin(agents)
@@ -257,7 +257,7 @@ func TestSchedulerSelectRoundRobin(t *testing.T) {
 	}
 
 	if selected[0].ID != "agent-2" {
-		t.Errorf("Expected agent-2 (least tasks), got %s", selected[0].ID)
+		t.Errorf("Expected agent-2 (least load), got %s", selected[0].ID)
 	}
 }
 
@@ -1506,8 +1506,8 @@ func TestAgentInfoIncrementLoad(t *testing.T) {
 	if agent.GetLoad() != 1 {
 		t.Errorf("Load should be 1 after increment, got %d", agent.GetLoad())
 	}
-	if agent.GetTotalTasks() != 1 {
-		t.Errorf("Total tasks should be 1 after increment, got %d", agent.GetTotalTasks())
+	if agent.GetTotalTasks() != 0 {
+		t.Errorf("Total tasks should be 0 after increment (only RecordResult counts), got %d", agent.GetTotalTasks())
 	}
 
 	// Increment again
@@ -1515,8 +1515,8 @@ func TestAgentInfoIncrementLoad(t *testing.T) {
 	if agent.GetLoad() != 2 {
 		t.Errorf("Load should be 2 after second increment, got %d", agent.GetLoad())
 	}
-	if agent.GetTotalTasks() != 2 {
-		t.Errorf("Total tasks should be 2 after second increment, got %d", agent.GetTotalTasks())
+	if agent.GetTotalTasks() != 0 {
+		t.Errorf("Total tasks should still be 0 after second increment (only RecordResult counts), got %d", agent.GetTotalTasks())
 	}
 }
 
@@ -1590,8 +1590,9 @@ func TestAgentInfoConcurrentLoadOperations(t *testing.T) {
 	if agent.GetLoad() != numOps {
 		t.Errorf("Expected load %d after concurrent increments, got %d", numOps, agent.GetLoad())
 	}
-	if agent.GetTotalTasks() != numOps {
-		t.Errorf("Expected total tasks %d, got %d", numOps, agent.GetTotalTasks())
+	// totalTasks is only incremented by RecordResult, not IncrementLoad
+	if agent.GetTotalTasks() != 0 {
+		t.Errorf("Expected total tasks 0 after increments (only RecordResult counts), got %d", agent.GetTotalTasks())
 	}
 
 	// Concurrent decrements
@@ -2229,9 +2230,9 @@ func TestScheduler_findLowPriorityTasksForAgent(t *testing.T) {
 		Priority: PriorityLow,
 	}
 	scheduler.runningTasks["task-low-1"] = &ScheduledTask{
-		Task:      lowPriorityTask,
+		Task:       lowPriorityTask,
 		AssignedTo: []*AgentInfo{{ID: "agent-1"}},
-		StartedAt: time.Now(),
+		StartedAt:  time.Now(),
 	}
 
 	// Setup: normal priority task assigned to same agent
@@ -2329,11 +2330,11 @@ func TestScheduler_migrateTask(t *testing.T) {
 	scheduler := NewScheduler(SchedulerConfig{}, nil)
 
 	fromAgent := &AgentInfo{ID: "from-agent", MaxConcurrent: 5}
-	fromAgent.IncrementLoad() // load = 1
+	fromAgent.IncrementLoad()                               // load = 1
 	toAgent := &AgentInfo{ID: "to-agent", MaxConcurrent: 5} // load = 0
 
 	task := &ScheduledTask{
-		Task: &Task{ID: "task-1"},
+		Task:       &Task{ID: "task-1"},
 		AssignedTo: []*AgentInfo{fromAgent},
 	}
 
@@ -2361,7 +2362,7 @@ func TestScheduler_migrateTask(t *testing.T) {
 	toAgent2 := &AgentInfo{ID: "to-agent2", MaxConcurrent: 5}
 
 	task2 := &ScheduledTask{
-		Task: &Task{ID: "task-2"},
+		Task:       &Task{ID: "task-2"},
 		AssignedTo: []*AgentInfo{fromAgent2, &AgentInfo{ID: "other-agent"}},
 	}
 
@@ -2656,10 +2657,10 @@ func TestSchedulerScheduleNext_DependencyFailed(t *testing.T) {
 
 	// Add a task that depends on the failed dependency
 	task := &Task{
-		ID:          "task-1",
-		Title:       "Test Task",
-		Description: "Test",
-		Priority:    PriorityMedium,
+		ID:           "task-1",
+		Title:        "Test Task",
+		Description:  "Test",
+		Priority:     PriorityMedium,
 		Dependencies: []string{"dep-failed"},
 	}
 	scheduler.pendingQueue.Push(task)
@@ -2701,10 +2702,10 @@ func TestSchedulerScheduleNext_DependencyNotReady(t *testing.T) {
 
 	// Add a task that depends on a not-yet-completed task
 	task := &Task{
-		ID:          "task-1",
-		Title:       "Test Task",
-		Description: "Test",
-		Priority:    PriorityMedium,
+		ID:           "task-1",
+		Title:        "Test Task",
+		Description:  "Test",
+		Priority:     PriorityMedium,
 		Dependencies: []string{"dep-not-completed"},
 	}
 	scheduler.pendingQueue.Push(task)
@@ -3252,5 +3253,74 @@ func TestScheduler_agentHasRole(t *testing.T) {
 	}
 	if scheduler.agentHasRole(agent, "tester") {
 		t.Error("expected agent to NOT have 'tester' role")
+	}
+}
+
+// ==================== Round 4799: CircuitBreaker + RecordResult ====================
+
+func TestAgentInfo_RecordResult_WithCircuitBreaker(t *testing.T) {
+	agent := &AgentInfo{
+		ID: "cb-agent",
+		circuitBreaker: NewCircuitBreaker(CircuitBreakerConfig{
+			FailureThreshold: 3,
+			Timeout:          50 * time.Millisecond,
+		}),
+	}
+
+	// Record failures to trigger circuit breaker open state
+	for i := 0; i < 3; i++ {
+		agent.RecordResult(false)
+	}
+
+	// Circuit breaker should now be open
+	if agent.AllowRequest() {
+		t.Error("circuit breaker should be open after 3 failures")
+	}
+
+	// Record success while open - this should not close the circuit
+	agent.RecordResult(true)
+
+	// Should still be open (Allow() should fail unless timeout elapsed)
+	if agent.AllowRequest() {
+		t.Error("circuit breaker should still be open after one success without Allow()")
+	}
+}
+
+func TestAgentInfo_RecordResult_CircuitBreakerSuccess(t *testing.T) {
+	agent := &AgentInfo{
+		ID:             "cb-agent-2",
+		circuitBreaker: NewCircuitBreaker(CircuitBreakerConfig{FailureThreshold: 5}),
+	}
+
+	// Record all successes
+	for i := 0; i < 10; i++ {
+		agent.RecordResult(true)
+	}
+
+	if !agent.AllowRequest() {
+		t.Error("circuit breaker should allow requests after all successes")
+	}
+	if agent.GetSuccessRate() != 1.0 {
+		t.Errorf("expected 1.0 success rate, got %f", agent.GetSuccessRate())
+	}
+}
+
+func TestAgentInfo_IsHealthy_WithCircuitBreaker(t *testing.T) {
+	agent := &AgentInfo{
+		ID:             "healthy-cb",
+		circuitBreaker: NewCircuitBreaker(CircuitBreakerConfig{FailureThreshold: 3}),
+	}
+
+	if !agent.IsHealthy() {
+		t.Error("agent should be healthy initially")
+	}
+
+	// Trigger failures
+	for i := 0; i < 3; i++ {
+		agent.RecordResult(false)
+	}
+
+	if agent.IsHealthy() {
+		t.Error("agent should not be healthy after circuit breaker opens")
 	}
 }

@@ -458,6 +458,66 @@ func TestCircuitBreaker_TransitionToSameState(t *testing.T) {
 	}
 }
 
+func TestCircuitBreaker_TransitionToClosed(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 2,
+		SuccessThreshold: 2,
+		Timeout:          50 * time.Millisecond,
+	})
+
+	// Record failures to open the circuit
+	cb.RecordFailure()
+	cb.RecordFailure()
+	if cb.State() != StateOpen {
+		t.Fatalf("expected open, got %s", cb.State())
+	}
+
+	// Wait for timeout to elapse, then call Allow() to trigger half-open transition
+	time.Sleep(80 * time.Millisecond)
+	if !cb.Allow() {
+		t.Fatalf("expected Allow() to succeed and trigger half-open, but was rejected")
+	}
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("expected half-open after Allow(), got %s", cb.State())
+	}
+
+	// Record successes to close the circuit
+	cb.RecordSuccess()
+	cb.RecordSuccess()
+	if cb.State() != StateClosed {
+		t.Fatalf("expected closed after successes, got %s", cb.State())
+	}
+}
+
+func TestCircuitBreaker_HalfOpenToOpenOnFailure(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		FailureThreshold: 1,
+		SuccessThreshold: 2,
+		Timeout:          50 * time.Millisecond,
+	})
+
+	// Open the circuit
+	cb.RecordFailure()
+	if cb.State() != StateOpen {
+		t.Fatalf("expected open, got %s", cb.State())
+	}
+
+	// Wait for timeout and call Allow() to enter half-open
+	time.Sleep(80 * time.Millisecond)
+	if !cb.Allow() {
+		t.Fatalf("expected Allow() to trigger half-open")
+	}
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("expected half-open, got %s", cb.State())
+	}
+
+	// Failure in half-open should re-open
+	cb.RecordFailure()
+	if cb.State() != StateOpen {
+		t.Fatalf("expected open after half-open failure, got %s", cb.State())
+	}
+}
+
 func TestCircuitStateString(t *testing.T) {
 	tests := []struct {
 		state CircuitState
@@ -521,9 +581,9 @@ func TestCircuitBreaker_StateChangeCallbackHalfOpenToClosed(t *testing.T) {
 
 	// Should have seen all three transitions (order may vary due to goroutine scheduling)
 	expected := map[string]bool{
-		"closed->open":       false,
-		"open->half-open":    false,
-		"half-open->closed":  false,
+		"closed->open":      false,
+		"open->half-open":   false,
+		"half-open->closed": false,
 	}
 
 	if len(transitions) != len(expected) {

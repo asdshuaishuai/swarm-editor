@@ -17,6 +17,9 @@ export {
   events,
 } from './api'
 
+// Re-export LSP API
+export { lspApi } from './lspApi'
+
 // Re-export WebSocket utilities from websocket.ts
 export { getWebSocketClient, initializeWebSocket } from './websocket'
 

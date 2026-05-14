@@ -6,12 +6,14 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var fallbackLog = log.With("component", "Fallback")
 
 // FallbackStrategy defines how to select the next fallback agent
 type FallbackStrategy string
@@ -119,8 +121,7 @@ func (fc *FallbackChain) NextAgent(ctx context.Context) (*acp.AgentConnection, e
 		if fc.health != nil {
 			health := fc.health.GetHealth(conn.ID)
 			if health != nil && health.Score < fc.config.RequiredMinHealth {
-				log.Printf("[Fallback] skipping agent %s: health %.2f below threshold %.2f",
-					conn.ID, health.Score, fc.config.RequiredMinHealth)
+				fallbackLog.Warn("Skipping agent: health below threshold", "agent_id", conn.ID, "health", health.Score, "threshold", fc.config.RequiredMinHealth)
 				continue
 			}
 		}

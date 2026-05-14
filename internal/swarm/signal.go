@@ -7,11 +7,14 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var signalLog = log.With("component", "SignalBus")
 
 // Signal represents an external event injected into a workflow.
 // Inspired by Temporal's SignalWorkflow API.
@@ -126,7 +129,7 @@ func (sb *SignalBus) SendSignal(workflowID string, signal *Signal) error {
 	// Drop oldest if buffer is full
 	signals := sb.pendingSignals[workflowID]
 	if len(signals) >= sb.maxBufferedSignals {
-		log.Printf("[SignalBus] buffer full for workflow %q, dropping oldest signal %q", workflowID, signal.Name)
+		signalLog.Warn("Buffer full, dropping oldest signal", "workflow_id", workflowID, "signal", signal.Name)
 		sb.pendingSignals[workflowID] = append(signals[1:], signal)
 	} else {
 		sb.pendingSignals[workflowID] = append(signals, signal)
@@ -145,7 +148,7 @@ func (sb *SignalBus) DrainSignals(workflowID string) []*Signal {
 	if len(signals) == 0 {
 		return nil
 	}
-	sb.pendingSignals[workflowID] = nil
+	delete(sb.pendingSignals, workflowID)
 	return signals
 }
 

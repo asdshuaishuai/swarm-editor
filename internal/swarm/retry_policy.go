@@ -4,6 +4,7 @@ package swarm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"time"
@@ -31,6 +32,9 @@ type ClassifiedError struct {
 }
 
 func (e *ClassifiedError) Error() string {
+	if e.Inner == nil {
+		return fmt.Sprintf("classified error: type=%d", e.Type)
+	}
 	return e.Inner.Error()
 }
 
@@ -118,6 +122,81 @@ func (p RetryPolicy) ShouldRetry(err error, attempt int) bool {
 
 	// Unknown errors are retryable by default (fail-safe)
 	return true
+}
+
+// GetNodeRetryPolicy extracts a per-node RetryPolicy from node Config.
+// Inspired by Temporal's per-activity retry policies.
+// Returns nil if no retry policy is configured (use workflow default).
+//
+// Config format (JSON):
+//
+//	"retryPolicy": {
+//	  "maximumAttempts": 3,
+//	  "initialInterval": "1s",
+//	  "backoffCoefficient": 2.0,
+//	  "maximumInterval": "30s"
+//	}
+func GetNodeRetryPolicy(node *WorkflowNode) *RetryPolicy {
+	if node == nil || node.Config == nil {
+		return nil
+	}
+	raw, ok := node.Config["retryPolicy"]
+	if !ok {
+		return nil
+	}
+
+	// Support map[string]any (from JSON unmarshal)
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	policy := DefaultRetryPolicy()
+
+	// maximumAttempts can be float64 (JSON) or int (programmatic)
+	if v, ok := m["maximumAttempts"].(float64); ok && v > 0 {
+		policy.MaximumAttempts = int(v)
+	} else if v, ok := m["maximumAttempts"].(int); ok && v > 0 {
+		policy.MaximumAttempts = v
+	}
+	if v, ok := m["initialInterval"].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			policy.InitialInterval = d
+		}
+	}
+	// backoffCoefficient can be float64 (JSON) or int (programmatic)
+	if v, ok := m["backoffCoefficient"].(float64); ok && v > 0 {
+		policy.BackoffCoefficient = v
+	} else if v, ok := m["backoffCoefficient"].(int); ok && v > 0 {
+		policy.BackoffCoefficient = float64(v)
+	}
+	if v, ok := m["maximumInterval"].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			policy.MaximumInterval = d
+		}
+	}
+	// Parse nonRetryableErrorTypes: ["non_retryable", "cancelled"]
+	if types, ok := m["nonRetryableErrorTypes"].([]any); ok {
+		errorTypeMap := map[string]ErrorType{
+			"retryable":     ErrorTypeRetryable,
+			"non_retryable": ErrorTypeNonRetryable,
+			"timeout":       ErrorTypeTimeout,
+			"cancelled":     ErrorTypeCancelled,
+		}
+		var nonRetryable []ErrorType
+		for _, t := range types {
+			if s, ok := t.(string); ok {
+				if et, found := errorTypeMap[s]; found {
+					nonRetryable = append(nonRetryable, et)
+				}
+			}
+		}
+		if len(nonRetryable) > 0 {
+			policy.NonRetryableErrorTypes = nonRetryable
+		}
+	}
+
+	return &policy
 }
 
 // RetryExecutor executes operations with retry policy

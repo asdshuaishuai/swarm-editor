@@ -5,7 +5,6 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"sort"
 	"sync"
@@ -13,8 +12,11 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 	"github.com/swarm-editor/swarm-editor/pkg/utils"
 )
+
+var handoffLog = log.With("component", "Handoff")
 
 // HandoffState represents the state of a handoff
 type HandoffState string
@@ -242,7 +244,7 @@ func (hm *HandoffManager) RequestHandoff(ctx context.Context, fromAgent, toAgent
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Handoff] waitForResponse panic for %s: %v", req.ID, r)
+				handoffLog.Error("waitForResponse panic", "request_id", req.ID, "panic", r)
 			}
 			hm.wg.Done()
 		}()

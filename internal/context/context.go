@@ -30,15 +30,15 @@ func NewContextManager(indexer *Indexer) *ContextManager {
 // AgentContext represents context to be provided to an Agent
 type AgentContext struct {
 	// Project info
-	ProjectRoot   string    `json:"projectRoot"`
-	IndexedAt     time.Time `json:"indexedAt"`
-	TotalFiles    int       `json:"totalFiles"`
-	TotalSymbols  int       `json:"totalSymbols"`
+	ProjectRoot  string    `json:"projectRoot"`
+	IndexedAt    time.Time `json:"indexedAt"`
+	TotalFiles   int       `json:"totalFiles"`
+	TotalSymbols int       `json:"totalSymbols"`
 
 	// Requested context
-	Files    []*FileInfo `json:"files,omitempty"`
-	Symbols  []Symbol    `json:"symbols,omitempty"`
-	Imports  []string    `json:"imports,omitempty"`
+	Files   []*FileInfo `json:"files,omitempty"`
+	Symbols []Symbol    `json:"symbols,omitempty"`
+	Imports []string    `json:"imports,omitempty"`
 
 	// Search results
 	SearchResults []*FileInfo `json:"searchResults,omitempty"`
@@ -77,8 +77,8 @@ type ContextRequest struct {
 // GetContext retrieves context based on the request
 func (cm *ContextManager) GetContext(ctx context.Context, req ContextRequest) (*AgentContext, error) {
 	result := &AgentContext{
-		Files:      make([]*FileInfo, 0),
-		Symbols:    make([]Symbol, 0),
+		Files:       make([]*FileInfo, 0),
+		Symbols:     make([]Symbol, 0),
 		RecentFiles: make([]string, 0),
 	}
 

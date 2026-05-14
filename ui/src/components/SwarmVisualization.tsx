@@ -172,8 +172,10 @@ export default function SwarmVisualization({
         </div>
 
         {/* View Toggle */}
-        <div className="flex items-center gap-1 p-1 bg-mac-sidebar rounded-mac">
+        <div className="flex items-center gap-1 p-1 bg-mac-sidebar rounded-mac" role="tablist" aria-label="View mode">
           <button
+            role="tab"
+            aria-selected={viewMode === 'topology'}
             onClick={() => setViewMode('topology')}
             className={`px-3 py-1.5 text-xs font-medium rounded-mac transition-all ${
               viewMode === 'topology'
@@ -185,6 +187,8 @@ export default function SwarmVisualization({
             Topology
           </button>
           <button
+            role="tab"
+            aria-selected={viewMode === 'tasks'}
             onClick={() => setViewMode('tasks')}
             className={`px-3 py-1.5 text-xs font-medium rounded-mac transition-all ${
               viewMode === 'tasks'
@@ -417,6 +421,10 @@ function TaskFlowCard({ task, agents }: { task: CoordinationTask; agents: Agent[
       <div
         className="flex items-center gap-3 p-3 cursor-pointer hover:bg-card-hover transition-colors"
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) }}}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
       >
         {getStatusIcon(task.status)}
         <div className="flex-1 min-w-0">
@@ -433,7 +441,7 @@ function TaskFlowCard({ task, agents }: { task: CoordinationTask; agents: Agent[
 
       {/* Progress Bar */}
       <div className="px-3 pb-2">
-        <div className="h-1 bg-surface rounded-full overflow-hidden">
+        <div className="h-1 bg-surface rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(task.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={`Task progress: ${Math.round(task.progress * 100)}%`}>
           <div
             className="h-full bg-accent transition-all duration-300"
             style={{ width: `${task.progress * 100}%` }}

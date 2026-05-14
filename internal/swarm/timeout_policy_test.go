@@ -223,6 +223,69 @@ func TestTimeoutTrackerGetTimeUntilTimeout(t *testing.T) {
 	}
 }
 
+func TestTimeoutTracker_GetTimeUntilTimeout_Elapsed(t *testing.T) {
+	policy := TimeoutPolicy{
+		ScheduleToStart: 100 * time.Millisecond,
+		StartToClose:    100 * time.Millisecond,
+		Heartbeat:       100 * time.Millisecond,
+	}
+	tracker := &TimeoutTracker{
+		TaskID:    "task-expired",
+		Policy:    policy,
+		CreatedAt: time.Now().Add(-5 * time.Second), // created 5s ago
+	}
+	tracker.StartedAt.Store(time.Now().Add(-5 * time.Second))     // started 5s ago
+	tracker.LastHeartbeat.Store(time.Now().Add(-5 * time.Second)) // heartbeat 5s ago
+
+	s2s, stc, hb := tracker.GetTimeUntilTimeout()
+
+	if s2s != 0 {
+		t.Errorf("scheduleToStart should be 0 (elapsed), got %v", s2s)
+	}
+	if stc != 0 {
+		t.Errorf("startToClose should be 0 (elapsed), got %v", stc)
+	}
+	if hb != 0 {
+		t.Errorf("heartbeat should be 0 (elapsed), got %v", hb)
+	}
+}
+
+func TestTimeoutTracker_GetTimeUntilTimeout_NotConfigured(t *testing.T) {
+	tracker := &TimeoutTracker{
+		TaskID:    "task-no-policy",
+		Policy:    TimeoutPolicy{}, // all zero = not configured
+		CreatedAt: time.Now(),
+	}
+
+	s2s, stc, hb := tracker.GetTimeUntilTimeout()
+
+	if s2s != -1 {
+		t.Errorf("scheduleToStart should be -1 (not configured), got %v", s2s)
+	}
+	if stc != -1 {
+		t.Errorf("startToClose should be -1 (not configured), got %v", stc)
+	}
+	if hb != -1 {
+		t.Errorf("heartbeat should be -1 (not configured), got %v", hb)
+	}
+}
+
+func TestTimeoutTracker_GetTimeUntilTimeout_NoHeartbeat(t *testing.T) {
+	tracker := &TimeoutTracker{
+		TaskID:    "task-no-hb",
+		Policy:    TimeoutPolicy{Heartbeat: 30 * time.Second},
+		CreatedAt: time.Now(),
+	}
+	// LastHeartbeat is nil (zero value of atomic.Value)
+
+	_, _, hb := tracker.GetTimeUntilTimeout()
+
+	// When no heartbeat recorded, heartbeat should remain 0 (default)
+	if hb != 0 {
+		t.Errorf("heartbeat should be 0 (no heartbeat recorded), got %v", hb)
+	}
+}
+
 func TestTimeoutManagerScheduleToStartTimeout(t *testing.T) {
 	policy := TimeoutPolicy{
 		ScheduleToStart: 50 * time.Millisecond,
@@ -420,10 +483,10 @@ func TestMonitorStartToClose_ZeroDuration(t *testing.T) {
 	defer cancel()
 
 	tracker := &TimeoutTracker{
-		TaskID:  "task-1",
+		TaskID:    "task-1",
 		StartedAt: atomic.Value{},
 		Completed: atomic.Bool{},
-		ctx:      ctx,
+		ctx:       ctx,
 	}
 	tracker.StartedAt.Store(time.Now())
 
@@ -458,10 +521,10 @@ func TestMonitorStartToClose_FiresTimeout(t *testing.T) {
 	defer cancel()
 
 	tracker := &TimeoutTracker{
-		TaskID:  "task-fire",
+		TaskID:    "task-fire",
 		StartedAt: atomic.Value{},
 		Completed: atomic.Bool{},
-		ctx:      ctx,
+		ctx:       ctx,
 	}
 	tracker.StartedAt.Store(time.Now())
 
@@ -492,10 +555,10 @@ func TestMonitorStartToClose_AlreadyCompleted(t *testing.T) {
 	defer cancel()
 
 	tracker := &TimeoutTracker{
-		TaskID:  "task-done",
+		TaskID:    "task-done",
 		StartedAt: atomic.Value{},
 		Completed: atomic.Bool{},
-		ctx:      ctx,
+		ctx:       ctx,
 	}
 	tracker.StartedAt.Store(time.Now())
 	tracker.Completed.Store(true) // Already completed
@@ -515,10 +578,10 @@ func TestMonitorStartToClose_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	tracker := &TimeoutTracker{
-		TaskID:  "task-cancel",
+		TaskID:    "task-cancel",
 		StartedAt: atomic.Value{},
 		Completed: atomic.Bool{},
-		ctx:      ctx,
+		ctx:       ctx,
 	}
 	tracker.StartedAt.Store(time.Now())
 

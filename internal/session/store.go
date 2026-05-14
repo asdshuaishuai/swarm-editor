@@ -6,23 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
 
 // Validation constants
+var sessionLog = log.With("component", "Session")
+
 const (
 	maxSessionIDLen = 256
 )
 
-// validateSessionID validates a session ID for safety
+// validSessionIDRegex validates session IDs to prevent path traversal
+// Allows alphanumeric, dash, underscore, and dot (for timestamp-based IDs)
+var validSessionIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// validateSessionID checks if a session ID is safe to use in file paths
 func validateSessionID(id string) error {
 	if id == "" {
 		return errors.New("session id is required")
@@ -30,11 +37,8 @@ func validateSessionID(id string) error {
 	if len(id) > maxSessionIDLen {
 		return errors.New("session id too long")
 	}
-	if strings.Contains(id, "..") {
-		return errors.New("session id cannot contain path traversal sequences")
-	}
-	if strings.ContainsAny(id, "/\\") {
-		return errors.New("session id cannot contain path separators")
+	if !validSessionIDRegex.MatchString(id) {
+		return errors.New("session id contains invalid characters (only alphanumeric, dash, underscore, and dot allowed)")
 	}
 	return nil
 }
@@ -119,7 +123,7 @@ func NewStore(dataDir string) (*Store, error) {
 	// Load existing sessions from disk
 	if err := store.loadFromDisk(); err != nil {
 		// Non-fatal: just log and continue
-		log.Printf("[Session] Warning: failed to load sessions from disk: %v", err)
+		sessionLog.Warn("Failed to load sessions from disk", "error", err)
 	}
 
 	return store, nil
@@ -129,7 +133,7 @@ func NewStore(dataDir string) (*Store, error) {
 func (s *Store) writeWorker() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Session] writeWorker panic: %v", r)
+			sessionLog.Error("writeWorker panic", "panic", r)
 		}
 		s.closeWg.Done()
 	}()
@@ -144,7 +148,7 @@ func (s *Store) writeWorker() {
 				defer s.writeWg.Done()
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Session] writeFileSync panic (recovered): %v", r)
+						sessionLog.Error("writeFileSync panic (recovered)", "panic", r)
 					}
 				}()
 				s.writeFileSync(req.sessionID, req.data)
@@ -158,7 +162,7 @@ func (s *Store) writeWorker() {
 						defer s.writeWg.Done()
 						defer func() {
 							if r := recover(); r != nil {
-								log.Printf("[Session] writeFileSync panic in drain (recovered): %v", r)
+								sessionLog.Error("writeFileSync panic in drain (recovered)", "panic", r)
 							}
 						}()
 						s.writeFileSync(req.sessionID, req.data)
@@ -180,29 +184,32 @@ func (s *Store) writeFileSync(sessionID string, data []byte) {
 	// Atomic write: write to temp file then rename
 	tmp, err := os.CreateTemp(s.dataDir, sessionID+".*.tmp")
 	if err != nil {
-		log.Printf("[Session] Failed to create temp file for %s: %v", sessionID, err)
+		sessionLog.Error("Failed to create temp file", "session_id", sessionID, "error", err)
 		return
 	}
 	// Restrict permissions for session data
-	if err := tmp.Chmod(0600); err != nil {
-		log.Printf("[Session] Failed to set permissions on temp file for %s: %v", sessionID, err)
+	if chmodErr := tmp.Chmod(0600); chmodErr != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		sessionLog.Error("Failed to set permissions on temp file", "session_id", sessionID, "error", chmodErr)
+		return
 	}
 	tmpPath := tmp.Name()
 	_, err = tmp.Write(data)
 	if err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		log.Printf("[Session] Failed to write temp file for %s: %v", sessionID, err)
+		sessionLog.Error("Failed to write temp file", "session_id", sessionID, "error", err)
 		return
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
-		log.Printf("[Session] Failed to close temp file for %s: %v", sessionID, err)
+		sessionLog.Error("Failed to close temp file", "session_id", sessionID, "error", err)
 		return
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
-		log.Printf("[Session] Failed to rename temp file for %s: %v", sessionID, err)
+		sessionLog.Error("Failed to rename temp file", "session_id", sessionID, "error", err)
 		return
 	}
 }
@@ -213,8 +220,8 @@ func (s *Store) loadFromDisk() error {
 		return nil
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
+	// Ensure directory exists with restricted permissions (session data may be sensitive)
+	if err := os.MkdirAll(s.dataDir, 0700); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -235,19 +242,19 @@ func (s *Store) loadFromDisk() error {
 		path := filepath.Join(s.dataDir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
-			log.Printf("[Session] Warning: failed to read session file %s: %v", path, err)
+			sessionLog.Warn("Failed to read session file", "path", path, "error", err)
 			continue
 		}
 
 		var session Session
 		if err := json.Unmarshal(data, &session); err != nil {
-			log.Printf("[Session] Warning: failed to parse session file %s: %v", path, err)
+			sessionLog.Warn("Failed to parse session file", "path", path, "error", err)
 			continue
 		}
 
 		// Validate session ID to prevent path traversal from crafted files
 		if err := validateSessionID(session.ID); err != nil {
-			log.Printf("[Session] Warning: skipping session with invalid ID from file %s: %v", entry.Name(), err)
+			sessionLog.Warn("Skipping session with invalid ID", "file", entry.Name(), "error", err)
 			continue
 		}
 
@@ -272,7 +279,7 @@ func (s *Store) enqueueWrite(sessionID string, data []byte) {
 		// Queue full — drop write to prevent blocking callers holding s.mu.
 		// This may lose the latest write, but prevents latency spikes.
 		s.writeWg.Done()
-		log.Printf("[Session] write queue full, dropping write for session %s", sessionID)
+		sessionLog.Warn("Write queue full, dropping write", "session_id", sessionID)
 	}
 }
 
@@ -316,7 +323,7 @@ func (s *Store) deleteFromDisk(sessionID string) error {
 func (s *Store) Create(id, agentID string) *Session {
 	// Validate session ID for safety
 	if err := validateSessionID(id); err != nil {
-		log.Printf("[Session] Invalid session id rejected: %v", err)
+		sessionLog.Warn("Invalid session id rejected", "error", err)
 		return nil
 	}
 
@@ -348,7 +355,7 @@ func (s *Store) Create(id, agentID string) *Session {
 	if sessionCopy != nil {
 		data, err := json.MarshalIndent(sessionCopy, "", "  ")
 		if err != nil {
-			log.Printf("[Session] Failed to marshal session %s: %v", id, err)
+			sessionLog.Error("Failed to marshal session", "session_id", id, "error", err)
 		} else {
 			s.enqueueWrite(id, data)
 		}
@@ -452,7 +459,7 @@ func (s *Store) AddMessage(sessionID string, message Message) error {
 	if sessionCopy != nil {
 		data, err := json.MarshalIndent(sessionCopy, "", "  ")
 		if err != nil {
-			log.Printf("[Session] Failed to marshal session %s: %v", sessionID, err)
+			sessionLog.Error("Failed to marshal session", "session_id", sessionID, "error", err)
 		} else {
 			s.enqueueWrite(sessionID, data)
 		}
@@ -486,7 +493,7 @@ func (s *Store) UpdateStatus(sessionID, status string) error {
 	if sessionCopy != nil {
 		data, err := json.MarshalIndent(sessionCopy, "", "  ")
 		if err != nil {
-			log.Printf("[Session] Failed to marshal session %s: %v", sessionID, err)
+			sessionLog.Error("Failed to marshal session", "session_id", sessionID, "error", err)
 		} else {
 			s.enqueueWrite(sessionID, data)
 		}
@@ -525,7 +532,7 @@ func (s *Store) Delete(sessionID string) error {
 	// Remove from disk synchronously to avoid TOCTOU race
 	// (concurrent Create with same ID could have file deleted)
 	if err := s.deleteFromDisk(sessionID); err != nil {
-		log.Printf("[Session] Failed to delete session %s from disk: %v", sessionID, err)
+		sessionLog.Error("Failed to delete session from disk", "session_id", sessionID, "error", err)
 	}
 
 	return nil
@@ -564,7 +571,8 @@ func (s *Store) Search(query string) []*Session {
 	defer s.mu.RUnlock()
 
 	query = strings.ToLower(query)
-	var results []*Session
+	// Use make() for consistent non-nil empty slice (same as List())
+	results := make([]*Session, 0)
 	seen := make(map[string]struct{}, len(s.sessions))
 
 	for _, session := range s.sessions {

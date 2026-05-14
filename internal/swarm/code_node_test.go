@@ -1,6 +1,7 @@
 package swarm
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -27,11 +28,14 @@ func TestExecuteCodeNode_Arithmetic(t *testing.T) {
 		{"modulo by zero", "10 % 0", nil, true},
 		{"unary minus", "-5 + 3", -2, false},
 		{"negative power", "pow(2, -1)", 0.5, false},
+		{"chained subtraction", "10 - 3 - 2", 5, false},
+		{"chained division", "10 / 2 / 5", 1, false},
+		{"chained mixed", "20 - 3 * 2 + 1", 15, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -70,7 +74,7 @@ func TestExecuteCodeNode_Comparison(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -107,7 +111,7 @@ func TestExecuteCodeNode_Logical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -135,7 +139,7 @@ func TestExecuteCodeNode_Ternary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -177,7 +181,7 @@ func TestExecuteCodeNode_Functions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -192,7 +196,7 @@ func TestExecuteCodeNode_Functions(t *testing.T) {
 }
 
 func TestExecuteCodeNode_JsonParse(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "json_parse('{\"key\": \"value\"}')",
 	})
 	if err != nil {
@@ -212,7 +216,7 @@ func TestExecuteCodeNode_JsonParse(t *testing.T) {
 
 func TestExecuteCodeNode_JsonStringify(t *testing.T) {
 	// json_stringify on a parsed JSON object
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "json_stringify(json_parse('{\"a\": 1}'))",
 	})
 	if err != nil {
@@ -228,7 +232,7 @@ func TestExecuteCodeNode_JsonStringify(t *testing.T) {
 }
 
 func TestExecuteCodeNode_Variables(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "x + y",
 		"variables": map[string]any{
 			"x": 10,
@@ -247,7 +251,7 @@ func TestExecuteCodeNode_Variables(t *testing.T) {
 }
 
 func TestExecuteCodeNode_TemplateVariables(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code":      "{{name}}",
 		"variables": map[string]any{"name": "hello"},
 	})
@@ -263,7 +267,7 @@ func TestExecuteCodeNode_TemplateVariables(t *testing.T) {
 }
 
 func TestExecuteCodeNode_Empty(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{})
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,7 +297,7 @@ func TestExecuteCodeNode_Literals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -309,7 +313,7 @@ func TestExecuteCodeNode_Literals(t *testing.T) {
 
 func TestExecuteCodeNode_ComplexExpression(t *testing.T) {
 	// Fibonacci-like: (1 + 2) * 3 - 1 = 8
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "(1 + 2) * 3 - 1",
 	})
 	if err != nil {
@@ -322,14 +326,14 @@ func TestExecuteCodeNode_ComplexExpression(t *testing.T) {
 
 func TestExecuteCodeNode_SizeLimit(t *testing.T) {
 	largeCode := string(make([]byte, 2<<20)) // 2MB
-	_, err := ExecuteCodeNode(map[string]any{"code": largeCode})
+	_, err := ExecuteCodeNode(context.Background(), map[string]any{"code": largeCode})
 	if err == nil {
 		t.Fatal("expected error for oversized code")
 	}
 }
 
 func TestExecuteCodeNode_ErrorResult(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "10 / 0",
 	})
 	if err != nil {
@@ -344,7 +348,7 @@ func TestExecuteCodeNode_ErrorResult(t *testing.T) {
 }
 
 func TestExecuteCodeNode_SqrtNegative(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "sqrt(-1)",
 	})
 	if err != nil {
@@ -357,7 +361,7 @@ func TestExecuteCodeNode_SqrtNegative(t *testing.T) {
 
 func TestExecuteCodeNode_NestedFunctions(t *testing.T) {
 	// abs(floor(-3.7)) = abs(-4) = 4
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "abs(floor(-3.7))",
 	})
 	if err != nil {
@@ -372,11 +376,11 @@ func TestExecuteCodeNode_NestedFunctions(t *testing.T) {
 }
 
 func TestExecuteCodeNode_ArithmeticWithVars(t *testing.T) {
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code": "price * quantity",
 		"variables": map[string]any{
-			"price":     10,
-			"quantity":  5,
+			"price":    10,
+			"quantity": 5,
 		},
 	})
 	if err != nil {
@@ -441,7 +445,7 @@ func TestExecuteCodeNode_JavaScriptMode(t *testing.T) {
 				params["variables"] = tt.vars
 			}
 
-			result, err := ExecuteCodeNode(params)
+			result, err := ExecuteCodeNode(context.Background(), params)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -475,10 +479,10 @@ func TestExecuteCodeNode_JavaScriptMode(t *testing.T) {
 
 func TestExecuteCodeNode_JavaScriptTimeout(t *testing.T) {
 	// Very short timeout should fail on infinite loop
-	result, err := ExecuteCodeNode(map[string]any{
-		"code":        "while(true) {}",
-		"language":    "javascript",
-		"timeout_ms":  10, // 10ms - very short
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
+		"code":       "while(true) {}",
+		"language":   "javascript",
+		"timeout_ms": 10, // 10ms - very short
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -490,10 +494,10 @@ func TestExecuteCodeNode_JavaScriptTimeout(t *testing.T) {
 
 func TestExecuteCodeNode_JavaScriptTimeoutClamped(t *testing.T) {
 	// Timeout should be clamped to MaxCodeExecutionTimeout
-	result, err := ExecuteCodeNode(map[string]any{
-		"code":        "1 + 1",
-		"language":    "javascript",
-		"timeout_ms":  999999999, // Way over max
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
+		"code":       "1 + 1",
+		"language":   "javascript",
+		"timeout_ms": 999999999, // Way over max
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -507,7 +511,7 @@ func TestExecuteCodeNode_JavaScriptTimeoutClamped(t *testing.T) {
 func TestExecuteCodeNode_JavaScriptVariableIsolation(t *testing.T) {
 	// Variables should be isolated - modifying them shouldn't affect original
 	original := map[string]any{"items": []any{"a", "b"}}
-	result, err := ExecuteCodeNode(map[string]any{
+	result, err := ExecuteCodeNode(context.Background(), map[string]any{
 		"code":      "items.push('c'); items.length",
 		"language":  "javascript",
 		"variables": original,
@@ -529,7 +533,7 @@ func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
 	t.Run("logical op does not match inside string", func(t *testing.T) {
 		// The || inside the string should not be treated as a logical operator.
 		// Use double quotes to wrap a string containing single quotes with ||.
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": `"it's a || b" || "end"`,
 		})
 		if err != nil {
@@ -542,7 +546,7 @@ func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
 	})
 
 	t.Run("comparison inside string with escaped quote", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": `'a\\'s' == 'a\\'s'`,
 		})
 		if err != nil {
@@ -554,7 +558,7 @@ func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
 	})
 
 	t.Run("arithmetic inside string with double quotes", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": `"2 + 3"`,
 		})
 		if err != nil {
@@ -566,7 +570,7 @@ func TestExecuteCodeNode_EscapedQuotes(t *testing.T) {
 	})
 
 	t.Run("ternary with string containing comparison", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": `1 > 0 ? "yes" : "no"`,
 		})
 		if err != nil {
@@ -645,7 +649,7 @@ func TestFindTernaryColon(t *testing.T) {
 		want      int
 	}{
 		{"a ? b : c", 0, 6},
-		{"a : b", 0, 2},             // simple case
+		{"a : b", 0, 2},            // simple case
 		{"'a:b' ? x : y", 0, 10},   // colon inside string should be skipped
 		{"(a : b) ? x : y", 0, 12}, // colon inside parens should be skipped
 		{"[a : b] ? x : y", 0, 12}, // colon inside brackets should be skipped
@@ -897,7 +901,7 @@ func TestCodeTypeOf(t *testing.T) {
 // TestExecuteCodeNode_UnaryMinusEdgeCases tests edge cases for unary minus
 func TestExecuteCodeNode_UnaryMinusEdgeCases(t *testing.T) {
 	t.Run("unary minus on float", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "-3.14",
 		})
 		if err != nil {
@@ -909,7 +913,7 @@ func TestExecuteCodeNode_UnaryMinusEdgeCases(t *testing.T) {
 	})
 
 	t.Run("unary minus on variable", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code":      "-count",
 			"variables": map[string]any{"count": 5},
 		})
@@ -922,7 +926,7 @@ func TestExecuteCodeNode_UnaryMinusEdgeCases(t *testing.T) {
 	})
 
 	t.Run("unary minus on non-numeric", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code":      "-text",
 			"variables": map[string]any{"text": "hello"},
 		})
@@ -950,7 +954,7 @@ func TestExecuteCodeNode_NullAndNil(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -964,7 +968,7 @@ func TestExecuteCodeNode_NullAndNil(t *testing.T) {
 // TestExecuteCodeNode_ParenthesesEdgeCases tests parentheses handling
 func TestExecuteCodeNode_ParenthesesEdgeCases(t *testing.T) {
 	t.Run("nested parens", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "((1 + 2) * 3)",
 		})
 		if err != nil {
@@ -976,7 +980,7 @@ func TestExecuteCodeNode_ParenthesesEdgeCases(t *testing.T) {
 	})
 
 	t.Run("unclosed paren", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "(1 + 2",
 		})
 		if err != nil {
@@ -1008,7 +1012,7 @@ func TestExecuteCodeNode_LogicalNotEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCodeNode(map[string]any{"code": tt.code})
+			result, err := ExecuteCodeNode(context.Background(), map[string]any{"code": tt.code})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1022,7 +1026,7 @@ func TestExecuteCodeNode_LogicalNotEdgeCases(t *testing.T) {
 // TestExecuteCodeNode_EvalCodeArgEdgeCases tests evalCodeArg edge cases
 func TestExecuteCodeNode_EvalCodeArgEdgeCases(t *testing.T) {
 	t.Run("empty arg", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "len('')",
 		})
 		if err != nil {
@@ -1034,7 +1038,7 @@ func TestExecuteCodeNode_EvalCodeArgEdgeCases(t *testing.T) {
 	})
 
 	t.Run("whitespace arg", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "trim('   ')",
 		})
 		if err != nil {
@@ -1047,7 +1051,7 @@ func TestExecuteCodeNode_EvalCodeArgEdgeCases(t *testing.T) {
 	})
 
 	t.Run("float with decimal in function", func(t *testing.T) {
-		result, err := ExecuteCodeNode(map[string]any{
+		result, err := ExecuteCodeNode(context.Background(), map[string]any{
 			"code": "floor(3.7)",
 		})
 		if err != nil {
@@ -1593,6 +1597,10 @@ func TestFindArithmeticOp_Direct(t *testing.T) {
 		{"unary minus at start", "-5", -1},
 		{"parens block", "(2 + 3) * 4", 8},
 		{"string blocks", "'a+b' * 2", 6},
+		{"chained subtraction returns rightmost", "10 - 3 - 2", 7},
+		{"chained division returns rightmost", "10 / 2 / 5", 7},
+		{"chained addition returns rightmost", "1 + 2 + 3", 6},
+		{"chained mixed add/mul", "2 + 3 * 4 + 1", 10},
 	}
 
 	for _, tt := range tests {

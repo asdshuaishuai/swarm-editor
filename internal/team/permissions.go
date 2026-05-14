@@ -6,10 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var permLog = log.With("component", "PermissionManager")
 
 // Permission represents a permission type
 type Permission string
@@ -175,23 +178,29 @@ func (pm *PermissionManager) cleanupExpired(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pm.mu.Lock()
-			now := time.Now()
-			for id, req := range pm.requests {
-				if req.Status == StatusPending && now.After(req.ExpiresAt) {
-					req.Status = StatusExpired
-					req.ResolvedAt = &now
-				}
-				// Remove old resolved requests (older than staleness threshold)
-				if req.ResolvedAt != nil && now.Sub(*req.ResolvedAt) > resolvedRequestStaleness {
-					delete(pm.requests, id)
-					if ch, ok := pm.responses[id]; ok {
-						close(ch)
-						delete(pm.responses, id)
-					}
-				}
+			pm.cleanupOnce()
+		}
+	}
+}
+
+// cleanupOnce performs a single pass over all requests, expiring pending ones
+// that have passed their deadline and removing old resolved requests.
+func (pm *PermissionManager) cleanupOnce() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	now := time.Now()
+	for id, req := range pm.requests {
+		if req.Status == StatusPending && now.After(req.ExpiresAt) {
+			req.Status = StatusExpired
+			req.ResolvedAt = &now
+		}
+		// Remove old resolved requests (older than staleness threshold)
+		if req.ResolvedAt != nil && now.Sub(*req.ResolvedAt) > resolvedRequestStaleness {
+			delete(pm.requests, id)
+			if ch, ok := pm.responses[id]; ok {
+				close(ch)
+				delete(pm.responses, id)
 			}
-			pm.mu.Unlock()
 		}
 	}
 }
@@ -225,7 +234,7 @@ func (pm *PermissionManager) RequestPermission(perm Permission, requesterID, age
 		go func(callback func(*PermissionRequest)) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[PermissionManager] onRequest callback panic: %v", r)
+					permLog.Error("onRequest callback panic", "panic", r)
 				}
 			}()
 			callback(req)
@@ -319,7 +328,7 @@ func (pm *PermissionManager) RespondToRequest(requestID string, approved bool, r
 		go func(callback func(*PermissionRequest)) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[PermissionManager] onResponse callback panic: %v", r)
+					permLog.Error("onResponse callback panic", "panic", r)
 				}
 			}()
 			callback(req)
@@ -422,10 +431,13 @@ func (pm *PermissionManager) expireRequest(requestID string) {
 	}
 }
 
-// generateRequestID generates a unique request ID using crypto/rand
+// generateRequestID generates a unique request ID using crypto/rand.
+// Panics on crypto/rand failure as this indicates a critical system problem.
 func generateRequestID() string {
 	b := make([]byte, 12)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Errorf("crypto/rand failed: %w", err))
+	}
 	return "perm_" + hex.EncodeToString(b)
 }
 

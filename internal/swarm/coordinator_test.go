@@ -1135,6 +1135,35 @@ func TestCoordinatorDoubleStop(t *testing.T) {
 	coord.Stop()
 }
 
+func TestCoordinatorStopStartDoesNotBusyWait(t *testing.T) {
+	config := CoordinatorConfig{MaxConcurrent: 5}
+	coord := NewCoordinator(config, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	coord.Start(ctx)
+	coord.Stop()
+
+	// Re-start after stop — channels must be recreated to avoid busy-wait
+	// on closed channels. Verify by submitting a task and checking it works.
+	coord.Start(ctx)
+
+	err := coord.SubmitTask(ctx, &CoordinationTask{
+		ID:    "restart-test",
+		Title: "test after restart",
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask after Stop()+Start() failed: %v", err)
+	}
+
+	stats := coord.GetStats()
+	if stats.PendingTasks != 1 {
+		t.Errorf("expected 1 pending task, got %d", stats.PendingTasks)
+	}
+
+	coord.Stop()
+	cancel()
+}
+
 func TestNewCoordinatorDefaults(t *testing.T) {
 	// Test with zero config values
 	config := CoordinatorConfig{}
@@ -2351,11 +2380,8 @@ func TestCoordinator_SubmitTask_PendingTasksLimit(t *testing.T) {
 	}
 
 	// Pending tasks should be capped at maxCoordinatorPendingTasks
-	if len(coord.pendingTasks) > maxCoordinatorPendingTasks {
-		t.Errorf("pending tasks should be capped at %d, got %d", maxCoordinatorPendingTasks, len(coord.pendingTasks))
-	}
-
-	// The oldest tasks should have been pruned (the first task should be gone)
+	coord.mu.RLock()
+	pendingCount := len(coord.pendingTasks)
 	foundFirst := false
 	for _, pt := range coord.pendingTasks {
 		if pt.ID == "task-0000" {
@@ -2363,6 +2389,12 @@ func TestCoordinator_SubmitTask_PendingTasksLimit(t *testing.T) {
 			break
 		}
 	}
+	coord.mu.RUnlock()
+
+	if pendingCount > maxCoordinatorPendingTasks {
+		t.Errorf("pending tasks should be capped at %d, got %d", maxCoordinatorPendingTasks, pendingCount)
+	}
+
 	if foundFirst {
 		t.Error("oldest task should have been pruned from pending queue")
 	}

@@ -16,24 +16,24 @@ import (
 
 // Comparison operators supported by condition evaluation.
 const (
-	OpEqual            = "=="
-	OpNotEqual         = "!="
-	OpGreaterThan      = ">"
-	OpGreaterOrEqual   = ">="
-	OpLessThan         = "<"
-	OpLessOrEqual      = "<="
-	OpContains         = "contains"
-	OpNotContains      = "not_contains"
-	OpStartsWith       = "starts_with"
-	OpEndsWith         = "ends_with"
-	OpIsEmpty          = "is_empty"
-	OpIsNotEmpty       = "is_not_empty"
-	OpMatches          = "matches"
-	OpMatchesNot       = "not_matches"
-	OpIsTrue           = "is_true"
-	OpIsFalse          = "is_false"
-	OpIn    = "in"
-	OpNotIn = "not_in"
+	OpEqual          = "=="
+	OpNotEqual       = "!="
+	OpGreaterThan    = ">"
+	OpGreaterOrEqual = ">="
+	OpLessThan       = "<"
+	OpLessOrEqual    = "<="
+	OpContains       = "contains"
+	OpNotContains    = "not_contains"
+	OpStartsWith     = "starts_with"
+	OpEndsWith       = "ends_with"
+	OpIsEmpty        = "is_empty"
+	OpIsNotEmpty     = "is_not_empty"
+	OpMatches        = "matches"
+	OpMatchesNot     = "not_matches"
+	OpIsTrue         = "is_true"
+	OpIsFalse        = "is_false"
+	OpIn             = "in"
+	OpNotIn          = "not_in"
 )
 
 var validOperators = map[string]bool{
@@ -49,9 +49,9 @@ var validOperators = map[string]bool{
 
 // ConditionResult represents the output of a condition node.
 type ConditionResult struct {
-	Result  bool   `json:"result"`
-	Left    any    `json:"left"`
-	Right   any    `json:"right"`
+	Result   bool   `json:"result"`
+	Left     any    `json:"left"`
+	Right    any    `json:"right"`
 	Operator string `json:"operator"`
 }
 

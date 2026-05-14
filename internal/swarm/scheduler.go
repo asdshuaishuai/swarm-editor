@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"math"
 	"slices"
@@ -15,7 +14,11 @@ import (
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// schedulerLog is a scoped logger for the Scheduler component.
+var schedulerLog = log.With("component", "Scheduler")
 
 const maxSchedulerDLQEntries = 100 // Max in-memory DLQ entries
 
@@ -98,12 +101,13 @@ type AgentInfo struct {
 	circuitBreaker *CircuitBreaker
 }
 
-// IncrementLoad atomically increments the agent's current load
+// IncrementLoad atomically increments the agent's current load.
+// Note: totalTasks is only incremented in RecordResult to avoid double-counting
+// (each task is counted once on completion, not once on assignment + once on completion).
 func (a *AgentInfo) IncrementLoad() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.currentLoad++
-	a.totalTasks++
 }
 
 // DecrementLoad atomically decrements the agent's current load
@@ -394,14 +398,14 @@ func (s *Scheduler) SubmitTaskWithDecomposition(ctx context.Context, task *Task)
 	// Analyze task complexity
 	subtasks, err := s.decomposeTask(ctx, task)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decompose task: %w", err)
 	}
 
 	if len(subtasks) > 1 {
 		// Submit all subtasks
 		for _, st := range subtasks {
 			if err := s.SubmitTask(st); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("submit subtask %q: %w", st.Title, err)
 			}
 		}
 		return subtasks, nil
@@ -409,7 +413,7 @@ func (s *Scheduler) SubmitTaskWithDecomposition(ctx context.Context, task *Task)
 
 	// Submit single task
 	if err := s.SubmitTask(task); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("submit task: %w", err)
 	}
 
 	return []*Task{task}, nil
@@ -460,7 +464,7 @@ func (s *Scheduler) scheduleNext() {
 			task.State = TaskStateFailed
 			task.Error = "dependency failed"
 			s.failedIDs[task.ID] = true
-			log.Printf("[Scheduler] Task %s skipped: dependency failed", task.ID)
+			schedulerLog.Info("Task skipped: dependency failed", "task_id", task.ID)
 			s.completedTask = append(s.completedTask, scheduledFromFailed(task))
 			continue
 		}
@@ -483,7 +487,7 @@ func (s *Scheduler) scheduleNext() {
 
 			maxScheduleRetries := 10
 			if retries >= maxScheduleRetries {
-				log.Printf("[Scheduler] Task %s failed after %d schedule retries: no capable agents available", task.ID, retries)
+				schedulerLog.Error("Task failed after schedule retries: no capable agents", "task_id", task.ID, "retries", retries)
 				task.Fail(fmt.Errorf("no capable agents found after %d scheduling attempts", retries))
 				s.completedTask = append(s.completedTask, scheduledFromFailed(task))
 				continue
@@ -552,7 +556,7 @@ func (s *Scheduler) scheduleNext() {
 		s.wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Scheduler] executeTask panic for task %s: %v", scheduled.Task.ID, r)
+					schedulerLog.Error("executeTask panic", "task_id", scheduled.Task.ID, "error", r)
 				}
 			}()
 			s.executeTask(scheduled)
@@ -630,7 +634,7 @@ func (s *Scheduler) selectFallbackAgent(task *Task) []*AgentInfo {
 
 	conn, err := fallback.NextAgent(s.ctx)
 	if err != nil {
-		log.Printf("[Scheduler] Fallback failed for task %s: %v", task.ID, err)
+		schedulerLog.Error("Fallback failed", "task_id", task.ID, "error", err)
 		return nil
 	}
 
@@ -649,10 +653,13 @@ func (s *Scheduler) selectLeastLoaded(agents []*AgentInfo) []*AgentInfo {
 	if len(agents) == 0 {
 		return nil
 	}
-	sort.Slice(agents, func(i, j int) bool {
-		return agents[i].GetLoad() < agents[j].GetLoad()
+	// Copy to avoid mutating caller's slice
+	sorted := make([]*AgentInfo, len(agents))
+	copy(sorted, agents)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].GetLoad() < sorted[j].GetLoad()
 	})
-	return []*AgentInfo{agents[0]}
+	return []*AgentInfo{sorted[0]}
 }
 
 // selectByPriority selects agents by priority
@@ -660,10 +667,13 @@ func (s *Scheduler) selectByPriority(agents []*AgentInfo) []*AgentInfo {
 	if len(agents) == 0 {
 		return nil
 	}
-	sort.Slice(agents, func(i, j int) bool {
-		return agents[i].Priority > agents[j].Priority
+	// Copy to avoid mutating caller's slice
+	sorted := make([]*AgentInfo, len(agents))
+	copy(sorted, agents)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Priority > sorted[j].Priority
 	})
-	return []*AgentInfo{agents[0]}
+	return []*AgentInfo{sorted[0]}
 }
 
 // selectByCapability selects agents by capability match
@@ -695,14 +705,14 @@ func (s *Scheduler) selectRoundRobin(agents []*AgentInfo) []*AgentInfo {
 	if len(agents) == 0 {
 		return nil
 	}
-	// Simple round-robin based on total tasks
-	minTasks := math.MaxInt32
+	// Pick agent with lowest current load (active concurrent tasks)
+	minLoad := math.MaxInt32
 	var selected *AgentInfo
 
 	for _, agent := range agents {
-		tasks := agent.GetTotalTasks()
-		if tasks < minTasks {
-			minTasks = tasks
+		load := agent.GetLoad()
+		if load < minLoad {
+			minLoad = load
 			selected = agent
 		}
 	}
@@ -751,7 +761,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 	copy(assignedTo, scheduled.AssignedTo)
 	s.mu.RUnlock()
 
-	log.Printf("[Scheduler] Starting execution of task %s on %d agents", task.ID, len(assignedTo))
+	schedulerLog.Info("Starting task execution", "task_id", task.ID, "agents", len(assignedTo))
 
 	// Notify callback (snapshot under lock to avoid race)
 	s.mu.RLock()
@@ -779,7 +789,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		go func(a *AgentInfo) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Scheduler] executeOnAgent panic for agent %s: %v", a.ID, r)
+					schedulerLog.Error("executeOnAgent panic", "agent_id", a.ID, "error", r)
 				}
 				wg.Done()
 			}()
@@ -808,8 +818,14 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		allErrors = append(allErrors, e)
 	}
 
-	// Update agent load (use snapshotted assignedTo, not scheduled.AssignedTo)
-	for _, agent := range assignedTo {
+	// Update agent load — re-read current AssignedTo (not stale snapshot) to handle
+	// concurrent migration correctly (migrateTask may have changed AssignedTo).
+	s.mu.RLock()
+	currentAssigned := make([]*AgentInfo, len(scheduled.AssignedTo))
+	copy(currentAssigned, scheduled.AssignedTo)
+	s.mu.RUnlock()
+
+	for _, agent := range currentAssigned {
 		agent.DecrementLoad()
 	}
 
@@ -822,7 +838,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		// All failed - try fallback chain for cascading retries
 		scheduled.Status = TaskStatusFailed
 		scheduled.Error = allErrors[0]
-		log.Printf("[Scheduler] Task %s failed: %v", task.ID, allErrors[0])
+		schedulerLog.Error("Task failed", "task_id", task.ID, "error", allErrors[0])
 
 		// Mark failed agents as attempted in fallback chain
 		s.mu.RLock()
@@ -849,15 +865,15 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			s.mu.RUnlock()
 
 			if nextAgent != nil {
-				log.Printf("[Scheduler] Task %s falling back to agent %s (remaining attempts: %d)",
-					task.ID, nextAgent.ID, fallback.RemainingAttempts())
+				schedulerLog.Warn("Task falling back to agent",
+					"task_id", task.ID, "agent_id", nextAgent.ID, "remaining", fallback.RemainingAttempts())
 
 				// Use select with context for cancellable delay
 				timer := time.NewTimer(s.config.RetryDelay)
 				defer timer.Stop()
 				select {
 				case <-s.ctx.Done():
-					log.Printf("[Scheduler] Context cancelled, aborting fallback for task %s", task.ID)
+					schedulerLog.Info("Context cancelled, aborting fallback", "task_id", task.ID)
 					scheduled.Status = TaskStatusFailed
 					s.mu.RLock()
 					onFail := s.onTaskFail
@@ -895,7 +911,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 					scheduled.Progress = 1.0
 					scheduled.Result = result
 					s.mu.Unlock()
-					log.Printf("[Scheduler] Task %s completed via fallback to agent %s", task.ID, nextAgent.ID)
+					schedulerLog.Info("Task completed via fallback", "task_id", task.ID, "agent_id", nextAgent.ID)
 					s.mu.RLock()
 					onComplete := s.onTaskComplete
 					s.mu.RUnlock()
@@ -908,7 +924,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 					s.mu.Unlock()
 					return
 				}
-				log.Printf("[Scheduler] Fallback agent %s also failed for task %s: %v", nextAgent.ID, task.ID, execErr)
+				schedulerLog.Error("Fallback agent also failed", "agent_id", nextAgent.ID, "task_id", task.ID, "error", execErr)
 			}
 		}
 
@@ -916,7 +932,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 		if scheduled.RetryCount < s.config.RetryCount {
 			scheduled.RetryCount++
 			scheduled.Status = TaskStatusRetrying
-			log.Printf("[Scheduler] Scheduling retry %d/%d for task %s", scheduled.RetryCount, s.config.RetryCount, task.ID)
+			schedulerLog.Info("Scheduling retry", "task_id", task.ID, "attempt", scheduled.RetryCount, "max", s.config.RetryCount)
 
 			// Use select with context for cancellable delay
 			timer := time.NewTimer(s.config.RetryDelay)
@@ -924,7 +940,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			select {
 			case <-s.ctx.Done():
 				// Context cancelled, don't retry
-				log.Printf("[Scheduler] Context cancelled, aborting retry for task %s", task.ID)
+				schedulerLog.Info("Context cancelled, aborting retry", "task_id", task.ID)
 				scheduled.Status = TaskStatusFailed
 				s.mu.RLock()
 				onFail := s.onTaskFail
@@ -950,31 +966,31 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			task.State = TaskStatePending
 			s.pendingQueue.Push(task)
 			s.mu.Unlock()
-			log.Printf("[Scheduler] Task %s re-queued for retry", task.ID)
+			schedulerLog.Info("Task re-queued for retry", "task_id", task.ID)
 			return
 		}
 
-	log.Printf("[Scheduler] Task %s failed after %d retries", task.ID, scheduled.RetryCount)
+		schedulerLog.Error("Task failed after retries", "task_id", task.ID, "retries", scheduled.RetryCount)
 
-	// Send to Dead Letter Queue for observability
-	s.mu.Lock()
-	var assignedAgent string
-	if len(scheduled.AssignedTo) > 0 {
-		assignedAgent = scheduled.AssignedTo[0].ID
-	}
-	traceID := ""
-	if scheduled.Trace != nil {
-		traceID = scheduled.Trace.TraceID
-	}
-	s.dlq.add(scheduled.Task.ID, scheduled.Task.Title, assignedAgent, traceID, allErrors[0], scheduled.RetryCount)
-	s.mu.Unlock()
+		// Send to Dead Letter Queue for observability
+		s.mu.Lock()
+		var assignedAgent string
+		if len(scheduled.AssignedTo) > 0 {
+			assignedAgent = scheduled.AssignedTo[0].ID
+		}
+		traceID := ""
+		if scheduled.Trace != nil {
+			traceID = scheduled.Trace.TraceID
+		}
+		s.dlq.add(scheduled.Task.ID, scheduled.Task.Title, assignedAgent, traceID, allErrors[0], scheduled.RetryCount)
+		s.mu.Unlock()
 
-	s.mu.RLock()
-	onFail := s.onTaskFail
-	s.mu.RUnlock()
-	if onFail != nil {
-		onFail(scheduled, allErrors[0])
-	}
+		s.mu.RLock()
+		onFail := s.onTaskFail
+		s.mu.RUnlock()
+		if onFail != nil {
+			onFail(scheduled, allErrors[0])
+		}
 	} else {
 		// Success (possibly partial)
 		scheduled.Status = TaskStatusCompleted
@@ -986,7 +1002,7 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 			scheduled.Result = s.aggregateResults(allResults)
 		}
 
-		log.Printf("[Scheduler] Task %s completed successfully with %d results", task.ID, len(allResults))
+		schedulerLog.Info("Task completed successfully", "task_id", task.ID, "results", len(allResults))
 		s.mu.RLock()
 		onComplete := s.onTaskComplete
 		s.mu.RUnlock()
@@ -1033,7 +1049,9 @@ func (s *Scheduler) executeTask(scheduled *ScheduledTask) {
 
 // executeOnAgent executes a task on a single agent with error recovery
 func (s *Scheduler) executeOnAgent(scheduled *ScheduledTask, agent *AgentInfo) (*TaskResult, error) {
+	s.mu.RLock()
 	ctx := s.ctx
+	s.mu.RUnlock()
 	if s.config.TaskTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.config.TaskTimeout)
@@ -1610,7 +1628,7 @@ func (s *Scheduler) migrateTask(task *ScheduledTask, from, to *AgentInfo) {
 	from.DecrementLoad()
 	to.IncrementLoad()
 
-	log.Printf("[Scheduler] Migrated task %s from agent %s to %s", task.Task.ID, from.ID, to.ID)
+	schedulerLog.Info("Migrated task between agents", "task_id", task.Task.ID, "from", from.ID, "to", to.ID)
 }
 
 // GetStats returns scheduler statistics
@@ -1737,7 +1755,7 @@ func (s *Scheduler) propagateFailure(failedTaskID string) []func() {
 			delete(s.runningTasks, id)
 			s.failedIDs[id] = true
 			s.completedTask = append(s.completedTask, scheduled)
-			log.Printf("[Scheduler] Task %s failed due to dependency %s failure", id, failedTaskID)
+			schedulerLog.Warn("Task failed due to dependency failure", "task_id", id, "failed_dep", failedTaskID)
 			if s.onTaskFail != nil {
 				onFail := s.onTaskFail
 				err := scheduled.Error
@@ -1757,13 +1775,13 @@ type schedulerDLQ struct {
 }
 
 type dlqEntry struct {
-	TaskID      string
-	Title       string
-	Error       string
-	Attempts    int
-	FailedAt    time.Time
-	AgentID     string
-	TraceID     string // For distributed tracing correlation
+	TaskID   string
+	Title    string
+	Error    string
+	Attempts int
+	FailedAt time.Time
+	AgentID  string
+	TraceID  string // For distributed tracing correlation
 }
 
 func (d *schedulerDLQ) add(taskID, title, agentID, traceID string, err error, attempts int) {
@@ -1776,11 +1794,11 @@ func (d *schedulerDLQ) add(taskID, title, agentID, traceID string, err error, at
 	d.entries[taskID] = &dlqEntry{
 		TaskID:   taskID,
 		Title:    title,
-		Error:     err.Error(),
+		Error:    err.Error(),
 		Attempts: attempts,
 		FailedAt: time.Now(),
-		AgentID:   agentID,
-		TraceID:   traceID,
+		AgentID:  agentID,
+		TraceID:  traceID,
 	}
 	// Limit in-memory size
 	if len(d.entries) > maxSchedulerDLQEntries {

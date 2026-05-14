@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -20,7 +19,7 @@ const maxRequestBodySize int64 = 1 << 20
 // apiError logs internal error details and returns a safe error message to client
 func apiError(w http.ResponseWriter, internalErr error, publicMsg string, code int) {
 	if internalErr != nil {
-		log.Printf("[API] Error: %v", internalErr)
+		apiLog.Error("Internal error", "error", internalErr)
 	}
 	http.Error(w, publicMsg, code)
 }
@@ -307,7 +306,6 @@ func (api *WorkflowAPI) HandleRestoreCheckpoint(w http.ResponseWriter, r *http.R
 		apiError(w, err, "failed to encode response", http.StatusInternalServerError)
 	}
 }
-
 
 // Helper function to generate IDs
 func generateID(prefix string) string {

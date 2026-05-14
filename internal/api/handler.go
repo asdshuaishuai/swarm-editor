@@ -1,21 +1,21 @@
 package api
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/google/uuid"
-	"github.com/swarm-editor/swarm-editor/internal/acp"
-	"github.com/swarm-editor/swarm-editor/internal/agent"
-	"github.com/swarm-editor/swarm-editor/internal/audit"
-	"github.com/swarm-editor/swarm-editor/internal/swarm"
+"context"
+"encoding/json"
+"fmt"
+"io"
+"os"
+"os/exec"
+"path/filepath"
+"strings"
+"time"
+"github.com/swarm-editor/swarm-editor/internal/log"
+"github.com/swarm-editor/swarm-editor/internal/lsp"
+"github.com/swarm-editor/swarm-editor/internal/swarm"
 )
+
+var apiLog = log.With("component", "API")
 
 // Input validation limits
 const (
@@ -72,6 +72,10 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleCreateSession(ctx, params)
 	case "send_message":
 		return h.handleSendMessage(ctx, params)
+	case "get_custom_instructions":
+		return h.handleGetCustomInstructions(ctx, params)
+	case "save_custom_instructions":
+		return h.handleSaveCustomInstructions(ctx, params)
 	case "close_session":
 		return h.handleCloseSession(ctx, params)
 
@@ -132,12 +136,146 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleGetEmergenceData(ctx, params)
 
 	// File system
+	case "get_workspace":
+		return h.handleGetWorkspace(ctx, params)
 	case "list_dir":
 		return h.handleListDir(ctx, params)
 	case "read_file":
 		return h.handleReadFile(ctx, params)
 	case "write_file":
 		return h.handleWriteFile(ctx, params)
+	case "delete_file":
+		return h.handleDeleteFile(ctx, params)
+	case "rename_file":
+		return h.handleRenameFile(ctx, params)
+	case "create_file":
+		return h.handleCreateFile(ctx, params)
+	case "mkdir":
+		return h.handleMkdir(ctx, params)
+	case "copy_file":
+		return h.handleCopyFile(ctx, params)
+	case "search_files":
+		return h.handleSearchFiles(ctx, params)
+	case "search_content":
+		return h.handleSearchContent(ctx, params)
+	case "git_status":
+		return h.handleGitStatus(ctx, params)
+	case "git_diff":
+		return h.handleGitDiff(ctx, params)
+	case "git_stage":
+		return h.handleGitStage(ctx, params)
+	case "git_unstage":
+		return h.handleGitUnstage(ctx, params)
+	case "git_commit":
+		return h.handleGitCommit(ctx, params)
+	case "git_discard":
+		return h.handleGitDiscard(ctx, params)
+	case "git_log":
+		return h.handleGitLog(ctx, params)
+	case "git_branch":
+		return h.handleGitBranch(ctx, params)
+	case "git_branch_list":
+		return h.handleGitBranchList(ctx, params)
+	case "git_branch_create":
+		return h.handleGitBranchCreate(ctx, params)
+	case "git_branch_checkout":
+		return h.handleGitBranchCheckout(ctx, params)
+	case "git_push":
+		return h.handleGitPush(ctx, params)
+	case "git_pull":
+		return h.handleGitPull(ctx, params)
+	case "git_stash":
+		return h.handleGitStash(ctx, params)
+	case "git_stash_pop":
+		return h.handleGitStashPop(ctx, params)
+	case "git_undo_commit":
+		return h.handleGitUndoCommit(ctx, params)
+	case "git_diff_lines":
+		return h.handleGitDiffLines(ctx, params)
+	case "replace_content":
+		return h.handleReplaceContent(ctx, params)
+	case "reveal_file":
+		return h.handleRevealFile(ctx, params)
+
+	// LSP integration
+	case "lsp_completion":
+		return h.handleLSPCompletion(ctx, params)
+	case "lsp_hover":
+		return h.handleLSPHover(ctx, params)
+	case "lsp_definition":
+		return h.handleLSPDefinition(ctx, params)
+	case "lsp_implementation":
+		return h.handleLSPImplementation(ctx, params)
+	case "lsp_type_definition":
+		return h.handleLSPTypeDefinition(ctx, params)
+	case "lsp_references":
+		return h.handleLSPReferences(ctx, params)
+	case "lsp_did_open":
+		return h.handleLSPDidOpen(ctx, params)
+	case "lsp_did_change":
+		return h.handleLSPDidChange(ctx, params)
+	case "lsp_did_change_incremental":
+		return h.handleLSPDidChangeIncremental(ctx, params)
+	case "lsp_did_close":
+		return h.handleLSPDidClose(ctx, params)
+	case "lsp_did_save":
+		return h.handleLSPDidSave(ctx, params)
+	case "lsp_status":
+		return h.handleLSPStatus(ctx, params)
+	case "lsp_supports_incremental":
+		return h.handleLSPSupportsIncremental(ctx, params)
+	case "lsp_diagnostics":
+		return h.handleLSPDiagnostics(ctx, params)
+	case "lsp_signature_help":
+		return h.handleLSPSignatureHelp(ctx, params)
+	case "lsp_document_symbols":
+		return h.handleLSPDocumentSymbols(ctx, params)
+	case "lsp_document_highlight":
+		return h.handleLSPDocumentHighlight(ctx, params)
+	case "lsp_code_actions":
+		return h.handleLSPCodeActions(ctx, params)
+	case "lsp_inlay_hints":
+		return h.handleLSPInlayHints(ctx, params)
+	case "lsp_folding_ranges":
+		return h.handleLSPFoldingRanges(ctx, params)
+	case "lsp_workspace_symbols":
+		return h.handleLSPWorkspaceSymbols(ctx, params)
+	case "lsp_rename":
+		return h.handleLSPRename(ctx, params)
+	case "lsp_formatting":
+		return h.handleLSPFormatting(ctx, params)
+	case "lsp_range_formatting":
+		return h.handleLSPRangeFormatting(ctx, params)
+	case "lsp_selection_range":
+		return h.handleLSPSelectionRange(ctx, params)
+	case "lsp_on_type_formatting":
+		return h.handleLSPOnTypeFormatting(ctx, params)
+	case "lsp_semantic_tokens":
+		return h.handleLSPSemanticTokens(ctx, params)
+	case "lsp_semantic_tokens_range":
+		return h.handleLSPSemanticTokensRange(ctx, params)
+	case "lsp_semantic_tokens_legend":
+		return h.handleLSPSemanticTokensLegend(ctx, params)
+	case "lsp_document_links":
+		return h.handleLSPDocumentLinks(ctx, params)
+	case "lsp_code_lenses":
+		return h.handleLSPCodeLenses(ctx, params)
+
+	// Call Hierarchy
+	case "lsp_prepare_call_hierarchy":
+		return h.handlePrepareCallHierarchy(ctx, params)
+	case "lsp_call_hierarchy_incoming_calls":
+		return h.handleCallHierarchyIncomingCalls(ctx, params)
+	case "lsp_call_hierarchy_outgoing_calls":
+		return h.handleCallHierarchyOutgoingCalls(ctx, params)
+
+	// Type Hierarchy
+	case "lsp_prepare_type_hierarchy":
+		return h.handlePrepareTypeHierarchy(ctx, params)
+	case "lsp_type_hierarchy_supertypes":
+		return h.handleTypeHierarchySupertypes(ctx, params)
+	case "lsp_type_hierarchy_subtypes":
+		return h.handleTypeHierarchySubtypes(ctx, params)
 
 	// Workflow management
 	case "list_workflows":
@@ -162,6 +300,14 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleAddWorkflowNode(ctx, params)
 	case "add_workflow_edge":
 		return h.handleAddWorkflowEdge(ctx, params)
+	case "export_workflow":
+		return h.handleExportWorkflow(ctx, params)
+	case "import_workflow":
+		return h.handleImportWorkflow(ctx, params)
+	case "validate_workflow":
+		return h.handleValidateWorkflow(ctx, params)
+	case "get_workflow_status":
+		return h.handleGetWorkflowStatus(ctx, params)
 	case "get_workflow_report":
 		return h.handleGetWorkflowReport(ctx, params)
 	case "clear_node_cache":
@@ -220,277 +366,32 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 
 // ==================== Agent Handlers ====================
 
-func (h *CommandHandler) handleGetAgents(ctx context.Context, params json.RawMessage) (any, error) {
-	registry := h.server.Registry()
-	if registry == nil {
-		return []AgentInfo{}, nil
-	}
 
-	agents := registry.GetAll()
-	result := make([]AgentInfo, 0, len(agents))
 
-	// Add internal agents
-	for _, a := range agents {
-		result = append(result, AgentInfo{
-			ID:    string(a.ID),
-			Name:  a.Name,
-			Type:  string(a.Type),
-			State: string(a.GetState()),
-		})
-	}
 
-	// Add external agents from connection manager
-	if cm := h.server.ConnManager(); cm != nil {
-		connections := cm.GetConnected()
-		for _, conn := range connections {
-			name := ""
-			if conn.Config != nil {
-				name = conn.Config.Name
-			}
-			result = append(result, AgentInfo{
-				ID:    conn.ID,
-				Name:  name,
-				Type:  "external",
-				State: "connected",
-			})
-		}
-	}
 
-	return result, nil
-}
-
-func (h *CommandHandler) handleGetAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("agent id is required")
-	}
-
-	registry := h.server.Registry()
-	if registry == nil {
-		return nil, errNotFound("agent not found")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.ID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	return AgentInfo{
-		ID:    string(ag.ID),
-		Name:  ag.Name,
-		Type:  string(ag.Type),
-		State: string(ag.GetState()),
-	}, nil
-}
-
-func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("agent id is required")
-	}
-
-	registry := h.server.Registry()
-	if registry == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.ID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	ag.SetState(agent.StateIdle)
-	return map[string]string{"status": "started"}, nil
-}
-
-func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("agent id is required")
-	}
-
-	registry := h.server.Registry()
-	if registry == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.ID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	ag.SetState(agent.StateError) // Using Error as "stopped" state
-	return map[string]string{"status": "stopped"}, nil
-}
-
-func (h *CommandHandler) handleRefreshAgents(ctx context.Context, params json.RawMessage) (any, error) {
-	// Trigger agent discovery
-	return h.handleGetAgents(ctx, params)
-}
 
 // ==================== Session Handlers ====================
 
-func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		AgentID string `json:"agentId"`
-		Mode    string `json:"mode"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	if strings.TrimSpace(req.AgentID) == "" {
-		return nil, errValidation("agentId is required")
-	}
 
-	// Get ACP connection for the agent
-	if h.server.connManager == nil {
-		return nil, NewAPIError(CodeInternalError, "agent connections not available")
-	}
-	conn, ok := h.server.connManager.GetConnection(req.AgentID)
-	if !ok {
-		return nil, errNotConnected(fmt.Sprintf("agent %s is not connected", req.AgentID))
-	}
-
-	// Determine session mode
-	var mode acp.SessionMode
-	switch req.Mode {
-	case "planning":
-		mode = acp.ModePlanning
-	case "editing", "code":
-		mode = acp.ModeEditing
-	case "reviewing", "review":
-		mode = acp.ModeReviewing
-	case "pair_driver":
-		mode = acp.ModePairDriver
-	case "pair_navigator":
-		mode = acp.ModePairNav
-	case "swarm":
-		mode = acp.ModeSwarm
-	default:
-		mode = acp.ModeDefault
-	}
-
-	// Create session via ACP
-	session, err := conn.CreateSession(ctx, mode)
-	if err != nil {
-		return nil, safeError("failed to create session", err)
-	}
-
-	// Store session -> agent mapping
-	h.server.mu.Lock()
-	if h.server.sessionToAgent == nil {
-		h.server.sessionToAgent = make(map[string]string)
-	}
-	if len(h.server.sessionToAgent) >= maxSessions {
-		h.server.mu.Unlock()
-		return nil, errLimitExceeded(fmt.Sprintf("maximum number of sessions (%d) reached", maxSessions))
-	}
-	h.server.sessionToAgent[string(session.ID)] = req.AgentID
-	h.server.mu.Unlock()
-
-	return SessionInfo{
-		ID:        string(session.ID),
-		AgentID:   req.AgentID,
-		Mode:      req.Mode,
-		CreatedAt: time.Now().Format(time.RFC3339),
-		UpdatedAt: time.Now().Format(time.RFC3339),
-	}, nil
+// instructionFiles lists the file names to look for custom instructions, in priority order.
+// Cursor uses .cursorrules, VS Code uses AGENTS.md and .instructions.md.
+var instructionFiles = []string{
+	".swarm-instructions.md", // Swarm Editor primary
+	"AGENTS.md",             // VS Code / Windsurf
+	".cursorrules",          // Cursor
+	".instructions.md",       // VS Code (older)
 }
 
-func (h *CommandHandler) handleSendMessage(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		SessionID string `json:"sessionId"`
-		Message   string `json:"message"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
+// loadCustomInstructions reads custom instruction files from the workspace root.
+// Returns the concatenated content, or empty string if no instruction files found.
 
-	if strings.TrimSpace(req.SessionID) == "" {
-		return nil, errValidation("sessionId is required")
-	}
-	if len(req.Message) > 100*1024 {
-		return nil, errValidation("message exceeds maximum size (100KB)")
-	}
+// handleGetCustomInstructions returns the current custom instructions content.
+// If .swarm-instructions.md exists, returns its content. Otherwise returns empty.
 
-	// Look up which agent owns this session
-	h.server.mu.RLock()
-	agentID, ok := h.server.sessionToAgent[req.SessionID]
-	h.server.mu.RUnlock()
+// handleSaveCustomInstructions saves content to .swarm-instructions.md in the workspace root.
 
-	if !ok {
-		return nil, errNotFound(fmt.Sprintf("session not found: %s", req.SessionID))
-	}
-
-	// Get the ACP connection for the agent
-	if h.server.connManager == nil {
-		return nil, NewAPIError(CodeInternalError, "agent connections not available")
-	}
-	conn, ok := h.server.connManager.GetConnection(agentID)
-	if !ok {
-		return nil, errNotConnected(fmt.Sprintf("agent %s is not connected", agentID))
-	}
-
-	// Create prompt
-	prompt := acp.Prompt{
-		{Type: "text", Text: req.Message},
-	}
-
-	// Send prompt via ACP
-	result, err := conn.SendPrompt(ctx, acp.SessionID(req.SessionID), prompt)
-	if err != nil {
-		return nil, safeError("failed to send message", err)
-	}
-
-	return map[string]any{
-		"sessionId":  req.SessionID,
-		"stopReason": result.StopReason,
-	}, nil
-}
-
-func (h *CommandHandler) handleCloseSession(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Input validation
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	if req.SessionID == "" {
-		return nil, errValidation("sessionId is required")
-	}
-
-	// Clean up session -> agent mapping
-	h.server.mu.Lock()
-	delete(h.server.sessionToAgent, req.SessionID)
-	h.server.mu.Unlock()
-
-	return map[string]string{"status": "closed"}, nil
-}
 
 // ==================== Permission Handlers ====================
 
@@ -550,25 +451,6 @@ func (h *CommandHandler) handlePermissionResponse(ctx context.Context, params js
 
 // ==================== Swarm Handlers ====================
 
-func (h *CommandHandler) handleGetSwarms(ctx context.Context, params json.RawMessage) (any, error) {
-	swarms := h.server.ListSwarms()
-	result := make([]SwarmInfo, 0, len(swarms))
-
-	for id, sw := range swarms {
-		stats := sw.GetStats()
-		result = append(result, SwarmInfo{
-			ID:         id,
-			Name:       sw.Name,
-			Topology:   string(sw.Topology),
-			Strategy:   string(sw.Strategy),
-			Status:     stats.State,
-			AgentCount: stats.AgentCount,
-			TaskCount:  stats.PendingTasks + stats.CompletedTasks,
-		})
-	}
-
-	return result, nil
-}
 
 type createSwarmRequest struct {
 	Name     string   `json:"name"`
@@ -577,1833 +459,373 @@ type createSwarmRequest struct {
 	AgentIDs []string `json:"agentIds"`
 }
 
-func (h *CommandHandler) handleCreateSwarm(ctx context.Context, params json.RawMessage) (any, error) {
-	var req createSwarmRequest
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	// Validate input
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, errValidation("name is required")
-	}
-	if len(req.Name) > maxNameLen {
-		return nil, errValidation(fmt.Sprintf("name exceeds %d characters", maxNameLen))
-	}
 
-	cfg := swarm.SwarmConfig{
-		ID:       "swarm_" + uuid.New().String()[:8],
-		Name:     req.Name,
-		Topology: swarm.TopologyType(req.Topology),
-		Strategy: swarm.TaskStrategy(req.Strategy),
-	}
 
-	sw := swarm.NewSwarm(cfg)
 
-	// Add agents
-	registry := h.server.Registry()
-	if registry != nil {
-		for _, agentID := range req.AgentIDs {
-			ag, ok := registry.Get(acp.AgentID(agentID))
-			if ok {
-				sw.AddAgent(ag)
-			}
-		}
-	}
-
-	h.server.AddSwarm(cfg.ID, sw)
-
-	return SwarmInfo{
-		ID:         cfg.ID,
-		Name:       cfg.Name,
-		Topology:   req.Topology,
-		Strategy:   req.Strategy,
-		Status:     "created",
-		AgentCount: len(req.AgentIDs),
-	}, nil
-}
-
-func (h *CommandHandler) handleStartSwarm(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("swarm id is required")
-	}
-
-	sw, ok := h.server.GetSwarm(req.ID)
-	if !ok {
-		return nil, errNotFound("swarm not found")
-	}
-
-	if err := sw.Start(ctx); err != nil {
-		return nil, safeError("failed to start swarm", err)
-	}
-
-	return map[string]string{"status": "started"}, nil
-}
-
-func (h *CommandHandler) handleStopSwarm(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("swarm id is required")
-	}
-
-	sw, ok := h.server.GetSwarm(req.ID)
-	if !ok {
-		return nil, errNotFound("swarm not found")
-	}
-
-	if err := sw.Stop(); err != nil {
-		return nil, safeError("failed to stop swarm", err)
-	}
-	return map[string]string{"status": "stopped"}, nil
-}
-
-func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		SwarmID     string `json:"swarmId"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Priority    string `json:"priority"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Validate input lengths
-	if len(req.Title) > maxTitleLen {
-		return nil, errValidation(fmt.Sprintf("title exceeds %d characters", maxTitleLen))
-	}
-	if len(req.Description) > maxDescLen {
-		return nil, errValidation(fmt.Sprintf("description exceeds %d characters", maxDescLen))
-	}
-
-	sw, ok := h.server.GetSwarm(req.SwarmID)
-	if !ok {
-		return nil, errNotFound(fmt.Sprintf("swarm not found: %s", req.SwarmID))
-	}
-
-	taskID := "task_" + uuid.New().String()[:8]
-
-	// Default priority
-	priority := swarm.PriorityMedium
-	if req.Priority != "" {
-		priority = swarm.TaskPriority(req.Priority)
-	}
-
-	// Create and submit task
-	task := &swarm.Task{
-		ID:          taskID,
-		Title:       req.Title,
-		Description: req.Description,
-		Priority:    priority,
-		State:       swarm.TaskStatePending,
-	}
-
-	if err := sw.SubmitTask(ctx, task); err != nil {
-		return nil, safeError("failed to submit task", err)
-	}
-
-	return TaskInfo{
-		ID:          taskID,
-		Title:       req.Title,
-		Description: req.Description,
-		Status:      "pending",
-		Priority:    0, // Default priority
-		CreatedAt:   time.Now().Format(time.RFC3339),
-	}, nil
-}
-
-func (h *CommandHandler) handleGetSwarmTasks(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		SwarmID string `json:"swarmId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.SwarmID = strings.TrimSpace(req.SwarmID)
-	if req.SwarmID == "" {
-		return nil, errValidation("swarmId is required")
-	}
-
-	sw, ok := h.server.GetSwarm(req.SwarmID)
-	if !ok {
-		return nil, errNotFound("swarm not found")
-	}
-
-	stats := sw.GetStats()
-	return map[string]any{
-		"pending":   stats.PendingTasks,
-		"running":   stats.ExecutingAgents,
-		"completed": stats.CompletedTasks,
-	}, nil
-}
 
 // ==================== Team Handlers ====================
 
-func (h *CommandHandler) handleGetTeams(ctx context.Context, params json.RawMessage) (any, error) {
-	tm := h.server.TeamManager()
-	if tm == nil {
-		return []TeamInfo{}, nil
-	}
 
-	teams := tm.ListTeams()
-	result := make([]TeamInfo, 0, len(teams))
 
-	for _, t := range teams {
-		snap := t.Snapshot()
 
-		members := make([]MemberInfo, 0, len(snap.Members))
-		for _, m := range snap.Members {
-			online := false
-			if h.server.connManager != nil {
-				if conn, ok := h.server.connManager.GetConnection(m.ID); ok {
-					online = conn.GetState() == acp.StateConnected
-				}
-			}
-			members = append(members, MemberInfo{
-				ID:     m.ID,
-				Name:   m.Name,
-				Role:   m.Role,
-				Online: online,
-			})
-		}
 
-		result = append(result, TeamInfo{
-			ID:          snap.ID,
-			Name:        snap.Name,
-			Description: snap.Description,
-			OwnerID:     snap.Owner,
-			Members:     members,
-			Agents:      snap.AgentIDs,
-			CreatedAt:   snap.CreatedAt.Format(time.RFC3339),
-		})
-	}
-
-	return result, nil
-}
-
-func (h *CommandHandler) handleCreateTeam(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Name        string `json:"name"`
-		OwnerID     string `json:"ownerId"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Validate input lengths
-	if len(req.Name) > maxNameLen {
-		return nil, errValidation(fmt.Sprintf("name exceeds %d characters", maxNameLen))
-	}
-	if len(req.Description) > maxDescLen {
-		return nil, errValidation(fmt.Sprintf("description exceeds %d characters", maxDescLen))
-	}
-	if req.Name == "" {
-		return nil, errValidation("name is required")
-	}
-	if req.OwnerID == "" {
-		return nil, errValidation("ownerId is required")
-	}
-
-	tm := h.server.TeamManager()
-	if tm == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	t, err := tm.CreateTeam(req.Name, req.OwnerID)
-	if err != nil {
-		return nil, safeError("failed to create team", err)
-	}
-
-	return TeamInfo{
-		ID:          t.ID,
-		Name:        t.Name,
-		Description: t.Description,
-		OwnerID:     t.Owner,
-		Members:     []MemberInfo{},
-		Agents:      []string{},
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-	}, nil
-}
-
-func (h *CommandHandler) handleDeleteTeam(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Input validation
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("team id is required")
-	}
-	if len(req.ID) > maxIDLen {
-		return nil, errValidation("team id too long")
-	}
-
-	tm := h.server.TeamManager()
-	if tm == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	tm.DeleteTeam(req.ID)
-
-	return map[string]string{"status": "deleted"}, nil
-}
-
-func (h *CommandHandler) handleAddAgentToTeam(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		TeamID  string `json:"teamId"`
-		AgentID string `json:"agentId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Input validation
-	if req.TeamID == "" {
-		return nil, errValidation("team id is required")
-	}
-	if req.AgentID == "" {
-		return nil, errValidation("agent id is required")
-	}
-	if len(req.TeamID) > maxIDLen || len(req.AgentID) > maxIDLen {
-		return nil, errValidation("id too long")
-	}
-
-	tm := h.server.TeamManager()
-	if tm == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	t, ok := tm.GetTeam(req.TeamID)
-	if !ok {
-		return nil, errNotFound("team not found")
-	}
-
-	registry := h.server.Registry()
-	if registry == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.AgentID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	if err := t.AddAgent(ag); err != nil {
-		return nil, safeError("failed to add agent to team", err)
-	}
-
-	return map[string]string{"status": "added"}, nil
-}
-
-func (h *CommandHandler) handleRemoveAgentFromTeam(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		TeamID  string `json:"teamId"`
-		AgentID string `json:"agentId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Input validation
-	if req.TeamID == "" {
-		return nil, errValidation("team id is required")
-	}
-	if req.AgentID == "" {
-		return nil, errValidation("agent id is required")
-	}
-	if len(req.TeamID) > maxIDLen || len(req.AgentID) > maxIDLen {
-		return nil, errValidation("id too long")
-	}
-
-	tm := h.server.TeamManager()
-	if tm == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	t, ok := tm.GetTeam(req.TeamID)
-	if !ok {
-		return nil, errNotFound("team not found")
-	}
-
-	t.RemoveAgent(acp.AgentID(req.AgentID))
-
-	return map[string]string{"status": "removed"}, nil
-}
 
 // ==================== MCP Handlers ====================
 
-func (h *CommandHandler) handleGetMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
-	clients := h.server.ListMCPClients()
-	result := make([]MCPServerInfo, 0, len(clients))
 
-	for id := range clients {
-		result = append(result, MCPServerInfo{
-			ID:     id,
-			Name:   id,
-			Status: "connected",
-		})
-	}
 
-	return result, nil
-}
 
-func (h *CommandHandler) handleStartMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ServerID string `json:"serverId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.ServerID) == "" {
-		return nil, errValidation("serverId is required")
-	}
-
-	// Get MCP client
-	client, ok := h.server.GetMCPClient(req.ServerID)
-	if !ok {
-		return nil, errNotFound("MCP server not found")
-	}
-
-	// Connect the client
-	if err := client.Connect(ctx); err != nil {
-		return nil, safeError("failed to connect MCP server", err)
-	}
-
-	return map[string]any{
-		"id":     req.ServerID,
-		"status": "connected",
-	}, nil
-}
-
-func (h *CommandHandler) handleStopMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ServerID string `json:"serverId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.ServerID) == "" {
-		return nil, errValidation("serverId is required")
-	}
-
-	client, ok := h.server.GetMCPClient(req.ServerID)
-	if !ok {
-		return nil, errNotFound("MCP server not found")
-	}
-
-	if err := client.Disconnect(); err != nil {
-		return nil, safeError("failed to disconnect MCP server", err)
-	}
-
-	return map[string]any{
-		"id":     req.ServerID,
-		"status": "disconnected",
-	}, nil
-}
-
-func (h *CommandHandler) handleCallMCPTool(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ServerID  string         `json:"serverId"`
-		ToolName  string         `json:"toolName"`
-		Arguments map[string]any `json:"arguments"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.ServerID) == "" {
-		return nil, errValidation("serverId is required")
-	}
-	if strings.TrimSpace(req.ToolName) == "" {
-		return nil, errValidation("toolName is required")
-	}
-	if len(req.Arguments) > 50 {
-		return nil, errValidation("too many arguments (max 50 keys)")
-	}
-
-	client, ok := h.server.GetMCPClient(req.ServerID)
-	if !ok {
-		return nil, errNotFound("MCP server not found")
-	}
-
-	result, err := client.CallTool(ctx, req.ToolName, req.Arguments)
-	if err != nil {
-		return nil, safeError("failed to call MCP tool", err)
-	}
-
-	return result, nil
-}
 
 // ==================== Monitoring Handlers ====================
 
-func (h *CommandHandler) handleGetSupervisorStats(ctx context.Context, params json.RawMessage) (any, error) {
-	registry := h.server.Registry()
-	if registry == nil {
-		return SupervisorStats{}, nil
-	}
 
-	agents := registry.GetAll()
-	stats := SupervisorStats{
-		TotalAgents: len(agents),
-	}
-
-	for _, a := range agents {
-		switch a.GetState() {
-		case agent.StateIdle:
-			stats.HealthyAgents++
-		case agent.StateThinking, agent.StateExecuting:
-			stats.HealthyAgents++
-			stats.BusyAgents++
-		case agent.StateError:
-			stats.UnhealthyAgents++
-		default:
-			stats.DegradedAgents++
-		}
-	}
-
-	return stats, nil
-}
-
-func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json.RawMessage) (any, error) {
-	// Use EmergenceService when available for real-time metrics
-	if svc := h.server.EmergenceService(); svc != nil {
-		return svc.GetData(), nil
-	}
-
-	// Fallback: compute inline from swarm data (no supervisor configured)
-	swarms := h.server.ListSwarms()
-
-	// Calculate health metrics from swarm data
-	totalAgents := 0
-	busyAgents := 0
-	idleAgents := 0
-
-	for _, sw := range swarms {
-		stats := sw.GetStats()
-		totalAgents += stats.AgentCount
-		busyAgents += stats.ExecutingAgents
-		idleAgents += stats.IdleAgents
-	}
-
-	// Calculate utilization
-	utilization := 0.0
-	if totalAgents > 0 {
-		utilization = float64(busyAgents) / float64(totalAgents)
-	}
-
-	data := EmergenceData{
-		Health: SwarmHealth{
-			OverallScore:     0.85,
-			CongestionLevel:  0.15,
-			CollaborationIdx: 0.78,
-			InnovationRate:   0.62,
-			AgentUtilization: utilization,
-		},
-		Signals: []EmergentSignal{},
-		Agents:  []AgentNode{},
-		Flows:   []TaskFlow{},
-	}
-
-	// Build agent nodes from all swarms
-	agentIndex := 0 // Track agent count separately for positioning
-	for swarmID, sw := range swarms {
-		stats := sw.GetStats()
-
-		// Add coordinator node
-		data.Agents = append(data.Agents, AgentNode{
-			ID:   swarmID + "-coordinator",
-			Name: "Coordinator",
-			Type: "coordinator",
-			Load: float64(stats.ExecutingAgents) / float64(stats.AgentCount+1),
-			X:    0.5,
-			Y:    0.5,
-		})
-
-		// Add agent nodes for each agent in the swarm
-		for _, ag := range sw.GetAgents() {
-			data.Agents = append(data.Agents, AgentNode{
-				ID:   string(ag.ID),
-				Name: ag.Name,
-				Type: string(ag.Type),
-				Load: 0.5, // Default load
-				X:    0.3 + float64(agentIndex)*0.1,
-				Y:    0.3 + float64(agentIndex)*0.1,
-			})
-			agentIndex++
-
-			// Add flow from coordinator to agent
-			data.Flows = append(data.Flows, TaskFlow{
-				ID:        fmt.Sprintf("flow-%s-%s", swarmID, ag.ID),
-				FromAgent: swarmID + "-coordinator",
-				ToAgent:   string(ag.ID),
-				TaskType:  "coordination",
-				Status:    "active",
-				StartedAt: time.Now().Format(time.RFC3339),
-			})
-		}
-	}
-
-	return data, nil
-}
 
 // ==================== File System Handlers ====================
 
-func (h *CommandHandler) handleListDir(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	// Validate and clean path
-	relPath := filepath.Clean(req.Path)
-	if relPath == "" || relPath == "." {
-		relPath = "."
-	}
 
-	// Security: Reject file operations if workspace path is not configured
-	if h.server.workspacePath == "" {
-		return nil, errNotConnected("workspace not configured")
-	}
-
-	// Use workspace path if set
-	path := filepath.Join(h.server.workspacePath, relPath)
-	// Security: Verify resolved path is still within workspace
-	// Use EvalSymlinks to resolve symlinks and prevent traversal via symlinks
-	absPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return nil, errValidation("invalid path")
-	}
-	absWorkspace, err := filepath.EvalSymlinks(h.server.workspacePath)
-	if err != nil {
-		return nil, errNotConnected("invalid workspace configuration")
-	}
-	if !strings.HasPrefix(absPath, absWorkspace+string(filepath.Separator)) && absPath != absWorkspace {
-		return nil, errValidation("access denied: path outside workspace")
-	}
-
-	// Read directory (use absPath to follow symlinks correctly)
-	entries, err := os.ReadDir(absPath)
-	if err != nil {
-		return nil, safeError("failed to read directory", err)
-	}
-
-	// Build file entries
-	var result []FileInfo
-	for _, entry := range entries {
-		// Use cleaned relative path (not raw req.Path) to prevent path traversal in metadata
-		fullPath := filepath.Join(relPath, entry.Name())
-		result = append(result, FileInfo{
-			Name:        entry.Name(),
-			Path:        fullPath,
-			IsDirectory: entry.IsDir(),
-		})
-	}
-
-	return result, nil
+// searchExcludeDirs are directories to skip during recursive file search
+var searchExcludeDirs = map[string]bool{
+	".git":          true,
+	"node_modules":  true,
+	"dist":          true,
+	"build":         true,
+	".next":         true,
+	"__pycache__":   true,
+	"vendor":        true,
+	"target":        true,
+	"bin":           true,
+	".cache":        true,
+	".terraform":    true,
+	".idea":         true,
+	".vscode":       true,
 }
 
-func (h *CommandHandler) handleReadFile(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	// Validate path
-	if req.Path == "" {
-		return nil, errValidation("path is required")
-	}
-
-	path := filepath.Clean(req.Path)
-
-	// Security: Require workspace path to be set
-	if h.server.workspacePath == "" {
-		return nil, errNotConnected("workspace not configured")
-	}
-
-	path = filepath.Join(h.server.workspacePath, path)
-	// Security: Verify resolved path is still within workspace
-	// Use EvalSymlinks to resolve symlinks and prevent traversal via symlinks
-	absPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return nil, errValidation("invalid path")
-	}
-	absWorkspace, err := filepath.EvalSymlinks(h.server.workspacePath)
-	if err != nil {
-		return nil, errValidation("invalid workspace configuration")
-	}
-	if !strings.HasPrefix(absPath, absWorkspace+string(filepath.Separator)) && absPath != absWorkspace {
-		return nil, errUnauthorized("access denied: path outside workspace")
-	}
-
-	// Check if file exists (use absPath to follow symlinks correctly)
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return nil, errNotFound("file")
-	}
-
-	if info.IsDir() {
-		return nil, errValidation("path is a directory, not a file")
-	}
-
-	// Limit file size to prevent memory exhaustion
-	const maxFileSize = 10 << 20 // 10 MB
-	if info.Size() > maxFileSize {
-		return nil, errValidation(fmt.Sprintf("file too large: %d bytes (max %d)", info.Size(), maxFileSize))
-	}
-
-	// Read file content (use absPath to follow symlinks correctly)
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, safeError("failed to read file", err)
-	}
-
-	return map[string]string{"content": string(content)}, nil
+// ContentSearchResult represents a single match in content search
+type ContentSearchResult struct {
+	Path    string `json:"path"`
+	Line    int    `json:"line"`    // 0-indexed
+	Column  int    `json:"column"`  // 0-indexed
+	Content string `json:"content"` // The matched line text
 }
 
-func (h *CommandHandler) handleWriteFile(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	// Validate path
-	if req.Path == "" {
-		return nil, errValidation("path is required")
-	}
 
-	path := filepath.Clean(req.Path)
 
-	// Security: Require workspace path to be set
-	if h.server.workspacePath == "" {
-		return nil, errNotConnected("workspace not configured")
-	}
 
-	path = filepath.Join(h.server.workspacePath, path)
-	// Security: Verify resolved path is still within workspace
-	// Use EvalSymlinks to resolve symlinks and prevent traversal via symlinks
-	// For writes, the file may not exist yet, so eval the parent directory
-	absWorkspace, err := filepath.EvalSymlinks(h.server.workspacePath)
+
+
+
+
+
+
+
+
+
+
+
+
+func (h *CommandHandler) getCurrentBranch(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "branch", "--show-current")
+	cmd.Dir = h.server.workspacePath
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, errNotConnected("invalid workspace configuration")
+		return "", err
 	}
-	// Eval parent dir to catch symlinks in intermediate path components
-	parentDir := filepath.Dir(path)
-	absParent, err := filepath.EvalSymlinks(parentDir)
-	if err != nil {
-		// Parent doesn't exist yet — fall back to Abs for validation,
-		// but verify no ".." components in the cleaned path that could escape workspace
-		absParent, err = filepath.Abs(parentDir)
-		if err != nil {
-			return nil, errValidation("invalid path")
-		}
-		// When EvalSymlinks fails, check that no path component is ".."
-		// to prevent traversal via non-existent directories
-		relPath, err := filepath.Rel(absWorkspace, absParent)
-		if err != nil || strings.HasPrefix(relPath, "..") {
-			return nil, errValidation("access denied: path outside workspace")
-		}
-	}
-	if !strings.HasPrefix(absParent, absWorkspace+string(filepath.Separator)) && absParent != absWorkspace {
-		return nil, errValidation("access denied: path outside workspace")
-	}
-
-	// Limit content size to prevent memory/disk exhaustion
-	const maxWriteSize = 10 << 20 // 10 MB
-	if len(req.Content) > maxWriteSize {
-		return nil, errValidation("content too large")
-	}
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(absParent, 0755); err != nil {
-		return nil, safeError("failed to create directory", err)
-	}
-
-	// Write file atomically (temp file + rename) to prevent partial writes
-	// and concurrent reads seeing corrupted data
-	absPath := filepath.Join(absParent, filepath.Base(path))
-	tmpFile, err := os.CreateTemp(absParent, ".swarm-write-*.tmp")
-	if err != nil {
-		return nil, safeError("failed to create temp file", err)
-	}
-	tmpPath := tmpFile.Name()
-	if _, err := tmpFile.Write([]byte(req.Content)); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return nil, safeError("failed to write temp file", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
-		return nil, safeError("failed to close temp file", err)
-	}
-	// Rename is atomic on POSIX systems
-	if err := os.Rename(tmpPath, absPath); err != nil {
-		os.Remove(tmpPath)
-		return nil, safeError("failed to rename file", err)
-	}
-
-	return map[string]string{"status": "written"}, nil
+	return strings.TrimSpace(string(output)), nil
 }
 
-// ==================== Additional Agent Handlers ====================
+// handleGitDiffLines returns line-level diff ranges for gutter decorations (VS Code pattern)
 
-func (h *CommandHandler) handleAddAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Config acp.AgentConfig `json:"config"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	// Validate required fields
-	if strings.TrimSpace(req.Config.ID) == "" {
-		return nil, errValidation("agent id is required")
-	}
-	if strings.TrimSpace(req.Config.Name) == "" {
-		return nil, errValidation("agent name is required")
-	}
-	if len(req.Config.ID) > maxIDLen {
-		return nil, errValidation(fmt.Sprintf("agent id too long (max %d)", maxIDLen))
-	}
-	if len(req.Config.Name) > maxNameLen {
-		return nil, errValidation(fmt.Sprintf("agent name too long (max %d)", maxNameLen))
-	}
-
-	// Load config, add agent, and save atomically
-	h.server.configMu.Lock()
-	defer h.server.configMu.Unlock()
-
-	cfg, err := acp.LoadConfig("")
-	if err != nil {
-		return nil, safeError("failed to load config", err)
-	}
-
-	if err := cfg.AddAgent(&req.Config); err != nil {
-		return nil, safeError("failed to add agent", err)
-	}
-
-	configPath := filepath.Join(acp.ConfigDir, acp.ConfigFile)
-	if err := cfg.Save(configPath); err != nil {
-		return nil, safeError("failed to save config", err)
-	}
-
-	return map[string]any{
-		"id":          req.Config.ID,
-		"name":        req.Config.Name,
-		"type":        "acp",
-		"state":       "idle",
-		"status":      "idle",
-		"command":     req.Config.Command,
-		"description": req.Config.Description,
-		"enabled":     req.Config.Enabled,
-	}, nil
+type ReplaceResult struct {
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	OldLine   string `json:"oldLine"`
+	NewLine   string `json:"newLine"`
 }
 
-func (h *CommandHandler) handleUpdateAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Config acp.AgentConfig `json:"config"`
+
+// caseInsensitiveReplaceAll replaces all occurrences of old in s, ignoring case.
+// preserveCaseMatch adapts the casing of replacement to match the original matched text.
+// Mirrors VS Code's buildReplaceStringWithCasePreserved logic.
+func preserveCaseMatch(match, replacement string) string {
+	if match == replacement || len(match) == 0 || len(replacement) == 0 {
+		return replacement
 	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.Config.ID) == "" {
-		return nil, errValidation("agent id is required")
-	}
-
-	// Load config, update agent, and save atomically
-	h.server.configMu.Lock()
-	defer h.server.configMu.Unlock()
-
-	cfg, err := acp.LoadConfig("")
-	if err != nil {
-		return nil, safeError("failed to load config", err)
-	}
-
-	if err := cfg.UpdateAgent(&req.Config); err != nil {
-		return nil, safeError("failed to update agent", err)
-	}
-
-	configPath := filepath.Join(acp.ConfigDir, acp.ConfigFile)
-	if err := cfg.Save(configPath); err != nil {
-		return nil, safeError("failed to save config", err)
-	}
-
-	return map[string]any{
-		"id":          req.Config.ID,
-		"name":        req.Config.Name,
-		"type":        "acp",
-		"state":       "idle",
-		"status":      "idle",
-		"command":     req.Config.Command,
-		"description": req.Config.Description,
-		"enabled":     req.Config.Enabled,
-	}, nil
-}
-
-func (h *CommandHandler) handleDeleteAgent(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("agent id is required")
-	}
-
-	// Load config, delete agent, and save atomically
-	h.server.configMu.Lock()
-	defer h.server.configMu.Unlock()
-
-	cfg, err := acp.LoadConfig("")
-	if err != nil {
-		return nil, safeError("failed to load config", err)
-	}
-
-	if err := cfg.RemoveAgent(req.ID); err != nil {
-		return nil, safeError("failed to delete agent", err)
-	}
-
-	configPath := filepath.Join(acp.ConfigDir, acp.ConfigFile)
-	if err := cfg.Save(configPath); err != nil {
-		return nil, safeError("failed to save config", err)
-	}
-
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
-}
-
-func (h *CommandHandler) handleGetConfigPath(ctx context.Context, params json.RawMessage) (any, error) {
-	return filepath.Join(acp.ConfigDir, acp.ConfigFile), nil
-}
-
-// ==================== Additional Swarm Handlers ====================
-
-func (h *CommandHandler) handleGetSwarm(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("swarm id is required")
-	}
-
-	swarms := h.server.ListSwarms()
-	s, ok := swarms[req.ID]
-	if !ok {
-		return nil, errNotFound("swarm not found")
-	}
-
-	stats := s.GetStats()
-	return map[string]any{
-		"id":           s.ID,
-		"name":         s.Name,
-		"topology":     string(s.Topology),
-		"strategy":     string(s.Strategy),
-		"status":       stats.State,
-		"agentCount":   stats.AgentCount,
-		"taskCount":    stats.PendingTasks + stats.CompletedTasks,
-		"coordinatorId": "",
-	}, nil
-}
-
-func (h *CommandHandler) handleDeleteSwarm(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("swarm id is required")
-	}
-
-	// Stop swarm before removing to prevent goroutine leak
-	if sw, ok := h.server.GetSwarm(req.ID); ok {
-		_ = sw.Stop() // best effort stop
-	}
-	h.server.RemoveSwarm(req.ID)
-
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
-}
-
-func (h *CommandHandler) handleExecuteTask(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		SwarmID string `json:"swarmId"`
-		TaskID  string `json:"taskId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.SwarmID) == "" {
-		return nil, errValidation("swarm id is required")
-	}
-	if strings.TrimSpace(req.TaskID) == "" {
-		return nil, errValidation("task id is required")
-	}
-
-	swarms := h.server.ListSwarms()
-	s, ok := swarms[req.SwarmID]
-	if !ok {
-		return nil, errNotFound(fmt.Sprintf("swarm %s not found", req.SwarmID))
-	}
-
-	task := s.GetTask(req.TaskID)
-	if task == nil {
-		return nil, errNotFound(fmt.Sprintf("task %s not found", req.TaskID))
-	}
-
-	result, err := s.ExecuteTask(ctx, task)
-	if err != nil {
-		return nil, safeError("task execution failed", err)
-	}
-
-	return map[string]any{
-		"taskId":   req.TaskID,
-		"status":   "completed",
-		"output":   result.Content,
-		"agentResults": map[string]any{
-			result.AgentID: map[string]any{
-				"agentId":    result.AgentID,
-				"content":    result.Content,
-				"success":    true,
-				"durationMs": result.Duration.Milliseconds(),
-			},
-		},
-	}, nil
-}
-
-// ==================== Additional MCP Handlers ====================
-
-func (h *CommandHandler) handleAddMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Config struct {
-			Name    string            `json:"name"`
-			Command string            `json:"command"`
-			Args    []string          `json:"args"`
-			Env     map[string]string `json:"env"`
-		} `json:"config"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.Config.Name) == "" {
-		return nil, errValidation("server name is required")
-	}
-	if strings.TrimSpace(req.Config.Command) == "" {
-		return nil, errValidation("command is required")
-	}
-
-	// Load config, add MCP server, and save atomically
-	h.server.configMu.Lock()
-	defer h.server.configMu.Unlock()
-
-	cfg, err := acp.LoadConfig("")
-	if err != nil {
-		return nil, safeError("failed to load config", err)
-	}
-
-	serverConfig := acp.MCPServerConfig{
-		Name:    req.Config.Name,
-		Command: req.Config.Command,
-		Args:    req.Config.Args,
-		Env:     req.Config.Env,
-	}
-
-	cfg.DefaultMCPSettings.CustomMCPServers = append(cfg.DefaultMCPSettings.CustomMCPServers, serverConfig)
-
-	configPath := filepath.Join(acp.ConfigDir, acp.ConfigFile)
-	if err := cfg.Save(configPath); err != nil {
-		return nil, safeError("failed to save config", err)
-	}
-
-	return map[string]any{
-		"id":     req.Config.Name,
-		"name":   req.Config.Name,
-		"status": "disconnected",
-		"tools":  []any{},
-	}, nil
-}
-
-func (h *CommandHandler) handleRemoveMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ServerID string `json:"serverId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.ServerID) == "" {
-		return nil, errValidation("server id is required")
-	}
-
-	// Load config, remove MCP server, and save atomically
-	h.server.configMu.Lock()
-	defer h.server.configMu.Unlock()
-
-	cfg, err := acp.LoadConfig("")
-	if err != nil {
-		return nil, safeError("failed to load config", err)
-	}
-
-	// Remove server from slice
-	servers := cfg.DefaultMCPSettings.CustomMCPServers
-	found := false
-	for i, s := range servers {
-		if s.Name == req.ServerID {
-			cfg.DefaultMCPSettings.CustomMCPServers = append(servers[:i], servers[i+1:]...)
-			found = true
+	// Both hyphenated/underscored with same segment count? Process independently
+	var sep rune
+	for _, c := range match {
+		if c == '-' || c == '_' {
+			sep = c
 			break
 		}
 	}
-	if !found {
-		return nil, errNotFound(fmt.Sprintf("MCP server %s not found", req.ServerID))
+	if sep != 0 {
+		mParts := strings.Split(match, string(sep))
+		rParts := strings.Split(replacement, string(sep))
+		if len(mParts) == len(rParts) {
+			result := make([]string, len(rParts))
+			for i, p := range rParts {
+				result[i] = preserveCaseMatch(mParts[i], p)
+			}
+			return strings.Join(result, string(sep))
+		}
 	}
-
-	configPath := filepath.Join(acp.ConfigDir, acp.ConfigFile)
-	if err := cfg.Save(configPath); err != nil {
-		return nil, safeError("failed to save config", err)
+	if match == strings.ToUpper(match) {
+		return strings.ToUpper(replacement)
 	}
-
-	return map[string]string{"id": req.ServerID, "status": "removed"}, nil
+	if match == strings.ToLower(match) {
+		return strings.ToLower(replacement)
+	}
+	// Title case: first char upper, rest lower (e.g. "Hello")
+	if len(match) > 1 && match[0] >= 'A' && match[0] <= 'Z' && match[1:] == strings.ToLower(match[1:]) {
+		if len(replacement) > 0 {
+			return strings.ToUpper(string(replacement[0])) + strings.ToLower(replacement[1:])
+		}
+		return replacement
+	}
+	// Inverted title: first char lower, rest upper (e.g. "hELLO")
+	if len(match) > 1 && match[0] >= 'a' && match[0] <= 'z' && match[1:] == strings.ToUpper(match[1:]) {
+		if len(replacement) > 0 {
+			return strings.ToLower(string(replacement[0])) + strings.ToUpper(replacement[1:])
+		}
+		return replacement
+	}
+	return replacement
 }
+
+// caseInsensitiveReplaceAllWithCasePreserve replaces all occurrences of old with new,
+// adapting the casing of new to match each occurrence's casing in s.
+func caseInsensitiveReplaceAllWithCasePreserve(s, old, replacement string) string {
+	if old == "" {
+		return s
+	}
+	lowerS := strings.ToLower(s)
+	lowerOld := strings.ToLower(old)
+	var result strings.Builder
+	result.Grow(len(s) + (len(replacement)-len(old))*strings.Count(lowerS, lowerOld))
+	start := 0
+	for {
+		idx := strings.Index(lowerS[start:], lowerOld)
+		if idx < 0 {
+			result.WriteString(s[start:])
+			break
+		}
+		match := s[start+idx : start+idx+len(old)]
+		result.WriteString(s[start : start+idx])
+		result.WriteString(preserveCaseMatch(match, replacement))
+		start += idx + len(old)
+	}
+	return result.String()
+}
+
+func caseInsensitiveReplaceAll(s, old, new string) string {
+	if old == "" {
+		return s
+	}
+	lowerS := strings.ToLower(s)
+	lowerOld := strings.ToLower(old)
+	var result strings.Builder
+	result.Grow(len(s) + (len(new)-len(old))*strings.Count(lowerS, lowerOld))
+	start := 0
+	for {
+		idx := strings.Index(lowerS[start:], lowerOld)
+		if idx < 0 {
+			result.WriteString(s[start:])
+			break
+		}
+		result.WriteString(s[start : start+idx])
+		result.WriteString(new)
+		start += idx + len(old)
+	}
+	return result.String()
+}
+
+// isBinaryExt checks if the file extension is known to be binary
+func isBinaryExt(ext string) bool {
+	binaryExts := map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".ico": true,
+		".pdf": true, ".zip": true, ".tar": true, ".gz": true, ".bz2": true,
+		".exe": true, ".dll": true, ".so": true, ".dylib": true,
+		".mp3": true, ".mp4": true, ".wav": true, ".avi": true,
+		".ttf": true, ".otf": true, ".woff": true, ".woff2": true,
+		".eot": true, ".class": true, ".jar": true, ".war": true,
+	}
+	return binaryExts[ext]
+}
+
+// isBinaryContent checks if content looks binary (null bytes)
+func isBinaryContent(content []byte) bool {
+	// Check first 512 bytes for null bytes
+	checkLen := len(content)
+	if checkLen > 512 {
+		checkLen = 512
+	}
+	for i := 0; i < checkLen; i++ {
+		if content[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// safePath validates and resolves a relative path within the workspace.
+// It uses EvalSymlinks to prevent symlink traversal attacks.
+// For non-existent paths (e.g., creating new files), it falls back to validating
+// the parent directory with EvalSymlinks and checking the cleaned path.
+func (h *CommandHandler) safePath(relPath string) (string, error) {
+	if relPath == "" {
+		return "", errValidation("path is required")
+	}
+
+	if h.server.workspacePath == "" {
+		return "", errNotConnected("workspace not configured")
+	}
+
+	path := filepath.Clean(relPath)
+	path = filepath.Join(h.server.workspacePath, path)
+
+	absWorkspace, err := filepath.EvalSymlinks(h.server.workspacePath)
+	if err != nil {
+		return "", errValidation("invalid workspace configuration")
+	}
+
+	// Try EvalSymlinks first (works for existing paths)
+	absPath, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		// Path exists — verify it's within workspace
+		if !strings.HasPrefix(absPath, absWorkspace+string(filepath.Separator)) && absPath != absWorkspace {
+			return "", errUnauthorized("access denied: path outside workspace")
+		}
+		return absPath, nil
+	}
+
+	// Path doesn't exist — validate parent directory and check for ".." traversal
+	parentDir := filepath.Dir(path)
+	absParent, err := filepath.EvalSymlinks(parentDir)
+	if err != nil {
+		// Parent doesn't exist either — fall back to Abs and check no ".." components
+		absParent, err = filepath.Abs(parentDir)
+		if err != nil {
+			return "", errValidation("invalid path")
+		}
+		relToWorkspace, relErr := filepath.Rel(absWorkspace, absParent)
+		if relErr != nil || strings.HasPrefix(relToWorkspace, "..") {
+			return "", errUnauthorized("access denied: path outside workspace")
+		}
+	} else {
+		// Parent exists — verify it's within workspace
+		if !strings.HasPrefix(absParent, absWorkspace+string(filepath.Separator)) && absParent != absWorkspace {
+			return "", errUnauthorized("access denied: path outside workspace")
+		}
+	}
+
+	// Use Abs for the full path (preserves the intended path without symlink resolution
+	// since the file doesn't exist yet)
+	absPath, err = filepath.Abs(path)
+	if err != nil {
+		return "", errValidation("invalid path")
+	}
+	if !strings.HasPrefix(absPath, absWorkspace+string(filepath.Separator)) && absPath != absWorkspace {
+		return "", errUnauthorized("access denied: path outside workspace")
+	}
+
+	return absPath, nil
+}
+
+
+
+// handleDeleteFile deletes a file or directory
+
+// handleRenameFile renames a file or directory
+
+// handleCreateFile creates a new empty file
+
+// handleCopyFile copies a file or directory to a new location
+
+// copyFileContents copies a single file with explicit close (avoids defer-in-loop FD leak)
+func copyFileContents(srcPath, dstPath string, _ os.FileMode) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		srcFile.Close()
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		srcFile.Close()
+		return err
+	}
+
+	_, copyErr := io.Copy(dstFile, srcFile)
+	closeSrcErr := srcFile.Close()
+	closeDstErr := dstFile.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeSrcErr != nil {
+		return closeSrcErr
+	}
+	_ = closeDstErr
+	return nil
+}
+
+// handleMkdir creates a new directory
+
+// ==================== Additional Agent Handlers ====================
+
+
+
+
+
+// ==================== Additional Swarm Handlers ====================
+
+
+
+
+// ==================== Additional MCP Handlers ====================
+
+
 
 // ==================== Workflow Handlers ====================
 
-func (h *CommandHandler) handleListWorkflows(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
 
-	workflows := orch.ListWorkflows()
-	result := make([]map[string]any, 0, len(workflows))
-	for _, w := range workflows {
-		result = append(result, workflowToMap(w))
-	}
-	return result, nil
-}
 
-func (h *CommandHandler) handleGetWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
 
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
 
-	w := orch.GetWorkflow(req.ID)
-	if w == nil {
-		return nil, errNotFound("workflow not found")
-	}
 
-	return workflowToMap(w), nil
-}
 
-func (h *CommandHandler) handleCreateWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Mode        string `json:"mode"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, errValidation("workflow name is required")
-	}
-	if len(req.Name) > maxNameLen {
-		return nil, errValidation(fmt.Sprintf("name too long (max %d)", maxNameLen))
-	}
 
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
 
-	// Default to sequential mode
-	mode := swarm.ModeSequential
-	if req.Mode != "" {
-		mode = swarm.OrchestrationMode(req.Mode)
-	}
 
-	w := orch.CreateWorkflow(req.Name, mode)
-	w.SetDescription(req.Description)
 
-	return map[string]any{
-		"id":     w.ID,
-		"name":   w.Name,
-		"status": w.Status,
-	}, nil
-}
 
-func (h *CommandHandler) handleUpdateWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID       string                   `json:"id"`
-		Workflow *map[string]any `json:"workflow"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w := orch.GetWorkflow(req.ID)
-	if w == nil {
-		return nil, errNotFound("workflow not found")
-	}
-
-	// Update workflow properties if provided
-	if req.Workflow != nil {
-		if name, ok := (*req.Workflow)["name"].(string); ok && name != "" {
-			w.SetName(name)
-		}
-		if desc, ok := (*req.Workflow)["description"].(string); ok {
-			w.SetDescription(desc)
-		}
-	}
-
-	return workflowToMap(w), nil
-}
-
-func (h *CommandHandler) handleDeleteWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w := orch.GetWorkflow(req.ID)
-	if w == nil {
-		return nil, errNotFound("workflow not found")
-	}
-
-	orch.DeleteWorkflow(req.ID)
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
-}
-
-func (h *CommandHandler) handleExecuteWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	if err := orch.Execute(ctx, req.ID); err != nil {
-		return nil, safeError("workflow execution failed", err)
-	}
-
-	return map[string]string{"id": req.ID, "status": "executing"}, nil
-}
-
-func (h *CommandHandler) handleGetWorkflowCheckpoints(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	checkpoints := orch.GetCheckpoints(req.ID)
-	result := make([]map[string]any, 0, len(checkpoints))
-	for _, cp := range checkpoints {
-		result = append(result, map[string]any{
-			"id":          cp.ID,
-			"workflowId":  cp.WorkflowID,
-			"createdAt":   cp.CreatedAt.Format(time.RFC3339),
-			"currentNode": cp.CurrentNode,
-			"metadata":    cp.Metadata,
-		})
-	}
-	return result, nil
-}
-
-func (h *CommandHandler) handleRestoreWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID           string `json:"id"`
-		CheckpointID string `json:"checkpointId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-	if strings.TrimSpace(req.CheckpointID) == "" {
-		return nil, errValidation("checkpoint id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w, err := orch.RestoreFromCheckpoint(req.CheckpointID)
-	if err != nil {
-		return nil, safeError("failed to restore from checkpoint", err)
-	}
-
-	// Validate that the restored workflow matches the requested workflow ID
-	// This prevents restoring a checkpoint from a different workflow
-	if w.ID != req.ID {
-		return nil, errValidation("checkpoint does not belong to the specified workflow")
-	}
-
-	return workflowToMap(w), nil
-}
-
-func (h *CommandHandler) handleGetWorkflowReport(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	report := orch.GetExecutionReport(req.ID)
-	if report == nil {
-		return nil, errNotFound("no execution report for workflow")
-	}
-
-	return report, nil
-}
-
-func (h *CommandHandler) handleClearNodeCache(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		NodeID string `json:"nodeId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.NodeID) == "" {
-		return nil, errValidation("nodeId is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	orch.ClearNodeCache(req.NodeID)
-	return map[string]string{"status": "ok"}, nil
-}
-
-func (h *CommandHandler) handleClearAllCaches(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	orch.ClearAllCaches()
-	return map[string]string{"status": "ok"}, nil
-}
 
 // ==================== Automation Handlers ====================
 
-func (h *CommandHandler) handleListAutomations(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	ae := orch.GetAutomationEngine()
-	if ae == nil {
-		return nil, errNotConnected("automation engine not configured")
-	}
 
-	automations := ae.ListAutomations()
-	result := make([]map[string]any, 0, len(automations))
-	for _, a := range automations {
-		result = append(result, map[string]any{
-			"id":          a.ID,
-			"name":        a.Name,
-			"description": a.Description,
-			"trigger":     a.Trigger,
-			"actions":     a.Actions,
-			"enabled":     a.Enabled,
-			"cooldown":    a.Cooldown.String(),
-			"fireCount":   a.FireCount(),
-			"lastFired":   a.LastFired(),
-		})
-	}
-	return result, nil
-}
 
-func (h *CommandHandler) handleAddAutomation(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	ae := orch.GetAutomationEngine()
-	if ae == nil {
-		return nil, errNotConnected("automation engine not configured")
-	}
 
-	var req struct {
-		ID          string             `json:"id"`
-		Name        string             `json:"name"`
-		Description string             `json:"description"`
-		Trigger     swarm.AutomationTrigger `json:"trigger"`
-		Actions     []swarm.AutomationAction `json:"actions"`
-		Enabled     bool               `json:"enabled"`
-		Cooldown    string             `json:"cooldown"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.ID) == "" {
-		return nil, errValidation("id is required")
-	}
-
-	a := &swarm.Automation{
-		ID:          strings.TrimSpace(req.ID),
-		Name:        req.Name,
-		Description: req.Description,
-		Trigger:     req.Trigger,
-		Actions:     req.Actions,
-		Enabled:     req.Enabled,
-	}
-	if req.Cooldown != "" {
-		d, err := time.ParseDuration(req.Cooldown)
-		if err != nil {
-			return nil, safeError("invalid cooldown duration", err)
-		}
-		a.Cooldown = d
-	}
-
-	if err := ae.AddAutomation(a); err != nil {
-		return nil, safeError("failed to add automation", err)
-	}
-	return map[string]string{"id": a.ID, "status": "added"}, nil
-}
-
-func (h *CommandHandler) handleRemoveAutomation(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	ae := orch.GetAutomationEngine()
-	if ae == nil {
-		return nil, errNotConnected("automation engine not configured")
-	}
-
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.ID) == "" {
-		return nil, errValidation("id is required")
-	}
-
-	if !ae.RemoveAutomation(strings.TrimSpace(req.ID)) {
-		return nil, errNotFound("automation not found")
-	}
-	return map[string]string{"status": "removed"}, nil
-}
-
-func (h *CommandHandler) handleEnableAutomation(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	ae := orch.GetAutomationEngine()
-	if ae == nil {
-		return nil, errNotConnected("automation engine not configured")
-	}
-
-	var req struct {
-		ID      string `json:"id"`
-		Enabled bool   `json:"enabled"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.ID) == "" {
-		return nil, errValidation("id is required")
-	}
-
-	if !ae.EnableAutomation(strings.TrimSpace(req.ID), req.Enabled) {
-		return nil, errNotFound("automation not found")
-	}
-	return map[string]string{"status": "updated"}, nil
-}
 
 // ==================== Artifact Handlers (Prefect 3 Artifacts) ====================
 
-func (h *CommandHandler) handleListArtifacts(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return []any{}, nil
-	}
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-		NodeID     string `json:"nodeId,omitempty"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	store := orch.GetArtifactStore()
-	if store == nil {
-		return []any{}, nil
-	}
-	return store.ListByWorkflow(strings.TrimSpace(req.WorkflowID), req.NodeID), nil
-}
 
-func (h *CommandHandler) handleGetArtifact(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	var req struct {
-		ID         string `json:"id"`
-		WorkflowID string `json:"workflowId"`
-		Key        string `json:"key"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	store := orch.GetArtifactStore()
-	if store == nil {
-		return nil, errNotConnected("artifact store not configured")
-	}
-	if strings.TrimSpace(req.ID) != "" {
-		artifact := store.GetByID(strings.TrimSpace(req.ID))
-		if artifact == nil {
-			return nil, errNotFound("artifact not found")
-		}
-		return artifact, nil
-	}
-	if strings.TrimSpace(req.WorkflowID) != "" && strings.TrimSpace(req.Key) != "" {
-		artifact := store.Get(strings.TrimSpace(req.WorkflowID), strings.TrimSpace(req.Key))
-		if artifact == nil {
-			return nil, errNotFound("artifact not found")
-		}
-		return artifact, nil
-	}
-	return nil, errValidation("id or (workflowId + key) is required")
-}
 
-func (h *CommandHandler) handleCreateArtifact(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	var req struct {
-		ID          string            `json:"id,omitempty"`
-		WorkflowID  string            `json:"workflowId"`
-		NodeID      string            `json:"nodeId,omitempty"`
-		Key         string            `json:"key"`
-		Type        string            `json:"type,omitempty"`
-		Data        any               `json:"data"`
-		Description string            `json:"description,omitempty"`
-		Metadata    map[string]string `json:"metadata,omitempty"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	if strings.TrimSpace(req.Key) == "" {
-		return nil, errValidation("key is required")
-	}
-	store := orch.GetArtifactStore()
-	if store == nil {
-		return nil, errNotConnected("artifact store not configured")
-	}
-	artifact := &swarm.WorkflowArtifact{
-		ID:          strings.TrimSpace(req.ID),
-		WorkflowID:  strings.TrimSpace(req.WorkflowID),
-		NodeID:      strings.TrimSpace(req.NodeID),
-		Key:         strings.TrimSpace(req.Key),
-		Type:        swarm.WorkflowArtifactType(req.Type),
-		Data:        req.Data,
-		Description: req.Description,
-		Metadata:    req.Metadata,
-	}
-	result, err := store.CreateOrUpdate(artifact)
-	if err != nil {
-		return nil, safeError("failed to create artifact", err)
-	}
-	return map[string]string{"id": result.ID, "status": "created"}, nil
-}
 
-func (h *CommandHandler) handleDeleteArtifact(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-		Key        string `json:"key"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	if strings.TrimSpace(req.Key) == "" {
-		return nil, errValidation("key is required")
-	}
-	store := orch.GetArtifactStore()
-	if store == nil {
-		return nil, errNotConnected("artifact store not configured")
-	}
-	deleted := store.Delete(strings.TrimSpace(req.WorkflowID), strings.TrimSpace(req.Key))
-	if !deleted {
-		log.Printf("[API] Artifact not found for deletion: workflow=%s key=%s", req.WorkflowID, req.Key)
-	}
-	return map[string]string{"status": "deleted"}, nil
-}
 
-func (h *CommandHandler) handleResumeWorkflow(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID    string `json:"id"`
-		Input any    `json:"input"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
 
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
 
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w, err := orch.ResumeWorkflow(ctx, req.ID, req.Input)
-	if err != nil {
-		return nil, safeError("failed to resume workflow", err)
-	}
-
-	return workflowToMap(w), nil
-}
-
-func (h *CommandHandler) handleAddWorkflowNode(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID   string `json:"id"`
-		Node struct {
-			AgentID  string         `json:"agentId"`
-			Name     string         `json:"name"`
-			Type     string         `json:"type"`
-			Position swarm.Position `json:"position"`
-		} `json:"node"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	if strings.TrimSpace(req.ID) == "" {
-		return nil, errValidation("workflow id is required")
-	}
-	if strings.TrimSpace(req.Node.Name) == "" {
-		return nil, errValidation("node name is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w := orch.GetWorkflow(req.ID)
-	if w == nil {
-		return nil, errNotFound(fmt.Sprintf("workflow %s not found", req.ID))
-	}
-
-	node := &swarm.WorkflowNode{
-		ID:       fmt.Sprintf("node_%s", uuid.New().String()[:8]),
-		Name:     strings.TrimSpace(req.Node.Name),
-		AgentID:  strings.TrimSpace(req.Node.AgentID),
-		Type:     "agent", // Default to agent type
-		Status:   swarm.TaskStatusPending,
-		Position: req.Node.Position,
-	}
-
-	if req.Node.Type != "" {
-		node.Type = req.Node.Type
-	}
-
-	w.AddNode(node)
-
-	return map[string]any{
-		"id":       node.ID,
-		"name":     node.Name,
-		"agentId":  node.AgentID,
-		"type":     node.Type,
-		"status":   string(node.Status),
-		"position": node.Position,
-	}, nil
-}
-
-func (h *CommandHandler) handleAddWorkflowEdge(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		ID   string `json:"id"`
-		Edge struct {
-			From      string `json:"from"`
-			To        string `json:"to"`
-			Condition string `json:"condition"`
-			Label     string `json:"label"`
-		} `json:"edge"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		return nil, errValidation("workflow id is required")
-	}
-	req.Edge.From = strings.TrimSpace(req.Edge.From)
-	if req.Edge.From == "" {
-		return nil, errValidation("edge source node is required")
-	}
-	req.Edge.To = strings.TrimSpace(req.Edge.To)
-	if req.Edge.To == "" {
-		return nil, errValidation("edge target node is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	w := orch.GetWorkflow(req.ID)
-	if w == nil {
-		return nil, errNotFound("workflow not found")
-	}
-
-	edge := &swarm.WorkflowEdge{
-		ID:        fmt.Sprintf("edge_%s", uuid.New().String()[:8]),
-		From:      req.Edge.From,
-		To:        req.Edge.To,
-		Condition: req.Edge.Condition,
-		Label:     req.Edge.Label,
-	}
-
-	if err := w.AddEdge(edge); err != nil {
-		return nil, safeError("failed to add edge", err)
-	}
-
-	return map[string]any{
-		"id":        edge.ID,
-		"from":      edge.From,
-		"to":        edge.To,
-		"condition": edge.Condition,
-		"label":     edge.Label,
-	}, nil
-}
 
 // workflowToMap converts a workflow snapshot to a map for JSON serialization
 func workflowToMap(w *swarm.Workflow) map[string]any {
@@ -2495,327 +917,177 @@ func workflowToMap(w *swarm.Workflow) map[string]any {
 // It logs the full error internally and returns a generic APIError to the client.
 func safeError(msg string, err error) error {
 	// Log full error internally for debugging
-	log.Printf("[API] internal error: %s: %v", msg, err)
+	apiLog.Error("Internal error", "msg", msg, "error", err)
 	// Return APIError with internal error code
 	return NewAPIError(CodeInternalError, msg)
 }
 
 // safeUnmarshalError returns a generic JSON parse error without exposing details.
 func safeUnmarshalError(err error) error {
-	log.Printf("[API] JSON unmarshal error: %v", err)
+	apiLog.Error("JSON unmarshal error", "error", err)
 	return errValidation("invalid request format")
 }
 
 // ==================== Audit Log Handlers ====================
 
 // handleListAuditEvents returns audit events with optional filtering
-func (h *CommandHandler) handleListAuditEvents(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		EventType    string     `json:"eventType,omitempty"`
-		Actor        string     `json:"actor,omitempty"`
-		Action       string     `json:"action,omitempty"`
-		ResourceType string     `json:"resourceType,omitempty"`
-		ResourceID   string     `json:"resourceId,omitempty"`
-		Success      *bool      `json:"success,omitempty"`
-		StartTime    *time.Time `json:"startTime,omitempty"`
-		EndTime      *time.Time `json:"endTime,omitempty"`
-		Limit        int        `json:"limit,omitempty"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	logger := orch.GetAuditLogger()
-	if logger == nil {
-		return []audit.Event{}, nil
-	}
-
-	// Enforce maximum limit to prevent unbounded memory allocation
-	const maxAuditLimit = 10000
-	limit := req.Limit
-	if limit <= 0 || limit > maxAuditLimit {
-		limit = maxAuditLimit
-	}
-
-	filter := &audit.Filter{
-		EventType:    req.EventType,
-		Actor:        req.Actor,
-		Action:       req.Action,
-		ResourceType: req.ResourceType,
-		ResourceID:   req.ResourceID,
-		Success:      req.Success,
-		Limit:        limit,
-	}
-	if req.StartTime != nil {
-		filter.StartTime = *req.StartTime
-	}
-	if req.EndTime != nil {
-		filter.EndTime = *req.EndTime
-	}
-
-	events := logger.GetEvents(filter)
-	return events, nil
-}
 
 // handleGetAuditStats returns audit log statistics
-func (h *CommandHandler) handleGetAuditStats(ctx context.Context, params json.RawMessage) (any, error) {
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	logger := orch.GetAuditLogger()
-	if logger == nil {
-		return map[string]any{"count": 0, "enabled": false}, nil
-	}
-
-	return map[string]any{
-		"count":   logger.GetEventCount(),
-		"enabled": logger.IsEnabled(),
-	}, nil
-}
 
 // handleClearAuditLog clears the in-memory audit log
 // WARNING: This is a destructive operation. Requires confirm=true parameter.
-func (h *CommandHandler) handleClearAuditLog(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		Confirm bool `json:"confirm"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-
-	// Require explicit confirmation to prevent accidental clears
-	if !req.Confirm {
-		return nil, errValidation("clear_audit_log requires confirm=true parameter")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	logger := orch.GetAuditLogger()
-	if logger == nil {
-		return map[string]any{"success": true}, nil
-	}
-
-	// Log the clear action to the audit log itself before clearing (preserves trace)
-	count := logger.GetEventCount()
-	logger.Log("audit.cleared", "system", "clear_audit_log", "audit_log", "", map[string]any{"clearedCount": count}, true, "")
-	log.Printf("[Handler] AUDIT LOG CLEARED: %d events removed", count)
-
-	logger.Clear()
-	return map[string]any{"success": true, "clearedCount": count}, nil
-}
 
 // ==================== Workflow Variable Handlers ====================
 
 // handleListVariables returns all variables for a workflow
-func (h *CommandHandler) handleListVariables(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	store := orch.GetVariableStore()
-	if store == nil {
-		return []swarm.WorkflowVariable{}, nil
-	}
-
-	return store.ListVariables(req.WorkflowID), nil
-}
 
 // handleAddVariable adds a variable to a workflow
-func (h *CommandHandler) handleAddVariable(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		WorkflowID  string `json:"workflowId"`
-		Name        string `json:"name"`
-		Key         string `json:"key"`
-		Type        string `json:"type"`
-		Value       any    `json:"value,omitempty"`
-		Default     any    `json:"default,omitempty"`
-		Description string `json:"description,omitempty"`
-		Required    bool   `json:"required"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	if strings.TrimSpace(req.Key) == "" {
-		return nil, errValidation("variable key is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	store := orch.GetVariableStore()
-	if store == nil {
-		return nil, errNotConnected("variable store not configured")
-	}
-
-	v := &swarm.WorkflowVariable{
-		ID:          fmt.Sprintf("var-%s", uuid.New().String()[:8]),
-		Name:        req.Name,
-		Key:         strings.TrimSpace(req.Key),
-		Type:        swarm.WorkflowVariableType(req.Type),
-		Value:       req.Value,
-		Default:     req.Default,
-		Description: req.Description,
-		Required:    req.Required,
-	}
-	if err := store.AddVariable(req.WorkflowID, v); err != nil {
-		return nil, safeError("failed to add variable", err)
-	}
-
-	return map[string]string{"id": v.ID, "key": v.Key}, nil
-}
 
 // handleRemoveVariable removes a variable from a workflow
-func (h *CommandHandler) handleRemoveVariable(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		WorkflowID  string `json:"workflowId"`
-		VariableID string `json:"variableId"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	if strings.TrimSpace(req.VariableID) == "" {
-		return nil, errValidation("variableId is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	store := orch.GetVariableStore()
-	if store == nil {
-		return nil, errNotConnected("variable store not configured")
-	}
-
-	store.RemoveVariable(req.WorkflowID, req.VariableID)
-	return map[string]string{"status": "removed"}, nil
-}
 
 // handleSetVariableValue sets a variable's value
-func (h *CommandHandler) handleSetVariableValue(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-		Key        string `json:"key"`
-		Value      any    `json:"value"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-	if strings.TrimSpace(req.Key) == "" {
-		return nil, errValidation("variable key is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	store := orch.GetVariableStore()
-	if store == nil {
-		return nil, errNotConnected("variable store not configured")
-	}
-
-	if err := store.SetVariableValue(req.WorkflowID, req.Key, req.Value); err != nil {
-		return nil, safeError("failed to set variable value", err)
-	}
-
-	return map[string]string{"status": "updated"}, nil
-}
 
 // handleResolveVariables resolves {{variable.key}} templates in a string
-func (h *CommandHandler) handleResolveVariables(ctx context.Context, params json.RawMessage) (any, error) {
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-		Template   string `json:"template"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, safeUnmarshalError(err)
-	}
-	if strings.TrimSpace(req.WorkflowID) == "" {
-		return nil, errValidation("workflowId is required")
-	}
-
-	orch := h.server.Orchestrator()
-	if orch == nil {
-		return nil, errNotConnected("orchestrator not configured")
-	}
-
-	store := orch.GetVariableStore()
-	if store == nil {
-		return nil, errNotConnected("variable store not configured")
-	}
-
-	result, err := store.ResolveVariables(req.WorkflowID, req.Template)
-	if err != nil {
-		return nil, safeError("failed to resolve variables", err)
-	}
-
-	return map[string]string{"result": result}, nil
-}
 
 // ==================== Schedule Runner Handlers ====================
 
 // handleStartScheduleRunner starts the cron-based schedule runner.
-func (h *CommandHandler) handleStartScheduleRunner(ctx context.Context, params json.RawMessage) (any, error) {
-	runner := h.server.ScheduleRunner()
-	if runner == nil {
-		return nil, errNotConnected("schedule runner not configured")
-	}
-	if err := runner.Start(); err != nil {
-		return nil, safeError("failed to start schedule runner", err)
-	}
-	return runner.StatusSnapshot(), nil
-}
 
 // handleStopScheduleRunner stops the cron-based schedule runner.
-func (h *CommandHandler) handleStopScheduleRunner(ctx context.Context, params json.RawMessage) (any, error) {
-	runner := h.server.ScheduleRunner()
-	if runner == nil {
-		return nil, errNotConnected("schedule runner not configured")
-	}
-	if err := runner.Stop(); err != nil {
-		return nil, safeError("failed to stop schedule runner", err)
-	}
-	return runner.StatusSnapshot(), nil
-}
 
 // handleGetScheduleRunnerStatus returns the schedule runner's full status snapshot.
-func (h *CommandHandler) handleGetScheduleRunnerStatus(ctx context.Context, params json.RawMessage) (any, error) {
-	runner := h.server.ScheduleRunner()
-	if runner == nil {
-		return nil, errNotConnected("schedule runner not configured")
+
+// ==================== LSP Handlers ====================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ==================== Call Hierarchy ====================
+
+
+
+
+func mapToCallHierarchyItem(m map[string]any) lsp.CallHierarchyItem {
+	item := lsp.CallHierarchyItem{}
+	if name, ok := m["name"].(string); ok {
+		item.Name = name
 	}
-	return runner.StatusSnapshot(), nil
+	if kind, ok := m["kind"].(float64); ok {
+		item.Kind = int(kind)
+	}
+	if detail, ok := m["detail"].(string); ok {
+		item.Detail = detail
+	}
+	if uri, ok := m["uri"].(string); ok {
+		item.URI = uri
+	}
+	if r, ok := m["range"].(map[string]any); ok {
+		item.Range = mapToRange(r)
+	}
+	if sr, ok := m["selectionRange"].(map[string]any); ok {
+		item.SelectionRange = mapToRange(sr)
+	}
+	if tags, ok := m["tags"].([]any); ok {
+		item.Tags = make([]int, 0, len(tags))
+		for _, t := range tags {
+			if f, ok := t.(float64); ok {
+				item.Tags = append(item.Tags, int(f))
+			}
+		}
+	}
+	if data, ok := m["data"]; ok {
+		item.Data = data
+	}
+	return item
 }
+
+func mapToRange(m map[string]any) lsp.Range {
+	r := lsp.Range{}
+	if start, ok := m["start"].(map[string]any); ok {
+		r.Start = mapToPosition(start)
+	}
+	if end, ok := m["end"].(map[string]any); ok {
+		r.End = mapToPosition(end)
+	}
+	return r
+}
+
+func mapToPosition(m map[string]any) lsp.Position {
+	p := lsp.Position{}
+	if line, ok := m["line"].(float64); ok {
+		p.Line = int(line)
+	}
+	if char, ok := m["character"].(float64); ok {
+		p.Character = int(char)
+	}
+	return p
+}
+
+// ==================== Type Hierarchy ====================
+
+
+
+
+func mapToTypeHierarchyItem(m map[string]any) lsp.TypeHierarchyItem {
+	item := lsp.TypeHierarchyItem{}
+	if name, ok := m["name"].(string); ok {
+		item.Name = name
+	}
+	if kind, ok := m["kind"].(float64); ok {
+		item.Kind = int(kind)
+	}
+	if detail, ok := m["detail"].(string); ok {
+		item.Detail = detail
+	}
+	if uri, ok := m["uri"].(string); ok {
+		item.URI = uri
+	}
+	if r, ok := m["range"].(map[string]any); ok {
+		item.Range = mapToRange(r)
+	}
+	if sr, ok := m["selectionRange"].(map[string]any); ok {
+		item.SelectionRange = mapToRange(sr)
+	}
+	if tags, ok := m["tags"].([]any); ok {
+		item.Tags = make([]int, 0, len(tags))
+		for _, t := range tags {
+			if f, ok := t.(float64); ok {
+				item.Tags = append(item.Tags, int(f))
+			}
+		}
+	}
+	if data, ok := m["data"]; ok {
+		item.Data = data
+	}
+	return item
+}
+
+
+
+
+
+
+
+
+
+// handleRevealFile reveals a file in the OS file manager (VS Code "Reveal in Explorer" pattern)

@@ -4,18 +4,21 @@ package team
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
 
 // SchedulingMode defines how tasks are assigned within a team
 type SchedulingMode string
+
+var teamSchedulerLog = log.With("component", "TeamScheduler")
 
 const (
 	SchedulingModeHierarchical  SchedulingMode = "hierarchical"  // Leader assigns tasks
@@ -148,7 +151,7 @@ func (s *TeamScheduler) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.running = true
 
-	log.Printf("[TeamScheduler] Starting scheduler with mode: %s, max parallel: %d", s.config.Mode, s.config.MaxParallel)
+	teamSchedulerLog.Info("Starting scheduler", "mode", s.config.Mode, "max_parallel", s.config.MaxParallel)
 
 	s.wg.Add(1)
 	go s.schedulingLoop()
@@ -163,7 +166,7 @@ func (s *TeamScheduler) Stop() {
 		s.mu.Unlock()
 		return
 	}
-	log.Printf("[TeamScheduler] Stopping scheduler...")
+	teamSchedulerLog.Info("Stopping scheduler")
 	s.running = false
 	if s.cancel != nil {
 		s.cancel()
@@ -171,7 +174,7 @@ func (s *TeamScheduler) Stop() {
 	s.mu.Unlock()
 
 	s.wg.Wait()
-	log.Printf("[TeamScheduler] Scheduler stopped")
+	teamSchedulerLog.Info("Scheduler stopped")
 }
 
 // SubmitTask submits a task for scheduling
@@ -189,7 +192,7 @@ func (s *TeamScheduler) SubmitTask(task *ScheduledTask) error {
 
 	task.Status = "pending"
 	s.pendingTasks[task.ID] = task
-	log.Printf("[TeamScheduler] Task %s submitted, priority: %d", task.ID, task.Priority)
+	teamSchedulerLog.Info("Task submitted", "task_id", task.ID, "priority", task.Priority)
 
 	return nil
 }
@@ -295,23 +298,32 @@ func (s *TeamScheduler) selectAgents(task *ScheduledTask) []string {
 	}
 }
 
-// getAvailableAgents returns available agents with the required role
+// getAvailableAgents returns available agents with the required role.
+// Returns agent IDs (not member IDs) for A2A routing compatibility.
 func (s *TeamScheduler) getAvailableAgents(requiredRole MemberRole) []string {
 	var available []string
 
 	s.team.mu.RLock()
 	defer s.team.mu.RUnlock()
 
-	for id, member := range s.team.Members {
+	for _, member := range s.team.Members {
 		// Check role if specified
 		if requiredRole != "" && member.Role != requiredRole {
 			continue
 		}
 
+		// Determine agent ID for A2A routing: prefer AgentID, fallback to member ID
+		var agentID string
+		if member.AgentID != nil {
+			agentID = string(*member.AgentID)
+		} else {
+			agentID = member.ID
+		}
+
 		// Check if agent is not overloaded
-		load := s.agentLoad[id]
+		load := s.agentLoad[agentID]
 		if load < maxConcurrentTasksPerAgent {
-			available = append(available, id)
+			available = append(available, agentID)
 		}
 	}
 
@@ -538,11 +550,11 @@ func (s *TeamScheduler) assignTask(task *ScheduledTask, agents []string) func() 
 			defer func() {
 				s.wg.Done()
 				if r := recover(); r != nil {
-					log.Printf("[TeamScheduler] router.Send panic for task %s: %v", task.ID, r)
+					teamSchedulerLog.Error("router.Send panic", "task_id", task.ID, "panic", r)
 				}
 			}()
 			if err := s.router.Send(m); err != nil {
-				log.Printf("[TeamScheduler] Failed to send task assignment message: %v", err)
+				teamSchedulerLog.Error("Failed to send task assignment message", "error", err)
 			}
 		}(msg)
 	}
@@ -810,8 +822,16 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 	// Find available teammates with required skills
 	c.team.mu.RLock()
 	var helpers []string
-	for id, member := range c.team.Members {
-		if id == fromAgent {
+	for _, member := range c.team.Members {
+		// Determine agent ID: prefer AgentID, fallback to member ID
+		var agentID string
+		if member.AgentID != nil {
+			agentID = string(*member.AgentID)
+		} else {
+			agentID = member.ID
+		}
+
+		if agentID == fromAgent {
 			continue
 		}
 
@@ -819,7 +839,7 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 		hasSkill := len(requiredSkills) == 0 || hasRequiredSkills(member.Skills, requiredSkills)
 
 		if hasSkill {
-			helpers = append(helpers, id)
+			helpers = append(helpers, agentID)
 		}
 	}
 	c.team.mu.RUnlock()
@@ -842,7 +862,7 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 		go func(m *a2a.Message) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[TeamScheduler] RequestHelp router.Send panic: %v", r)
+					teamSchedulerLog.Error("RequestHelp router.Send panic", "panic", r)
 				}
 				c.wg.Done()
 			}()
@@ -853,7 +873,7 @@ func (c *AgentToAgentCoordination) RequestHelp(ctx context.Context, fromAgent, t
 			default:
 			}
 			if err := c.router.Send(m); err != nil {
-				log.Printf("AgentToAgentCoordination: failed to send help request to %s: %v", m.To, err)
+				teamSchedulerLog.Error("Failed to send help request", "to", m.To, "error", err)
 			}
 		}(msg)
 	}
@@ -889,12 +909,12 @@ func (c *AgentToAgentCoordination) StartCollaboration(collaborationType, taskID 
 		go func(m *a2a.Message) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[TeamScheduler] StartCollaboration router.Send panic: %v", r)
+					teamSchedulerLog.Error("StartCollaboration router.Send panic", "panic", r)
 				}
 				c.wg.Done()
 			}()
 			if err := c.router.Send(m); err != nil {
-				log.Printf("AgentToAgentCoordination: failed to send collaboration sync to %s: %v", m.To, err)
+				teamSchedulerLog.Error("Failed to send collaboration sync", "to", m.To, "error", err)
 			}
 		}(msg)
 	}

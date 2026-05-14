@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var connLog = log.With("component", "Connection")
 
 // ConnectionState represents the state of an agent connection
 type ConnectionState string
@@ -21,6 +24,10 @@ const (
 	StateConnecting   ConnectionState = "connecting"
 	StateConnected    ConnectionState = "connected"
 	StateError        ConnectionState = "error"
+
+	// MaxSessionsPerConnection limits the number of sessions per connection
+	// to prevent memory exhaustion from unbounded session accumulation.
+	MaxSessionsPerConnection = 100
 )
 
 // validateCommand validates the command and arguments for security purposes.
@@ -242,7 +249,7 @@ func (m *ConnectionManager) Connect(ctx context.Context, agentID string) (*Agent
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Connection] establishConnection panic for %q: %v", conn.ID, r)
+				connLog.Error("establishConnection panic", "conn_id", conn.ID, "panic", r)
 			}
 			m.wg.Done()
 		}()
@@ -311,13 +318,13 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 
 	// Start process while holding the lock to avoid race with Disconnect
 	// which reads conn.cmd.Process under the same lock
-	if err := cmd.Start(); err != nil {
+	if startErr := cmd.Start(); startErr != nil {
 		conn.mu.Unlock()
 		// Clean up pipes on start failure (MEDIUM: pipe leak fix)
 		stdin.Close()
 		stdout.Close()
 		stderr.Close()
-		m.setConnectionError(conn, fmt.Errorf("failed to start agent process: %w", err))
+		m.setConnectionError(conn, fmt.Errorf("failed to start agent process: %w", startErr))
 		return
 	}
 	conn.mu.Unlock()
@@ -332,8 +339,8 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	conn.mu.Unlock()
 
 	// Start client
-	if err := client.Start(conn.ctx); err != nil {
-		m.setConnectionError(conn, fmt.Errorf("failed to start client: %w", err))
+	if clientStartErr := client.Start(conn.ctx); clientStartErr != nil {
+		m.setConnectionError(conn, fmt.Errorf("failed to start client: %w", clientStartErr))
 		// Kill orphaned process on client start failure (MEDIUM: process leak fix)
 		m.killProcess(conn, cmd)
 		return
@@ -381,7 +388,7 @@ func (m *ConnectionManager) killProcess(conn *AgentConnection, cmd *exec.Cmd) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Connection] killProcess cmd.Wait panic: %v", r)
+				connLog.Error("killProcess cmd.Wait panic", "panic", r)
 			}
 		}()
 		done <- cmd.Wait()
@@ -494,7 +501,7 @@ func (m *ConnectionManager) Disconnect(agentID string) error {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[ACP] cmd.Wait panic: %v", r)
+						connLog.Error("cmd.Wait panic", "panic", r)
 						select {
 						case done <- fmt.Errorf("panic: %v", r):
 						default:
@@ -622,7 +629,7 @@ func (c *AgentConnection) CreateSession(ctx context.Context, mode SessionMode) (
 		Mode: mode,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("session new: %w", err)
 	}
 
 	session := &AgentSession{
@@ -633,10 +640,51 @@ func (c *AgentConnection) CreateSession(ctx context.Context, mode SessionMode) (
 	}
 
 	c.mu.Lock()
+	// LRU eviction: remove oldest session if at capacity
+	if len(c.sessions) >= MaxSessionsPerConnection {
+		var oldestID SessionID
+		var oldestTime time.Time
+		for id, s := range c.sessions {
+			if oldestTime.IsZero() || s.LastActive.Before(oldestTime) {
+				oldestTime = s.LastActive
+				oldestID = id
+			}
+		}
+		if oldestID != "" {
+			connLog.Warn("Evicting oldest session due to capacity limit",
+				"session_id", oldestID,
+				"capacity", MaxSessionsPerConnection)
+			delete(c.sessions, oldestID)
+		}
+	}
 	c.sessions[result.SessionID] = session
 	c.mu.Unlock()
 
 	return session, nil
+}
+
+// CloseSession closes a specific session and removes it from the connection.
+// This prevents unbounded session accumulation on long-lived connections.
+func (c *AgentConnection) CloseSession(ctx context.Context, sessionID SessionID) error {
+	c.mu.RLock()
+	if c.State != StateConnected {
+		c.mu.RUnlock()
+		return fmt.Errorf("agent not connected")
+	}
+	_ = c.client // captured for potential future use when ACP adds session/close
+	c.mu.RUnlock()
+
+	// Clean up local session state
+	// Note: ACP protocol may not have SessionClose, so we just clean up local state
+	// This prevents memory leak from unbounded session accumulation
+	c.mu.Lock()
+	if session, ok := c.sessions[sessionID]; ok {
+		session.FinishContentCapture()
+		delete(c.sessions, sessionID)
+	}
+	c.mu.Unlock()
+
+	return nil
 }
 
 // SendPrompt sends a prompt to the agent
@@ -654,7 +702,7 @@ func (c *AgentConnection) SendPrompt(ctx context.Context, sessionID SessionID, p
 		Prompt:    prompt,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("session prompt: %w", err)
 	}
 
 	// Update session last active
@@ -699,4 +747,11 @@ func (c *AgentConnection) OnUpdate(fn func(sessionID SessionID, update *Update))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.onUpdate = fn
+}
+
+// OnUpdateFunc returns the current OnUpdate callback function.
+func (c *AgentConnection) OnUpdateFunc() func(sessionID SessionID, update *Update) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.onUpdate
 }

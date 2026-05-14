@@ -5,13 +5,17 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	cronlib "github.com/robfig/cron/v3"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// scheduleRunnerLog is a scoped logger for the ScheduleRunner component.
+var scheduleRunnerLog = log.With("component", "ScheduleRunner")
 
 const (
 	// scheduleCheckInterval is the default ticker interval for checking schedules.
@@ -32,8 +36,8 @@ const (
 type ScheduleRunnerStatus string
 
 const (
-	ScheduleRunnerStopped ScheduleRunnerStatus = "stopped"
-	ScheduleRunnerRunning ScheduleRunnerStatus = "running"
+	ScheduleRunnerStopped  ScheduleRunnerStatus = "stopped"
+	ScheduleRunnerRunning  ScheduleRunnerStatus = "running"
 	ScheduleRunnerStopping ScheduleRunnerStatus = "stopping"
 )
 
@@ -65,7 +69,7 @@ type ScheduleRunner struct {
 	stopCh           chan struct{}
 	wg               sync.WaitGroup
 	status           ScheduleRunnerStatus
-	runningSchedules map[string]*runningExecution // scheduleID -> running
+	runningSchedules map[string]*runningExecution  // scheduleID -> running
 	queuedExecutions map[string][]*queuedExecution // scheduleID -> queue
 }
 
@@ -94,7 +98,7 @@ func (r *ScheduleRunner) Start() error {
 	r.ticker = time.NewTicker(scheduleCheckInterval)
 	r.mu.Unlock()
 
-	log.Printf("[ScheduleRunner] Started (check interval: %v)", scheduleCheckInterval)
+	scheduleRunnerLog.Info("Started", "check_interval", scheduleCheckInterval)
 
 	r.wg.Add(1)
 	go r.runLoop()
@@ -126,7 +130,7 @@ func (r *ScheduleRunner) Stop() error {
 	r.status = ScheduleRunnerStopped
 	r.mu.Unlock()
 
-	log.Printf("[ScheduleRunner] Stopped")
+	scheduleRunnerLog.Info("Stopped")
 	return nil
 }
 
@@ -180,9 +184,9 @@ func (r *ScheduleRunner) StatusSnapshot() map[string]any {
 	}
 
 	return map[string]any{
-		"status":          string(r.status),
-		"runningCount":    len(r.runningSchedules),
-		"queuedCount":     r.GetQueuedCount(),
+		"status":           string(r.status),
+		"runningCount":     len(r.runningSchedules),
+		"queuedCount":      r.GetQueuedCount(),
 		"runningSchedules": running,
 		"queuedExecutions": queued,
 	}
@@ -216,7 +220,7 @@ func (r *ScheduleRunner) checkAndExecute() {
 		parser := cronlib.NewParser(cronlib.Minute | cronlib.Hour | cronlib.Dom | cronlib.Month | cronlib.Dow)
 		schedule, err := parser.Parse(sc.Cron)
 		if err != nil {
-			log.Printf("[ScheduleRunner] Invalid cron expression for schedule %q: %v", sc.ID, err)
+			scheduleRunnerLog.Error("Invalid cron expression", "schedule_id", sc.ID, "error", err)
 			continue
 		}
 
@@ -254,23 +258,44 @@ func (r *ScheduleRunner) checkAndExecute() {
 		}
 
 		// Handle overlap policy
-		if !r.handleOverlap(sc) {
+		switch r.handleOverlap(sc) {
+		case overlapProceed:
+			// Continue to execution
+		case overlapSkipped:
+			// Update skip count (outside r.mu to avoid lock ordering)
+			r.store.mu.Lock()
+			if s, ok := r.store.schedules[sc.ID]; ok {
+				s.State.SkipCount++
+			}
+			r.store.mu.Unlock()
+			continue
+		default:
 			// Execution was skipped or queued
 			continue
 		}
 
 		// Execute the schedule
-		input := deepCopyAny(sc.Input).(map[string]any)
-		if input == nil {
-			input = make(map[string]any)
-		}
-		go r.executeSchedule(sc, input)
+		input := r.copyScheduleInput(sc.Input)
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			r.executeSchedule(sc, input)
+		}()
 	}
 }
 
+// overlapAction indicates what the caller should do after handleOverlap.
+type overlapAction int
+
+const (
+	overlapProceed overlapAction = iota // Execute the schedule
+	overlapSkip                         // Skip, no further action
+	overlapSkipped                       // Skipped because already running (caller should update skip count)
+)
+
 // handleOverlap checks if a new execution can proceed based on the overlap policy.
-// Returns true if execution should proceed, false if skipped or queued.
-func (r *ScheduleRunner) handleOverlap(sc *ScheduleConfig) bool {
+// Returns the action the caller should take.
+func (r *ScheduleRunner) handleOverlap(sc *ScheduleConfig) overlapAction {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -286,43 +311,32 @@ func (r *ScheduleRunner) handleOverlap(sc *ScheduleConfig) bool {
 
 	switch policy {
 	case ScheduleOverlapAllow:
-		// Always allow concurrent execution
-		return true
+		return overlapProceed
 
 	case ScheduleOverlapSkip:
 		if isRunning {
-			// Skip this execution
-			r.store.mu.Lock()
-			if s, ok := r.store.schedules[sc.ID]; ok {
-				s.State.SkipCount++
-			}
-			r.store.mu.Unlock()
-			log.Printf("[ScheduleRunner] Skipping schedule %q (already running)", sc.ID)
-			return false
+			scheduleRunnerLog.Info("Skipping schedule (already running)", "schedule_id", sc.ID)
+			return overlapSkipped
 		}
-		return true
+		return overlapProceed
 
 	case ScheduleOverlapQueueOne:
 		if isRunning {
-			// Only queue if there isn't already a queued execution
 			if len(r.queuedExecutions[sc.ID]) == 0 {
-				input := deepCopyAny(sc.Input).(map[string]any)
-				if input == nil {
-					input = make(map[string]any)
-				}
+				input := r.copyScheduleInput(sc.Input)
 				r.queuedExecutions[sc.ID] = append(r.queuedExecutions[sc.ID], &queuedExecution{
 					ScheduleID: sc.ID,
 					Input:      input,
 					QueuedAt:   time.Now(),
 				})
-				log.Printf("[ScheduleRunner] Queued execution for schedule %q", sc.ID)
+				scheduleRunnerLog.Info("Queued execution", "schedule_id", sc.ID)
 			}
-			return false
+			return overlapSkip
 		}
-		return true
+		return overlapProceed
 	}
 
-	return true
+	return overlapProceed
 }
 
 // executeSchedule runs a scheduled workflow and updates the schedule state.
@@ -339,8 +353,8 @@ func (r *ScheduleRunner) executeSchedule(sc *ScheduleConfig, input map[string]an
 	}
 	r.mu.Unlock()
 
-	log.Printf("[ScheduleRunner] Executing schedule %q (workflow: %s, execution: %s)",
-		sc.ID, sc.WorkflowID, executionID)
+	scheduleRunnerLog.Info("Executing schedule",
+		"schedule_id", sc.ID, "workflow_id", sc.WorkflowID, "execution_id", executionID)
 
 	// Broadcast schedule execution started
 	r.broadcast("schedule_execution_started", map[string]any{
@@ -363,9 +377,16 @@ func (r *ScheduleRunner) executeSchedule(sc *ScheduleConfig, input map[string]an
 	var execErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("[ScheduleRunner] Retrying schedule %q (attempt %d/%d)",
-				sc.ID, attempt, maxRetries)
-			time.Sleep(retryDelay)
+			scheduleRunnerLog.Warn("Retrying schedule",
+				"schedule_id", sc.ID, "attempt", attempt, "max_retries", maxRetries)
+			// Use select with stopCh for graceful shutdown during retry delay
+			select {
+			case <-r.stopCh:
+				scheduleRunnerLog.Info("Retry cancelled due to shutdown", "schedule_id", sc.ID)
+				return
+			case <-time.After(retryDelay):
+				// Delay completed, proceed with retry
+			}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -383,7 +404,7 @@ func (r *ScheduleRunner) executeSchedule(sc *ScheduleConfig, input map[string]an
 	if execErr != nil {
 		result = "failed"
 		lastError = execErr.Error()
-		log.Printf("[ScheduleRunner] Schedule %q failed: %v", sc.ID, execErr)
+		scheduleRunnerLog.Error("Schedule failed", "schedule_id", sc.ID, "error", execErr)
 	}
 
 	now := time.Now()
@@ -410,8 +431,12 @@ func (r *ScheduleRunner) executeSchedule(sc *ScheduleConfig, input map[string]an
 		}
 		r.mu.Unlock()
 
-		log.Printf("[ScheduleRunner] Executing queued run for schedule %q", sc.ID)
-		go r.executeSchedule(sc, next.Input)
+		scheduleRunnerLog.Info("Executing queued run", "schedule_id", sc.ID)
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			r.executeSchedule(sc, next.Input)
+		}()
 	} else {
 		r.mu.Unlock()
 	}
@@ -451,4 +476,17 @@ func (r *ScheduleRunner) broadcast(eventType string, payload any) {
 	if r.broadcaster != nil {
 		r.broadcaster.Broadcast(eventType, payload)
 	}
+}
+
+// copyScheduleInput safely copies a schedule's input map.
+// Returns an empty map if Input is nil or not a map[string]any.
+func (r *ScheduleRunner) copyScheduleInput(input any) map[string]any {
+	if input == nil {
+		return make(map[string]any)
+	}
+	copied := deepCopyAny(input)
+	if m, ok := copied.(map[string]any); ok {
+		return m
+	}
+	return make(map[string]any)
 }

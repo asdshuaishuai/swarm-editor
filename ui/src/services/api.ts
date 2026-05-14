@@ -37,6 +37,21 @@ export interface FileEntry {
   children?: FileEntry[]
 }
 
+export interface ContentSearchResult {
+  path: string
+  line: number    // 0-indexed
+  column: number  // 0-indexed
+  content: string
+}
+
+export interface ReplaceResult {
+  path: string
+  line: number
+  column: number
+  oldLine: string
+  newLine: string
+}
+
 export interface SwarmInfo {
   id: string
   name: string
@@ -447,9 +462,182 @@ export const fsApi = {
     await getClient().invoke('write_file', { path, content })
   },
 
+  async searchFiles(query: string, limit?: number): Promise<FileEntry[]> {
+    const result = await getClient().invoke<{ files: FileEntry[] }>('search_files', { query, limit: limit ?? 50 })
+    return result.files
+  },
+
+  async searchContent(query: string, caseSensitive?: boolean, limit?: number, options?: { wholeWord?: boolean; regex?: boolean; includeFiles?: string[]; excludeFiles?: string[]; folder?: string }): Promise<ContentSearchResult[]> {
+    const result = await getClient().invoke<{ results: ContentSearchResult[] }>('search_content', {
+      query,
+      caseSensitive: caseSensitive ?? false,
+      wholeWord: options?.wholeWord ?? false,
+      regex: options?.regex ?? false,
+      limit: limit ?? 100,
+      includeFiles: options?.includeFiles ?? [],
+      excludeFiles: options?.excludeFiles ?? [],
+      folder: options?.folder ?? '',
+    })
+    return result.results
+  },
+
+  async replaceContent(query: string, replacement: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; dryRun?: boolean; files?: string[]; preserveCase?: boolean }): Promise<{ results: ReplaceResult[]; changedFiles: number; dryRun: boolean }> {
+    const result = await getClient().invoke<{ results: ReplaceResult[]; changedFiles: number; dryRun: boolean }>('replace_content', {
+      query,
+      replacement,
+      caseSensitive: options?.caseSensitive ?? false,
+      wholeWord: options?.wholeWord ?? false,
+      regex: options?.regex ?? false,
+      dryRun: options?.dryRun ?? false,
+      files: options?.files ?? [],
+      preserveCase: options?.preserveCase ?? false,
+    })
+    return result
+  },
+
   async getWorkspace(): Promise<string> {
-    // Return default workspace path (browser-safe)
-    return '.'
+    const result = await getClient().invoke<{ path: string }>('get_workspace')
+    return result.path
+  },
+
+  // File management operations (P1 feature - Cursor/VS Code pattern)
+  async deleteFile(path: string): Promise<void> {
+    await getClient().invoke('delete_file', { path })
+  },
+
+  async renameFile(oldPath: string, newPath: string): Promise<void> {
+    await getClient().invoke('rename_file', { oldPath, newPath })
+  },
+
+  async createFile(path: string): Promise<void> {
+    await getClient().invoke('create_file', { path })
+  },
+
+  async mkdir(path: string): Promise<void> {
+    await getClient().invoke('mkdir', { path })
+  },
+
+  async copyFile(srcPath: string, dstPath: string): Promise<void> {
+    await getClient().invoke('copy_file', { srcPath, dstPath })
+  },
+
+  // P1: Reveal file in OS file manager (VS Code "Reveal in Explorer" pattern)
+  async revealFile(path: string): Promise<void> {
+    await getClient().invoke('reveal_file', { path })
+  },
+}
+
+// Git API
+export interface GitFileStatus {
+  path: string
+  status: string  // M, A, D, R, U, ??
+  staged: boolean
+}
+
+export interface GitCommit {
+  hash: string
+  message: string
+  author: string
+  date: string
+}
+
+export const gitApi = {
+  async getStatus(): Promise<GitFileStatus[]> {
+    const result = await getClient().invoke<{ files: GitFileStatus[] }>('git_status')
+    return result.files || []
+  },
+
+  async stage(path?: string): Promise<GitFileStatus[]> {
+    const result = await getClient().invoke<{ files: GitFileStatus[] }>('git_stage', { path: path || '' })
+    return result.files || []
+  },
+
+  async unstage(path?: string): Promise<GitFileStatus[]> {
+    const result = await getClient().invoke<{ files: GitFileStatus[] }>('git_unstage', { path: path || '' })
+    return result.files || []
+  },
+
+  async commit(message: string): Promise<{ hash: string; message: string }> {
+    return getClient().invoke<{ hash: string; message: string }>('git_commit', { message })
+  },
+
+  async discard(path: string): Promise<GitFileStatus[]> {
+    const result = await getClient().invoke<{ files: GitFileStatus[] }>('git_discard', { path })
+    return result.files || []
+  },
+
+  async log(path?: string, limit?: number): Promise<GitCommit[]> {
+    const result = await getClient().invoke<{ commits: GitCommit[] }>('git_log', { path: path || '', limit: limit || 20 })
+    return result.commits || []
+  },
+
+  async getBranch(): Promise<string> {
+    const result = await getClient().invoke<{ branch: string }>('git_branch')
+    return result.branch || ''
+  },
+
+  async listBranches(): Promise<{ name: string; current: boolean }[]> {
+    const result = await getClient().invoke<{ branches: { name: string; current: boolean }[] }>('git_branch_list')
+    return result.branches || []
+  },
+
+  async createBranch(name: string, checkout = true): Promise<{ branch: string }> {
+    return getClient().invoke<{ branch: string }>('git_branch_create', { name, checkout })
+  },
+
+  async checkoutBranch(name: string): Promise<{ branch: string }> {
+    return getClient().invoke<{ branch: string }>('git_branch_checkout', { name })
+  },
+
+  async push(remote?: string, branch?: string, force?: boolean): Promise<{ output: string }> {
+    return getClient().invoke<{ output: string }>('git_push', { remote: remote || 'origin', branch: branch || '', force: force || false })
+  },
+
+  async pull(remote?: string, branch?: string): Promise<{ output: string }> {
+    return getClient().invoke<{ output: string }>('git_pull', { remote: remote || 'origin', branch: branch || '' })
+  },
+
+  async stash(): Promise<{ output: string }> {
+    return getClient().invoke<{ output: string }>('git_stash')
+  },
+
+  async stashPop(): Promise<{ output: string }> {
+    return getClient().invoke<{ output: string }>('git_stash_pop')
+  },
+
+  async undoCommit(): Promise<{ output: string }> {
+    return getClient().invoke<{ output: string }>('git_undo_commit')
+  },
+}
+
+// Custom Instructions API (Cursor .cursorrules / VS Code AGENTS.md pattern)
+export const instructionsApi = {
+  async get(): Promise<{ content: string; files: string[] }> {
+    return getClient().invoke<{ content: string; files: string[] }>('get_custom_instructions')
+  },
+
+  async save(content: string): Promise<{ status: string; path: string }> {
+    return getClient().invoke<{ status: string; path: string }>('save_custom_instructions', { content })
+  },
+}
+
+// Git Diff API — per-file diff for diff editor view
+export interface DiffRange {
+  startOld: number  // 1-indexed, original file line
+  endOld: number    // 1-indexed, inclusive
+  startNew: number  // 1-indexed, modified file line
+  endNew: number    // 1-indexed, inclusive
+  type: 'added' | 'removed' | 'modified'
+}
+
+export const gitDiffApi = {
+  async getFileDiff(path: string, staged?: boolean): Promise<{ original: string; modified: string; path: string }> {
+    return getClient().invoke<{ original: string; modified: string; path: string }>('git_diff', { path, staged })
+  },
+
+  // R5080: Line-level diff ranges for gutter decorations (VS Code pattern)
+  async getLineDiff(path: string, staged?: boolean): Promise<{ ranges: DiffRange[]; path: string }> {
+    return getClient().invoke<{ ranges: DiffRange[]; path: string }>('git_diff_lines', { path, staged })
   },
 }
 

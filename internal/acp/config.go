@@ -139,8 +139,8 @@ func LoadConfig(path string) (*Config, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			// Create default config
 			cfg := NewConfig()
-			if err := cfg.Save(path); err != nil {
-				return nil, fmt.Errorf("failed to create default config: %w", err)
+			if saveErr := cfg.Save(path); saveErr != nil {
+				return nil, fmt.Errorf("failed to create default config: %w", saveErr)
 			}
 			return cfg, nil
 		}

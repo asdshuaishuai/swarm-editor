@@ -4,13 +4,15 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var supervisorLog = log.With("component", "Supervisor")
 
 // Supervisor monitors agent health and manages recovery
 type Supervisor struct {
@@ -248,6 +250,8 @@ func (s *Supervisor) checkAgents() {
 			if onDegraded != nil {
 				onDegraded(ev.agent, ev.score)
 			}
+		case "unrecoverable":
+			s.handleUnrecoverableAgent(ev.agent)
 		}
 	}
 }
@@ -319,8 +323,8 @@ func (s *Supervisor) collectStuckEvent(ag *agent.Agent, health *AgentHealth) *su
 		if isStuck {
 			// Check if max recovery time exceeded (use config instead of fixed attempt count)
 			if time.Since(stuckInfo.DetectedAt) > s.stuckConfig.MaxRecoveryTime {
-				// Max recovery time reached
-				s.handleUnrecoverableAgent(ag)
+				// Max recovery time reached — defer to outside lock to prevent deadlock
+				return &supervisorEvent{kind: "unrecoverable", agent: ag}
 			}
 			return nil
 		}
@@ -346,26 +350,22 @@ func (s *Supervisor) collectStuckEvent(ag *agent.Agent, health *AgentHealth) *su
 }
 
 // handleUnrecoverableAgent handles an agent that cannot be recovered.
-// Caller must hold s.mu. Modifies s.stuckAgents, s.healthScores, s.heartbeats, s.alerts.
+// Must be called WITHOUT holding s.mu to prevent deadlock.
 func (s *Supervisor) handleUnrecoverableAgent(ag *agent.Agent) {
 	agentID := string(ag.ID)
 
-	// Remove from registry
+	// Remove from registry (outside s.mu — registry has its own locking)
 	if err := s.registry.Unregister(ag.ID); err != nil {
-		log.Printf("[Supervisor] warn: failed to unregister agent %s: %v", agentID, err)
+		supervisorLog.Warn("Failed to unregister agent", "agent_id", agentID, "error", err)
 	}
 
-	// Delete stuck info
+	// Clean up supervisor state under lock
+	s.mu.Lock()
 	delete(s.stuckAgents, agentID)
-
-	// Delete health score
 	delete(s.healthScores, agentID)
-
-	// Delete heartbeat entry
 	delete(s.heartbeats, agentID)
-
-	// Add alert
 	s.addAlert("unrecoverable", agentID, "Agent could not be recovered after multiple attempts", "critical", nil)
+	s.mu.Unlock()
 }
 
 // addAlert adds an alert. Caller must hold s.mu.
@@ -396,7 +396,7 @@ func (s *Supervisor) addAlert(alertType, agentID, message, severity string, meta
 			defer s.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Supervisor] alert broadcast panic: %v", r)
+					supervisorLog.Error("Alert broadcast panic", "panic", r)
 				}
 			}()
 			broadcaster.Broadcast("supervisor_alert", map[string]any{
@@ -429,13 +429,13 @@ func (s *Supervisor) RecordHeartbeat(agentID string) {
 			// Snapshot callback under lock to prevent race with OnAgentRecovered()
 			onRecovered := s.onAgentRecovered
 			if onRecovered != nil {
-				if ag, exists := s.registry.Get(acp.AgentID(agentID)); exists {
+				if ag, exists := s.registry.Get(acp.AgentID(agentID)); exists && ag != nil {
 					s.wg.Add(1)
 					go func(agent *agent.Agent, callback func(*agent.Agent)) {
 						defer s.wg.Done()
 						defer func() {
 							if r := recover(); r != nil {
-								log.Printf("[Supervisor] onAgentRecovered callback panic for agent %s: %v", agentID, r)
+								supervisorLog.Error("onAgentRecovered callback panic", "agent_id", agentID, "panic", r)
 							}
 						}()
 						callback(agent)
@@ -611,7 +611,7 @@ type SupervisorStats struct {
 
 // supervisorEvent represents a deferred callback event collected during checkAgents
 type supervisorEvent struct {
-	kind     string // "stuck" or "degraded"
+	kind     string // "stuck", "degraded", or "unrecoverable"
 	agent    *agent.Agent
 	duration time.Duration
 	score    float64

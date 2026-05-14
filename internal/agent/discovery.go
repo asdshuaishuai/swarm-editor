@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -15,10 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+
+	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var discoveryLog = log.With("component", "Discovery")
 
 // DiscoveryConfig configures the agent discovery service
 type DiscoveryConfig struct {
@@ -185,8 +188,7 @@ func (d *DiscoveryService) Start(ctx context.Context) error {
 		go d.networkListener()
 	}
 
-	log.Printf("[Discovery] Service started with autoScan=%v, enableNetwork=%v",
-		d.config.AutoScan, d.config.EnableNetwork)
+	discoveryLog.Info("Service started", "auto_scan", d.config.AutoScan, "enable_network", d.config.EnableNetwork)
 
 	return nil
 }
@@ -202,7 +204,7 @@ func (d *DiscoveryService) Stop() {
 	d.mu.Unlock()
 
 	d.wg.Wait()
-	log.Printf("[Discovery] Service stopped")
+	discoveryLog.Info("Service stopped")
 }
 
 // scanLoop periodically scans for agents
@@ -235,7 +237,7 @@ func (d *DiscoveryService) scanLoop() {
 
 // Scan performs a full discovery scan
 func (d *DiscoveryService) Scan() []*DiscoveredAgent {
-	log.Printf("[Discovery] Starting scan...")
+	discoveryLog.Info("Starting scan")
 
 	var discovered []*DiscoveredAgent
 	var mu sync.Mutex
@@ -246,7 +248,7 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Discovery] scanCommands panic: %v", r)
+				discoveryLog.Error("scanCommands panic", "panic", r)
 			}
 			wg.Done()
 		}()
@@ -261,7 +263,7 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Discovery] scanConfigFiles panic: %v", r)
+				discoveryLog.Error("scanConfigFiles panic", "panic", r)
 			}
 			wg.Done()
 		}()
@@ -277,7 +279,7 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Discovery] scanNetwork panic: %v", r)
+					discoveryLog.Error("scanNetwork panic", "panic", r)
 				}
 				wg.Done()
 			}()
@@ -303,7 +305,7 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 			go func(a *DiscoveredAgent) {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Discovery] onDiscovered callback panic: %v", r)
+						discoveryLog.Error("onDiscovered callback panic", "panic", r)
 					}
 					d.wg.Done()
 				}()
@@ -318,19 +320,19 @@ func (d *DiscoveryService) Scan() []*DiscoveredAgent {
 			go func(a *DiscoveredAgent) {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Discovery] Auto-connect panic for %s: %v", a.ID, r)
+						discoveryLog.Error("Auto-connect panic", "agent_id", a.ID, "panic", r)
 					}
 					d.wg.Done()
 				}()
 				if _, err := d.Connect(a); err != nil {
-					log.Printf("[Discovery] Auto-connect failed for %s: %v", a.ID, err)
+					discoveryLog.Warn("Auto-connect failed", "agent_id", a.ID, "error", err)
 				}
 			}(agent)
 		}
 	}
 	d.mu.Unlock()
 
-	log.Printf("[Discovery] Scan complete, found %d agents", len(discovered))
+	discoveryLog.Info("Scan complete", "found", len(discovered))
 	return discovered
 }
 
@@ -522,18 +524,6 @@ func (d *DiscoveryService) scanNetwork() []*DiscoveredAgent {
 	return agents
 }
 
-// probeNetworkAgent probes a network address for an agent
-func (d *DiscoveryService) probeNetworkAgent(addr string) *DiscoveredAgent {
-	// Capture ctx under lock to avoid race with Stop()
-	d.mu.RLock()
-	ctx := d.ctx
-	d.mu.RUnlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return d.probeNetworkAgentWithContext(ctx, addr)
-}
-
 // probeNetworkAgentWithContext probes a network address with context support
 func (d *DiscoveryService) probeNetworkAgentWithContext(ctx context.Context, addr string) *DiscoveredAgent {
 	start := time.Now()
@@ -631,13 +621,15 @@ func (d *DiscoveryService) queryAgentCapabilitiesWithContext(ctx context.Context
 	}
 
 	// Start the client's read loop
-	if err := client.Start(queryCtx); err != nil {
-		client.Stop()
+	if startErr := client.Start(queryCtx); startErr != nil {
+		if stopErr := client.Stop(); stopErr != nil {
+			discoveryLog.Warn("Client stop error after start failure", "error", stopErr)
+		}
 		return capabilities
 	}
 	defer func() {
-		if err := client.Stop(); err != nil {
-			log.Printf("[Discovery] Client stop error: %v", err)
+		if stopErr := client.Stop(); stopErr != nil {
+			discoveryLog.Warn("Client stop error", "error", stopErr)
 		}
 	}()
 
@@ -700,7 +692,7 @@ func (d *DiscoveryService) verifyAgent(agent *DiscoveredAgent) bool {
 
 // Connect connects to a discovered agent
 func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
-	log.Printf("[Discovery] Connecting to agent: %s (%s)", agent.Name, agent.Endpoint)
+	discoveryLog.Info("Connecting to agent", "name", agent.Name, "endpoint", agent.Endpoint)
 
 	var acpAgent *Agent
 	var err error
@@ -711,7 +703,7 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 			break
 		}
 
-		log.Printf("[Discovery] Connection attempt %d/%d failed: %v", i+1, d.config.MaxRetries, err)
+		discoveryLog.Warn("Connection attempt failed", "attempt", i+1, "max_retries", d.config.MaxRetries, "error", err)
 
 		if i < d.config.MaxRetries-1 {
 			// Capture ctx under lock to avoid race with Stop()
@@ -743,7 +735,7 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Discovery] onFailed callback panic for %q: %v", agent.Name, r)
+						discoveryLog.Error("onFailed callback panic", "agent", agent.Name, "panic", r)
 					}
 					d.wg.Done()
 				}()
@@ -768,7 +760,7 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Discovery] onConnected callback panic for %q: %v", agent.Name, r)
+					discoveryLog.Error("onConnected callback panic", "agent", agent.Name, "panic", r)
 				}
 				d.wg.Done()
 			}()
@@ -776,7 +768,7 @@ func (d *DiscoveryService) Connect(agent *DiscoveredAgent) (*Agent, error) {
 		}()
 	}
 
-	log.Printf("[Discovery] Successfully connected to agent: %s", agent.Name)
+	discoveryLog.Info("Successfully connected to agent", "name", agent.Name)
 	return acpAgent, nil
 }
 
@@ -840,7 +832,7 @@ func (d *DiscoveryService) tryConnect(agent *DiscoveredAgent) (*Agent, error) {
 	if d.registry != nil {
 		if err := d.registry.Register(acpAgent); err != nil {
 			// Log warning but continue - connection is still valid
-			log.Printf("[Discovery] Warning: failed to register agent %s: %v", agent.ID, err)
+			discoveryLog.Warn("Failed to register agent", "agent_id", agent.ID, "error", err)
 		}
 	}
 
@@ -851,8 +843,8 @@ func (d *DiscoveryService) tryConnect(agent *DiscoveredAgent) (*Agent, error) {
 func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
 	// Snapshot callback and agent under lock, invoke outside to prevent deadlock
 	var (
-		agent        *DiscoveredAgent
-		onDiscovered func(*DiscoveredAgent)
+		agent         *DiscoveredAgent
+		onDiscovered  func(*DiscoveredAgent)
 		validationErr error
 	)
 
@@ -878,7 +870,7 @@ func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
 			// Require approval path
 			req.Status = "pending"
 			d.pending[req.AgentID] = req
-			log.Printf("[Discovery] Registration pending approval: %q", req.AgentID)
+			discoveryLog.Info("Registration pending approval", "agent_id", req.AgentID)
 		} else {
 			// Auto-approve path
 			req.Status = "approved"
@@ -894,7 +886,7 @@ func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
 			}
 			d.discovered[req.AgentID] = agent
 
-			log.Printf("[Discovery] Agent self-registered: %q", req.AgentID)
+			discoveryLog.Info("Agent self-registered", "agent_id", req.AgentID)
 
 			onDiscovered = d.onDiscovered
 		}
@@ -911,7 +903,7 @@ func (d *DiscoveryService) RegisterSelf(req *RegistrationRequest) error {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Discovery] RegisterSelf onDiscovered callback panic for %q: %v", agent.Name, r)
+					discoveryLog.Error("RegisterSelf onDiscovered callback panic", "agent", agent.Name, "panic", r)
 				}
 				d.wg.Done()
 			}()
@@ -964,14 +956,14 @@ func (d *DiscoveryService) ApproveRegistration(agentID, approvedBy string) error
 		return validationErr
 	}
 
-	log.Printf("[Discovery] Registration approved: %q by %q", agentID, approvedBy)
+	discoveryLog.Info("Registration approved", "agent_id", agentID, "approved_by", approvedBy)
 
 	if onDiscovered != nil {
 		d.wg.Add(1)
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Discovery] ApproveRegistration onDiscovered callback panic for %q: %v", agent.Name, r)
+					discoveryLog.Error("ApproveRegistration onDiscovered callback panic", "agent", agent.Name, "panic", r)
 				}
 				d.wg.Done()
 			}()
@@ -993,7 +985,7 @@ func (d *DiscoveryService) RejectRegistration(agentID, reason string) error {
 	}
 
 	req.Status = "rejected"
-	log.Printf("[Discovery] Registration rejected: %q (reason: %q)", agentID, reason)
+	discoveryLog.Info("Registration rejected", "agent_id", agentID, "reason", reason)
 
 	delete(d.pending, agentID)
 
@@ -1053,19 +1045,19 @@ func (d *DiscoveryService) networkListener() {
 	addr := fmt.Sprintf(":%d", d.config.BroadcastPort)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Printf("[Discovery] Failed to start network listener: %v", err)
+		discoveryLog.Error("Failed to start network listener", "error", err)
 		return
 	}
 	defer listener.Close()
 
-	log.Printf("[Discovery] Network listener started on %s", addr)
+	discoveryLog.Info("Network listener started", "addr", addr)
 
 	// Track cleanup goroutine to prevent leak on Stop
 	d.wg.Add(1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Discovery] Network listener cleanup panic: %v", r)
+				discoveryLog.Error("Network listener cleanup panic", "panic", r)
 			}
 			d.wg.Done()
 		}()
@@ -1088,7 +1080,7 @@ func (d *DiscoveryService) networkListener() {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Discovery] handleRegistration panic: %v", r)
+					discoveryLog.Error("handleRegistration panic", "panic", r)
 				}
 				d.wg.Done()
 			}()
@@ -1103,14 +1095,14 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 
 	// Set read deadline
 	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		log.Printf("[Discovery] Failed to set read deadline: %v", err)
+		discoveryLog.Warn("Failed to set read deadline", "error", err)
 	}
 
 	// Read registration request (limit to 1MB to prevent memory exhaustion)
 	var req RegistrationRequest
 	decoder := json.NewDecoder(io.LimitReader(conn, 1<<20))
 	if err := decoder.Decode(&req); err != nil {
-		log.Printf("[Discovery] Invalid registration request: %v", err)
+		discoveryLog.Warn("Invalid registration request", "error", err)
 		return
 	}
 
@@ -1118,12 +1110,12 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 
 	// Process registration
 	if err := d.RegisterSelf(&req); err != nil {
-		log.Printf("[Discovery] Registration failed: %v", err)
+		discoveryLog.Warn("Registration failed", "error", err)
 		// Safe JSON encoding to prevent injection
 		errResp := map[string]string{"status": "error", "message": "registration failed"}
 		if errData, marshalErr := json.Marshal(errResp); marshalErr == nil {
 			if _, writeErr := conn.Write(errData); writeErr != nil {
-				log.Printf("[Discovery] Failed to write error response: %v", writeErr)
+				discoveryLog.Warn("Failed to write error response", "error", writeErr)
 			}
 		}
 		return
@@ -1141,11 +1133,11 @@ func (d *DiscoveryService) handleRegistration(conn net.Conn) {
 
 	data, err := json.Marshal(response)
 	if err != nil {
-		log.Printf("[Discovery] Failed to marshal response: %v", err)
+		discoveryLog.Error("Failed to marshal response", "error", err)
 		return
 	}
 	if _, err := conn.Write(data); err != nil {
-		log.Printf("[Discovery] Failed to send registration response: %v", err)
+		discoveryLog.Warn("Failed to send registration response", "error", err)
 	}
 }
 

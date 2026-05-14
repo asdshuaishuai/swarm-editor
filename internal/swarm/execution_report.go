@@ -66,8 +66,8 @@ type WorkflowExecutionReport struct {
 	CreatedAt   time.Time `json:"createdAt"`
 
 	// Summary
-	Status     string `json:"status"`
-	Mode       string `json:"mode"`
+	Status     string  `json:"status"`
+	Mode       string  `json:"mode"`
 	DurationMs float64 `json:"durationMs"`
 
 	// Node outcomes
@@ -140,7 +140,7 @@ func (r *WorkflowExecutionReport) AddFailure(nodeID string, failureType FailureT
 	// forces Go's escape analysis to heap-allocate the copy, making it safe.
 	if r.RootCause == nil {
 		rootCause := r.FailedNodes[len(r.FailedNodes)-1] // value copy
-		r.RootCause = &rootCause                        // heap-escaped via escape analysis
+		r.RootCause = &rootCause                         // heap-escaped via escape analysis
 	}
 }
 

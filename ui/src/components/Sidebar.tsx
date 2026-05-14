@@ -42,6 +42,8 @@ export default function Sidebar() {
           onClick={toggleSidebar}
           className={`p-1.5 hover:bg-card-hover rounded-mac transition-colors duration-200 ${sidebarCollapsed ? 'mx-auto' : ''}`}
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!sidebarCollapsed}
         >
           {sidebarCollapsed ? (
             <ChevronRight size={16} className="text-text-secondary" />
@@ -52,7 +54,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-3">
+      <nav className="flex-1 py-3" role="tablist" aria-label="Main navigation">
         {navItems.map((item, index) => {
           const Icon = item.icon
           const isActive = activePanel === item.id
@@ -66,6 +68,9 @@ export default function Sidebar() {
                   : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'
               }`}
               style={{ animationDelay: `${index * 50}ms` }}
+              role="tab"
+              aria-selected={isActive}
+              aria-label={item.label}
             >
               <Icon size={18} className={isActive ? 'text-accent' : ''} />
               {!sidebarCollapsed && (

@@ -157,7 +157,7 @@ func TestExecuteConditionNode_Empty(t *testing.T) {
 		{"non-zero is_empty", 1, "is_empty", false},
 		{"false is_empty", false, "is_empty", true},
 		{"true is_empty", true, "is_empty", false},
-	{"empty slice is_empty", []any{}, "is_empty", true},
+		{"empty slice is_empty", []any{}, "is_empty", true},
 		{"nil is_not_empty", nil, "is_not_empty", false},
 		{"hello is_not_empty", "hello", "is_not_empty", true},
 	}

@@ -11,9 +11,32 @@ export interface Settings {
   autoSave: boolean
   autoSaveDelay: number
   minimap: boolean
-  lineNumbers: boolean
+  lineNumbers: 'on' | 'off' | 'relative'
   wordWrap: boolean
-  
+  bracketPairColorization: boolean
+  stickyScroll: boolean
+  indentGuides: boolean
+  renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all'
+  cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
+  cursorStyle: 'line' | 'block' | 'underline' | 'line-thin' | 'block-outline' | 'underline-thin'
+  // R5121: Additional VS Code parity settings
+  smoothScrolling: boolean
+  cursorSmoothCaretAnimation: boolean
+  linkedEditing: boolean
+  scrollBeyondLastLine: boolean
+  formatOnPaste: boolean
+  mouseWheelZoom: boolean
+  semanticHighlighting: boolean
+  // R5169: Inlay Hints & Breadcrumbs settings (VS Code parity)
+  inlayHints: boolean
+  breadcrumbs: boolean
+  // R5122: Autocomplete settings (VS Code parity)
+  quickSuggestions: boolean
+  acceptSuggestionOnEnter: 'on' | 'off' | 'smart'
+  tabCompletion: 'on' | 'off' | 'onlySnippets'
+  wordBasedSuggestions: 'currentDocument' | 'matchingDocuments' | 'allDocuments'
+  suggestOnTriggerCharacters: boolean
+
   // Notification settings
   notifications: boolean
   sounds: boolean
@@ -95,9 +118,32 @@ export const defaultSettings: Settings = {
   autoSave: true,
   autoSaveDelay: 1000,
   minimap: true,
-  lineNumbers: true,
+  lineNumbers: 'on',
   wordWrap: true,
-  
+  bracketPairColorization: true,
+  stickyScroll: true,
+  indentGuides: true,
+  renderWhitespace: 'selection',
+  cursorBlinking: 'blink',
+  cursorStyle: 'line',
+  // R5121: VS Code parity settings defaults
+  smoothScrolling: true,
+  cursorSmoothCaretAnimation: false,
+  linkedEditing: true,
+  scrollBeyondLastLine: true,
+  formatOnPaste: true,
+  mouseWheelZoom: false,
+  semanticHighlighting: true,
+  // R5169: Inlay Hints & Breadcrumbs defaults
+  inlayHints: true,
+  breadcrumbs: true,
+  // R5122: Autocomplete settings defaults
+  quickSuggestions: true,
+  acceptSuggestionOnEnter: 'smart',
+  tabCompletion: 'on',
+  wordBasedSuggestions: 'matchingDocuments',
+  suggestOnTriggerCharacters: true,
+
   // Notifications
   notifications: true,
   sounds: false,
@@ -116,7 +162,7 @@ export const defaultSettings: Settings = {
   swarmDefaultStrategy: 'parallel',
   swarmMaxAgents: 10,
   swarmConsensusAlgorithm: 'simple_majority',
-  swarmConsensusTimeout: 30000,
+  swarmConsensusTimeout: 30,
   
   // Team
   teamAutoAssignAgents: true,
@@ -163,6 +209,10 @@ export function loadSettings(): Settings {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) {
         const parsed = JSON.parse(stored)
+        // Migrate lineNumbers from boolean to union type (R5140 change)
+        if (typeof parsed.lineNumbers === 'boolean') {
+          parsed.lineNumbers = parsed.lineNumbers ? 'on' : 'off'
+        }
         return { ...defaultSettings, ...parsed }
       }
     } catch {
@@ -184,54 +234,22 @@ export function saveSettings(settings: Settings): void {
 
 export function useSettings() {
   const [settings, setSettingsState] = useState<Settings>(loadSettings)
-  const [isLoading, setIsLoading] = useState(false)
-  const [syncError, setSyncError] = useState<string | null>(null)
-
   // Save to localStorage whenever settings change
   useEffect(() => {
     saveSettings(settings)
   }, [settings])
 
-  // Sync settings with backend
-  const syncWithBackend = useCallback(async (_newSettings: Partial<Settings>) => {
-    setIsLoading(true)
-    setSyncError(null)
-    
-    try {
-      logger.info('Settings', 'Settings synced with backend')
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      setSyncError(errorMsg)
-      logger.error('Settings', 'Failed to sync settings:', err)
-    } finally {
-      setIsLoading(false)
-    }
+  const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
+    setSettingsState(prev => ({ ...prev, [key]: value }))
   }, [])
 
-  const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
-    setSettingsState(prev => {
-      const newSettings = { ...prev, [key]: value }
-      // Sync with backend for critical settings
-      if (['apiKey', 'apiEndpoint', 'mcpServers', 'swarmConsensusAlgorithm', 
-           'networkProxyEnabled', 'securityEnableAuditLog', 'securityEncryptLocalData'].includes(key)) {
-        syncWithBackend({ [key]: value })
-      }
-      return newSettings
-    })
-  }, [syncWithBackend])
-
   const setSettings = useCallback((newSettings: Partial<Settings>) => {
-    setSettingsState(prev => {
-      const updated = { ...prev, ...newSettings }
-      syncWithBackend(newSettings)
-      return updated
-    })
-  }, [syncWithBackend])
+    setSettingsState(prev => ({ ...prev, ...newSettings }))
+  }, [])
 
   const resetSettings = useCallback(() => {
     setSettingsState(defaultSettings)
-    syncWithBackend(defaultSettings)
-  }, [syncWithBackend])
+  }, [])
 
   // Add MCP server
   const addMCPServer = useCallback((server: MCPServerSetting) => {
@@ -277,8 +295,6 @@ export function useSettings() {
 
   return {
     settings,
-    isLoading,
-    syncError,
     updateSetting,
     setSettings,
     resetSettings,

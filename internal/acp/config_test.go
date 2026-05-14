@@ -622,7 +622,6 @@ func TestMCPServerConfigJSON(t *testing.T) {
 
 // Edge case tests
 
-
 func TestConfigGetAgentsByTagNoTags(t *testing.T) {
 	cfg := NewConfig()
 	cfg.AddAgent(&AgentConfig{ID: "no-tags", Command: "/usr/bin/test"})
@@ -1117,5 +1116,203 @@ func TestGetConfigDirFallback(t *testing.T) {
 	// Restore HOME
 	if originalHome != "" {
 		os.Setenv("HOME", originalHome)
+	}
+}
+
+func TestCloneDeepCopyAllFields(t *testing.T) {
+	cfg := NewConfig()
+	cfg.MaxConnections = 42
+	cfg.ConnectTimeout = 99
+	cfg.DefaultMCPSettings = MCPSettings{
+		UseCustomMCP:     true,
+		UseEditorMCP:     true,
+		AllowedTools:     []string{"read", "write", "bash"},
+		CustomMCPServers: []MCPServerConfig{{Name: "mcp1", Command: "/usr/bin/mcp1", Args: []string{"--verbose"}, Env: map[string]string{"KEY": "VAL"}}},
+	}
+	cfg.DefaultSwarmConfig = &DefaultSwarmSettings{
+		DefaultTopology:    "mesh",
+		DefaultStrategy:    "round_robin",
+		ConsensusThreshold: 0.8,
+		TaskTimeout:        600,
+		MaxRetries:         5,
+	}
+	cfg.AddAgent(&AgentConfig{
+		ID:          "agent-a",
+		Name:        "Agent A",
+		Description: "First agent",
+		Enabled:     true,
+		Command:     "/usr/bin/agent-a",
+		Args:        []string{"--flag", "value"},
+		Env:         map[string]string{"VAR1": "val1", "VAR2": "val2"},
+		MCPSettings: MCPSettings{
+			UseCustomMCP:     false,
+			UseEditorMCP:     true,
+			AllowedTools:     []string{"tool1"},
+			CustomMCPServers: []MCPServerConfig{{Name: "agent-mcp", Command: "/bin/mcp"}},
+		},
+		ExpectedCapabilities: AgentCapabilities{LoadSession: true},
+		SwarmConfig:          &AgentSwarmConfig{CanBeCoordinator: true, CanBeWorker: true, PreferredRoles: []string{"coder"}, MaxConcurrent: 7, Priority: 15},
+		Tags:                 []string{"tag1", "tag2"},
+		Timeout:              120,
+	})
+
+	clone, err := cfg.Clone()
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+
+	// Verify scalar fields
+	if clone.MaxConnections != cfg.MaxConnections {
+		t.Errorf("MaxConnections: got %d, want %d", clone.MaxConnections, cfg.MaxConnections)
+	}
+	if clone.ConnectTimeout != cfg.ConnectTimeout {
+		t.Errorf("ConnectTimeout: got %d, want %d", clone.ConnectTimeout, cfg.ConnectTimeout)
+	}
+
+	// Verify DefaultMCPSettings
+	if clone.DefaultMCPSettings.UseCustomMCP != cfg.DefaultMCPSettings.UseCustomMCP {
+		t.Error("DefaultMCPSettings.UseCustomMCP mismatch")
+	}
+	if len(clone.DefaultMCPSettings.AllowedTools) != len(cfg.DefaultMCPSettings.AllowedTools) {
+		t.Errorf("AllowedTools length: got %d, want %d", len(clone.DefaultMCPSettings.AllowedTools), len(cfg.DefaultMCPSettings.AllowedTools))
+	}
+	clone.DefaultMCPSettings.AllowedTools[0] = "MUTATED"
+	if cfg.DefaultMCPSettings.AllowedTools[0] == "MUTATED" {
+		t.Error("DefaultMCPSettings.AllowedTools should be deep-copied")
+	}
+	if len(clone.DefaultMCPSettings.CustomMCPServers) != 1 {
+		t.Fatalf("CustomMCPServers length: got %d, want 1", len(clone.DefaultMCPSettings.CustomMCPServers))
+	}
+	clone.DefaultMCPSettings.CustomMCPServers[0].Env["KEY"] = "MUTATED"
+	if cfg.DefaultMCPSettings.CustomMCPServers[0].Env["KEY"] == "MUTATED" {
+		t.Error("CustomMCPServers[0].Env should be deep-copied")
+	}
+
+	// Verify DefaultSwarmConfig
+	if clone.DefaultSwarmConfig.DefaultTopology != "mesh" {
+		t.Errorf("DefaultTopology: got %s, want mesh", clone.DefaultSwarmConfig.DefaultTopology)
+	}
+	if clone.DefaultSwarmConfig.ConsensusThreshold != 0.8 {
+		t.Errorf("ConsensusThreshold: got %f, want 0.8", clone.DefaultSwarmConfig.ConsensusThreshold)
+	}
+
+	// Verify agent deep copy: Env map
+	agent := clone.Agents["agent-a"]
+	if agent.Env["VAR1"] != "val1" {
+		t.Errorf("Env VAR1: got %s, want val1", agent.Env["VAR1"])
+	}
+	agent.Env["VAR1"] = "MUTATED"
+	if cfg.Agents["agent-a"].Env["VAR1"] == "MUTATED" {
+		t.Error("Agent Env map should be deep-copied")
+	}
+
+	// Verify agent deep copy: Args slice
+	agent.Args[0] = "MUTATED"
+	if cfg.Agents["agent-a"].Args[0] == "MUTATED" {
+		t.Error("Agent Args slice should be deep-copied")
+	}
+
+	// Verify agent deep copy: Tags slice
+	agent.Tags[0] = "MUTATED"
+	if cfg.Agents["agent-a"].Tags[0] == "MUTATED" {
+		t.Error("Agent Tags slice should be deep-copied")
+	}
+
+	// Verify agent deep copy: SwarmConfig
+	if agent.SwarmConfig == cfg.Agents["agent-a"].SwarmConfig {
+		t.Error("Agent SwarmConfig pointer should not be shared")
+	}
+	agent.SwarmConfig.PreferredRoles[0] = "MUTATED"
+	if cfg.Agents["agent-a"].SwarmConfig.PreferredRoles[0] == "MUTATED" {
+		t.Error("Agent SwarmConfig.PreferredRoles should be deep-copied")
+	}
+
+	// Verify agent deep copy: MCPSettings.CustomMCPServers
+	agent.MCPSettings.CustomMCPServers[0].Command = "MUTATED"
+	if cfg.Agents["agent-a"].MCPSettings.CustomMCPServers[0].Command == "MUTATED" {
+		t.Error("Agent MCPSettings.CustomMCPServers should be deep-copied")
+	}
+}
+
+func TestCloneEmptyConfig(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Agents = make(map[string]*AgentConfig) // ensure empty but non-nil
+
+	clone, err := cfg.Clone()
+	if err != nil {
+		t.Fatalf("Clone of empty config failed: %v", err)
+	}
+
+	if clone == nil {
+		t.Fatal("Clone should not be nil")
+	}
+	if len(clone.Agents) != 0 {
+		t.Errorf("Clone should have 0 agents, got %d", len(clone.Agents))
+	}
+	if clone.MaxConnections != cfg.MaxConnections {
+		t.Errorf("MaxConnections: got %d, want %d", clone.MaxConnections, cfg.MaxConnections)
+	}
+	if clone.DefaultSwarmConfig == nil {
+		t.Fatal("DefaultSwarmConfig should not be nil in clone")
+	}
+}
+
+func TestCloneReturnsIndependentMutex(t *testing.T) {
+	cfg := NewConfig()
+	cfg.AddAgent(&AgentConfig{
+		ID:      "mutex-test",
+		Name:    "Mutex",
+		Command: "/usr/bin/true",
+	})
+
+	clone, err := cfg.Clone()
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+
+	// Clone should be independently usable -- concurrent operations should not deadlock
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		_ = cfg.AddAgent(&AgentConfig{ID: "orig-agent", Name: "Orig", Command: "/usr/bin/true"})
+	}()
+
+	go func() {
+		defer wg.Done()
+		_ = clone.AddAgent(&AgentConfig{ID: "clone-agent", Name: "Clone", Command: "/usr/bin/true"})
+	}()
+
+	wg.Wait()
+
+	if len(cfg.Agents) != 2 {
+		t.Errorf("Original should have 2 agents, got %d", len(cfg.Agents))
+	}
+	if len(clone.Agents) != 2 {
+		t.Errorf("Clone should have 2 agents, got %d", len(clone.Agents))
+	}
+}
+
+func TestClonePreservesJSONRoundTrip(t *testing.T) {
+	cfg := NewConfig()
+	cfg.AddAgent(&AgentConfig{
+		ID:      "json-agent",
+		Name:    "JSON Agent",
+		Command: "/usr/bin/json-agent",
+		Env:     map[string]string{"K": "V"},
+	})
+
+	// Clone, then serialize the clone and compare
+	clone, err := cfg.Clone()
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+
+	origJSON, _ := json.Marshal(cfg)
+	cloneJSON, _ := json.Marshal(clone)
+
+	if string(origJSON) != string(cloneJSON) {
+		t.Errorf("Clone JSON should match original.\nOriginal: %s\nClone:    %s", origJSON, cloneJSON)
 	}
 }

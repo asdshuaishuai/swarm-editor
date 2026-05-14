@@ -122,14 +122,14 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#1f1f21]">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Agent Dispatch</h3>
         {activeHandoff && (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 rounded text-orange-400 text-[10px] animate-pulse">
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 rounded text-orange-400 text-[10px] animate-pulse" role="status" aria-live="polite">
             <span>Handoff pending</span>
           </div>
         )}
       </div>
 
       {/* View Tabs */}
-      <div className="flex border-b border-[#1f1f21]">
+      <div className="flex border-b border-[#1f1f21]" role="tablist" aria-label="Agent dispatch views">
         {[
           { id: 'swarm', label: 'Swarm', icon: '🐝' },
           { id: 'tasks', label: 'Tasks', icon: '📋' },
@@ -137,6 +137,8 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
         ].map((tab) => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeView === tab.id}
             onClick={() => setActiveView(tab.id as typeof activeView)}
             className={`flex-1 px-2 py-2 text-xs font-medium transition-colors ${
               activeView === tab.id
@@ -163,6 +165,9 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
             {tasks.map((task) => (
               <div
                 key={task.id}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTaskClick?.(task.id) }}}
                 onClick={() => onTaskClick?.(task.id)}
                 className="bg-slate-800/30 rounded-lg p-3 cursor-pointer hover:bg-slate-800/50 transition-colors"
               >
@@ -183,7 +188,7 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
                 )}
 
                 {/* Progress bar */}
-                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={task.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`Task progress: ${task.progress}%`}>
                   <div
                     className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all"
                     style={{ width: `${task.progress}%` }}

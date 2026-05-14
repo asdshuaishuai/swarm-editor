@@ -15,16 +15,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var httpNodeLog = log.With("component", "HTTPNode")
 
 const (
 	// DefaultHTTPRequestTimeout is the default timeout for HTTP request nodes.
@@ -42,13 +46,13 @@ const (
 
 // HTTPRequestResult represents the structured output of an HTTP request node.
 type HTTPRequestResult struct {
-	StatusCode int                    `json:"statusCode"`
-	Status     string                 `json:"status"`
-	Headers    map[string]string      `json:"headers"`
-	Body       string                 `json:"body"`
-	DurationMs float64                `json:"durationMs"`
-	URL        string                 `json:"url"`
-	Method     string                 `json:"method"`
+	StatusCode int               `json:"statusCode"`
+	Status     string            `json:"status"`
+	Headers    map[string]string `json:"headers"`
+	Body       string            `json:"body"`
+	DurationMs float64           `json:"durationMs"`
+	URL        string            `json:"url"`
+	Method     string            `json:"method"`
 }
 
 // ExecuteHTTPRequestNode executes an HTTP request based on node configuration.
@@ -87,10 +91,19 @@ func ExecuteHTTPRequestNode(ctx context.Context, config map[string]any) (*HTTPRe
 
 	// SSRF protection: block private/internal network access
 	// Blocks: localhost, 127.x.x.x, 0.0.0.0, 169.254.x.x (cloud metadata), 10.x.x.x, 172.16-31.x.x, 192.168.x.x
-	// Configurable via allowPrivateNetworks (default: false)
-	allowPrivate := getBoolConfig(config, "allowPrivateNetworks", false)
+	//
+	// Security model:
+	// - By default, SSRF protection is ENABLED
+	// - Config option "allowPrivateNetworks" is DEPRECATED (user-controllable, security risk)
+	// - Admin override: Set SWARM_ALLOW_PRIVATE_NETWORKS=true env var for development/testing
+	// - Future: Config option will be removed; only env var will work
+	allowPrivate := getBoolConfig(config, "allowPrivateNetworks", false) ||
+		os.Getenv("SWARM_ALLOW_PRIVATE_NETWORKS") == "true"
+	if allowPrivate {
+		httpNodeLog.Warn("SSRF protection disabled - use SWARM_ALLOW_PRIVATE_NETWORKS env var instead of config option")
+	}
 	if !allowPrivate {
-		if err := validateURLHost(parsedURL.Host); err != nil {
+		if err := validateURLHostWithDNS(parsedURL.Host); err != nil {
 			return nil, fmt.Errorf("http_request node: %w", err)
 		}
 	}
@@ -102,7 +115,7 @@ func ExecuteHTTPRequestNode(ctx context.Context, config map[string]any) (*HTTPRe
 	if timeoutSec > 300 {
 		origTimeout := timeoutSec
 		timeoutSec = 300
-		log.Printf("[HTTPNode] Warning: timeout clamped to 300s (was %v)", origTimeout)
+		httpNodeLog.Warn("Timeout clamped to 300s", "original", origTimeout)
 	}
 	if retryCount < 0 {
 		retryCount = 0
@@ -110,7 +123,7 @@ func ExecuteHTTPRequestNode(ctx context.Context, config map[string]any) (*HTTPRe
 	if retryCount > MaxRetries {
 		origRetry := retryCount
 		retryCount = MaxRetries
-		log.Printf("[HTTPNode] Warning: retryCount clamped to %d (was %d)", MaxRetries, origRetry)
+		httpNodeLog.Warn("retryCount clamped", "max", MaxRetries, "original", origRetry)
 	}
 
 	// Normalize method
@@ -244,14 +257,23 @@ func doHTTPRequest(ctx context.Context, client *http.Client, method, rawURL stri
 // Dangerous headers that can bypass security controls are blocked.
 func buildHeaders(config map[string]any, allowPrivate bool) map[string]string {
 	// Headers that can bypass security controls or cause security issues
+	// Includes common credential-bearing headers (defense-in-depth)
 	blockedHeaders := map[string]bool{
-		"host":               true, // Bypass virtual host routing
-		"authorization":      true, // Credential injection
+		"host":                true, // Bypass virtual host routing
+		"authorization":       true, // Credential injection
 		"proxy-authorization": true, // Proxy auth bypass
-		"cookie":             true, // Session hijacking
-		"proxy-connection":   true, // Proxy smuggling
-		"upgrade":            true, // Protocol upgrade attacks
-		"connection":         true, // Connection smuggling
+		"cookie":              true, // Session hijacking
+		"proxy-connection":    true, // Proxy smuggling
+		"upgrade":             true, // Protocol upgrade attacks
+		"connection":          true, // Connection smuggling
+		// Common credential headers (defense-in-depth - use Credential Store instead)
+		"x-api-key":       true, // API key injection
+		"x-auth-token":    true, // Auth token injection
+		"x-access-token":  true, // Access token injection
+		"x-api-token":     true, // API token injection
+		"x-session-token": true, // Session token injection
+		"x-secret-key":    true, // Secret key injection
+		"x-api-secret":    true, // API secret injection
 	}
 
 	headers := make(map[string]string)
@@ -261,7 +283,7 @@ func buildHeaders(config map[string]any, allowPrivate bool) map[string]string {
 			for key, value := range v {
 				lowerKey := strings.ToLower(key)
 				if blockedHeaders[lowerKey] {
-					log.Printf("[HTTPNode] WARN: blocked dangerous header %q", key)
+					httpNodeLog.Warn("Blocked dangerous header", "header", key)
 					continue
 				}
 				headers[key] = value
@@ -270,7 +292,7 @@ func buildHeaders(config map[string]any, allowPrivate bool) map[string]string {
 			for key, value := range v {
 				lowerKey := strings.ToLower(key)
 				if blockedHeaders[lowerKey] {
-					log.Printf("[HTTPNode] WARN: blocked dangerous header %q", key)
+					httpNodeLog.Warn("Blocked dangerous header", "header", key)
 					continue
 				}
 				if strVal, ok := value.(string); ok {
@@ -282,7 +304,7 @@ func buildHeaders(config map[string]any, allowPrivate bool) map[string]string {
 
 	// Log warning for insecureSkipVerify
 	if allowPrivate {
-		log.Printf("[HTTPNode] WARN: allowPrivateNetworks enabled - SSRF protection bypassed")
+		httpNodeLog.Warn("allowPrivateNetworks enabled - SSRF protection bypassed")
 	}
 
 	return headers
@@ -310,6 +332,34 @@ func validateURLHost(host string) error {
 			hostname = hostname[1:closeBracket]
 			// Remaining after ] is optional :port
 		}
+	} else if strings.Contains(hostname, "::") || strings.Count(hostname, ":") >= 2 {
+		// Raw IPv6 without brackets (e.g., "::1" or "2001:db8::1")
+		// May have a port suffix (::1:8080) - net.ParseIP interprets this as valid IPv6!
+		// We need to try stripping potential port suffixes and check both.
+		candidates := []string{hostname}
+
+		// Try stripping last :segment if it looks like a port (digits only)
+		if lastColon := strings.LastIndex(hostname, ":"); lastColon > strings.Index(hostname, "::") {
+			suffix := hostname[lastColon+1:]
+			if _, err := strconv.Atoi(suffix); err == nil {
+				// Suffix is all digits - might be a port. Add stripped version.
+				candidates = append(candidates, hostname[:lastColon])
+			}
+		}
+
+		for _, candidate := range candidates {
+			if ip := net.ParseIP(candidate); ip != nil {
+				if ip.IsLoopback() {
+					return fmt.Errorf("URL host %q resolves to a private/internal network (SSRF protection)", host)
+				}
+				if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+					return fmt.Errorf("URL host %q resolves to a private/internal network (SSRF protection)", host)
+				}
+				if ip.IsPrivate() {
+					return fmt.Errorf("URL host %q resolves to a private network (SSRF protection)", host)
+				}
+			}
+		}
 	} else {
 		// IPv4: remove port if present
 		if idx := strings.LastIndex(host, ":"); idx > 0 {
@@ -335,15 +385,21 @@ func validateURLHost(host string) error {
 		return fmt.Errorf("URL host %q resolves to a private/internal network (SSRF protection)", host)
 	}
 
-	// IPv6 loopback - use net.ParseIP for complete coverage
+	// IPv6 / IPv4-mapped IPv6 - use net.ParseIP for complete coverage
 	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsLoopback() {
+		// Normalize IPv4-mapped IPv6 (e.g., ::ffff:127.0.0.1) to IPv4
+		// so that Go's IsLoopback/IsPrivate checks work correctly.
+		checkIP := ip
+		if ip4 := ip.To4(); ip4 != nil {
+			checkIP = ip4
+		}
+		if checkIP.IsLoopback() {
 			return fmt.Errorf("URL host %q resolves to a private/internal network (SSRF protection)", host)
 		}
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if checkIP.IsLinkLocalUnicast() || checkIP.IsLinkLocalMulticast() {
 			return fmt.Errorf("URL host %q resolves to a private/internal network (SSRF protection)", host)
 		}
-		if ip.IsPrivate() {
+		if checkIP.IsPrivate() {
 			return fmt.Errorf("URL host %q resolves to a private network (SSRF protection)", host)
 		}
 	}
@@ -368,6 +424,92 @@ func validateURLHost(host string) error {
 			if err == nil && octet >= 16 && octet <= 31 {
 				return fmt.Errorf("URL host %q resolves to a private network (SSRF protection)", host)
 			}
+		}
+	}
+
+	return nil
+}
+
+// validateURLHostWithDNS validates the URL host AND resolves DNS to check resolved IPs.
+// This prevents DNS rebinding attacks where a hostname resolves to a private IP.
+func validateURLHostWithDNS(host string) error {
+	// First, do the string-based validation (fast path)
+	if err := validateURLHost(host); err != nil {
+		return err
+	}
+
+	// Extract hostname for DNS resolution
+	hostname := host
+	if strings.HasPrefix(hostname, "[") {
+		// IPv6 with brackets: [::1] or [::1]:8080
+		closeBracket := strings.Index(hostname, "]")
+		if closeBracket > 0 {
+			hostname = hostname[1:closeBracket]
+		}
+	} else if strings.Contains(hostname, ":") {
+		// Could be IPv4:port, IPv6:port, or IPv6 without port
+		// Try to parse as IPv6 first
+		if strings.Contains(hostname, "::") || strings.Count(hostname, ":") >= 2 {
+			// Raw IPv6 - may or may not have port
+			// IPv6 addresses use colons, so last colon might be part of address
+			// Try parsing the whole thing first
+			if ip := net.ParseIP(hostname); ip != nil {
+				// Valid IPv6 without port
+			} else {
+				// Might have a port - try stripping last segment after colon
+				// But be careful: ::1:8080 - the :8080 is a port
+				// Find the last colon and try parsing what's before it
+				lastColon := strings.LastIndex(hostname, ":")
+				if lastColon > 0 {
+					candidate := hostname[:lastColon]
+					if ip := net.ParseIP(candidate); ip != nil {
+						hostname = candidate
+					}
+				}
+			}
+		} else {
+			// IPv4:port - strip port
+			if idx := strings.LastIndex(hostname, ":"); idx > 0 {
+				hostname = hostname[:idx]
+			}
+		}
+	}
+
+	// Skip DNS resolution if it's already an IP address (already validated by validateURLHost)
+	if ip := net.ParseIP(hostname); ip != nil {
+		return nil
+	}
+
+	// Resolve DNS with timeout to prevent hanging
+	// Use a context with 5 second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	r := &net.Resolver{}
+	ips, err := r.LookupIPAddr(ctx, hostname)
+	if err != nil {
+		// DNS resolution failed or timed out - allow the request to proceed
+		// The actual HTTP request will fail if the host is truly unreachable
+		httpNodeLog.Debug("DNS resolution failed, allowing request", "host", hostname, "error", err)
+		return nil
+	}
+
+	for _, ipAddr := range ips {
+		ip := ipAddr.IP
+		// Normalize IPv4-mapped IPv6 (e.g., ::ffff:127.0.0.1) to IPv4
+		// so that Go's IsLoopback/IsPrivate checks work correctly.
+		checkIP := ip
+		if ip4 := ip.To4(); ip4 != nil {
+			checkIP = ip4
+		}
+		if checkIP.IsLoopback() {
+			return fmt.Errorf("URL host %q resolves to loopback IP %s (SSRF protection)", host, ip)
+		}
+		if checkIP.IsLinkLocalUnicast() || checkIP.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL host %q resolves to link-local IP %s (SSRF protection)", host, ip)
+		}
+		if checkIP.IsPrivate() {
+			return fmt.Errorf("URL host %q resolves to private IP %s (SSRF protection)", host, ip)
 		}
 	}
 

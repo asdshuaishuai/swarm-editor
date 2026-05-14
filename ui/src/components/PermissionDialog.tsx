@@ -73,6 +73,7 @@ export function PermissionDialog() {
           {options && options.length > 0 && (
             <div>
               <button
+                aria-expanded={expandedOptions}
                 onClick={() => setExpandedOptions(!expandedOptions)}
                 className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
               >
@@ -155,7 +156,7 @@ export function PermissionQueueIndicator() {
   if (permissionQueue.length === 0 && !activePermission) return null
 
   return (
-    <div className="fixed bottom-4 right-4 bg-mac-panel border border-glass-border rounded-mac p-3 shadow-mac z-50">
+    <div className="fixed bottom-4 right-4 bg-mac-panel border border-glass-border rounded-mac p-3 shadow-mac z-50" role="status" aria-live="polite">
       <div className="flex items-center gap-2">
         <Shield size={16} className="text-warning" />
         <span className="text-sm text-text-primary">

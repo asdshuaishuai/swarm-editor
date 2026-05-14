@@ -16,6 +16,17 @@ import {
 // Use WorkflowInfo from api.ts for saved workflows
 type SavedWorkflow = WorkflowInfo
 
+// Validates imported workflow JSON has required fields
+function isValidWorkflow(data: unknown): data is Workflow {
+  if (!data || typeof data !== 'object') return false
+  const obj = data as Record<string, unknown>
+  return (
+    typeof obj.name === 'string' &&
+    Array.isArray(obj.nodes) &&
+    Array.isArray(obj.edges)
+  )
+}
+
 // Convert API WorkflowInfo to VisualOrchestrator Workflow format
 function toDesignerWorkflow(wf: WorkflowInfo): Workflow {
   return {
@@ -119,6 +130,10 @@ export default function WorkflowPanel() {
       try {
         const text = await file.text()
         const workflow = JSON.parse(text)
+        if (!isValidWorkflow(workflow)) {
+          addToast('error', 'Failed to import workflow', 'Invalid workflow format: requires name, nodes array, and edges array')
+          return
+        }
         setCurrentWorkflow(workflow)
         setActiveTab('design')
         addToast('success', 'Workflow imported', workflow.name || file.name)

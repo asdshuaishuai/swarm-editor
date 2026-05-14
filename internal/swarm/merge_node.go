@@ -45,10 +45,10 @@ type MergeResult struct {
 //
 // Config fields:
 //   - mode (string): Merge mode (default: "append")
-//     - "append": concatenate all results into an array
-//     - "combine": merge all result maps into one (later overrides earlier)
-//     - "choose_branch": take the first non-nil result
-//     - "wait_all": collect all results as-is
+//   - "append": concatenate all results into an array
+//   - "combine": merge all result maps into one (later overrides earlier)
+//   - "choose_branch": take the first non-nil result
+//   - "wait_all": collect all results as-is
 //   - inputs ([]any): Upstream node results to merge
 //
 // In graph mode, inputs are automatically collected from upstream nodes.

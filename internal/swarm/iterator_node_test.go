@@ -38,7 +38,7 @@ func TestExecuteIteratorNode_BasicArray(t *testing.T) {
 
 func TestExecuteIteratorNode_BatchSize(t *testing.T) {
 	config := map[string]any{
-		"items":    []any{1, 2, 3, 4, 5},
+		"items":     []any{1, 2, 3, 4, 5},
 		"batchSize": 2.0,
 	}
 
@@ -161,7 +161,7 @@ func TestExecuteIteratorNode_ClampValues(t *testing.T) {
 
 	config := map[string]any{
 		"items":         items,
-		"batchSize":     200.0, // should be clamped to 100
+		"batchSize":     200.0,   // should be clamped to 100
 		"maxIterations": 99999.0, // should be clamped to 10000
 	}
 

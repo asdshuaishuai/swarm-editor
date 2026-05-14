@@ -3,6 +3,7 @@ package acp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,12 @@ import (
 
 // maxMessageSize limits the size of messages to prevent memory exhaustion attacks
 const maxMessageSize = 10 * 1024 * 1024 // 10MB
+
+// Sentinel errors for transport operations. Use errors.Is() to match.
+var (
+	ErrTransportClosed = errors.New("transport closed")
+	ErrMessageTooLarge = errors.New("message too large")
+)
 
 // Transport handles the underlying communication for ACP
 type Transport interface {
@@ -48,7 +55,7 @@ func (t *StdioTransport) Send(msg *Message) error {
 	defer t.mu.Unlock()
 
 	if t.closed {
-		return fmt.Errorf("transport is closed")
+		return fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 
 	data, err := json.Marshal(msg)
@@ -58,7 +65,7 @@ func (t *StdioTransport) Send(msg *Message) error {
 
 	// Check message size to prevent memory exhaustion attacks
 	if len(data) > maxMessageSize {
-		return fmt.Errorf("message too large: %d bytes (max %d)", len(data), maxMessageSize)
+		return fmt.Errorf("%w: %d bytes (max %d)", ErrMessageTooLarge, len(data), maxMessageSize)
 	}
 
 	// Write message followed by newline
@@ -75,7 +82,7 @@ func (t *StdioTransport) Receive() (*Message, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
-		return nil, fmt.Errorf("transport is closed")
+		return nil, fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 	t.mu.Unlock()
 
@@ -144,7 +151,7 @@ func (t *WebSocketTransport) Send(msg *Message) error {
 	defer t.mu.Unlock()
 
 	if t.closed {
-		return fmt.Errorf("transport is closed")
+		return fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 
 	data, err := json.Marshal(msg)
@@ -154,7 +161,7 @@ func (t *WebSocketTransport) Send(msg *Message) error {
 
 	// Check message size to prevent memory exhaustion attacks
 	if len(data) > maxMessageSize {
-		return fmt.Errorf("message too large: %d bytes (max %d)", len(data), maxMessageSize)
+		return fmt.Errorf("%w: %d bytes (max %d)", ErrMessageTooLarge, len(data), maxMessageSize)
 	}
 
 	// WebSocket text message = 1
@@ -170,7 +177,7 @@ func (t *WebSocketTransport) Receive() (*Message, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
-		return nil, fmt.Errorf("transport is closed")
+		return nil, fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 	t.mu.Unlock()
 
@@ -185,7 +192,7 @@ func (t *WebSocketTransport) Receive() (*Message, error) {
 
 	// Check message size to prevent memory exhaustion
 	if len(data) > maxMessageSize {
-		return nil, fmt.Errorf("message too large: %d bytes (max %d)", len(data), maxMessageSize)
+		return nil, fmt.Errorf("%w: %d bytes (max %d)", ErrMessageTooLarge, len(data), maxMessageSize)
 	}
 
 	var msg Message
@@ -235,7 +242,7 @@ func (t *TCPTransport) Send(msg *Message) error {
 	defer t.mu.Unlock()
 
 	if t.closed {
-		return fmt.Errorf("transport is closed")
+		return fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 
 	data, err := json.Marshal(msg)
@@ -245,7 +252,7 @@ func (t *TCPTransport) Send(msg *Message) error {
 
 	// Sanity check on message size (max 10MB, same as Receive)
 	if len(data) > maxMessageSize {
-		return fmt.Errorf("message too large: %d bytes (max %d)", len(data), maxMessageSize)
+		return fmt.Errorf("%w: %d bytes (max %d)", ErrMessageTooLarge, len(data), maxMessageSize)
 	}
 
 	// Write 4-byte length prefix (big-endian)
@@ -265,7 +272,10 @@ func (t *TCPTransport) Send(msg *Message) error {
 		return fmt.Errorf("failed to write body: %w", err)
 	}
 
-	return t.writer.Flush()
+	if err := t.writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush: %w", err)
+	}
+	return nil
 }
 
 // Receive reads a message from TCP with a 4-byte length prefix
@@ -273,7 +283,7 @@ func (t *TCPTransport) Receive() (*Message, error) {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
-		return nil, fmt.Errorf("transport is closed")
+		return nil, fmt.Errorf("transport is closed: %w", ErrTransportClosed)
 	}
 	t.mu.Unlock()
 
@@ -283,7 +293,7 @@ func (t *TCPTransport) Receive() (*Message, error) {
 		t.mu.Lock()
 		t.closed = true
 		t.mu.Unlock()
-		return nil, err
+		return nil, fmt.Errorf("failed to read message header: %w", err)
 	}
 
 	length := uint32(header[0])<<24 | uint32(header[1])<<16 | uint32(header[2])<<8 | uint32(header[3])
@@ -295,7 +305,7 @@ func (t *TCPTransport) Receive() (*Message, error) {
 		t.mu.Lock()
 		t.closed = true
 		t.mu.Unlock()
-		return nil, fmt.Errorf("message too large: %d bytes (max %d)", length, maxMessageSize)
+		return nil, fmt.Errorf("%w: %d bytes (max %d)", ErrMessageTooLarge, length, maxMessageSize)
 	}
 
 	// Read message body

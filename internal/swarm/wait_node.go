@@ -21,10 +21,10 @@ const (
 
 // WaitResult represents the output of a wait node.
 type WaitResult struct {
-	WaitedMs int64  `json:"waitedMs"`
-	Waited   string `json:"waited"`
-	Deadline string `json:"deadline,omitempty"`
-	Cancelled bool  `json:"cancelled,omitempty"`
+	WaitedMs  int64  `json:"waitedMs"`
+	Waited    string `json:"waited"`
+	Deadline  string `json:"deadline,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 // ExecuteWaitNode pauses workflow execution for a specified duration.
@@ -116,14 +116,14 @@ func ExecuteWaitNode(ctx context.Context, config map[string]any) (*WaitResult, e
 		elapsed := time.Since(start)
 		return &WaitResult{
 			WaitedMs:  elapsed.Milliseconds(),
-			Waited:   elapsed.Truncate(time.Millisecond).String(),
-			Deadline: formatDeadline(deadline, waitUntil),
+			Waited:    elapsed.Truncate(time.Millisecond).String(),
+			Deadline:  formatDeadline(deadline, waitUntil),
 			Cancelled: true,
 		}, nil
 	case <-timer.C:
 		elapsed := time.Since(start)
 		return &WaitResult{
-			WaitedMs:  elapsed.Milliseconds(),
+			WaitedMs: elapsed.Milliseconds(),
 			Waited:   elapsed.Truncate(time.Millisecond).String(),
 			Deadline: formatDeadline(deadline, waitUntil),
 		}, nil

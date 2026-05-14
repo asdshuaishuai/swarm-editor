@@ -248,9 +248,9 @@ func TestFallbackChain_selectByCapability(t *testing.T) {
 	}
 
 	fc := &FallbackChain{
-		agents:  agents,
-		health:  health,
-		config:  DefaultFallbackConfig(),
+		agents: agents,
+		health: health,
+		config: DefaultFallbackConfig(),
 	}
 
 	result := fc.selectByCapability()

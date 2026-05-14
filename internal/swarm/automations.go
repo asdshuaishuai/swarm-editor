@@ -5,14 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"maps"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// automationLog is a scoped logger for the AutomationEngine component.
+var automationLog = log.With("component", "Automation")
+
+// scheduleLog is a scoped logger for schedule management.
+var scheduleLog = log.With("component", "Schedule")
 
 // AutomationTrigger defines when an automation fires.
 // Inspired by Prefect 3 Automations and Temporal Schedules.
@@ -50,17 +57,17 @@ type AutomationAction struct {
 //   - Enabled: can be toggled without deletion
 //   - Cooldown: minimum interval between firings (prevents alert storms)
 type Automation struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Trigger     AutomationTrigger `json:"trigger"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	Trigger     AutomationTrigger  `json:"trigger"`
 	Actions     []AutomationAction `json:"actions"`
-	Enabled     bool              `json:"enabled"`
-	Cooldown    time.Duration     `json:"cooldown,omitempty"` // minimum interval between firings
+	Enabled     bool               `json:"enabled"`
+	Cooldown    time.Duration      `json:"cooldown,omitempty"` // minimum interval between firings
 
-	mu         sync.RWMutex // MEDIUM FIX: changed from Mutex to RWMutex for read-only access
-	lastFired  time.Time // protected by mu
-	fireCount  int64     // protected by mu
+	mu        sync.RWMutex // MEDIUM FIX: changed from Mutex to RWMutex for read-only access
+	lastFired time.Time    // protected by mu
+	fireCount int64        // protected by mu
 }
 
 // LastFired returns the last time this automation fired.
@@ -83,24 +90,29 @@ const maxConcurrentActions = 10
 // AutomationEngine evaluates and executes automations in response to events.
 // Thread-safe: event handlers and CRUD operations can be called concurrently.
 type AutomationEngine struct {
-	mu          sync.RWMutex
-	automations map[string]*Automation
-	handlers    map[string]func(ctx context.Context, event map[string]any) error // action type → handler
-	broadcaster EventBroadcaster // optional, for broadcasting automation events
-	httpClient  *http.Client     // shared client for webhook connections
-	actionSem   chan struct{}    // semaphore limiting concurrent action goroutines
-	wg          sync.WaitGroup   // tracks in-flight action goroutines
-	closed      bool             // prevents new actions after Close
-	closeMu     sync.Mutex       // protects closed flag
+	mu             sync.RWMutex
+	automations    map[string]*Automation
+	handlers       map[string]func(ctx context.Context, event map[string]any) error // action type → handler
+	broadcaster    EventBroadcaster                                                 // optional, for broadcasting automation events
+	httpClient     *http.Client                                                     // shared client for webhook connections
+	actionSem      chan struct{}                                                    // semaphore limiting concurrent action goroutines
+	wg             sync.WaitGroup                                                   // tracks in-flight action goroutines
+	closed         bool                                                             // prevents new actions after Close
+	closeMu        sync.Mutex                                                       // protects closed flag
+	shutdownCtx    context.Context                                                  // cancelled on Close to unblock in-flight actions
+	shutdownCancel context.CancelFunc                                               // cancels shutdownCtx
 }
 
 // NewAutomationEngine creates a new automation engine.
 func NewAutomationEngine() *AutomationEngine {
+	ctx, cancel := context.WithCancel(context.Background())
 	e := &AutomationEngine{
-		automations: make(map[string]*Automation),
-		handlers:    make(map[string]func(ctx context.Context, event map[string]any) error),
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		actionSem:   make(chan struct{}, maxConcurrentActions),
+		automations:    make(map[string]*Automation),
+		handlers:       make(map[string]func(ctx context.Context, event map[string]any) error),
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		actionSem:      make(chan struct{}, maxConcurrentActions),
+		shutdownCtx:    ctx,
+		shutdownCancel: cancel,
 	}
 	e.registerBuiltinHandlers()
 	return e
@@ -124,7 +136,7 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 		if message == "" {
 			return fmt.Errorf("notification message is required")
 		}
-		log.Printf("[Automation] Notification (%s): %s", level, message)
+		automationLog.Info("Notification", "level", level, "message", message)
 		return nil
 	}
 
@@ -149,8 +161,10 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 			allowPrivate = v
 		}
 		if !allowPrivate {
-			if err := validateURLHost(parsedURL.Host); err != nil {
-				return fmt.Errorf("webhook url blocked: %w", err)
+			// Use validateURLHostWithDNS to prevent DNS rebinding attacks
+			// (same protection as HTTP Request Node)
+			if hostErr := validateURLHostWithDNS(parsedURL.Host); hostErr != nil {
+				return fmt.Errorf("webhook url blocked: %w", hostErr)
 			}
 		}
 
@@ -173,12 +187,25 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 		// Set headers (block dangerous headers same as HTTP node)
 		if headers, ok := event["headers"].(map[string]any); ok {
 			blockedHeaders := map[string]bool{
-				"host": true, "authorization": true, "proxy-authorization": true,
-				"cookie": true, "proxy-connection": true, "upgrade": true, "connection": true,
+				"host":                true,
+				"authorization":       true,
+				"proxy-authorization": true,
+				"cookie":              true,
+				"proxy-connection":    true,
+				"upgrade":             true,
+				"connection":          true,
+				// Common credential headers (defense-in-depth)
+				"x-api-key":       true,
+				"x-auth-token":    true,
+				"x-access-token":  true,
+				"x-api-token":     true,
+				"x-session-token": true,
+				"x-secret-key":    true,
+				"x-api-secret":    true,
 			}
 			for k, v := range headers {
 				if blockedHeaders[strings.ToLower(k)] {
-					log.Printf("[Automation] Webhook blocked dangerous header: %s", k)
+					automationLog.Warn("Webhook blocked dangerous header", "header", k)
 					continue
 				}
 				if vs, ok := v.(string); ok {
@@ -205,8 +232,9 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 					return fmt.Errorf("stopped after 10 redirects")
 				}
 				if !allowPrivate {
-					if err := validateURLHost(req.URL.Host); err != nil {
-						return fmt.Errorf("webhook redirect blocked: %w", err)
+					// Use DNS-aware validation for redirects to prevent DNS rebinding
+					if redirectErr := validateURLHostWithDNS(req.URL.Host); redirectErr != nil {
+						return fmt.Errorf("webhook redirect blocked: %w", redirectErr)
 					}
 				}
 				return nil
@@ -220,13 +248,13 @@ func (e *AutomationEngine) registerBuiltinHandlers() {
 
 		// Limit response body size (1MB) to prevent memory exhaustion
 		if _, drainErr := io.CopyN(io.Discard, resp.Body, 1<<20); drainErr != nil && drainErr != io.EOF {
-			log.Printf("[Automation] Webhook response drain error: %v", drainErr)
+			automationLog.Warn("Webhook response drain error", "error", drainErr)
 		}
 
 		if resp.StatusCode >= 400 {
 			return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 		}
-		log.Printf("[Automation] Webhook %s %s -> %d", method, urlStr, resp.StatusCode)
+		automationLog.Info("Webhook completed", "method", method, "url", urlStr, "status", resp.StatusCode)
 		return nil
 	}
 }
@@ -252,7 +280,7 @@ func (e *AutomationEngine) AddAutomation(a *Automation) error {
 		return fmt.Errorf("automation limit reached (%d)", maxAutomations)
 	}
 	e.automations[a.ID] = a
-	log.Printf("[Automation] Added automation %q (%d triggers, %d actions)", a.Name, len(a.Trigger.Events), len(a.Actions))
+	automationLog.Info("Added automation", "name", a.Name, "triggers", len(a.Trigger.Events), "actions", len(a.Actions))
 	return nil
 }
 
@@ -307,7 +335,8 @@ func snapshotAutomation(a *Automation) *Automation {
 	for i, act := range a.Actions {
 		actions[i] = act
 		if act.Params != nil {
-			actions[i].Params = deepCopyAny(act.Params).(map[string]any)
+			// Safe assertion: act.Params is map[string]any, deepCopyAny preserves type
+			actions[i].Params = deepCopyAny(act.Params).(map[string]any) //nolint:errcheck
 		}
 	}
 	a.mu.Unlock()
@@ -330,12 +359,12 @@ func snapshotAutomation(a *Automation) *Automation {
 // EnableAutomation toggles an automation's enabled state.
 func (e *AutomationEngine) EnableAutomation(id string, enabled bool) bool {
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	a, ok := e.automations[id]
-	e.mu.Unlock()
 	if !ok {
 		return false
 	}
-	// HIGH FIX: Hold a.mu when modifying a.Enabled
+	// Hold e.mu while acquiring a.mu to prevent TOCTOU race with RemoveAutomation
 	a.mu.Lock()
 	a.Enabled = enabled
 	a.mu.Unlock()
@@ -344,10 +373,15 @@ func (e *AutomationEngine) EnableAutomation(id string, enabled bool) bool {
 
 // Close waits for all in-flight automation actions to complete.
 // Must be called during shutdown to prevent goroutine leaks.
+// Cancels the shutdown context to unblock in-flight actions that respect context.
 func (e *AutomationEngine) Close() {
 	e.closeMu.Lock()
 	e.closed = true
 	e.closeMu.Unlock()
+	// Cancel shutdown context to signal in-flight actions to abort
+	if e.shutdownCancel != nil {
+		e.shutdownCancel()
+	}
 	e.wg.Wait()
 }
 
@@ -388,7 +422,7 @@ func (e *AutomationEngine) EvaluateEvent(ctx context.Context, eventType string, 
 		a.mu.Unlock()
 
 		triggered++
-		log.Printf("[Automation] Triggered %q on event %q", a.Name, eventType)
+		automationLog.Info("Triggered automation", "name", a.Name, "event", eventType)
 
 		// HIGH FIX: Check if engine is closed before spawning goroutine
 		e.closeMu.Lock()
@@ -400,22 +434,24 @@ func (e *AutomationEngine) EvaluateEvent(ctx context.Context, eventType string, 
 		e.closeMu.Unlock()
 
 		// Execute actions asynchronously with detached context
-		// to prevent caller cancel from aborting side-effectful actions mid-flight
+		// to prevent caller cancel from aborting side-effectful actions mid-flight.
+		// Derives from shutdownCtx so Close() can cancel in-flight actions.
 		go func(automation *Automation) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Automation] Action goroutine panic for %q: %v", automation.Name, r)
+					automationLog.Error("Action goroutine panic", "automation", automation.Name, "error", r)
 				}
 				e.wg.Done()
 			}()
 			e.actionSem <- struct{}{}        // acquire semaphore
 			defer func() { <-e.actionSem }() // release semaphore
-			asyncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			// Use shutdownCtx so Close() can cancel in-flight actions
+			asyncCtx, cancel := context.WithTimeout(e.shutdownCtx, 30*time.Second)
 			defer cancel()
 			for _, action := range automation.Actions {
 				handler, ok := handlers[action.Type]
 				if !ok {
-					log.Printf("[Automation] No handler for action type %q in automation %q", action.Type, automation.Name)
+					automationLog.Warn("No handler for action type", "action_type", action.Type, "automation", automation.Name)
 					continue
 				}
 				// Merge action params into event context
@@ -430,7 +466,7 @@ func (e *AutomationEngine) EvaluateEvent(ctx context.Context, eventType string, 
 				actionCtx["_automationName"] = automation.Name
 
 				if err := handler(asyncCtx, actionCtx); err != nil {
-					log.Printf("[Automation] Action %q failed in automation %q: %v", action.Type, automation.Name, err)
+					automationLog.Error("Action failed", "action_type", action.Type, "automation", automation.Name, "error", err)
 				}
 			}
 		}(a)
@@ -438,7 +474,7 @@ func (e *AutomationEngine) EvaluateEvent(ctx context.Context, eventType string, 
 
 	if triggered > 0 && broadcaster != nil {
 		broadcaster.Broadcast("automation_triggered", map[string]any{
-			"eventType":     eventType,
+			"eventType":      eventType,
 			"triggeredCount": triggered,
 		})
 	}
@@ -525,19 +561,19 @@ type ScheduleRuntimeState struct {
 // ScheduleConfig defines a cron-like schedule for recurring workflow execution.
 // Inspired by Temporal Schedules API.
 type ScheduleConfig struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	WorkflowID  string        `json:"workflowId"`
-	Cron        string        `json:"cron"`        // cron expression (e.g., "*/5 * * * *")
-	Input       map[string]any `json:"input,omitempty"`
-	Enabled     bool          `json:"enabled"`
-	Overlap     bool          `json:"overlap"`     // DEPRECATED: use OverlapPolicy instead
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	WorkflowID    string                `json:"workflowId"`
+	Cron          string                `json:"cron"` // cron expression (e.g., "*/5 * * * *")
+	Input         map[string]any        `json:"input,omitempty"`
+	Enabled       bool                  `json:"enabled"`
+	Overlap       bool                  `json:"overlap"`                 // DEPRECATED: use OverlapPolicy instead
 	OverlapPolicy ScheduleOverlapPolicy `json:"overlapPolicy,omitempty"` // skip (default), allow, queue_one
-	CatchUp     bool          `json:"catchUp"`     // run missed schedules (default: false)
-	CatchUpWindow time.Duration `json:"catchUpWindow,omitempty"` // max age for catch-up (default: 1h)
-	Timezone    string        `json:"timezone,omitempty"` // IANA timezone (default: local)
-	MaxRetries  int           `json:"maxRetries,omitempty"`
-	RetryDelay  time.Duration `json:"retryDelay,omitempty"`
+	CatchUp       bool                  `json:"catchUp"`                 // run missed schedules (default: false)
+	CatchUpWindow time.Duration         `json:"catchUpWindow,omitempty"` // max age for catch-up (default: 1h)
+	Timezone      string                `json:"timezone,omitempty"`      // IANA timezone (default: local)
+	MaxRetries    int                   `json:"maxRetries,omitempty"`
+	RetryDelay    time.Duration         `json:"retryDelay,omitempty"`
 
 	// Runtime state (protected by store's mu)
 	State ScheduleRuntimeState `json:"state"`
@@ -545,9 +581,9 @@ type ScheduleConfig struct {
 
 // ScheduleStore manages scheduled workflow executions.
 type ScheduleStore struct {
-	mu         sync.RWMutex
-	schedules  map[string]*ScheduleConfig
-	onExecute  func(scheduleID string, input map[string]any) // callback to execute workflow
+	mu        sync.RWMutex
+	schedules map[string]*ScheduleConfig
+	onExecute func(scheduleID string, input map[string]any) // callback to execute workflow
 }
 
 // NewScheduleStore creates a new schedule store.
@@ -577,10 +613,11 @@ func (s *ScheduleStore) AddSchedule(sc *ScheduleConfig) error {
 	// MEDIUM FIX: Deep copy to prevent external modification of Input map
 	cp := *sc
 	if sc.Input != nil {
-		cp.Input = deepCopyAny(sc.Input).(map[string]any)
+		// Safe assertion: sc.Input is map[string]any, deepCopyAny preserves type
+		cp.Input = deepCopyAny(sc.Input).(map[string]any) //nolint:errcheck
 	}
 	s.schedules[sc.ID] = &cp
-	log.Printf("[Schedule] Added schedule %q (cron: %s, workflow: %s)", sc.Name, sc.Cron, sc.WorkflowID)
+	scheduleLog.Info("Added schedule", "name", sc.Name, "cron", sc.Cron, "workflow_id", sc.WorkflowID)
 	return nil
 }
 
@@ -605,7 +642,8 @@ func (s *ScheduleStore) GetSchedule(id string) *ScheduleConfig {
 	}
 	cp := *sc
 	if sc.Input != nil {
-		cp.Input = deepCopyAny(sc.Input).(map[string]any)
+		// Safe assertion: sc.Input is map[string]any, deepCopyAny preserves type
+		cp.Input = deepCopyAny(sc.Input).(map[string]any) //nolint:errcheck
 	}
 	return &cp
 }
@@ -618,7 +656,8 @@ func (s *ScheduleStore) ListSchedules() []*ScheduleConfig {
 	for _, sc := range s.schedules {
 		cp := *sc
 		if sc.Input != nil {
-			cp.Input = deepCopyAny(sc.Input).(map[string]any)
+			// Safe assertion: sc.Input is map[string]any, deepCopyAny preserves type
+			cp.Input = deepCopyAny(sc.Input).(map[string]any) //nolint:errcheck
 		}
 		result = append(result, &cp)
 	}

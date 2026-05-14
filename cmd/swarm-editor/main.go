@@ -58,8 +58,8 @@ func main() {
 	connManager := acp.NewConnectionManager(acpConfig)
 
 	// Connect to all enabled external agents
-	if err := connManager.ConnectAll(ctx); err != nil {
-		log.Printf("Warning: Some agents failed to connect: %v", err)
+	if connectErr := connManager.ConnectAll(ctx); connectErr != nil {
+		log.Printf("Warning: Some agents failed to connect: %v", connectErr)
 	}
 	fmt.Printf("ConnectionManager initialized with %d connections\n", len(connManager.ListConnections()))
 
@@ -76,8 +76,8 @@ func main() {
 	mainSwarm.AddAgent(architect)
 	mainSwarm.SetCoordinator(architect)
 
-	if err := mainSwarm.Start(ctx); err != nil {
-		log.Fatalf("Failed to start swarm: %v", err)
+	if startErr := mainSwarm.Start(ctx); startErr != nil {
+		log.Fatalf("Failed to start swarm: %v", startErr)
 	}
 	fmt.Println("Swarm started successfully")
 
@@ -157,17 +157,22 @@ func main() {
 	}
 	handler.swarmMutex.RUnlock()
 
-	// Disconnect MCP clients
+	// Disconnect MCP clients (collect under lock, disconnect outside lock)
 	handler.mcpClientsMutex.Lock()
+	clientsToDisconnect := make(map[string]*mcp.Client)
 	for id, client := range handler.mcpClients {
 		if client != nil {
-			if err := client.Disconnect(); err != nil {
-				log.Printf("Warning: MCP client %s disconnect error: %v", id, err)
-			}
+			clientsToDisconnect[id] = client
 		}
 		delete(handler.mcpClients, id)
 	}
 	handler.mcpClientsMutex.Unlock()
+
+	for id, client := range clientsToDisconnect {
+		if err := client.Disconnect(); err != nil {
+			log.Printf("Warning: MCP client %s disconnect error: %v", id, err)
+		}
+	}
 
 	fmt.Println("Disconnecting external agents...")
 	connManager.DisconnectAll()
@@ -598,9 +603,12 @@ func (h *ACPServerHandler) MCPStartServer(ctx context.Context, params *acp.MCPSt
 // MCPStopServer stops an MCP server
 func (h *ACPServerHandler) MCPStopServer(ctx context.Context, params *acp.MCPStopServerParams) (*acp.MCPServerStatus, error) {
 	h.mcpClientsMutex.Lock()
-	defer h.mcpClientsMutex.Unlock()
-
 	client, exists := h.mcpClients[params.ServerID]
+	if exists {
+		delete(h.mcpClients, params.ServerID)
+	}
+	h.mcpClientsMutex.Unlock()
+
 	if !exists {
 		return &acp.MCPServerStatus{
 			ServerID: params.ServerID,
@@ -611,13 +619,12 @@ func (h *ACPServerHandler) MCPStopServer(ctx context.Context, params *acp.MCPSto
 		}, nil
 	}
 
-	// Disconnect and remove from cache
+	// Disconnect outside lock - Disconnect() has 5s timeout and could block
 	if client != nil {
 		if err := client.Disconnect(); err != nil {
 			log.Printf("Warning: MCP client disconnect error: %v", err)
 		}
 	}
-	delete(h.mcpClients, params.ServerID)
 
 	log.Printf("MCP server %s stopped", params.ServerID)
 
@@ -697,12 +704,12 @@ func (h *ACPServerHandler) MCPCallTool(ctx context.Context, params *acp.MCPCallT
 	client := mcp.NewClient(mcpConfig)
 
 	// Connect to the MCP server
-	if err := client.Connect(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
+	if connectErr := client.Connect(ctx); connectErr != nil {
+		return nil, fmt.Errorf("failed to connect to MCP server: %w", connectErr)
 	}
 	defer func() {
-		if err := client.Disconnect(); err != nil {
-			log.Printf("Warning: MCP client disconnect error: %v", err)
+		if disconnectErr := client.Disconnect(); disconnectErr != nil {
+			log.Printf("Warning: MCP client disconnect error: %v", disconnectErr)
 		}
 	}()
 

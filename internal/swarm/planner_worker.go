@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"sort"
 	"strings"
@@ -15,8 +14,11 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 	"github.com/swarm-editor/swarm-editor/pkg/utils"
 )
+
+var plannerLog = log.With("component", "PlannerWorker")
 
 // PlanState represents the state of a plan
 type PlanState string
@@ -314,7 +316,7 @@ func (m *PlannerWorkerManager) ExecutePlan(ctx context.Context, planID string) e
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[PlannerWorker] executeSubtasks panic for plan %s: %v", plan.ID, r)
+				plannerLog.Error("executeSubtasks panic", "plan_id", plan.ID, "panic", r)
 			}
 			m.wg.Done()
 		}()
@@ -567,9 +569,9 @@ func (m *PlannerWorkerManager) inferAgentType(subtask *Subtask) agent.AgentType 
 // promptContext holds snapshot of plan data needed for building worker prompts.
 // Used to avoid data races when accessing plan fields without lock.
 type promptContext struct {
-	Goal           string
-	DepResults     map[string]*SubtaskResult // Results for subtask dependencies
-	DependencyIDs  []string                  // IDs of dependencies
+	Goal          string
+	DepResults    map[string]*SubtaskResult // Results for subtask dependencies
+	DependencyIDs []string                  // IDs of dependencies
 }
 
 // executeSubtask executes a single subtask on a worker
@@ -789,17 +791,17 @@ func (p *Plan) Snapshot() *Plan {
 
 	// Shallow copy of value fields
 	copy := &Plan{
-		ID:              p.ID,
-		ParentTask:      p.ParentTask,
-		Description:     p.Description,
-		Goal:            p.Goal,
-		State:           p.State,
-		CreatedAt:       p.CreatedAt,
-		UpdatedAt:       p.UpdatedAt,
-		CreatedBy:       p.CreatedBy,
-		CompletedCount:  p.CompletedCount,
-		FailedCount:     p.FailedCount,
-		FailureReason:   p.FailureReason,
+		ID:             p.ID,
+		ParentTask:     p.ParentTask,
+		Description:    p.Description,
+		Goal:           p.Goal,
+		State:          p.State,
+		CreatedAt:      p.CreatedAt,
+		UpdatedAt:      p.UpdatedAt,
+		CreatedBy:      p.CreatedBy,
+		CompletedCount: p.CompletedCount,
+		FailedCount:    p.FailedCount,
+		FailureReason:  p.FailureReason,
 	}
 
 	// Deep copy slices and maps

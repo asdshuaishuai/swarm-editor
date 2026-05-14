@@ -3,12 +3,14 @@ package pair
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var pairLog = log.With("component", "Pair")
 
 // Error definitions for pair manager
 var (
@@ -86,12 +88,15 @@ func (m *Manager) isAgentInSessionLocked(agentID acp.AgentID) bool {
 	return false
 }
 
-// GetSession retrieves a session by ID
+// GetSession retrieves a session by ID. Returns a copy to prevent mutation of internal state.
 func (m *Manager) GetSession(id string) (*PairSession, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session, ok := m.sessions[id]
-	return session, ok
+	if !ok {
+		return nil, false
+	}
+	return copyPairSession(session), true
 }
 
 // EndSession ends and removes a session
@@ -110,7 +115,7 @@ func (m *Manager) EndSession(id string) error {
 	return nil
 }
 
-// GetActiveSessions returns all active sessions
+// GetActiveSessions returns all active sessions. Returns copies to prevent mutation.
 func (m *Manager) GetActiveSessions() []*PairSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -118,7 +123,7 @@ func (m *Manager) GetActiveSessions() []*PairSession {
 	result := make([]*PairSession, 0)
 	for _, session := range m.sessions {
 		if session.GetState() == PairStateActive {
-			result = append(result, session)
+			result = append(result, copyPairSession(session))
 		}
 	}
 	return result
@@ -143,8 +148,10 @@ func (m *Manager) AutoPair(ctx context.Context) ([]*PairSession, error) {
 		}
 
 		if err := session.Start(ctx); err != nil {
-			log.Printf("[Pair] Failed to start session %s: %v", session.ID, err)
-			m.EndSession(session.ID)
+			pairLog.Error("Failed to start session", "session_id", session.ID, "error", err)
+			if err := m.EndSession(session.ID); err != nil {
+				pairLog.Error("Failed to end session after start failure", "session_id", session.ID, "error", err)
+			}
 			continue
 		}
 
@@ -224,6 +231,8 @@ func (m *Manager) BroadcastToSession(sessionID string, from acp.AgentID, message
 	defer m.mu.RUnlock()
 
 	if session, ok := m.sessions[sessionID]; ok {
-		session.SendMessage(from, message)
+		if err := session.SendMessage(from, message); err != nil {
+			pairLog.Error("Failed to broadcast message", "session_id", sessionID, "error", err)
+		}
 	}
 }

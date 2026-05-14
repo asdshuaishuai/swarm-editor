@@ -175,7 +175,7 @@ export default function ConsensusVisualization({
                   {Math.round(currentRound.agreement * 100)}% / {Math.round(currentRound.threshold * 100)}%
                 </span>
               </div>
-              <div className="relative h-3 bg-surface rounded-full overflow-hidden">
+              <div className="relative h-3 bg-surface rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(currentRound.agreement * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={`Agreement level: ${Math.round(currentRound.agreement * 100)}% of ${Math.round(currentRound.threshold * 100)}% threshold`}>
                 <div
                   className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
                     currentRound.agreement >= currentRound.threshold
@@ -245,7 +245,7 @@ export default function ConsensusVisualization({
                     )}
                   </div>
                   {/* Confidence bar */}
-                  <div className="w-16 h-1.5 bg-surface rounded-full overflow-hidden">
+                  <div className="w-16 h-1.5 bg-surface rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(vote.confidence * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={`Confidence: ${Math.round(vote.confidence * 100)}%`}>
                     <div
                       className={`h-full rounded-full ${
                         vote.confidence > 0.8
@@ -281,10 +281,12 @@ export default function ConsensusVisualization({
       {rounds.length > 0 && (
         <div className="border-t border-glass-border p-3">
           <p className="text-xs text-text-secondary mb-2">Recent Rounds</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex gap-2 overflow-x-auto pb-1" role="listbox" aria-label="Recent consensus rounds">
             {rounds.slice(-5).map((round) => (
               <button
                 key={`${round.taskId}-${round.round}`}
+                role="option"
+                aria-selected={selectedRound === round.round}
                 onClick={() => setSelectedRound(selectedRound === round.round ? null : round.round)}
                 className={`flex-shrink-0 px-3 py-2 rounded-mac text-xs transition-colors ${
                   selectedRound === round.round

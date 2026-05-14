@@ -66,12 +66,12 @@ func helper() {}
 
 	// Check we found expected symbols
 	expectedSymbols := map[string]SymbolKind{
-		"main":       SymbolKindFunction,
-		"helper":     SymbolKindFunction,
-		"Method":     SymbolKindMethod,
-		"MyStruct":   SymbolKindStruct,
+		"main":        SymbolKindFunction,
+		"helper":      SymbolKindFunction,
+		"Method":      SymbolKindMethod,
+		"MyStruct":    SymbolKindStruct,
 		"MyInterface": SymbolKindInterface,
-		"MyAlias":    SymbolKindType,
+		"MyAlias":     SymbolKindType,
 	}
 
 	for name, kind := range expectedSymbols {
@@ -294,9 +294,9 @@ async function asyncFunc() {}
 	found := false
 	for _, sym := range symbols {
 		if sym.Name == "regularFunction" && sym.Kind == SymbolKindFunction {
-				found = true
-				break
-			}
+			found = true
+			break
+		}
 	}
 	if !found {
 		t.Error("expected to find regularFunction")
@@ -404,9 +404,9 @@ func TestIndexerIndex(t *testing.T) {
 
 	// Create test files
 	files := map[string]string{
-		"main.go":     "package main\n\nfunc main() {}",
-		"utils.ts":    "export function helper() {}",
-		"app.py":      "def main():\n    pass",
+		"main.go":  "package main\n\nfunc main() {}",
+		"utils.ts": "export function helper() {}",
+		"app.py":   "def main():\n    pass",
 	}
 
 	for name, content := range files {
@@ -629,46 +629,46 @@ func TestShouldIndexFile(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "file type in allowed list",
-			config:   IndexConfig{FileTypes: []FileType{FileTypeGo}},
-			path:     "main.go",
-			want:     true,
+			name:   "file type in allowed list",
+			config: IndexConfig{FileTypes: []FileType{FileTypeGo}},
+			path:   "main.go",
+			want:   true,
 		},
 		{
-			name:     "file type not in allowed list",
-			config:   IndexConfig{FileTypes: []FileType{FileTypeGo}},
-			path:     "main.py",
-			want:     false,
+			name:   "file type not in allowed list",
+			config: IndexConfig{FileTypes: []FileType{FileTypeGo}},
+			path:   "main.py",
+			want:   false,
 		},
 		{
-			name:     "include pattern matches",
-			config:   IndexConfig{IncludePatterns: []string{"*_test.go"}},
-			path:     "foo_test.go",
-			want:     true,
+			name:   "include pattern matches",
+			config: IndexConfig{IncludePatterns: []string{"*_test.go"}},
+			path:   "foo_test.go",
+			want:   true,
 		},
 		{
-			name:     "include pattern does not match",
-			config:   IndexConfig{IncludePatterns: []string{"*_test.go"}},
-			path:     "foo.go",
-			want:     false,
+			name:   "include pattern does not match",
+			config: IndexConfig{IncludePatterns: []string{"*_test.go"}},
+			path:   "foo.go",
+			want:   false,
 		},
 		{
-			name:     "exclude pattern matches",
-			config:   IndexConfig{ExcludePatterns: []string{"*_gen.go"}},
-			path:     "types_gen.go",
-			want:     false,
+			name:   "exclude pattern matches",
+			config: IndexConfig{ExcludePatterns: []string{"*_gen.go"}},
+			path:   "types_gen.go",
+			want:   false,
 		},
 		{
-			name:     "exclude pattern does not match",
-			config:   IndexConfig{ExcludePatterns: []string{"*_gen.go"}},
-			path:     "types.go",
-			want:     true,
+			name:   "exclude pattern does not match",
+			config: IndexConfig{ExcludePatterns: []string{"*_gen.go"}},
+			path:   "types.go",
+			want:   true,
 		},
 		{
-			name:     "include and exclude - exclude wins",
-			config:   IndexConfig{IncludePatterns: []string{"*.go"}, ExcludePatterns: []string{"*_gen.go"}},
-			path:     "types_gen.go",
-			want:     false,
+			name:   "include and exclude - exclude wins",
+			config: IndexConfig{IncludePatterns: []string{"*.go"}, ExcludePatterns: []string{"*_gen.go"}},
+			path:   "types_gen.go",
+			want:   false,
 		},
 		{
 			name:     "file type and size combined",
@@ -685,16 +685,16 @@ func TestShouldIndexFile(t *testing.T) {
 			want:     false,
 		},
 		{
-			name:     "multiple file types allowed",
-			config:   IndexConfig{FileTypes: []FileType{FileTypeGo, FileTypePython, FileTypeTS}},
-			path:     "component.ts",
-			want:     true,
+			name:   "multiple file types allowed",
+			config: IndexConfig{FileTypes: []FileType{FileTypeGo, FileTypePython, FileTypeTS}},
+			path:   "component.ts",
+			want:   true,
 		},
 		{
-			name:     "multiple include patterns",
-			config:   IndexConfig{IncludePatterns: []string{"*.go", "*.py"}},
-			path:     "script.py",
-			want:     true,
+			name:   "multiple include patterns",
+			config: IndexConfig{IncludePatterns: []string{"*.go", "*.py"}},
+			path:   "script.py",
+			want:   true,
 		},
 		{
 			name:     "zero max file size means unlimited",

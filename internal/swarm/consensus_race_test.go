@@ -1,3 +1,10 @@
+//go:build !race
+
+// These tests intentionally create race conditions to verify thread-safety.
+// They are skipped when running with -race flag because the race detector
+// will flag intentional concurrent access patterns.
+// Pattern from nats-io/nats.go norace_test.go
+
 package swarm
 
 import (

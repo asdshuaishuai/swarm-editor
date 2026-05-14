@@ -304,3 +304,106 @@ func TestRetryExecutorReturnsLastError(t *testing.T) {
 		t.Errorf("Execute() error = %v, want to contain %v", err, expectedErr)
 	}
 }
+
+func TestGetNodeRetryPolicy(t *testing.T) {
+	t.Run("nil node", func(t *testing.T) {
+		if p := GetNodeRetryPolicy(nil); p != nil {
+			t.Error("expected nil for nil node")
+		}
+	})
+
+	t.Run("nil config", func(t *testing.T) {
+		node := &WorkflowNode{Config: nil}
+		if p := GetNodeRetryPolicy(node); p != nil {
+			t.Error("expected nil for nil config")
+		}
+	})
+
+	t.Run("no retryPolicy key", func(t *testing.T) {
+		node := &WorkflowNode{Config: map[string]any{"other": "value"}}
+		if p := GetNodeRetryPolicy(node); p != nil {
+			t.Error("expected nil when no retryPolicy key")
+		}
+	})
+
+	t.Run("invalid retryPolicy type", func(t *testing.T) {
+		node := &WorkflowNode{Config: map[string]any{"retryPolicy": "string"}}
+		if p := GetNodeRetryPolicy(node); p != nil {
+			t.Error("expected nil for non-map retryPolicy")
+		}
+	})
+
+	t.Run("full config", func(t *testing.T) {
+		node := &WorkflowNode{
+			Config: map[string]any{
+				"retryPolicy": map[string]any{
+					"maximumAttempts":    10,
+					"initialInterval":    "2s",
+					"backoffCoefficient": 3.0,
+					"maximumInterval":    "60s",
+					"nonRetryableErrorTypes": []any{
+						"cancelled",
+					},
+				},
+			},
+		}
+		p := GetNodeRetryPolicy(node)
+		if p == nil {
+			t.Fatal("expected non-nil policy")
+		}
+		if p.MaximumAttempts != 10 {
+			t.Errorf("MaximumAttempts = %d, want 10", p.MaximumAttempts)
+		}
+		if p.InitialInterval != 2*time.Second {
+			t.Errorf("InitialInterval = %v, want 2s", p.InitialInterval)
+		}
+		if p.BackoffCoefficient != 3.0 {
+			t.Errorf("BackoffCoefficient = %f, want 3.0", p.BackoffCoefficient)
+		}
+		if p.MaximumInterval != 60*time.Second {
+			t.Errorf("MaximumInterval = %v, want 60s", p.MaximumInterval)
+		}
+		if len(p.NonRetryableErrorTypes) != 1 || p.NonRetryableErrorTypes[0] != ErrorTypeCancelled {
+			t.Errorf("NonRetryableErrorTypes = %v, want [cancelled]", p.NonRetryableErrorTypes)
+		}
+	})
+
+	t.Run("partial config uses defaults", func(t *testing.T) {
+		node := &WorkflowNode{
+			Config: map[string]any{
+				"retryPolicy": map[string]any{
+					"maximumAttempts": 3,
+				},
+			},
+		}
+		p := GetNodeRetryPolicy(node)
+		if p == nil {
+			t.Fatal("expected non-nil policy")
+		}
+		if p.MaximumAttempts != 3 {
+			t.Errorf("MaximumAttempts = %d, want 3", p.MaximumAttempts)
+		}
+		// Should use DefaultRetryPolicy values for unset fields
+		if p.InitialInterval != DefaultRetryPolicy().InitialInterval {
+			t.Errorf("InitialInterval = %v, want default %v", p.InitialInterval, DefaultRetryPolicy().InitialInterval)
+		}
+	})
+
+	t.Run("invalid duration string ignored", func(t *testing.T) {
+		node := &WorkflowNode{
+			Config: map[string]any{
+				"retryPolicy": map[string]any{
+					"initialInterval": "not-a-duration",
+				},
+			},
+		}
+		p := GetNodeRetryPolicy(node)
+		if p == nil {
+			t.Fatal("expected non-nil policy")
+		}
+		// Invalid duration should fall back to default
+		if p.InitialInterval != DefaultRetryPolicy().InitialInterval {
+			t.Errorf("InitialInterval = %v, want default (invalid duration should be ignored)", p.InitialInterval)
+		}
+	})
+}

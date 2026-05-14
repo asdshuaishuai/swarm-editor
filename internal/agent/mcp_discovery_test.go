@@ -67,7 +67,7 @@ func TestParseMCPServerFromMap_HeadersAndEnv(t *testing.T) {
 		"url":  "http://localhost:8080",
 		"headers": map[string]any{
 			"Authorization": "Bearer token123",
-			"X-Custom":     "value",
+			"X-Custom":      "value",
 		},
 		"env": map[string]any{
 			"API_KEY": "secret",

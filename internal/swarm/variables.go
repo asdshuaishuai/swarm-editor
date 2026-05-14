@@ -9,11 +9,14 @@ package swarm
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var variablesLog = log.With("component", "Variables")
 
 // WorkflowVariableType defines the type of a workflow variable.
 type WorkflowVariableType string
@@ -45,14 +48,14 @@ func (t WorkflowVariableType) IsValid() bool {
 //   - Temporal: Workflow parameters with schema validation
 type WorkflowVariable struct {
 	mu          sync.Mutex
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Key         string             `json:"key"`
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Key         string               `json:"key"`
 	Type        WorkflowVariableType `json:"type"`
-	Value       any                `json:"value"`
-	Default     any                `json:"default,omitempty"`
-	Description string             `json:"description,omitempty"`
-	Required    bool               `json:"required"`
+	Value       any                  `json:"value"`
+	Default     any                  `json:"default,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Required    bool                 `json:"required"`
 }
 
 // GetValue returns the variable's current value (deep copied), falling back to default.
@@ -155,7 +158,7 @@ func (s *WorkflowVariableStore) AddVariable(workflowID string, v *WorkflowVariab
 	}
 
 	s.variables[workflowID] = append(vars, v)
-	log.Printf("[Variables] Added variable %q (key: %s, type: %s) to workflow %q", v.Name, v.Key, v.Type, workflowID)
+	variablesLog.Info("Added variable", "name", v.Name, "key", v.Key, "type", v.Type, "workflow_id", workflowID)
 	return nil
 }
 

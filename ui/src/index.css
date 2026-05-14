@@ -187,3 +187,91 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* High contrast mode — VS Code pattern */
+@media (prefers-contrast: more) {
+  :root {
+    --glass-border: rgba(255, 255, 255, 0.4);
+  }
+
+  /* Ensure borders are always visible */
+  [class*="border-"],
+  [class*="border"] {
+    border-color: WindowText !important;
+  }
+
+  /* Ensure focus indicators are visible */
+  *:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 1px !important;
+  }
+
+  /* Ensure interactive elements have visible borders */
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  [role="radio"] {
+    border: 1px solid ButtonText !important;
+  }
+
+  /* Ensure inputs have visible borders */
+  input,
+  textarea,
+  select {
+    border: 1px solid ButtonText !important;
+  }
+}
+
+/* Forced colors (Windows High Contrast Mode) */
+@media (forced-colors: active) {
+  /* Use system colors for all UI elements */
+  * {
+    forced-color-adjust: auto;
+  }
+
+  /* Preserve link colors */
+  a,
+  [role="link"] {
+    forced-color-adjust: none;
+  }
+
+  /* Ensure focus rings use system highlight */
+  *:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 1px !important;
+  }
+}
+
+/* R5080: Git diff gutter decorations — VS Code/Cursor pattern */
+.git-diff-added-gutter {
+  width: 4px !important;
+  margin-left: 3px;
+  background: #2ea043;
+}
+
+.git-diff-removed-gutter {
+  width: 4px !important;
+  margin-left: 3px;
+  background: #f85149;
+}
+
+.git-diff-modified-gutter {
+  width: 4px !important;
+  margin-left: 3px;
+  background: #e3b341;
+}
+
+/* Inline background highlighting for changed lines */
+.git-diff-added-line {
+  background: rgba(46, 160, 67, 0.15) !important;
+}
+
+.git-diff-removed-line {
+  background: rgba(248, 81, 73, 0.15) !important;
+}
+
+.git-diff-modified-line {
+  background: rgba(227, 179, 65, 0.15) !important;
+}

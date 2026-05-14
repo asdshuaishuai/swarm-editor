@@ -4,13 +4,16 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var mcpResourceLog = log.With("component", "MCPResource")
 
 // Resource represents an MCP resource
 type Resource struct {
@@ -62,6 +65,7 @@ type ResourceManager struct {
 	handlers    map[string]ResourceHandler
 	subscribers map[string][]chan ResourceUpdate
 	wg          sync.WaitGroup // tracks Subscribe goroutines
+	closed      bool           // prevents operations after Close
 }
 
 // maxSubscribersPerURI limits the number of subscribers per URI to prevent unbounded growth
@@ -197,7 +201,7 @@ func (rm *ResourceManager) Subscribe(ctx context.Context, uri string) (<-chan Re
 						defer rm.wg.Done()
 						defer func() {
 							if r := recover(); r != nil {
-								log.Printf("[MCP] Subscribe goroutine panic for uri %s: %v", uri, r)
+								mcpResourceLog.Error("Subscribe goroutine panic", "uri", uri, "panic", r)
 							}
 						}()
 						for update := range handlerCh {
@@ -217,6 +221,11 @@ func (rm *ResourceManager) Unsubscribe(uri string, ch <-chan ResourceUpdate) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
+	// Skip if already closed - channels will be closed by Close()
+	if rm.closed {
+		return
+	}
+
 	subscribers := rm.subscribers[uri]
 	for i, subCh := range subscribers {
 		if subCh == ch {
@@ -235,6 +244,11 @@ func (rm *ResourceManager) Unsubscribe(uri string, ch <-chan ResourceUpdate) {
 // Close closes all subscribers and cleans up resources
 func (rm *ResourceManager) Close() {
 	rm.mu.Lock()
+	if rm.closed {
+		rm.mu.Unlock()
+		return
+	}
+	rm.closed = true
 	// Close all subscriber channels
 	for uri, subscribers := range rm.subscribers {
 		for _, ch := range subscribers {
@@ -257,11 +271,19 @@ func (rm *ResourceManager) notifySubscribers(update ResourceUpdate) {
 	rm.mu.RUnlock()
 
 	for _, ch := range subscribers {
-		select {
-		case ch <- update:
-		default:
-			// Channel full, skip
-		}
+		// Use recover to handle send-on-closed-channel panic during shutdown race
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Channel was closed by concurrent Unsubscribe or Close - ignore
+				}
+			}()
+			select {
+			case ch <- update:
+			default:
+				// Channel full, skip
+			}
+		}()
 	}
 }
 
@@ -352,7 +374,7 @@ func (h *FileResourceHandler) List(ctx context.Context, cursor string) ([]Resour
 	// Read the directory
 	entries, err := os.ReadDir(h.basePath)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("read resource directory: %w", err)
 	}
 
 	// Convert entries to resources
@@ -433,6 +455,16 @@ func (h *FileResourceHandler) Read(ctx context.Context, uri string) (*ResourceCo
 	// Use baseAbs+separator to prevent "/data" matching "/data_backup/..."
 	if !strings.HasPrefix(absPath, baseAbs+string(filepath.Separator)) && absPath != baseAbs {
 		return nil, ErrResourceNotFound
+	}
+
+	// Check file size before reading to prevent memory exhaustion
+	const maxFileResourceSize = 10 << 20 // 10 MB
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return nil, ErrResourceNotFound
+	}
+	if info.Size() > maxFileResourceSize {
+		return nil, fmt.Errorf("resource too large: %d bytes (max %d)", info.Size(), maxFileResourceSize)
 	}
 
 	// Read the file

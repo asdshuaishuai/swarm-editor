@@ -53,11 +53,33 @@ export interface AppState {
 
   // Toast notifications
   toasts: Toast[]
+  notificationHistory: Array<{ id: string; type: ToastType; title: string; message?: string; timestamp: number }>
 
   // UI state
   sidebarCollapsed: boolean
   activePanel: 'editor' | 'swarm' | 'team' | 'settings'
   loading: boolean
+  zenMode: boolean
+
+  // Editor state (for StatusBar)
+  editorCursorPosition: { line: number; column: number } | null
+  editorSelection: { lineCount: number; charCount: number } | null
+  editorLanguage: string
+  editorEncoding: string
+  editorIndent: { type: 'spaces' | 'tabs'; size: number }
+  editorLineEnding: 'lf' | 'crlf'
+  setEditorLineEnding: (lineEnding: 'lf' | 'crlf') => void
+
+  // Workspace problems (for Problems Panel)
+  workspaceProblems: Array<{
+    id: string
+    file: string
+    line: number
+    column: number
+    message: string
+    severity: 'error' | 'warning' | 'info' | 'hint'
+    source?: string
+  }>
 
   // Actions
   initialize: (options?: { simulateError?: boolean | string }) => Promise<void>
@@ -84,6 +106,7 @@ export interface AppState {
   toggleSidebar: () => void
   setActivePanel: (panel: 'editor' | 'swarm' | 'team' | 'settings') => void
   setLoading: (loading: boolean) => void
+  toggleZenMode: () => void
 
   // Permission actions
   addPermissionRequest: (request: PermissionRequestEvent) => void
@@ -95,6 +118,19 @@ export interface AppState {
   addToast: (type: ToastType, title: string, message?: string, options?: Partial<Toast>) => string
   removeToast: (id: string) => void
   clearToasts: () => void
+  clearNotificationHistory: () => void
+
+  // Editor state actions
+  setEditorCursorPosition: (position: { line: number; column: number } | null) => void
+  setEditorSelection: (selection: { lineCount: number; charCount: number } | null) => void
+  setEditorLanguage: (language: string) => void
+  setEditorEncoding: (encoding: string) => void
+  setEditorIndent: (indent: { type: 'spaces' | 'tabs'; size: number }) => void
+
+  // Workspace problems actions
+  setWorkspaceProblems: (problems: AppState['workspaceProblems']) => void
+  updateFileProblems: (filePath: string, problems: AppState['workspaceProblems']) => void
+  clearWorkspaceProblems: () => void
 
   reset: () => void
   clearPersistedData: () => void
@@ -191,9 +227,18 @@ export const useAppStore = create<AppState>()((set) => ({
   permissionQueue: [] as PermissionRequest[],
   activePermission: null,
   toasts: [] as Toast[],
+  notificationHistory: [],
   sidebarCollapsed: false,
   activePanel: 'editor',
   loading: false,
+  zenMode: false,
+  editorCursorPosition: null,
+  editorSelection: null,
+  editorLanguage: 'plaintext',
+  editorEncoding: 'UTF-8',
+  editorIndent: { type: 'spaces', size: 2 },
+  editorLineEnding: 'lf' as 'lf' | 'crlf',
+  workspaceProblems: [],
 
   initialize: async (options?: { simulateError?: boolean | string }) => {
     // Prevent concurrent initialization (e.g., React StrictMode double-mount)
@@ -369,6 +414,8 @@ export const useAppStore = create<AppState>()((set) => ({
 
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
+  toggleZenMode: () => set((state) => ({ zenMode: !state.zenMode })),
+
   setActivePanel: (panel) => set({ activePanel: panel }),
 
   setLoading: (loading) => set({ loading }),
@@ -437,15 +484,38 @@ export const useAppStore = create<AppState>()((set) => ({
       duration: 5000,
       ...options,
     }
-    set((state) => ({ toasts: [...state.toasts, toast] }))
+    // Record to history once on creation (not again on dismiss)
+    const historyEntry = { id, type, title, message, timestamp: Date.now() }
+    set((state) => ({
+      toasts: [...state.toasts, toast],
+      notificationHistory: [historyEntry, ...state.notificationHistory].slice(0, 50),
+    }))
     return id
   },
 
   removeToast: (id) => set((state) => ({
     toasts: state.toasts.filter((t) => t.id !== id),
+    // Don't re-add to history — already recorded in addToast
   })),
 
   clearToasts: () => set({ toasts: [] }),
+
+  clearNotificationHistory: () => set({ notificationHistory: [] }),
+
+  setEditorCursorPosition: (position) => set({ editorCursorPosition: position }),
+  setEditorSelection: (selection) => set({ editorSelection: selection }),
+  setEditorLanguage: (language) => set({ editorLanguage: language }),
+  setEditorEncoding: (encoding) => set({ editorEncoding: encoding }),
+  setEditorIndent: (indent) => set({ editorIndent: indent }),
+  setEditorLineEnding: (lineEnding: 'lf' | 'crlf') => set({ editorLineEnding: lineEnding }),
+
+  setWorkspaceProblems: (problems) => set({ workspaceProblems: problems }),
+  updateFileProblems: (filePath: string, problems: AppState['workspaceProblems']) => set((state) => {
+    // Remove old problems for this file, add new ones (accumulate across files)
+    const other = state.workspaceProblems.filter(p => p.file !== filePath)
+    return { workspaceProblems: [...other, ...problems] }
+  }),
+  clearWorkspaceProblems: () => set({ workspaceProblems: [] }),
 
   reset: () => {
     // Clear persisted data
@@ -469,6 +539,7 @@ export const useAppStore = create<AppState>()((set) => ({
       permissionQueue: [] as PermissionRequest[],
       activePermission: null,
       toasts: [],
+      notificationHistory: [],
       sidebarCollapsed: false,
       activePanel: 'editor',
       loading: false,

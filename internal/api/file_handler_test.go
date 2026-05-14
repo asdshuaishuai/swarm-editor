@@ -246,7 +246,7 @@ func TestCommandHandler_ListDir(t *testing.T) {
 			}
 			if f.Name == "src" && f.IsDirectory {
 				hasSrc = true
-				}
+			}
 		}
 		if !hasReadme {
 			t.Error("expected README.md in listing")

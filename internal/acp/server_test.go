@@ -4,129 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 	"testing"
 	"time"
 )
-
-// MockHandler implements Handler for testing
-type MockHandler struct {
-	initializeFunc     func(ctx context.Context, params *InitializeParams) (*InitializeResult, error)
-	authenticateFunc   func(ctx context.Context, method string, params json.RawMessage) error
-	sessionNewFunc     func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error)
-	sessionLoadFunc    func(ctx context.Context, params *SessionLoadParams) (*SessionLoadResult, error)
-	sessionSetModeFunc func(ctx context.Context, params *SessionSetModeParams) error
-	sessionPromptFunc  func(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error)
-	sessionCancelFunc  func(ctx context.Context, sessionID SessionID) error
-	updateCallback     func(sessionID SessionID, update *Update)
-	permissionCallback func(sessionID SessionID, request *SessionRequestPermissionParams) (*PermissionOutcome, error)
-}
-
-func (m *MockHandler) Initialize(ctx context.Context, params *InitializeParams) (*InitializeResult, error) {
-	if m.initializeFunc != nil {
-		return m.initializeFunc(ctx, params)
-	}
-	return &InitializeResult{
-		ProtocolVersion:   ProtocolVersion,
-		AgentCapabilities: AgentCapabilities{},
-		AgentInfo:         ImplementationInfo{Name: "test-agent", Version: "1.0"},
-	}, nil
-}
-
-func (m *MockHandler) Authenticate(ctx context.Context, method string, params json.RawMessage) error {
-	if m.authenticateFunc != nil {
-		return m.authenticateFunc(ctx, method, params)
-	}
-	return nil
-}
-
-func (m *MockHandler) SessionNew(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
-	if m.sessionNewFunc != nil {
-		return m.sessionNewFunc(ctx, params)
-	}
-	return &SessionNewResult{
-		SessionID: "test-session",
-		Mode:      params.Mode,
-	}, nil
-}
-
-func (m *MockHandler) SessionLoad(ctx context.Context, params *SessionLoadParams) (*SessionLoadResult, error) {
-	if m.sessionLoadFunc != nil {
-		return m.sessionLoadFunc(ctx, params)
-	}
-	return &SessionLoadResult{SessionID: params.SessionID, Mode: ModeDefault}, nil
-}
-
-func (m *MockHandler) SessionSetMode(ctx context.Context, params *SessionSetModeParams) error {
-	if m.sessionSetModeFunc != nil {
-		return m.sessionSetModeFunc(ctx, params)
-	}
-	return nil
-}
-
-func (m *MockHandler) SessionPrompt(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error) {
-	if m.sessionPromptFunc != nil {
-		return m.sessionPromptFunc(ctx, params)
-	}
-	return &SessionPromptResult{StopReason: StopEndTurn}, nil
-}
-
-func (m *MockHandler) SessionCancel(ctx context.Context, sessionID SessionID) error {
-	if m.sessionCancelFunc != nil {
-		return m.sessionCancelFunc(ctx, sessionID)
-	}
-	return nil
-}
-
-func (m *MockHandler) OnUpdate(callback func(sessionID SessionID, update *Update)) {
-	m.updateCallback = callback
-}
-
-func (m *MockHandler) OnPermissionRequest(callback func(sessionID SessionID, request *SessionRequestPermissionParams) (*PermissionOutcome, error)) {
-	m.permissionCallback = callback
-}
-
-func (m *MockHandler) SwarmCreate(ctx context.Context, params *SwarmCreateParams) (*SwarmCreateResult, error) {
-	return &SwarmCreateResult{SwarmID: "test-swarm"}, nil
-}
-
-func (m *MockHandler) SwarmStart(ctx context.Context, params *SwarmStartParams) error {
-	return nil
-}
-
-func (m *MockHandler) SwarmStop(ctx context.Context, params *SwarmStopParams) error {
-	return nil
-}
-
-func (m *MockHandler) SwarmSubmitTask(ctx context.Context, params *SwarmSubmitTaskParams) (*SwarmSubmitTaskResult, error) {
-	return &SwarmSubmitTaskResult{TaskID: "test-task"}, nil
-}
-
-func (m *MockHandler) SwarmExecuteTask(ctx context.Context, params *SwarmExecuteTaskParams) (*SwarmTaskResult, error) {
-	return &SwarmTaskResult{TaskID: params.TaskID, Status: "completed"}, nil
-}
-
-func (m *MockHandler) SwarmGetStatus(ctx context.Context, params *SwarmGetStatusParams) (*SwarmStatusResult, error) {
-	return &SwarmStatusResult{SwarmID: params.SwarmID, State: "active"}, nil
-}
-
-func (m *MockHandler) MCPStartServer(ctx context.Context, params *MCPStartServerParams) (*MCPServerStatus, error) {
-	return &MCPServerStatus{ServerID: params.ServerID, Status: "connected"}, nil
-}
-
-func (m *MockHandler) MCPStopServer(ctx context.Context, params *MCPStopServerParams) (*MCPServerStatus, error) {
-	return &MCPServerStatus{ServerID: params.ServerID, Status: "disconnected"}, nil
-}
-
-func (m *MockHandler) MCPCallTool(ctx context.Context, params *MCPCallToolParams) (*MCPCallToolResult, error) {
-	return &MCPCallToolResult{Content: []MCPContent{{Type: "text", Text: "mock result"}}}, nil
-}
-
-func (m *MockHandler) MCPListTools(ctx context.Context, params *MCPListToolsParams) (*MCPListToolsResult, error) {
-	return &MCPListToolsResult{Tools: []Tool{}}, nil
-}
 
 // MockTransport implements Transport for testing with proper context handling
 type MockTransport struct {
@@ -757,7 +641,7 @@ func TestServerHandleRequestInitialize(t *testing.T) {
 	}
 
 	handler := &MockHandler{
-		initializeFunc: func(ctx context.Context, params *InitializeParams) (*InitializeResult, error) {
+		InitializeFunc: func(ctx context.Context, params *InitializeParams) (*InitializeResult, error) {
 			return &InitializeResult{
 				ProtocolVersion:   ProtocolVersion,
 				AgentCapabilities: AgentCapabilities{},
@@ -799,7 +683,7 @@ func TestServerHandleRequestSessionNew(t *testing.T) {
 	}
 
 	handler := &MockHandler{
-		sessionNewFunc: func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
+		SessionNewFunc: func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
 			return &SessionNewResult{
 				SessionID: "test-session-123",
 				Mode:      params.Mode,
@@ -835,7 +719,7 @@ func TestServerHandleRequestSessionPrompt(t *testing.T) {
 	}
 
 	handler := &MockHandler{
-		sessionPromptFunc: func(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error) {
+		SessionPromptFunc: func(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error) {
 			return &SessionPromptResult{StopReason: StopEndTurn}, nil
 		},
 	}
@@ -872,7 +756,7 @@ func TestServerHandleRequestSessionCancel(t *testing.T) {
 
 	canceled := false
 	handler := &MockHandler{
-		sessionCancelFunc: func(ctx context.Context, sessionID SessionID) error {
+		SessionCancelFunc: func(ctx context.Context, sessionID SessionID) error {
 			canceled = true
 			return nil
 		},
@@ -1030,7 +914,7 @@ func TestServerHandleRequestAuthenticate(t *testing.T) {
 
 	authenticated := false
 	handler := &MockHandler{
-		authenticateFunc: func(ctx context.Context, method string, params json.RawMessage) error {
+		AuthenticateFunc: func(ctx context.Context, method string, params json.RawMessage) error {
 			authenticated = true
 			return nil
 		},
@@ -1074,7 +958,7 @@ func TestServerHandleRequestSessionLoad(t *testing.T) {
 	}
 
 	handler := &MockHandler{
-		sessionLoadFunc: func(ctx context.Context, params *SessionLoadParams) (*SessionLoadResult, error) {
+		SessionLoadFunc: func(ctx context.Context, params *SessionLoadParams) (*SessionLoadResult, error) {
 			return &SessionLoadResult{
 				SessionID: params.SessionID,
 				Mode:      ModeDefault,
@@ -1111,7 +995,7 @@ func TestServerHandleRequestSessionSetMode(t *testing.T) {
 
 	modeSet := false
 	handler := &MockHandler{
-		sessionSetModeFunc: func(ctx context.Context, params *SessionSetModeParams) error {
+		SessionSetModeFunc: func(ctx context.Context, params *SessionSetModeParams) error {
 			modeSet = true
 			return nil
 		},
@@ -1810,7 +1694,7 @@ func TestServerHandleRequest_SwarmCreate(t *testing.T) {
 
 	paramsJSON := []byte(`{"name":"test-swarm"}`)
 	server.handleRequest(&Message{
-		ID: &RequestID{Number: 1, IsNum: true},
+		ID:     &RequestID{Number: 1, IsNum: true},
 		Method: MethodSwarmCreate,
 		Params: paramsJSON,
 	})
@@ -2120,7 +2004,7 @@ func TestClientCallContextCanceled(t *testing.T) {
 	if err == nil {
 		t.Error("Initialize should fail with canceled context")
 	}
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context.Canceled, got %v", err)
 	}
 }

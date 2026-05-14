@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"slices"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var a2aLog = log.With("component", "A2A")
 
 // Coordinator manages A2A coordination and scheduling
 type Coordinator struct {
@@ -127,6 +130,7 @@ type CoordinatorConfig struct {
 	PheromoneDecay     float64 // Decay rate per second
 	Strategy           SchedulingStrategy
 	MaxCompletedTasks  int // Maximum number of completed tasks to retain (0 = unlimited)
+	MaxPheromones      int // Maximum number of pheromone trails to retain (0 = unlimited)
 }
 
 // NewCoordinator creates a new A2A coordinator
@@ -148,6 +152,9 @@ func NewCoordinator(config CoordinatorConfig, router *Router) *Coordinator {
 	}
 	if config.MaxCompletedTasks <= 0 {
 		config.MaxCompletedTasks = 1000 // Default: retain last 1000 completed tasks
+	}
+	if config.MaxPheromones <= 0 {
+		config.MaxPheromones = 500 // Default: retain last 500 pheromone trails
 	}
 
 	return &Coordinator{
@@ -248,7 +255,7 @@ func (c *Coordinator) UnregisterAgent(id string) {
 				task.CompletedAt = time.Now()
 				delete(c.runningTasks, task.ID)
 				c.completedTasks[task.ID] = task
-				log.Printf("[A2A] Task %q failed: all agents unregistered", task.ID)
+				a2aLog.Warn("Task failed: all agents unregistered", "task_id", task.ID)
 			}
 		}
 	}
@@ -300,7 +307,7 @@ func (c *Coordinator) checkTaskTimeouts() {
 	now := time.Now()
 	for id, task := range c.runningTasks {
 		if !task.StartedAt.IsZero() && now.Sub(task.StartedAt) > c.config.TaskTimeout {
-			log.Printf("[A2A] Task %q timed out after %v (max %v)", id, now.Sub(task.StartedAt), c.config.TaskTimeout)
+			a2aLog.Warn("Task timed out", "task_id", id, "elapsed", now.Sub(task.StartedAt), "timeout", c.config.TaskTimeout)
 			task.Status = "failed"
 			task.CompletedAt = now
 			delete(c.runningTasks, id)
@@ -657,11 +664,11 @@ func (c *Coordinator) initiateTaskAssignment(task *CoordinationTask, agents []st
 			defer func() {
 				c.wg.Done()
 				if r := recover(); r != nil {
-					log.Printf("[A2A] Send task request panic: %v", r)
+					a2aLog.Error("Send task request panic", "panic", r)
 				}
 			}()
 			if err := c.router.Send(m); err != nil {
-				log.Printf("Coordinator: failed to send task request to %s: %v", m.To, err)
+				a2aLog.Error("Failed to send task request", "to", m.To, "error", err)
 			}
 		}(msg)
 
@@ -977,11 +984,11 @@ func (c *Coordinator) handleHelpRequest(msg *Message) error {
 			defer func() {
 				c.wg.Done()
 				if r := recover(); r != nil {
-					log.Printf("[A2A] Help offer send panic: %v", r)
+					a2aLog.Error("Help offer send panic", "panic", r)
 				}
 			}()
 			if err := c.router.Send(m); err != nil {
-				log.Printf("Coordinator: failed to send help offer to %s: %v", m.To, err)
+				a2aLog.Error("Failed to send help offer", "to", m.To, "error", err)
 			}
 		}(offer)
 	}
@@ -1089,9 +1096,46 @@ func (c *Coordinator) handlePheromone(msg *Message) error {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
+
+		// Trim old pheromones to prevent unbounded memory growth
+		c.trimPheromones()
 	}
 
 	return nil
+}
+
+// trimPheromones removes oldest pheromone trails when the limit is exceeded.
+// Must be called while holding c.mu.
+func (c *Coordinator) trimPheromones() {
+	if c.config.MaxPheromones <= 0 {
+		return // unlimited
+	}
+
+	if len(c.pheromones) <= c.config.MaxPheromones {
+		return
+	}
+
+	// Find and remove oldest trails
+	// Collect all trails with their keys for sorting
+	type entry struct {
+		key       string
+		createdAt time.Time
+	}
+	entries := make([]entry, 0, len(c.pheromones))
+	for k, v := range c.pheromones {
+		entries = append(entries, entry{key: k, createdAt: v.CreatedAt})
+	}
+
+	// Sort by creation time (oldest first)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].createdAt.Before(entries[j].createdAt)
+	})
+
+	// Remove oldest entries until we're under the limit
+	toRemove := len(c.pheromones) - c.config.MaxPheromones
+	for i := range toRemove {
+		delete(c.pheromones, entries[i].key)
+	}
 }
 
 // ============================================================================

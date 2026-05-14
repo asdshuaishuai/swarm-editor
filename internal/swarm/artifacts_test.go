@@ -309,9 +309,9 @@ func TestWorkflowArtifactStore_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			store.CreateOrUpdate(&WorkflowArtifact{
 				WorkflowID: "wf",
-				NodeID:      "n1",
-				Key:         "key",
-				Data:        i,
+				NodeID:     "n1",
+				Key:        "key",
+				Data:       i,
 			})
 		}(i)
 	}

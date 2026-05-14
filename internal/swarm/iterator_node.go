@@ -10,8 +10,11 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var iteratorLog = log.With("component", "Iterator")
 
 const (
 	// DefaultMaxIterations is the default maximum number of iterations.
@@ -84,7 +87,7 @@ func ExecuteIteratorNode(ctx context.Context, config map[string]any) (*IteratorR
 	if batchSize > 100 {
 		origBatch := batchSize
 		batchSize = 100
-		log.Printf("[Iterator] Warning: batchSize clamped to 100 (was %d)", origBatch)
+		iteratorLog.Warn("batchSize clamped to 100", "original", origBatch)
 	}
 	if maxIterations < 1 {
 		maxIterations = DefaultMaxIterations
@@ -92,7 +95,7 @@ func ExecuteIteratorNode(ctx context.Context, config map[string]any) (*IteratorR
 	if maxIterations > 10000 {
 		origMax := maxIterations
 		maxIterations = 10000
-		log.Printf("[Iterator] Warning: maxIterations clamped to 10000 (was %d)", origMax)
+		iteratorLog.Warn("maxIterations clamped to 10000", "original", origMax)
 	}
 	if startFrom < 0 {
 		startFrom = 0

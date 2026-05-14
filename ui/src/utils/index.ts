@@ -1,5 +1,56 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import {
+  FileCode2, FileJson, FileTerminal, Image, FileLock, Settings, FileText,
+} from 'lucide-react'
+
+// Code file extensions (shared constant for file icon/color lookups)
+const CODE_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'go', 'rs', 'py', 'pyi', 'java', 'c', 'cpp', 'cc', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'lua', 'r', 'sql']
+
+/**
+ * Get file-type icon component (VS Code/Cursor pattern).
+ * Shared by EditorTab, TabSwitcher, and file tree.
+ */
+export function getFileIcon(filename: string): typeof FileText {
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  const base = filename.split('/').pop()?.toLowerCase() || ''
+  if (CODE_EXTENSIONS.includes(ext)) return FileCode2
+  if (['json', 'toml', 'lock'].includes(ext)) return FileJson
+  if (['sh', 'bash', 'zsh', 'fish', 'ps1'].includes(ext)) return FileTerminal
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp', 'bmp'].includes(ext)) return Image
+  if (['env', 'gitignore', 'dockerignore', 'npmrc', 'editorconfig', 'prettierrc', 'eslintrc', 'tsconfig'].includes(base) || base.startsWith('.env')) return FileLock
+  if (['yaml', 'yml', 'ini', 'cfg', 'conf'].includes(ext)) return Settings
+  return FileText
+}
+
+/**
+ * Get file-type icon color (VS Code/Cursor pattern).
+ * Language-specific colors for code files, tertiary for unknown.
+ */
+export function getFileIconColor(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  switch (ext) {
+    case 'ts': case 'tsx': return 'text-blue-400'
+    case 'js': case 'jsx': case 'mjs': case 'cjs': return 'text-yellow-400'
+    case 'go': return 'text-cyan-400'
+    case 'py': case 'pyi': return 'text-blue-300'
+    case 'rs': return 'text-orange-400'
+    case 'c': case 'h': return 'text-blue-500'
+    case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hxx': return 'text-blue-400'
+    case 'java': return 'text-red-400'
+    case 'cs': return 'text-green-400'
+    case 'html': case 'htm': return 'text-orange-500'
+    case 'css': case 'scss': case 'sass': case 'less': return 'text-purple-400'
+    case 'json': return 'text-yellow-300'
+    case 'yaml': case 'yml': return 'text-red-300'
+    case 'toml': return 'text-orange-300'
+    case 'xml': return 'text-orange-400'
+    case 'sh': case 'bash': case 'zsh': return 'text-green-300'
+    case 'md': case 'mdx': return 'text-blue-300'
+    case 'env': case 'gitignore': case 'dockerignore': return 'text-text-tertiary'
+    default: return 'text-text-tertiary'
+  }
+}
 
 /**
  * Merge class names with Tailwind CSS conflict resolution

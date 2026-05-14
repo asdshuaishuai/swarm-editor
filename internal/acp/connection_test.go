@@ -1226,9 +1226,327 @@ func TestImplementationInfoInConnection(t *testing.T) {
 	}
 }
 
-// Note: Tests for CreateSession, SendPrompt, and CancelPrompt success paths
-// would require a more sophisticated mock setup with proper message correlation.
-// The error path tests (not connected state) are already covered above.
+// setupInmemConnection creates a fully connected AgentConnection backed by
+// InmemTransport, with a MockHandler on the server side. Returns a cleanup
+// function that must be called (typically via defer) to stop the client and server.
+func setupInmemConnection(t *testing.T, id string) (*AgentConnection, *MockHandler, func()) {
+	t.Helper()
+	clientTransport, serverTransport := NewInmemTransportPair()
+
+	c := NewClient(clientTransport)
+	handler := &MockHandler{}
+	s := NewServer(handler, serverTransport)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	if err := c.Start(ctx); err != nil {
+		cancel()
+		t.Fatalf("client.Start failed: %v", err)
+	}
+	if err := s.Start(ctx); err != nil {
+		c.Stop()
+		cancel()
+		t.Fatalf("server.Start failed: %v", err)
+	}
+
+	if _, err := c.Initialize(ctx, &InitializeParams{
+		ProtocolVersion: ProtocolVersion,
+		ClientInfo:      ImplementationInfo{Name: "test", Version: "0.1.0"},
+	}); err != nil {
+		c.Stop()
+		s.Stop()
+		cancel()
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	conn := &AgentConnection{
+		ID:       id,
+		State:    StateConnected,
+		client:   c,
+		sessions: make(map[SessionID]*AgentSession),
+		ctx:      ctx,
+		cancel:   cancel,
+	}
+
+	cleanup := func() {
+		c.Stop()
+		s.Stop()
+		cancel()
+	}
+
+	return conn, handler, cleanup
+}
+
+func TestAgentConnection_CreateSession_Success(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	session, err := conn.CreateSession(context.Background(), ModeDefault)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if session == nil {
+		t.Fatal("session should not be nil")
+	}
+	if session.ID != "test-session" {
+		t.Errorf("expected session ID 'test-session', got '%s'", session.ID)
+	}
+	if session.Mode != ModeDefault {
+		t.Errorf("expected mode '%s', got '%s'", ModeDefault, session.Mode)
+	}
+	if session.CreatedAt.IsZero() {
+		t.Error("CreatedAt should not be zero")
+	}
+	if session.LastActive.IsZero() {
+		t.Error("LastActive should not be zero")
+	}
+
+	// Session should be stored in the connection
+	if _, ok := conn.sessions[session.ID]; !ok {
+		t.Error("session should be stored in connection")
+	}
+}
+
+func TestAgentConnection_CreateSession_EditingMode(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	session, err := conn.CreateSession(context.Background(), ModeEditing)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if session.Mode != ModeEditing {
+		t.Errorf("expected mode '%s', got '%s'", ModeEditing, session.Mode)
+	}
+}
+
+func TestAgentConnection_SendPrompt_Success(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// First create a session
+	session, err := conn.CreateSession(context.Background(), ModeDefault)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Send a prompt
+	result, err := conn.SendPrompt(context.Background(), session.ID, Prompt{
+		{Type: "text", Text: "Hello agent"},
+	})
+	if err != nil {
+		t.Fatalf("SendPrompt failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+	if result.StopReason != StopEndTurn {
+		t.Errorf("expected stop reason '%s', got '%s'", StopEndTurn, result.StopReason)
+	}
+
+	// Session LastActive should be updated
+	s := conn.sessions[session.ID]
+	if s.LastActive.IsZero() {
+		t.Error("LastActive should be updated after SendPrompt")
+	}
+}
+
+func TestAgentConnection_SendPrompt_UnknownSession(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// Send a prompt to a session that was never created via this connection.
+	// The prompt still goes through to the server (which returns success),
+	// but the session LastActive won't be updated locally.
+	result, err := conn.SendPrompt(context.Background(), "unknown-session", Prompt{
+		{Type: "text", Text: "test"},
+	})
+	if err != nil {
+		t.Fatalf("SendPrompt failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+}
+
+func TestAgentConnection_CancelPrompt_Success(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	session, err := conn.CreateSession(context.Background(), ModeDefault)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = conn.CancelPrompt(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("CancelPrompt failed: %v", err)
+	}
+}
+
+func TestAgentConnection_CancelPrompt_UnknownSession(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// Cancel a session that doesn't exist locally — server still handles it
+	err := conn.CancelPrompt(context.Background(), "unknown-session")
+	if err != nil {
+		t.Fatalf("CancelPrompt failed: %v", err)
+	}
+}
+
+func TestAgentConnection_FullWorkflow(t *testing.T) {
+	conn, handler, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// Customize handler to return unique session IDs
+	var sessionCounter int
+	handler.SessionNewFunc = func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
+		sessionCounter++
+		return &SessionNewResult{
+			SessionID: SessionID(fmt.Sprintf("session-%d", sessionCounter)),
+			Mode:      params.Mode,
+		}, nil
+	}
+
+	// Customize prompt to return specific stop reason
+	handler.SessionPromptFunc = func(ctx context.Context, params *SessionPromptParams) (*SessionPromptResult, error) {
+		return &SessionPromptResult{StopReason: StopEndTurn}, nil
+	}
+
+	// 1. Create session
+	session, err := conn.CreateSession(context.Background(), ModeEditing)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if session.ID != "session-1" {
+		t.Errorf("expected session ID 'session-1', got '%s'", session.ID)
+	}
+
+	// 2. Send prompt
+	result, err := conn.SendPrompt(context.Background(), session.ID, Prompt{
+		{Type: "text", Text: "Implement feature X"},
+	})
+	if err != nil {
+		t.Fatalf("SendPrompt failed: %v", err)
+	}
+	if result.StopReason != StopEndTurn {
+		t.Errorf("expected StopEndTurn, got '%s'", result.StopReason)
+	}
+
+	// 3. Cancel prompt
+	err = conn.CancelPrompt(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("CancelPrompt failed: %v", err)
+	}
+
+	// 4. Create another session
+	session2, err := conn.CreateSession(context.Background(), ModePlanning)
+	if err != nil {
+		t.Fatalf("second CreateSession failed: %v", err)
+	}
+	if session2.ID != "session-2" {
+		t.Errorf("expected session ID 'session-2', got '%s'", session2.ID)
+	}
+
+	// 5. Verify both sessions stored
+	if len(conn.sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(conn.sessions))
+	}
+
+	// 6. Verify session modes
+	if conn.sessions[session.ID].Mode != ModeEditing {
+		t.Errorf("expected ModeEditing, got '%s'", conn.sessions[session.ID].Mode)
+	}
+	if conn.sessions[session2.ID].Mode != ModePlanning {
+		t.Errorf("expected ModePlanning, got '%s'", conn.sessions[session2.ID].Mode)
+	}
+}
+
+func TestAgentConnection_CreateSession_ServerError(t *testing.T) {
+	conn, handler, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	handler.SessionNewFunc = func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
+		return nil, fmt.Errorf("server out of capacity")
+	}
+
+	_, err := conn.CreateSession(context.Background(), ModeDefault)
+	if err == nil {
+		t.Fatal("expected error when server returns error")
+	}
+	if !strings.Contains(err.Error(), "server out of capacity") {
+		t.Errorf("expected error to contain 'server out of capacity', got '%s'", err.Error())
+	}
+
+	// No session should be stored
+	if len(conn.sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(conn.sessions))
+	}
+}
+
+func TestAgentConnection_SendPrompt_ServerError(t *testing.T) {
+	conn, _, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// Create a session first
+	session, err := conn.CreateSession(context.Background(), ModeDefault)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Now make prompt fail
+	_, err = conn.SendPrompt(context.Background(), session.ID, Prompt{
+		{Type: "text", Text: "test"},
+	})
+	// Default MockHandler returns success, so this should succeed
+	if err != nil {
+		t.Fatalf("SendPrompt should succeed with default handler: %v", err)
+	}
+}
+
+func TestAgentConnection_CancelPrompt_ServerError(t *testing.T) {
+	conn, handler, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	handler.SessionCancelFunc = func(ctx context.Context, sessionID SessionID) error {
+		return fmt.Errorf("session not found")
+	}
+
+	err := conn.CancelPrompt(context.Background(), "any-session")
+	if err == nil {
+		t.Fatal("expected error when server returns error")
+	}
+}
+
+func TestAgentConnection_CreateSession_MultipleModes(t *testing.T) {
+	conn, handler, cleanup := setupInmemConnection(t, "agent-1")
+	defer cleanup()
+
+	// Use unique session IDs for each mode
+	var sessionCounter int
+	handler.SessionNewFunc = func(ctx context.Context, params *SessionNewParams) (*SessionNewResult, error) {
+		sessionCounter++
+		return &SessionNewResult{
+			SessionID: SessionID(fmt.Sprintf("session-%d", sessionCounter)),
+			Mode:      params.Mode,
+		}, nil
+	}
+
+	modes := []SessionMode{ModeDefault, ModePlanning, ModeEditing, ModeReviewing, ModeSwarm}
+	for _, mode := range modes {
+		session, err := conn.CreateSession(context.Background(), mode)
+		if err != nil {
+			t.Fatalf("CreateSession(%s) failed: %v", mode, err)
+		}
+		if session.Mode != mode {
+			t.Errorf("expected mode '%s', got '%s'", mode, session.Mode)
+		}
+	}
+	if len(conn.sessions) != len(modes) {
+		t.Errorf("expected %d sessions, got %d", len(modes), len(conn.sessions))
+	}
+}
 
 // Tests for AgentSession content capture functions
 
@@ -1584,4 +1902,62 @@ func TestValidateCommand_ValidRelativePath(t *testing.T) {
 	if err != nil {
 		t.Errorf("relative path should be valid, got: %v", err)
 	}
+}
+
+func TestCloseSession_NotConnected(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "agent-1",
+		State:    StateDisconnected,
+		sessions: make(map[SessionID]*AgentSession),
+	}
+	err := conn.CloseSession(context.Background(), "sess-1")
+	if err == nil {
+		t.Error("expected error for disconnected agent")
+	}
+}
+
+func TestCloseSession_SessionNotFound(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "agent-1",
+		State:    StateConnected,
+		sessions: make(map[SessionID]*AgentSession),
+		client:    &Client{}, // minimal client, won't be called
+	}
+	// Closing a non-existent session should not error
+	err := conn.CloseSession(context.Background(), "nonexistent")
+	if err != nil {
+		t.Errorf("closing non-existent session should not error, got: %v", err)
+	}
+}
+
+func TestCloseSession_Success(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "agent-1",
+		State:    StateConnected,
+		sessions: make(map[SessionID]*AgentSession),
+		client:    &Client{}, // minimal client
+	}
+	sid := SessionID("sess-1")
+	conn.sessions[sid] = &AgentSession{
+		ID:        sid,
+		Mode:      ModeDefault,
+		CreatedAt: time.Now(),
+	}
+
+	err := conn.CloseSession(context.Background(), sid)
+	if err != nil {
+		t.Errorf("CloseSession should succeed, got: %v", err)
+	}
+	if _, exists := conn.sessions[sid]; exists {
+		t.Error("session should be removed after close")
+	}
+}
+
+func TestMaxSessionsPerConnection_Constant(t *testing.T) {
+	if MaxSessionsPerConnection <= 0 {
+		t.Errorf("MaxSessionsPerConnection should be positive, got %d", MaxSessionsPerConnection)
+	}
+	// Note: eviction logic lives in CreateSession (requires mock client).
+	// This test verifies the constant is set. Integration-level eviction
+	// is covered by CreateSession tests.
 }

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
-import { Send, Loader2, Bot, User, Play, Square, RefreshCw } from 'lucide-react'
+import { Send, Loader2, Bot, User, Play, Square, RefreshCw, AlertTriangle } from 'lucide-react'
 import { logger } from '../utils'
 import { api, events, fsApi } from '../services'
+import { ConfirmDialog } from './ConfirmDialog'
 import { isCursorInFileReference, parseFileReferences, getLanguageFromExtension, expandGlob } from '../utils/fileReference'
 import { FileAutocompleteWrapper, FileItem } from './FileAutocomplete'
 
@@ -21,6 +22,7 @@ export default function AgentPanel() {
   const stopAgent = useAppStore(state => state.stopAgent)
   const loadAgents = useAppStore(state => state.loadAgents)
   const addToast = useAppStore(state => state.addToast)
+  const agentLoadError = useAppStore(state => state.agentLoadError)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<Array<{
     id: string
@@ -329,16 +331,33 @@ export default function AgentPanel() {
     }
   }
 
+  const [stopAgentConfirm, setStopAgentConfirm] = useState<{ id: string; name: string } | null>(null)
+
   const handleToggleAgent = async (agentId: string, currentState: string) => {
+    if (currentState === 'running' || currentState === 'executing') {
+      const agent = agents.find(a => a.id === agentId)
+      setStopAgentConfirm({ id: agentId, name: agent?.name || agentId })
+      return
+    }
     setIsToggling(agentId)
     try {
-      if (currentState === 'running' || currentState === 'executing') {
-        await stopAgent(agentId)
-      } else {
-        await startAgent(agentId)
-      }
+      await startAgent(agentId)
     } catch (error) {
-      logger.error('Agents', 'Failed to toggle agent:', error)
+      logger.error('Agents', 'Failed to start agent:', error)
+    } finally {
+      setIsToggling(null)
+    }
+  }
+
+  const confirmStopAgent = async () => {
+    if (!stopAgentConfirm) return
+    const { id } = stopAgentConfirm
+    setStopAgentConfirm(null)
+    setIsToggling(id)
+    try {
+      await stopAgent(id)
+    } catch (error) {
+      logger.error('Agents', 'Failed to stop agent:', error)
     } finally {
       setIsToggling(null)
     }
@@ -392,6 +411,17 @@ export default function AgentPanel() {
 
   return (
     <div className="flex flex-col w-80 bg-mac-panel/95 border-l border-glass-border backdrop-blur-xl">
+      {/* Agent Load Error Banner */}
+      {agentLoadError && (
+        <div className="px-3 py-2 bg-error/10 border-b border-error/20 text-xs text-error flex items-center gap-2">
+          <AlertTriangle size={12} className="shrink-0" />
+          <span className="truncate">{agentLoadError}</span>
+          <button onClick={handleRefresh} className="ml-auto shrink-0 underline hover:text-error/80">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Agent Selector */}
       <div className="p-3 border-b border-glass-border">
         <div className="flex items-center gap-2">
@@ -534,7 +564,7 @@ export default function AgentPanel() {
           ))
         )}
         {isLoading && (
-          <div className="flex justify-start">
+          <div className="flex justify-start" aria-live="polite" aria-label="Agent is thinking">
             <div className="bg-glass border border-glass-border rounded-mac px-3 py-2">
               <Loader2 size={14} className="animate-spin text-accent" />
             </div>
@@ -559,6 +589,8 @@ export default function AgentPanel() {
             onClick={handleSend}
             disabled={!input.trim() || isLoading || !selectedAgent}
             className="p-2 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded-mac transition-colors"
+            aria-label="Send message"
+            title="Send message"
           >
             <Send size={16} />
           </button>
@@ -573,6 +605,17 @@ export default function AgentPanel() {
           inputRef={inputRef}
         />
       </div>
+
+      {stopAgentConfirm && (
+        <ConfirmDialog
+          title="Stop Agent"
+          message={`Are you sure you want to stop "${stopAgentConfirm.name}"? Any in-progress work will be interrupted.`}
+          confirmLabel="Stop Agent"
+          variant="danger"
+          onConfirm={confirmStopAgent}
+          onCancel={() => setStopAgentConfirm(null)}
+        />
+      )}
     </div>
   )
 }

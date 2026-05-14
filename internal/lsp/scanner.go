@@ -4,7 +4,6 @@ package lsp
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var lspScannerLog = log.With("component", "LSPScanner")
 
 // LSPStatus represents the status of an LSP server
 type LSPStatus string
@@ -36,6 +39,7 @@ type LSPServer struct {
 	Version      string         `json:"version"`
 	Status       LSPStatus      `json:"status"`
 	Capabilities []string       `json:"capabilities"`
+	Args         []string       `json:"args,omitempty"`
 	ConfigPath   string         `json:"configPath,omitempty"`
 	InstallCmd   string         `json:"installCmd,omitempty"`
 	LastChecked  time.Time      `json:"lastChecked"`
@@ -50,6 +54,7 @@ type KnownLSPServer struct {
 	InstallCmds  map[string]string // OS -> install command
 	ConfigFiles  []string
 	Capabilities []string
+	Args         []string // args to run server in LSP stdio mode (nil = use --stdio default)
 }
 
 // KnownLSPServers is the registry of known LSP servers
@@ -58,6 +63,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "go",
 		ServerName:  "gopls",
 		Executables: []string{"gopls"},
+		Args:        []string{"serve"},
 		InstallCmds: map[string]string{
 			"linux":   "go install golang.org/x/tools/gopls@latest",
 			"darwin":  "go install golang.org/x/tools/gopls@latest",
@@ -69,6 +75,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "rust",
 		ServerName:  "rust-analyzer",
 		Executables: []string{"rust-analyzer"},
+		Args:        []string{}, // communicates via stdin/stdout by default
 		InstallCmds: map[string]string{
 			"linux":   "rustup component add rust-analyzer",
 			"darwin":  "rustup component add rust-analyzer",
@@ -80,6 +87,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "python",
 		ServerName:  "pyright",
 		Executables: []string{"pyright", "pylance"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "npm install -g pyright",
 			"darwin":  "npm install -g pyright",
@@ -92,6 +100,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "java",
 		ServerName:  "jdtls",
 		Executables: []string{"jdtls"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "See: https://download.eclipse.org/jdtls/",
 			"darwin":  "See: https://download.eclipse.org/jdtls/",
@@ -103,6 +112,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "csharp",
 		ServerName:  "omnisharp",
 		Executables: []string{"omnisharp", "OmniSharp"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "dotnet tool install -g OmniSharp",
 			"darwin":  "dotnet tool install -g OmniSharp",
@@ -114,6 +124,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "typescript",
 		ServerName:  "typescript-language-server",
 		Executables: []string{"typescript-language-server", "tsserver"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "npm install -g typescript-language-server typescript",
 			"darwin":  "npm install -g typescript-language-server typescript",
@@ -125,6 +136,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "javascript",
 		ServerName:  "typescript-language-server",
 		Executables: []string{"typescript-language-server", "tsserver"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "npm install -g typescript-language-server typescript",
 			"darwin":  "npm install -g typescript-language-server typescript",
@@ -136,6 +148,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "moonbit",
 		ServerName:  "moon",
 		Executables: []string{"moon"},
+		Args:        []string{"--stdio"},
 		InstallCmds: map[string]string{
 			"linux":   "See: https://www.moonbitlang.com/download/",
 			"darwin":  "See: https://www.moonbitlang.com/download/",
@@ -147,6 +160,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "c",
 		ServerName:  "clangd",
 		Executables: []string{"clangd"},
+		Args:        []string{}, // communicates via stdin/stdout by default
 		InstallCmds: map[string]string{
 			"linux":   "sudo apt install clangd",
 			"darwin":  "brew install llvm",
@@ -158,6 +172,7 @@ var KnownLSPServers = []KnownLSPServer{
 		Language:    "cpp",
 		ServerName:  "clangd",
 		Executables: []string{"clangd"},
+		Args:        []string{}, // communicates via stdin/stdout by default
 		InstallCmds: map[string]string{
 			"linux":   "sudo apt install clangd",
 			"darwin":  "brew install llvm",
@@ -271,7 +286,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]*LSPServer, error) {
 		go func(k KnownLSPServer) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[LSP Scanner] scanServer panic for %q: %v", k.ServerName, r)
+					lspScannerLog.Error("scanServer panic", "server", k.ServerName, "panic", r)
 				}
 				wg.Done()
 			}()
@@ -284,7 +299,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]*LSPServer, error) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[LSP Scanner] Wait group cleanup panic: %v", r)
+				lspScannerLog.Error("Wait group cleanup panic", "panic", r)
 			}
 		}()
 		wg.Wait()
@@ -333,6 +348,7 @@ func (s *Scanner) scanServer(ctx context.Context, known KnownLSPServer) *LSPServ
 			Path:         execPath,
 			Status:       LSPStatusInstalled,
 			Capabilities: known.Capabilities,
+			Args:         known.Args,
 			LastChecked:  time.Now(),
 			Metadata:     make(map[string]any),
 		}
@@ -455,6 +471,10 @@ func copyServer(s *LSPServer) *LSPServer {
 	if copied.Capabilities != nil {
 		copied.Capabilities = make([]string, len(s.Capabilities))
 		copy(copied.Capabilities, s.Capabilities)
+	}
+	if copied.Args != nil {
+		copied.Args = make([]string, len(s.Args))
+		copy(copied.Args, s.Args)
 	}
 	if copied.Metadata != nil {
 		copied.Metadata = make(map[string]any, len(s.Metadata))

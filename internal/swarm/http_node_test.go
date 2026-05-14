@@ -26,9 +26,9 @@ func TestExecuteHTTPRequestNode_GET(t *testing.T) {
 	defer server.Close()
 
 	config := map[string]any{
-		"method":  "GET",
-		"url":     server.URL + "/api/test",
-		"headers": map[string]any{"X-Custom": "test-value"},
+		"method":               "GET",
+		"url":                  server.URL + "/api/test",
+		"headers":              map[string]any{"X-Custom": "test-value"},
 		"allowPrivateNetworks": true,
 	}
 
@@ -67,9 +67,9 @@ func TestExecuteHTTPRequestNode_POST(t *testing.T) {
 	defer server.Close()
 
 	config := map[string]any{
-		"method": "POST",
-		"url":    server.URL + "/api/items",
-		"body":   `{"name": "test item"}`,
+		"method":               "POST",
+		"url":                  server.URL + "/api/items",
+		"body":                 `{"name": "test item"}`,
 		"allowPrivateNetworks": true,
 	}
 
@@ -93,9 +93,9 @@ func TestExecuteHTTPRequestNode_ValidationError(t *testing.T) {
 	defer server.Close()
 
 	config := map[string]any{
-		"method":         "GET",
-		"url":            server.URL + "/api/bad",
-		"validateStatus": true,
+		"method":               "GET",
+		"url":                  server.URL + "/api/bad",
+		"validateStatus":       true,
 		"allowPrivateNetworks": true,
 	}
 
@@ -113,9 +113,9 @@ func TestExecuteHTTPRequestNode_ValidateStatusFalse(t *testing.T) {
 	defer server.Close()
 
 	config := map[string]any{
-		"method":         "GET",
-		"url":            server.URL + "/api/missing",
-		"validateStatus": false,
+		"method":               "GET",
+		"url":                  server.URL + "/api/missing",
+		"validateStatus":       false,
 		"allowPrivateNetworks": true,
 	}
 
@@ -162,9 +162,9 @@ func TestExecuteHTTPRequestNode_Timeout(t *testing.T) {
 	defer cancel()
 
 	config := map[string]any{
-		"method":  "GET",
-		"url":     server.URL + "/api/slow",
-		"timeout": 0.5, // 0.5 seconds
+		"method":               "GET",
+		"url":                  server.URL + "/api/slow",
+		"timeout":              0.5, // 0.5 seconds
 		"allowPrivateNetworks": true,
 	}
 
@@ -185,7 +185,7 @@ func TestExecuteHTTPRequestNode_DefaultValues(t *testing.T) {
 
 	// Minimal config - only URL
 	config := map[string]any{
-		"url": server.URL + "/api/test",
+		"url":                  server.URL + "/api/test",
 		"allowPrivateNetworks": true,
 	}
 
@@ -213,8 +213,8 @@ func TestExecuteHTTPRequestNode_ClampValues(t *testing.T) {
 
 	// Test retryCount clamping (max 5)
 	config := map[string]any{
-		"url":        server.URL + "/api/test",
-		"retryCount": 100.0,
+		"url":                  server.URL + "/api/test",
+		"retryCount":           100.0,
 		"allowPrivateNetworks": true,
 	}
 
@@ -225,8 +225,8 @@ func TestExecuteHTTPRequestNode_ClampValues(t *testing.T) {
 
 	// Test timeout clamping (max 300s)
 	config2 := map[string]any{
-		"url":     server.URL + "/api/test",
-		"timeout": 999.0,
+		"url":                  server.URL + "/api/test",
+		"timeout":              999.0,
 		"allowPrivateNetworks": true,
 	}
 
@@ -247,7 +247,7 @@ func TestExecuteHTTPRequestNode_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	config := map[string]any{
-		"url": server.URL + "/api/test",
+		"url":                  server.URL + "/api/test",
 		"allowPrivateNetworks": true,
 	}
 
@@ -411,8 +411,8 @@ func TestExecuteHTTPRequestNode_MethodNormalization(t *testing.T) {
 	methods := []string{"get", "post", "PUT", "Delete", "PATCH"}
 	for _, method := range methods {
 		config := map[string]any{
-			"method": method,
-			"url":    fmt.Sprintf("%s/api/%s", server.URL, method),
+			"method":               method,
+			"url":                  fmt.Sprintf("%s/api/%s", server.URL, method),
 			"allowPrivateNetworks": true,
 		}
 		_, err := ExecuteHTTPRequestNode(context.Background(), config)
@@ -475,7 +475,7 @@ func TestExecuteHTTPRequestNode_ResponseStructure(t *testing.T) {
 	defer server.Close()
 
 	config := map[string]any{
-		"url": server.URL + "/api/structured",
+		"url":                  server.URL + "/api/structured",
 		"allowPrivateNetworks": true,
 	}
 
@@ -522,11 +522,11 @@ func TestExecuteHTTPRequestNode_SSRFProtection(t *testing.T) {
 		{"block_172_31", "http://172.31.255.255/api", true},
 		{"block_172_15_allowed", "http://172.15.0.1/api", false}, // 172.15 is NOT private
 		{"block_google_metadata", "http://metadata.google.internal/api", true},
-		{"block_127_0_0_2", "http://127.0.0.2/api", true},        // entire 127.0.0.0/8
-		{"block_127_1", "http://127.1/api", true},                // shorthand loopback
-		{"block_ipv6_loopback", "http://[::1]/api", true},        // IPv6 loopback
+		{"block_127_0_0_2", "http://127.0.0.2/api", true}, // entire 127.0.0.0/8
+		{"block_127_1", "http://127.1/api", true},         // shorthand loopback
+		{"block_ipv6_loopback", "http://[::1]/api", true}, // IPv6 loopback
 		{"block_ipv4_mapped_loopback", "http://[::ffff:127.0.0.1]/api", true},
-		{"block_fe80_linklocal", "http://[fe80::1]/api", true},   // IPv6 link-local
+		{"block_fe80_linklocal", "http://[fe80::1]/api", true}, // IPv6 link-local
 	}
 
 	for _, tt := range tests {
@@ -562,7 +562,7 @@ func TestExecuteHTTPRequestNode_SSRFAllowPrivate(t *testing.T) {
 
 	// Normal external URL should always work
 	config := map[string]any{
-		"url": server.URL + "/api/test",
+		"url":                  server.URL + "/api/test",
 		"allowPrivateNetworks": true,
 	}
 	_, err := ExecuteHTTPRequestNode(context.Background(), config)
@@ -587,10 +587,27 @@ func TestValidateURLHost(t *testing.T) {
 		{"192.168.0.1", false},
 		{"172.16.0.0", false},
 		{"172.31.255.255", false},
-		{"172.15.255.255", true},  // Not in private range
+		{"172.15.255.255", true}, // Not in private range
 		{"172.32.0.0", true},     // Not in private range
 		{"metadata.google.internal", false},
 		{"[::1]", false},
+		// Raw IPv6 without brackets (edge cases for port stripping)
+		{"::1", false},              // Raw IPv6 loopback
+		{"::1:8080", false},         // Raw IPv6 with port (bypass attempt)
+		{"[::1]:8080", false},       // IPv6 with brackets and port
+		{"fe80::1", false},          // IPv6 link-local
+		{"[fe80::1]:8080", false},   // IPv6 link-local with port
+		// Note: 2001:db8::/32 is documentation range (RFC 3849), NOT private.
+		// Go's IsPrivate() only blocks fc00::/7 (ULA), so this is allowed.
+		{"2001:db8::1", true},       // Documentation range - allowed (not actually private)
+		// IPv4-mapped IPv6 addresses (SSRF bypass via ::ffff:x.x.x.x)
+		{"::ffff:127.0.0.1", false},        // Loopback via IPv4-mapped IPv6
+		{"[::ffff:127.0.0.1]", false},      // Loopback via IPv4-mapped IPv6 with brackets
+		{"[::ffff:127.0.0.1]:8080", false}, // Loopback via IPv4-mapped IPv6 with port
+		{"::ffff:169.254.169.254", false},  // Cloud metadata via IPv4-mapped IPv6
+		{"::ffff:10.0.0.1", false},         // Private network via IPv4-mapped IPv6
+		{"::ffff:192.168.1.1", false},      // Private network via IPv4-mapped IPv6
+		{"::ffff:172.16.0.1", false},       // Private network via IPv4-mapped IPv6
 	}
 
 	for _, tt := range tests {
@@ -601,6 +618,370 @@ func TestValidateURLHost(t *testing.T) {
 			}
 			if !tt.ok && err == nil {
 				t.Errorf("expected %q to be blocked", tt.host)
+			}
+		})
+	}
+}
+
+// --- Additional coverage tests for uncovered lines ---
+
+// L81: url.Parse error (malformed URL)
+func TestExecuteHTTPRequestNode_InvalidURLParse(t *testing.T) {
+	config := map[string]any{
+		"url": "http://[::1:bad-ipv6",
+	}
+	_, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err == nil {
+		t.Fatal("expected error for invalid URL parse")
+	}
+	if !strings.Contains(err.Error(), "invalid URL") {
+		t.Errorf("expected 'invalid URL' error, got: %v", err)
+	}
+}
+
+// L99: timeoutSec <= 0 gets clamped to 30
+func TestExecuteHTTPRequestNode_ZeroTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/test",
+		"timeout":              0,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error with timeout=0: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", result.StatusCode)
+	}
+}
+
+// L107: retryCount < 0 gets clamped to 0
+func TestExecuteHTTPRequestNode_NegativeRetryCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/test",
+		"retryCount":           -5.0,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error with negative retryCount: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", result.StatusCode)
+	}
+}
+
+// L156-165: Retry loop with backoff (attempt > 0)
+// Note: retries only happen on network-level errors (lastErr != nil),
+// not on HTTP error status codes. We use a hijacked connection to force
+// connection reset errors for the first N attempts.
+func TestExecuteHTTPRequestNode_RetrySuccess(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			// Force a connection reset by hijacking and closing
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, _ := hj.Hijack()
+				conn.Close()
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok": true}`))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/flaky",
+		"retryCount":           3.0,
+		"timeout":              5.0,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error after retries: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200 after retries, got %d", result.StatusCode)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+// L162: context cancellation during retry backoff
+func TestExecuteHTTPRequestNode_ContextCancelDuringRetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always force connection reset to trigger retry
+		hj, ok := w.(http.Hijacker)
+		if ok {
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/flaky",
+		"retryCount":           10.0,
+		"timeout":              5.0,
+		"allowPrivateNetworks": true,
+	}
+
+	_, err := ExecuteHTTPRequestNode(ctx, config)
+	if err == nil {
+		t.Fatal("expected error from context cancellation during retry")
+	}
+	// Either context canceled or request failed is acceptable
+}
+
+// L178: 4xx status stops retry immediately
+func TestExecuteHTTPRequestNode_NoRetryOn4xx(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error": "forbidden"}`))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/forbidden",
+		"retryCount":           5.0,
+		"validateStatus":       false,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.StatusCode != 403 {
+		t.Errorf("expected status 403, got %d", result.StatusCode)
+	}
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt (no retry on 4xx), got %d", attempts)
+	}
+}
+
+// L138-147: redirect handling (CheckRedirect is invoked)
+// Note: redirect-to-private-host (L138-139) cannot be tested with httptest
+// because the server runs on 127.0.0.1 which is itself private.
+// allowPrivate=false blocks the initial URL; allowPrivate=true skips redirect check.
+// This is a HARD BOUNDARY for unit testing. Test redirect chain limit instead.
+func TestExecuteHTTPRequestNode_RedirectAllowed(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("redirected"))
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", target.URL+"/target")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+
+	config := map[string]any{
+		"url":                  source.URL + "/start",
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error following redirect: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200 after redirect, got %d", result.StatusCode)
+	}
+	if result.Body != "redirected" {
+		t.Errorf("expected body 'redirected', got %q", result.Body)
+	}
+}
+
+// L144: redirect chain exceeds 10 hops
+func TestExecuteHTTPRequestNode_TooManyRedirects(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", srv.URL+"/loop")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	config := map[string]any{
+		"url":                  srv.URL + "/loop",
+		"allowPrivateNetworks": true,
+	}
+
+	_, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err == nil {
+		t.Fatal("expected error for too many redirects")
+	}
+	if !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("expected 'stopped after 10 redirects' error, got: %v", err)
+	}
+}
+
+// validateStatus=false with 5xx (should still succeed, no error)
+func TestExecuteHTTPRequestNode_ValidateStatusFalse_5xx(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "internal"}`))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/error",
+		"validateStatus":       false,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error with validateStatus=false on 500: %v", err)
+	}
+	if result.StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", result.StatusCode)
+	}
+}
+
+// insecureSkipVerify=true (config is accepted and request proceeds)
+func TestExecuteHTTPRequestNode_InsecureSkipVerify(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"url":                  server.URL + "/api/test",
+		"insecureSkipVerify":   true,
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error with insecureSkipVerify=true: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", result.StatusCode)
+	}
+}
+
+// Empty body (no body sent)
+func TestExecuteHTTPRequestNode_EmptyBody(t *testing.T) {
+	var receivedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 1024)
+		n, _ := r.Body.Read(buf)
+		receivedBody = string(buf[:n])
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	config := map[string]any{
+		"method":               "POST",
+		"url":                  server.URL + "/api/empty",
+		"allowPrivateNetworks": true,
+	}
+
+	result, err := ExecuteHTTPRequestNode(context.Background(), config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", result.StatusCode)
+	}
+	if receivedBody != "" {
+		t.Errorf("expected empty body to be sent, got %q", receivedBody)
+	}
+}
+
+// L352: fe80: prefix fallback (bypasses net.ParseIP by using non-parseable bracket form)
+func TestValidateURLHost_Fe80Prefix(t *testing.T) {
+	err := validateURLHost("[FE80:bad]")
+	if err == nil {
+		t.Error("expected [FE80:bad] to be blocked by fe80: prefix check")
+	}
+}
+
+// L359: 169.254.x.x caught by prefix check (bypasses net.ParseIP by using non-IP hostname)
+func TestValidateURLHost_169_254_NonMetadata(t *testing.T) {
+	err := validateURLHost("169.254.example.com")
+	if err == nil {
+		t.Error("expected 169.254.example.com to be blocked by prefix check")
+	}
+}
+
+// L368: 172.x private range (octet parsing path, bypasses net.ParseIP)
+func TestValidateURLHost_172_20(t *testing.T) {
+	err := validateURLHost("172.20.example.com")
+	if err == nil {
+		t.Error("expected 172.20.example.com to be blocked by octet range check")
+	}
+}
+
+// L385: getFloatConfig with int64 input
+func TestGetFloatConfig_Int64(t *testing.T) {
+	config := map[string]any{"value": int64(42)}
+	got := getFloatConfig(config, "value", 0)
+	if got != 42.0 {
+		t.Errorf("getFloatConfig(int64) = %v, want 42.0", got)
+	}
+}
+
+func TestValidateURLHostWithDNS(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		wantErr bool
+	}{
+		// Direct IP tests (fast path, no DNS)
+		{"loopback IP", "127.0.0.1", true},
+		{"private IP 10.x", "10.0.0.1", true},
+		{"private IP 192.168.x", "192.168.1.1", true},
+		{"private IP 172.16.x", "172.16.0.1", true},
+		{"cloud metadata IP", "169.254.169.254", true},
+		{"public IP", "8.8.8.8", false},
+		{"localhost", "localhost", true},
+		{"metadata.google.internal", "metadata.google.internal", true},
+		// IPv6 tests
+		{"IPv6 loopback", "::1", true},
+		{"IPv6 link-local", "fe80::1", true},
+		// Public hostname (may resolve, but should not be blocked if public)
+		// Note: this test depends on DNS resolution
+		{"public hostname", "example.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateURLHostWithDNS(tt.host)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateURLHostWithDNS(%q) error = %v, wantErr %v", tt.host, err, tt.wantErr)
 			}
 		})
 	}

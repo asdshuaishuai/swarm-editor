@@ -448,11 +448,10 @@ describe('useSettings', () => {
     })
   })
 
-  describe('Backend sync', () => {
-    it('should sync with backend on setting update', async () => {
+  describe('Setting updates', () => {
+    it('should update apiKey via updateSetting', async () => {
       const { result } = renderHook(() => useSettings())
 
-      // Trigger a critical setting update that calls syncWithBackend
       await act(async () => {
         result.current.updateSetting('apiKey', 'test-key')
       })
@@ -460,7 +459,7 @@ describe('useSettings', () => {
       expect(result.current.settings.apiKey).toBe('test-key')
     })
 
-    it('should set loading state during sync', async () => {
+    it('should update apiEndpoint via updateSetting', async () => {
       const { result } = renderHook(() => useSettings())
 
       await act(async () => {

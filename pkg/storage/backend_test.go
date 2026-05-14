@@ -564,8 +564,8 @@ func TestCachedStoreGetBackendError(t *testing.T) {
 	_, err := cached.Get(ctx, "nonexistent_key")
 	if err == nil {
 		if err != ErrNotFound {
-				t.Errorf("Expected ErrNotFound, got %v", err)
-			}
+			t.Errorf("Expected ErrNotFound, got %v", err)
+		}
 	}
 }
 

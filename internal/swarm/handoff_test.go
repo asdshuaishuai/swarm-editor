@@ -1261,11 +1261,11 @@ func TestHandoffContext_DeepCopy_Full(t *testing.T) {
 			{Type: "text", Text: "hello"},
 			{Type: "text", Text: "world"},
 		},
-		FilesModified:  []string{"a.go", "b.go"},
-		CurrentState:   "active",
-		NextSteps:      []string{"step1", "step2"},
-		Instructions:   "continue",
-		Metadata:       map[string]any{"key": "value"},
+		FilesModified:    []string{"a.go", "b.go"},
+		CurrentState:     "active",
+		NextSteps:        []string{"step1", "step2"},
+		Instructions:     "continue",
+		Metadata:         map[string]any{"key": "value"},
 		ContextVariables: map[string]any{"count": 42},
 	}
 	cp := hc.DeepCopy()

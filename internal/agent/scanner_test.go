@@ -550,7 +550,7 @@ func TestScanAgent_FindsExecutable(t *testing.T) {
 	s.paths = []string{dir}
 
 	known := KnownAgent{
-		Name:        "test-agent",
+		Name:         "test-agent",
 		Executables:  []string{"test-agent-cli"},
 		ConfigFiles:  []string{"config.json"},
 		ConfigPaths:  []string{dir},
@@ -582,8 +582,8 @@ func TestScanAgent_NoExecutable(t *testing.T) {
 
 	known := KnownAgent{
 		Name:        "nonexistent-agent",
-		Executables:  []string{"nonexistent-cli-xyz"},
-		Provider:     "test",
+		Executables: []string{"nonexistent-cli-xyz"},
+		Provider:    "test",
 	}
 
 	agent := s.scanAgent(context.Background(), known)
@@ -611,10 +611,10 @@ func TestScanAgent_FindsConfig(t *testing.T) {
 
 	known := KnownAgent{
 		Name:        "my-agent",
-		Executables:  []string{"my-agent"},
-		ConfigFiles:  []string{"my-agent.json"},
-		ConfigPaths:  []string{dir},
-		Provider:     "test",
+		Executables: []string{"my-agent"},
+		ConfigFiles: []string{"my-agent.json"},
+		ConfigPaths: []string{dir},
+		Provider:    "test",
 	}
 
 	agent := s.scanAgent(context.Background(), known)
@@ -646,10 +646,10 @@ func TestScanAgent_FallbackJSON(t *testing.T) {
 
 	known := KnownAgent{
 		Name:        "fallback-agent",
-		Executables:  []string{"fallback-agent"},
-		ConfigFiles:  []string{"fallback.json"},
-		ConfigPaths:  []string{dir},
-		Provider:     "test",
+		Executables: []string{"fallback-agent"},
+		ConfigFiles: []string{"fallback.json"},
+		ConfigPaths: []string{dir},
+		Provider:    "test",
 	}
 
 	agent := s.scanAgent(context.Background(), known)
@@ -676,8 +676,8 @@ func TestScanAgent_WithVersion(t *testing.T) {
 
 	known := KnownAgent{
 		Name:        "versioned-agent",
-		Executables:  []string{"versioned-agent"},
-		Provider:     "test",
+		Executables: []string{"versioned-agent"},
+		Provider:    "test",
 	}
 
 	agent := s.scanAgent(context.Background(), known)
@@ -763,8 +763,8 @@ func TestScanAgent_TriesMultipleExecutables(t *testing.T) {
 
 	known := KnownAgent{
 		Name:        "multi-exec-agent",
-		Executables:  []string{"agent-primary", "agent-alt"},
-		Provider:     "test",
+		Executables: []string{"agent-primary", "agent-alt"},
+		Provider:    "test",
 	}
 
 	agent := s.scanAgent(context.Background(), known)

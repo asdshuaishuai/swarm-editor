@@ -6,14 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var consensusLog = log.With("component", "Consensus")
 
 // ConsensusAlgorithm defines the type of consensus algorithm
 type ConsensusAlgorithm string
@@ -197,7 +199,7 @@ func (e *ConsensusEngine) collectEvaluations(active *ActiveTaskEvaluation) {
 	defer e.cleanupWg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Consensus] collectEvaluations panic for task %s: %v", active.Task.ID, r)
+			consensusLog.Error("collectEvaluations panic", "task_id", active.Task.ID, "panic", r)
 		}
 	}()
 
@@ -217,7 +219,7 @@ func (e *ConsensusEngine) collectEvaluations(active *ActiveTaskEvaluation) {
 	// If no agents are available, we cannot collect evaluations - return early
 	// to prevent deadlock (wg.Wait() would block forever if no goroutines spawned)
 	if len(agents) == 0 {
-		log.Printf("[Consensus] No agents available for evaluation of task %s", active.Task.ID)
+		consensusLog.Warn("No agents available for evaluation", "task_id", active.Task.ID)
 		return
 	}
 
@@ -248,7 +250,7 @@ func (e *ConsensusEngine) collectEvaluations(active *ActiveTaskEvaluation) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Consensus] evaluation goroutine panic for agent %s: %v", ag.ID, r)
+					consensusLog.Error("Evaluation goroutine panic", "agent_id", ag.ID, "panic", r)
 				}
 			}()
 			evaluation := e.evaluateTaskResult(ag, active.Task)
@@ -747,7 +749,7 @@ func (e *ConsensusEngine) checkTimeouts() {
 				defer e.cleanupWg.Done()
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Consensus] cleanup goroutine panic for task %s: %v", taskID, r)
+						consensusLog.Error("Cleanup goroutine panic", "task_id", taskID, "panic", r)
 					}
 				}()
 				// Use a timer for cleanup delay (allows consumers to read results)

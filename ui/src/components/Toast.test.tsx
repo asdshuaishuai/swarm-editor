@@ -64,7 +64,7 @@ describe('ToastContainer', () => {
   it('renders with default position (bottom-right)', () => {
     render(<ToastContainer toasts={[defaultToast]} onDismiss={mockOnDismiss} />)
     const container = screen.getByLabelText('Notifications')
-    expect(container.className).toContain('bottom-4')
+    expect(container.className).toContain('bottom-12')
     expect(container.className).toContain('right-4')
   })
 
@@ -85,7 +85,7 @@ describe('ToastContainer', () => {
   it('renders with bottom-left position', () => {
     render(<ToastContainer toasts={[defaultToast]} onDismiss={mockOnDismiss} position="bottom-left" />)
     const container = screen.getByLabelText('Notifications')
-    expect(container.className).toContain('bottom-4')
+    expect(container.className).toContain('bottom-12')
     expect(container.className).toContain('left-4')
   })
 

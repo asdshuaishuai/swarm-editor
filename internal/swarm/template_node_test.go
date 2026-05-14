@@ -53,7 +53,7 @@ func TestExecuteTemplateNode_NamedVariables(t *testing.T) {
 	result, err := ExecuteTemplateNode(map[string]any{
 		"variables": map[string]any{
 			"summary": "{{upper(title)}}",
-			"count":  "{{length(text)}}",
+			"count":   "{{length(text)}}",
 		},
 	})
 	if err != nil {

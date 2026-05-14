@@ -1,0 +1,46 @@
+# golangci-lint configuration
+# Follows Kubernetes-style linting standards
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - govet
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+    - misspell
+    - gofmt
+    - goimports
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+  staticcheck:
+    checks: ["all", "-SA1019"]
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+
+issues:
+  exclude-rules:
+    # HTTP handler response writes - errors are best-effort (Kubernetes pattern)
+    - linters:
+        - errcheck
+      source: "w\\.Write\\("
+    # Test files - error checking is often intentionally omitted
+    - path: _test\.go
+      linters:
+        - errcheck
+    # SetReadDeadline/SetWriteDeadline in websocket connections
+    # Errors here mean the connection is already broken (best-effort)
+    - linters:
+        - errcheck
+      source: "Set(Read|Write)Deadline\\("
+  max-issues-per-linter: 50
+  max-same-issues: 10

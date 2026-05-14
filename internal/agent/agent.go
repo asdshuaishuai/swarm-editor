@@ -4,12 +4,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var agentLog = log.With("component", "Agent")
 
 // AgentType defines the type/role of an agent
 type AgentType string
@@ -129,7 +132,7 @@ func NewAgent(name string, agentType AgentType) *Agent {
 			Memory: make(map[string]any),
 		},
 		shortMemory: NewShortTermMemory(100),
-		longMemory:  NewLongTermMemory(0), // unlimited
+		longMemory:  NewLongTermMemory(0), // uses DefaultLongTermMemorySize (1000)
 		Capabilities: acp.AgentCapabilities{
 			PromptCapabilities: acp.PromptCapabilities{
 				Image:           true,
@@ -253,7 +256,7 @@ func (a *Agent) Execute(ctx context.Context, prompt acp.Prompt) (*ExecutionResul
 		a.mu.Unlock()
 		session, err := conn.CreateSession(ctx, acp.ModeDefault)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("create session: %w", err)
 		}
 		sessionID = session.ID
 		a.mu.Lock()
@@ -263,8 +266,7 @@ func (a *Agent) Execute(ctx context.Context, prompt acp.Prompt) (*ExecutionResul
 		} else {
 			// Use the existing session; our newly created session is orphaned.
 			// Log but don't leak - the remote agent will clean it up on inactivity.
-			log.Printf("[Agent] Orphaned session %s for agent %s (existing session %s), will be garbage collected",
-				sessionID, a.ID, *a.session)
+			agentLog.Info("Orphaned session, will be garbage collected", "session_id", sessionID, "agent_id", a.ID, "existing_session", *a.session)
 			sessionID = *a.session
 		}
 		a.mu.Unlock()
@@ -273,7 +275,7 @@ func (a *Agent) Execute(ctx context.Context, prompt acp.Prompt) (*ExecutionResul
 	// Send prompt to external agent via ACP
 	result, err := conn.SendPrompt(ctx, sessionID, prompt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("send prompt: %w", err)
 	}
 
 	// Convert ACP result to execution result

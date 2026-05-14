@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var routerLog = log.With("component", "Router")
 
 // Error definitions for router
 var (
@@ -89,6 +91,13 @@ func (r *Router) BindSession(sessionID acp.SessionID, agentIDs []acp.AgentID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sessions[sessionID] = agentIDs
+}
+
+// UnbindSession removes a session binding
+func (r *Router) UnbindSession(sessionID acp.SessionID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.sessions, sessionID)
 }
 
 // GetSessionAgents returns a copy of agents bound to a session
@@ -235,7 +244,7 @@ func (r *Router) FanOut(ctx context.Context, to []acp.AgentID, msg *RoutedMessag
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Router] FanOut outer goroutine panic: %v", r)
+				routerLog.Error("FanOut outer goroutine panic", "panic", r)
 			}
 			close(results)
 		}()
@@ -246,7 +255,7 @@ func (r *Router) FanOut(ctx context.Context, to []acp.AgentID, msg *RoutedMessag
 			go func(id acp.AgentID) {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[Router] FanOut agent %s panic: %v", id, r)
+						routerLog.Error("FanOut agent panic", "agent_id", id, "panic", r)
 					}
 					wg.Done()
 				}()

@@ -289,7 +289,7 @@ func TestExecuteSwitchNode_InString(t *testing.T) {
 
 func TestExecuteSwitchNode_CaseInsensitive(t *testing.T) {
 	result, err := ExecuteSwitchNode(map[string]any{
-		"field":         "Hello World",
+		"field":          "Hello World",
 		"case_sensitive": false,
 		"branches": []any{
 			map[string]any{
@@ -346,7 +346,7 @@ func TestExecuteSwitchNode_FirstMatchWins(t *testing.T) {
 
 func TestExecuteSwitchNode_Fallback(t *testing.T) {
 	result, err := ExecuteSwitchNode(map[string]any{
-		"field":   "unknown",
+		"field":    "unknown",
 		"fallback": "default_branch",
 		"branches": []any{
 			map[string]any{

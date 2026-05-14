@@ -3,13 +3,15 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var lifecycleLog = log.With("component", "Lifecycle")
 
 // Registry manages all registered agents
 type Registry struct {
@@ -79,35 +81,71 @@ func (r *Registry) Get(id acp.AgentID) (*Agent, bool) {
 	return agent, ok
 }
 
-// GetByType retrieves all agents of a given type
+// copyAgent creates a shallow copy of an Agent for safe read-only access.
+// Note: This intentionally creates a shallow copy (not deep) because:
+// 1. Agent's mutable state is protected by its own mutex
+// 2. Callers use the copy for read operations (GetState, GetToolHistory)
+// 3. The connection and memory pointers are shared intentionally (active object pattern)
+func copyAgent(a *Agent) *Agent {
+	if a == nil {
+		return nil
+	}
+	// Create new Agent to avoid copying mutex by value
+	cp := &Agent{
+		ID:           a.ID,
+		Name:         a.Name,
+		Type:         a.Type,
+		State:        a.State,
+		Capabilities: a.Capabilities,
+		created:      a.created,
+		lastActive:   a.lastActive,
+		session:      a.session,
+		context:      a.context,
+		shortMemory:  a.shortMemory,
+		longMemory:   a.longMemory,
+		conn:         a.conn,
+		onUpdate:     a.onUpdate,
+		onToolCall:   a.onToolCall,
+	}
+	// Deep copy toolHistory slice
+	if a.toolHistory != nil {
+		cp.toolHistory = make([]ToolExecution, len(a.toolHistory))
+		copy(cp.toolHistory, a.toolHistory)
+	}
+	return cp
+}
+
+// GetByType retrieves all agents of a given type (returns copies)
 func (r *Registry) GetByType(agentType AgentType) []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	agents := r.byType[agentType]
 	result := make([]*Agent, len(agents))
-	copy(result, agents)
+	for i := range agents {
+		result[i] = copyAgent(agents[i])
+	}
 	return result
 }
 
-// GetAll returns all registered agents
+// GetAll returns all registered agents (returns deep copies)
 func (r *Registry) GetAll() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]*Agent, 0, len(r.agents))
 	for _, agent := range r.agents {
-		result = append(result, agent)
+		result = append(result, copyAgent(agent))
 	}
 	return result
 }
 
-// GetIdle returns all idle agents
+// GetIdle returns all idle agents (returns copies)
 func (r *Registry) GetIdle() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]*Agent, 0)
 	for _, agent := range r.agents {
 		if agent.GetState() == StateIdle {
-			result = append(result, agent)
+			result = append(result, copyAgent(agent))
 		}
 	}
 	return result
@@ -207,7 +245,7 @@ func (l *Lifecycle) Terminate(ctx context.Context, id acp.AgentID) error {
 	agent.SetState(StateIdle)
 
 	if err := l.registry.Unregister(id); err != nil {
-		log.Printf("[Lifecycle] Warning: failed to unregister agent %s: %v", id, err)
+		lifecycleLog.Warn("Failed to unregister agent", "agent_id", id, "error", err)
 	}
 
 	l.mu.RLock()
@@ -259,7 +297,7 @@ func (l *Lifecycle) monitorAgent(agent *Agent) {
 	defer l.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Lifecycle] monitorAgent panic for agent %s: %v", agent.ID, r)
+			lifecycleLog.Error("monitorAgent panic", "agent_id", agent.ID, "panic", r)
 		}
 	}()
 	lastState := agent.GetState()

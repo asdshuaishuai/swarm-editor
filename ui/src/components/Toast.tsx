@@ -4,6 +4,11 @@ import { cn } from '../utils'
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
 
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface Toast {
   id: string
   type: ToastType
@@ -11,6 +16,7 @@ export interface Toast {
   message?: string
   duration?: number
   persistent?: boolean
+  actions?: ToastAction[]
 }
 
 interface ToastProps {
@@ -83,6 +89,27 @@ function ToastItem({ toast, onDismiss }: ToastProps) {
         {toast.message && (
           <p className="mt-1 text-sm text-text-secondary leading-relaxed">{toast.message}</p>
         )}
+        {toast.actions && toast.actions.length > 0 && (
+          <div className="flex items-center gap-2 mt-2">
+            {toast.actions.map((action, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  action.onClick()
+                  onDismiss(toast.id)
+                }}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium rounded-mac transition-colors',
+                  i === 0
+                    ? 'bg-accent/20 text-accent hover:bg-accent/30'
+                    : 'bg-surface text-text-secondary hover:bg-card-hover'
+                )}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <button
         onClick={() => onDismiss(toast.id)}
@@ -104,8 +131,8 @@ interface ToastContainerProps {
 const positionMap = {
   'top-right': 'top-4 right-4',
   'top-left': 'top-4 left-4',
-  'bottom-right': 'bottom-4 right-4',
-  'bottom-left': 'bottom-4 left-4',
+  'bottom-right': 'bottom-12 right-4',
+  'bottom-left': 'bottom-12 left-4',
 }
 
 export function ToastContainer({

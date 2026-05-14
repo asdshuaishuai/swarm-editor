@@ -39,10 +39,10 @@ func TestWorkspaceManager_Get(t *testing.T) {
 
 	// Test immutability of returned copy
 	original := m.Get("ws-1")
-	 original.Name = "modified"
+	original.Name = "modified"
 	if m.Get("ws-1").Name == "modified" {
-	 t.Error("Get should return a copy")
-    }
+		t.Error("Get should return a copy")
+	}
 }
 
 func TestWorkspaceManager_Delete(t *testing.T) {
@@ -51,11 +51,11 @@ func TestWorkspaceManager_Delete(t *testing.T) {
 
 	m.Delete("ws-1")
 	if m.Get("ws-1") != nil {
-        t.Error("ws-1 should be deleted")
-    }
+		t.Error("ws-1 should be deleted")
+	}
 	if m.GetByPath("/tmp/test") != nil {
-        t.Error("byPath mapping should be removed")
-    }
+		t.Error("byPath mapping should be removed")
+	}
 }
 
 func TestWorkspaceManager_LockFile(t *testing.T) {
@@ -66,19 +66,19 @@ func TestWorkspaceManager_LockFile(t *testing.T) {
 	err := m.LockFile("ws-1", "/file.go", "user-1")
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
-	 }
+	}
 
 	// Verify lock
 	w := m.Get("ws-1")
 	if w.FileLocks["/file.go"] != "user-1" {
-        t.Error("file should be locked")
-    }
+		t.Error("file should be locked")
+	}
 
 	// Double lock by different user should fail
 	err = m.LockFile("ws-1", "/file.go", "user-2")
 	if err == nil {
-        t.Error("expected error when file already locked")
-    }
+		t.Error("expected error when file already locked")
+	}
 }
 
 func TestWorkspaceManager_UnlockFile(t *testing.T) {
@@ -91,14 +91,14 @@ func TestWorkspaceManager_UnlockFile(t *testing.T) {
 	// Owner unlocks
 	err := m.UnlockFile("ws-1", "/file.go", "user-1")
 	if err != nil {
-        t.Errorf("owner should be able to unlock: %v", err)
-    }
+		t.Errorf("owner should be able to unlock: %v", err)
+	}
 
 	// Verify unlocked
 	w := m.Get("ws-1")
 	if _, ok := w.FileLocks["/file.go"]; ok {
-        t.Error("file should be unlocked")
-    }
+		t.Error("file should be unlocked")
+	}
 }
 
 func TestWorkspaceManager_Concurrency(t *testing.T) {

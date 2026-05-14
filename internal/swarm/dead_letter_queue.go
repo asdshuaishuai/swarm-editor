@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +14,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var dlqLog = log.With("component", "DLQ")
 
 // DLQEntry represents a failed task stored in the Dead Letter Queue.
 type DLQEntry struct {
@@ -156,12 +159,12 @@ func (q *DeadLetterQueue) List() ([]*DLQEntry, error) {
 		}
 		data, err := os.ReadFile(filepath.Join(q.dataDir, entry.Name()))
 		if err != nil {
-			log.Printf("[DLQ] skipping unreadable file %s: %v", entry.Name(), err)
+			dlqLog.Warn("Skipping unreadable file", "file", entry.Name(), "error", err)
 			continue
 		}
 		var dlqEntry DLQEntry
 		if err := json.Unmarshal(data, &dlqEntry); err != nil {
-			log.Printf("[DLQ] skipping corrupt file %s: %v", entry.Name(), err)
+			dlqLog.Warn("Skipping corrupt file", "file", entry.Name(), "error", err)
 			continue
 		}
 		results = append(results, &dlqEntry)
@@ -190,22 +193,37 @@ func (q *DeadLetterQueue) Remove(id string) error {
 
 // Replay re-submits a DLQ entry for retry.
 // The callback function is responsible for re-queueing the task.
+// The entire operation (read, submit, remove) is atomic under write lock to prevent TOCTOU races.
 func (q *DeadLetterQueue) Replay(id string, submitFn func(*CoordinationTask) error) error {
-	entry, err := q.Get(id)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Read entry directly under write lock (not via Get which uses RLock)
+	path := filepath.Join(q.dataDir, id+".json")
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("get DLQ entry: %w", err)
-	}
-	if entry == nil {
-		return fmt.Errorf("DLQ entry not found: %s", id)
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("DLQ entry not found: %s", id)
+		}
+		return fmt.Errorf("read DLQ entry: %w", err)
 	}
 
-	// Submit the task
+	var entry DLQEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return fmt.Errorf("unmarshal DLQ entry: %w", err)
+	}
+
+	// Submit the task while still holding lock (ensures atomicity)
 	if err := submitFn(entry.Task); err != nil {
 		return fmt.Errorf("replay task: %w", err)
 	}
 
-	// Remove from DLQ after successful replay
-	return q.Remove(id)
+	// Remove from DLQ after successful replay (still under same lock)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove DLQ entry: %w", err)
+	}
+
+	return nil
 }
 
 // ReplayAll re-submits all DLQ entries for retry.
@@ -218,7 +236,7 @@ func (q *DeadLetterQueue) ReplayAll(submitFn func(*CoordinationTask) error) (int
 	replayed := 0
 	for _, entry := range entries {
 		if err := q.Replay(entry.ID, submitFn); err != nil {
-			log.Printf("[DLQ] failed to replay %s: %v", entry.ID, err)
+			dlqLog.Warn("Failed to replay", "entry_id", entry.ID, "error", err)
 			continue
 		}
 		replayed++
@@ -253,7 +271,7 @@ func (q *DeadLetterQueue) Purge(olderThan time.Duration) (int, error) {
 		if info.ModTime().Before(cutoff) {
 			path := filepath.Join(q.dataDir, entry.Name())
 			if err := os.Remove(path); err != nil {
-				log.Printf("[DLQ] failed to purge %s: %v", entry.Name(), err)
+				dlqLog.Warn("Failed to purge", "file", entry.Name(), "error", err)
 				continue
 			}
 			purged++
@@ -337,7 +355,7 @@ func (q *DeadLetterQueue) pruneIfNeeded() {
 	// Delete oldest if over limit
 	for i := range len(files) - q.maxSize {
 		if err := os.Remove(filepath.Join(q.dataDir, files[i].name)); err != nil {
-			log.Printf("[DLQ] failed to prune %s: %v", files[i].name, err)
+			dlqLog.Warn("Failed to prune", "file", files[i].name, "error", err)
 		}
 	}
 }

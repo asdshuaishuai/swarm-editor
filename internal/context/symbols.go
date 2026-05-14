@@ -68,11 +68,12 @@ func hashContent(content []byte) string {
 // ============================================================================
 
 var (
-	goFuncRegex       = regexp.MustCompile(`(?m)^(?:func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\()`)
-	goStructRegex     = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+struct`)
-	goInterfaceRegex  = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+interface`)
-	goTypeRegex       = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:[a-z]+)`)
+	goFuncRegex        = regexp.MustCompile(`(?m)^(?:func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\()`)
+	goStructRegex      = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+struct`)
+	goInterfaceRegex   = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+interface`)
+	goTypeRegex        = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:[a-z]+)`)
 	goImportBlockRegex = regexp.MustCompile(`import\s*\(([\s\S]*?)\)`)
+	goSingleImportRegex = regexp.MustCompile(`import\s+"([^"]+)"`)
 )
 
 func extractGoSymbols(content []byte) []Symbol {
@@ -169,7 +170,7 @@ func extractGoImports(content []byte) []string {
 	var imports []string
 
 	// Single imports
-	singleImports := regexp.MustCompile(`import\s+"([^"]+)"`).FindAllSubmatch(content, -1)
+	singleImports := goSingleImportRegex.FindAllSubmatch(content, -1)
 	for _, m := range singleImports {
 		imports = append(imports, string(m[1]))
 	}
@@ -205,7 +206,11 @@ var (
 	tsClassRegex     = regexp.MustCompile(`(?m)(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	tsInterfaceRegex = regexp.MustCompile(`(?m)(?:export\s+)?interface\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	tsTypeRegex      = regexp.MustCompile(`(?m)(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=`)
-	tsEnumRegex      = regexp.MustCompile(`(?m)(?:export\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	tsEnumRegex         = regexp.MustCompile(`(?m)(?:export\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	jsImportRegex       = regexp.MustCompile(`import\s+[^"']*from\s+["']([^"']+)["']`)
+	jsDynamicImportRegex = regexp.MustCompile(`import\s*\(\s*["']([^"']+)["']\s*\)`)
+	jsRequireRegex      = regexp.MustCompile(`require\s*\(\s+["']([^"']+)["']\s*\)`)
+	jsNamedExportRegex  = regexp.MustCompile(`export\s+(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_][A-Za-z0-9_]*)`)
 )
 
 func extractTSSymbols(content []byte) []Symbol {
@@ -306,20 +311,17 @@ func extractJSImports(content []byte) []string {
 	var imports []string
 
 	// ES6 imports: import ... from "module"
-	importRegex := regexp.MustCompile(`import\s+[^"']*from\s+["']([^"']+)["']`)
-	for _, m := range importRegex.FindAllSubmatch(content, -1) {
+	for _, m := range jsImportRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 
 	// Dynamic imports: import("module")
-	dynamicImportRegex := regexp.MustCompile(`import\s*\(\s*["']([^"']+)["']\s*\)`)
-	for _, m := range dynamicImportRegex.FindAllSubmatch(content, -1) {
+	for _, m := range jsDynamicImportRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 
 	// CommonJS require: require("module")
-	requireRegex := regexp.MustCompile(`require\s*\(\s*["']([^"']+)["']\s*\)`)
-	for _, m := range requireRegex.FindAllSubmatch(content, -1) {
+	for _, m := range jsRequireRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 
@@ -330,8 +332,7 @@ func extractJSExports(content []byte) []string {
 	var exports []string
 
 	// Named exports
-	namedExportRegex := regexp.MustCompile(`export\s+(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	for _, m := range namedExportRegex.FindAllSubmatch(content, -1) {
+	for _, m := range jsNamedExportRegex.FindAllSubmatch(content, -1) {
 		exports = append(exports, string(m[1]))
 	}
 
@@ -343,9 +344,11 @@ func extractJSExports(content []byte) []string {
 // ============================================================================
 
 var (
-	pyFuncRegex      = regexp.MustCompile(`(?m)^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	pyAsyncFuncRegex = regexp.MustCompile(`(?m)^async\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	pyClassRegex     = regexp.MustCompile(`(?m)^class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	pyFuncRegex        = regexp.MustCompile(`(?m)^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	pyAsyncFuncRegex   = regexp.MustCompile(`(?m)^async\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	pyClassRegex       = regexp.MustCompile(`(?m)^class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	pyImportRegex      = regexp.MustCompile(`^import\s+([A-Za-z_][A-Za-z0-9_.]*)`)
+	pyFromImportRegex  = regexp.MustCompile(`^from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import`)
 )
 
 func extractPythonSymbols(content []byte) []Symbol {
@@ -400,14 +403,12 @@ func extractPythonImports(content []byte) []string {
 	var imports []string
 
 	// import X
-	importRegex := regexp.MustCompile(`^import\s+([A-Za-z_][A-Za-z0-9_.]*)`)
-	for _, m := range importRegex.FindAllSubmatch(content, -1) {
+	for _, m := range pyImportRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 
 	// from X import Y
-	fromImportRegex := regexp.MustCompile(`^from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import`)
-	for _, m := range fromImportRegex.FindAllSubmatch(content, -1) {
+	for _, m := range pyFromImportRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 
@@ -424,6 +425,7 @@ var (
 	rustEnumRegex   = regexp.MustCompile(`(?m)(?:pub\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	rustTraitRegex  = regexp.MustCompile(`(?m)(?:pub\s+)?trait\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	rustTypeRegex   = regexp.MustCompile(`(?m)(?:pub\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=`)
+	rustUseRegex    = regexp.MustCompile(`^use\s+([A-Za-z_:]+)`)
 )
 
 func extractRustSymbols(content []byte) []Symbol {
@@ -506,8 +508,7 @@ func extractRustImports(content []byte) []string {
 	var imports []string
 
 	// use statements
-	useRegex := regexp.MustCompile(`^use\s+([A-Za-z_:]+)`)
-	for _, m := range useRegex.FindAllSubmatch(content, -1) {
+	for _, m := range rustUseRegex.FindAllSubmatch(content, -1) {
 		imports = append(imports, string(m[1]))
 	}
 

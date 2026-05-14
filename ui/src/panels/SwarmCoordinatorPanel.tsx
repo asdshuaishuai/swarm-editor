@@ -18,6 +18,7 @@ import {
 import type { CoordinationTask } from '../types'
 import { api } from '../services'
 import { logger } from '../utils'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 interface SwarmCoordinatorPanelProps {
   /** Initial tasks for testing purposes */
@@ -66,26 +67,6 @@ export default function SwarmCoordinatorPanel({
     completed: tasks.filter(t => t.status === 'completed').length,
     failed: tasks.filter(t => t.status === 'failed').length,
   }), [tasks])
-
-  // Test-only: trigger handlers with specific taskIds to test else branches
-  useEffect(() => {
-    if (testStartTaskId) {
-      handleStartTask(testStartTaskId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testStartTaskId])
-
-  useEffect(() => {
-    if (testPauseTaskId) {
-      handlePauseTask(testPauseTaskId)
-    }
-  }, [testPauseTaskId])
-
-  useEffect(() => {
-    if (testCancelTaskId) {
-      handleCancelTask(testCancelTaskId)
-    }
-  }, [testCancelTaskId])
 
   // Track mounted state to prevent setState on unmounted component
   useEffect(() => {
@@ -271,16 +252,47 @@ export default function SwarmCoordinatorPanel({
     )
   }
 
-  const handleCancelTask = (taskId: string) => {
+  const [cancelTaskConfirm, setCancelTaskConfirm] = useState<{ id: string; title: string } | null>(null)
+
+  const requestCancelTask = useCallback((taskId: string) => {
+    const task = tasks.find(t => t.id === taskId)
+    setCancelTaskConfirm({ id: taskId, title: task?.title || taskId })
+  }, [tasks])
+
+  const handleCancelTask = () => {
+    if (!cancelTaskConfirm) return
+    const { id } = cancelTaskConfirm
+    setCancelTaskConfirm(null)
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === taskId ? { ...t, status: 'failed' as const } : t
+        t.id === id ? { ...t, status: 'failed' as const } : t
       )
     )
     setSelectedTask((prev) =>
-      prev?.id === taskId ? { ...prev, status: 'failed' as const } : prev
+      prev?.id === id ? { ...prev, status: 'failed' as const } : prev
     )
   }
+
+  // Test-only: trigger handlers with specific taskIds to test else branches
+  // These MUST be after handler definitions to avoid "undefined" calls
+  useEffect(() => {
+    if (testStartTaskId) {
+      handleStartTask(testStartTaskId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testStartTaskId])
+
+  useEffect(() => {
+    if (testPauseTaskId) {
+      handlePauseTask(testPauseTaskId)
+    }
+  }, [testPauseTaskId])
+
+  useEffect(() => {
+    if (testCancelTaskId) {
+      requestCancelTask(testCancelTaskId)
+    }
+  }, [testCancelTaskId, requestCancelTask])
 
   const priorityColors = {
     1: 'text-text-tertiary',
@@ -391,7 +403,7 @@ export default function SwarmCoordinatorPanel({
               onClose={() => setSelectedTask(null)}
               onStart={handleStartTask}
               onPause={handlePauseTask}
-              onCancel={handleCancelTask}
+              onCancel={requestCancelTask}
             />
           </div>
         )}
@@ -425,6 +437,7 @@ export default function SwarmCoordinatorPanel({
                   onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                   className="w-full input-mac"
                   placeholder="Implement user authentication"
+                  autoFocus
                 />
               </div>
 
@@ -464,7 +477,7 @@ export default function SwarmCoordinatorPanel({
                     min={1}
                     max={10}
                     value={newTask.priority}
-                    onChange={(e) => setNewTask({ ...newTask, priority: parseInt(e.target.value) })}
+                    onChange={(e) => setNewTask({ ...newTask, priority: parseInt(e.target.value) || 5 })}
                     className="w-full input-mac"
                   />
                 </div>
@@ -504,6 +517,17 @@ export default function SwarmCoordinatorPanel({
             </div>
           </div>
         </div>
+      )}
+
+      {cancelTaskConfirm && (
+        <ConfirmDialog
+          title="Cancel Task"
+          message={`Are you sure you want to cancel "${cancelTaskConfirm.title}"? This action cannot be undone.`}
+          confirmLabel="Cancel Task"
+          variant="danger"
+          onConfirm={handleCancelTask}
+          onCancel={() => setCancelTaskConfirm(null)}
+        />
       )}
     </div>
   )
@@ -549,6 +573,9 @@ export function TaskCard({
   return (
     <div
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       className={`p-3.5 rounded-mac-xl cursor-pointer transition-all duration-200 ${
         isSelected
           ? 'bg-accent-muted border-2 border-accent'
@@ -562,7 +589,7 @@ export function TaskCard({
             <h4 className="font-medium text-sm text-text-primary">{task.title}</h4>
           </div>
           <p className="text-xs text-text-secondary mt-1 line-clamp-1">
-            {task.description || task.prompt?.slice(0, 50) + '...'}
+            {task.description || (task.prompt ? task.prompt.slice(0, 50) + '...' : '')}
           </p>
         </div>
         <div className="flex items-center">

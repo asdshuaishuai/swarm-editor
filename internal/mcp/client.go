@@ -5,9 +5,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,7 +16,13 @@ import (
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// Maximum pending requests to prevent unbounded memory growth
+const maxPendingRequests = 100
+
+var ErrTooManyPendingRequests = errors.New("too many pending requests")
 
 // Client represents an MCP client connection
 type Client struct {
@@ -49,6 +55,8 @@ type Client struct {
 	nextID  int64
 	pending map[int64]chan *acp.Message
 }
+
+var mcpLog = log.With("component", "MCP")
 
 // ClientConfig holds MCP client configuration
 type ClientConfig struct {
@@ -349,7 +357,6 @@ func (c *Client) fetchTools(ctx context.Context) error {
 // Disconnect closes the connection and terminates the process
 func (c *Client) Disconnect() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	// Stop receiving messages
 	c.connected.Store(false)
@@ -374,7 +381,11 @@ func (c *Client) Disconnect() error {
 		c.stderr = nil
 	}
 
+	c.mu.Unlock()
+
 	// Wait for message/stderr handler goroutines to finish
+	// CRITICAL: Must release lock before Wait() — handleMessages acquires c.mu
+	// at line 471, so holding the lock here would cause deadlock.
 	c.wg.Wait()
 
 	// Wait for process to terminate
@@ -387,7 +398,7 @@ func (c *Client) Disconnect() error {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[MCP] process.Wait panic: %v", r)
+					mcpLog.Error("process.Wait panic", "panic", r)
 				}
 			}()
 			_, err := c.process.Wait()
@@ -400,18 +411,20 @@ func (c *Client) Disconnect() error {
 		case <-shutdownCtx.Done():
 			// Timeout, force kill
 			if err := c.process.Kill(); err != nil {
-				log.Printf("[MCP] Failed to kill process: %v", err)
+				mcpLog.Error("Failed to kill process", "error", err)
 			}
 			<-done
 		}
 		c.process = nil
 	}
 
-	// Close pending response channels
+	// Close pending response channels (re-acquire lock for map access)
+	c.mu.Lock()
 	for _, ch := range c.pending {
 		close(ch)
 	}
 	c.pending = make(map[int64]chan *acp.Message)
+	c.mu.Unlock()
 
 	return nil
 }
@@ -421,7 +434,7 @@ func (c *Client) handleMessages() {
 	defer c.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[MCP] handleMessages panic: %v", r)
+			mcpLog.Error("handleMessages panic", "panic", r)
 		}
 	}()
 	decoder := json.NewDecoder(c.stdout)
@@ -430,7 +443,7 @@ func (c *Client) handleMessages() {
 		var msg acp.Message
 		if err := decoder.Decode(&msg); err != nil {
 			if c.connected.Load() {
-				log.Printf("[MCP] Read error while connected: %v", err)
+				mcpLog.Warn("Read error while connected", "error", err)
 			}
 			break
 		}
@@ -444,7 +457,7 @@ func (c *Client) handleStderr() {
 	defer c.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[MCP] handleStderr panic: %v", r)
+			mcpLog.Error("handleStderr panic", "panic", r)
 		}
 	}()
 	buf := make([]byte, 4096)
@@ -453,13 +466,13 @@ func (c *Client) handleStderr() {
 		if err != nil {
 			// Log stderr read errors for debugging
 			if c.connected.Load() {
-				log.Printf("[MCP] stderr read error: %v", err)
+				mcpLog.Warn("stderr read error", "error", err)
 			}
 			break
 		}
 		// Log stderr content for debugging
 		if n > 0 {
-			log.Printf("[MCP] stderr: %s", strings.TrimSpace(string(buf[:n])))
+			mcpLog.Warn("stderr output", "output", strings.TrimSpace(string(buf[:n])))
 		}
 	}
 }
@@ -478,7 +491,8 @@ func (c *Client) handleMessage(msg *acp.Message) {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						// Channel closed, drop response silently
+						// Channel closed by timeout/cancel between unlock and send (TOCTOU race)
+						mcpLog.Warn("Dropped response due to closed channel", "error", r)
 					}
 				}()
 				select {
@@ -495,6 +509,13 @@ func (c *Client) handleMessage(msg *acp.Message) {
 // call sends a request and waits for response
 func (c *Client) call(ctx context.Context, method string, params any, result any) error {
 	c.mu.Lock()
+
+	// Check pending request limit to prevent unbounded memory growth
+	if len(c.pending) >= maxPendingRequests {
+		c.mu.Unlock()
+		return ErrTooManyPendingRequests
+	}
+
 	id := c.nextID
 	c.nextID++
 
@@ -650,7 +671,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 
 	var result ToolResult
 	if err := c.call(ctx, "tools/call", callParams, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("call tool %q: %w", name, err)
 	}
 
 	return &result, nil
@@ -697,7 +718,7 @@ func (c *Client) ListResources(ctx context.Context) ([]RemoteResource, error) {
 	}
 
 	if err := c.call(ctx, "resources/list", nil, &response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list resources: %w", err)
 	}
 
 	c.mu.Lock()
@@ -725,7 +746,7 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (*ToolResult, err
 
 	var result ToolResult
 	if err := c.call(ctx, "resources/read", params, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read resource %q: %w", uri, err)
 	}
 
 	return &result, nil
@@ -738,7 +759,7 @@ func (c *Client) ListPrompts(ctx context.Context) ([]RemotePrompt, error) {
 	}
 
 	if err := c.call(ctx, "prompts/list", nil, &response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list prompts: %w", err)
 	}
 
 	c.mu.Lock()
@@ -768,7 +789,7 @@ func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]str
 
 	var result ToolResult
 	if err := c.call(ctx, "prompts/get", params, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get prompt %q: %w", name, err)
 	}
 
 	return &result, nil
@@ -819,6 +840,9 @@ var DefaultAllowedMCPCommands = map[string]bool{
 var AllowedMCPCommands map[string]bool = nil
 
 // validateCommand checks if the command is allowed to be executed
+// Note: This validates only the base command name. Arguments should be passed
+// separately via ClientConfig.Args to avoid shell injection risks.
+// Security model: Config files are trusted sources.
 func validateCommand(command string) error {
 	if command == "" {
 		return fmt.Errorf("command cannot be empty")
@@ -826,10 +850,24 @@ func validateCommand(command string) error {
 
 	// Get the base command name (without path)
 	baseCmd := command
+	lastSep := -1
 	for i := len(command) - 1; i >= 0; i-- {
 		if command[i] == '/' || command[i] == '\\' {
-			baseCmd = command[i+1:]
+			lastSep = i
 			break
+		}
+	}
+	if lastSep >= 0 {
+		baseCmd = command[lastSep+1:]
+	}
+
+	// Warn if base command appears to include arguments (should use Args field instead)
+	// Check for space AFTER path extraction to handle Windows paths like "C:\Program Files\nodejs\npx"
+	if strings.Contains(baseCmd, " ") {
+		mcpLog.Warn("SECURITY: Base command contains spaces - use ClientConfig.Args for arguments", "command", command, "base_command", baseCmd)
+		// Extract just the command part before the first space for validation
+		if idx := strings.Index(baseCmd, " "); idx > 0 {
+			baseCmd = baseCmd[:idx]
 		}
 	}
 
@@ -842,7 +880,7 @@ func validateCommand(command string) error {
 	// Check if command is in whitelist
 	if !allowed[baseCmd] {
 		// Log for security audit trail
-		log.Printf("[MCP] SECURITY: Blocked command execution: %s (base: %s)", command, baseCmd)
+		mcpLog.Error("SECURITY: Blocked command execution", "command", command, "base_command", baseCmd)
 		return fmt.Errorf("%w: %s", ErrCommandForbidden, baseCmd)
 	}
 

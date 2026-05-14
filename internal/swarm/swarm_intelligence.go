@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"math/rand/v2"
 	"sort"
@@ -14,7 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/swarm-editor/swarm-editor/internal/a2a"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// swarmIntelLog is a scoped logger for the SwarmIntelligenceScheduler component.
+var swarmIntelLog = log.With("component", "SwarmIntelligence")
 
 // SwarmIntelligenceConfig configures the swarm intelligence scheduler
 type SwarmIntelligenceConfig struct {
@@ -85,9 +88,9 @@ type SwarmIntelligenceScheduler struct {
 	swarmTopology TopologyType
 
 	// Lifecycle
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 	running bool
 }
 
@@ -189,7 +192,7 @@ func (s *SwarmIntelligenceScheduler) Start(ctx context.Context) error {
 
 	// Start the base scheduler
 	if err := s.Scheduler.Start(ctx); err != nil {
-		return err
+		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
 
 	s.running = true
@@ -241,11 +244,11 @@ func (s *SwarmIntelligenceScheduler) sendAsync(msg *a2a.Message) {
 		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[SwarmIntelligence] sendAsync panic: %v", r)
+				swarmIntelLog.Error("sendAsync panic", "error", r)
 			}
 		}()
 		if err := s.router.Send(msg); err != nil {
-			log.Printf("[SwarmIntelligence] Failed to send message %s: %v", msg.Type, err)
+			swarmIntelLog.Error("Failed to send message", "msg_type", msg.Type, "error", err)
 		}
 	}()
 }
@@ -378,6 +381,10 @@ func (s *SwarmIntelligenceScheduler) selectByNegotiation(agents []*AgentInfo, ta
 
 	// Wait for bids or timeout (cancellable via context)
 	waitDuration := min(100*time.Millisecond, s.config.NegotiationTimeout/2)
+	// Guard against zero/negative duration which would panic in NewTimer
+	if waitDuration <= 0 {
+		waitDuration = 10 * time.Millisecond
+	}
 	waitTimer := time.NewTimer(waitDuration)
 	defer waitTimer.Stop()
 
@@ -464,7 +471,7 @@ func (s *SwarmIntelligenceScheduler) requestBids(negotiation *Negotiation, task 
 		go func(m *a2a.Message) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[SwarmIntelligence] broadcast negotiation panic: %v", r)
+					swarmIntelLog.Error("broadcast negotiation panic", "error", r)
 				}
 				s.wg.Done()
 			}()
@@ -477,7 +484,7 @@ func (s *SwarmIntelligenceScheduler) requestBids(negotiation *Negotiation, task 
 				}
 			}
 			if err := s.router.Send(m); err != nil {
-				log.Printf("[SwarmIntel] failed to send message: %v", err)
+				swarmIntelLog.Error("failed to send message", "error", err)
 			}
 		}(msg)
 	}
@@ -1415,7 +1422,7 @@ func randomFloat() float64 {
 func safeMarshalJSON(v any) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {
-		log.Printf("[SwarmIntel] JSON marshal error: %v", err)
+		swarmIntelLog.Warn("JSON marshal error", "error", err)
 		return nil
 	}
 	return data

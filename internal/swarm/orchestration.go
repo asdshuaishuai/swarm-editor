@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"strings"
 	"sync"
@@ -19,7 +18,11 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/audit"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+// orchestrationLog is a scoped logger for the Orchestrator component.
+var orchestrationLog = log.With("component", "Orchestration")
 
 // OrchestrationMode defines how agents collaborate
 type OrchestrationMode string
@@ -36,6 +39,10 @@ const (
 	// FailurePolicyContinuePartial completes all nodes, reports errors at end.
 	FailurePolicyContinuePartial FailurePolicy = "continue_partial"
 )
+
+// maxVersionHistory limits the number of versions stored in workflow history.
+// Older versions are trimmed when the limit is exceeded.
+const maxVersionHistory = 50
 
 const (
 	// ModeSequential - agents execute in order, one after another
@@ -90,7 +97,7 @@ type WorkflowNode struct {
 	ID          string         `json:"id"`
 	Name        string         `json:"name"`
 	AgentID     string         `json:"agentId"`
-	Type        string         `json:"type"` // "agent", "condition", "parallel", "join", "subgraph"
+	Type        string         `json:"type"`                 // "agent", "condition", "parallel", "join", "subgraph"
 	SubgraphID  string         `json:"subgraphId,omitempty"` // For Type="subgraph": ID of nested workflow
 	Config      map[string]any `json:"config"`
 	Position    Position       `json:"position"`
@@ -161,7 +168,7 @@ type Workflow struct {
 	UpdatedAt   time.Time         `json:"updatedAt"`
 
 	// Version management (LangGraph-style versioning)
-	Version        int               `json:"version"`
+	Version        int                `json:"version"`
 	VersionHistory []*WorkflowVersion `json:"versionHistory,omitempty"`
 
 	// Execution state
@@ -191,15 +198,21 @@ type Workflow struct {
 	// OnComplete defines downstream workflows to trigger when this workflow completes successfully.
 	// Each entry specifies a target workflow ID and optional input mapping.
 	OnComplete []WorkflowChainLink `json:"onComplete,omitempty"`
+
+	// State schema with per-key reducers (LangGraph pattern).
+	// When multiple nodes write to the same state key, the reducer determines
+	// how values are merged (e.g., append for message lists, max for scores).
+	// If nil, state is not managed (nodes read/write their own Result field).
+	State *StateSchema `json:"-"`
 }
 
 // WorkflowChainLink defines a downstream workflow to trigger on completion.
 // Inspired by CrewAI Flows: sequential composition of workflows where the
 // output of one flow feeds into the next.
 type WorkflowChainLink struct {
-	WorkflowID string         `json:"workflowId"`           // target workflow to execute
-	Input      map[string]any `json:"input,omitempty"`      // input to pass to downstream
-	Condition  string         `json:"condition,omitempty"`  // "always" (default), "on_success", "on_failure"
+	WorkflowID string         `json:"workflowId"`          // target workflow to execute
+	Input      map[string]any `json:"input,omitempty"`     // input to pass to downstream
+	Condition  string         `json:"condition,omitempty"` // "always" (default), "on_success", "on_failure"
 }
 
 // WorkflowVersion represents a snapshot of workflow at a specific version.
@@ -221,6 +234,16 @@ type ExecutionStep struct {
 	Timestamp time.Time `json:"timestamp"`
 	Duration  float64   `json:"durationMs"`
 	Error     string    `json:"error,omitempty"`
+}
+
+// NodeHeartbeat represents a heartbeat from a running node.
+// Inspired by Temporal's Activity Heartbeat: long-running activities report
+// progress to signal liveness and provide progress details for UI display.
+type NodeHeartbeat struct {
+	WorkflowID string    `json:"workflowId"`
+	NodeID     string    `json:"nodeId"`
+	Timestamp  time.Time `json:"timestamp"`
+	Details    any       `json:"details,omitempty"` // progress info (e.g., bytes downloaded, items processed)
 }
 
 // Checkpoint represents a saved state for recovery
@@ -311,8 +334,22 @@ type Orchestrator struct {
 	// of who did what, when, with UI and API access.
 	auditLogger *audit.Logger
 
+	// nodeHeartbeats tracks per-node heartbeat timestamps and details.
+	// Inspired by Temporal's Activity Heartbeat: long-running activities
+	// report progress to signal liveness and enable stuck detection.
+	// Key format: "workflowID:nodeID"
+	nodeHeartbeats   map[string]*NodeHeartbeat
+	nodeHeartbeatMu sync.RWMutex
+
 	// wg tracks goroutines spawned for async workflow execution (resume, retry)
 	wg sync.WaitGroup
+
+	// MaxConcurrentWorkflows limits how many workflows can execute simultaneously.
+	// Inspired by Temporal's MaxConcurrentWorkflowTaskExecutions: prevents resource
+	// exhaustion when many workflows are triggered simultaneously (e.g., automation chains).
+	// 0 = unlimited (default).
+	MaxConcurrentWorkflows int
+	runningWorkflows        int
 }
 
 // NewOrchestrator creates a new orchestrator
@@ -328,13 +365,68 @@ func NewOrchestrator(scheduler *Scheduler) *Orchestrator {
 		variableStore:    NewWorkflowVariableStore(),
 		auditLogger:      audit.NewLogger("", 10000), // in-memory audit log, 10k max
 		FailurePolicy:    FailurePolicyFailFast,
+		nodeHeartbeats:   make(map[string]*NodeHeartbeat),
 	}
 }
 
 // Close waits for all in-flight async workflow goroutines (e.g. ResumeWorkflow)
-// to complete before returning. Must be called during shutdown to prevent goroutine leaks.
+// and automation engine goroutines to complete before returning.
+// Must be called during shutdown to prevent goroutine leaks.
 func (o *Orchestrator) Close() {
 	o.wg.Wait()
+	if o.automationEngine != nil {
+		o.automationEngine.Close()
+	}
+}
+
+// RecordNodeHeartbeat records a heartbeat for a running node.
+// Inspired by Temporal's Activity Heartbeat: long-running activities call
+// this to signal liveness and provide progress details for UI display.
+// Key format: "workflowID:nodeID".
+func (o *Orchestrator) RecordNodeHeartbeat(workflowID, nodeID string, details any) {
+	hb := &NodeHeartbeat{
+		WorkflowID: workflowID,
+		NodeID:     nodeID,
+		Timestamp:  time.Now(),
+		Details:    details,
+	}
+	o.nodeHeartbeatMu.Lock()
+	o.nodeHeartbeats[workflowID+":"+nodeID] = hb
+	o.nodeHeartbeatMu.Unlock()
+
+	// Stream heartbeat event for UI progress display
+	if b := o.GetBroadcaster(); b != nil {
+		b.Broadcast("workflow_node_heartbeat", map[string]any{
+			"workflowId": workflowID,
+			"nodeId":     nodeID,
+			"details":    details,
+		})
+	}
+}
+
+// GetNodeHeartbeat returns the last recorded heartbeat for a node, or nil.
+func (o *Orchestrator) GetNodeHeartbeat(workflowID, nodeID string) *NodeHeartbeat {
+	o.nodeHeartbeatMu.RLock()
+	defer o.nodeHeartbeatMu.RUnlock()
+	return o.nodeHeartbeats[workflowID+":"+nodeID]
+}
+
+// ClearNodeHeartbeat removes the heartbeat record for a completed node.
+func (o *Orchestrator) ClearNodeHeartbeat(workflowID, nodeID string) {
+	o.nodeHeartbeatMu.Lock()
+	defer o.nodeHeartbeatMu.Unlock()
+	delete(o.nodeHeartbeats, workflowID+":"+nodeID)
+}
+
+// GetAllNodeHeartbeats returns all active node heartbeats.
+func (o *Orchestrator) GetAllNodeHeartbeats() []*NodeHeartbeat {
+	o.nodeHeartbeatMu.RLock()
+	defer o.nodeHeartbeatMu.RUnlock()
+	result := make([]*NodeHeartbeat, 0, len(o.nodeHeartbeats))
+	for _, hb := range o.nodeHeartbeats {
+		result = append(result, hb)
+	}
+	return result
 }
 
 // SetFailurePolicy sets the failure handling policy for parallel execution.
@@ -417,7 +509,7 @@ func (o *Orchestrator) triggerChainedWorkflows(w *Workflow, terminalStatus strin
 	for _, link := range links {
 		// Self-loop prevention: skip if chained workflow is the same as the current one
 		if link.WorkflowID == w.ID {
-			log.Printf("[Orchestration] Skipping self-loop chain: workflow %q chains to itself", w.ID)
+			orchestrationLog.Warn("Skipping self-loop chain", "workflow_id", w.ID)
 			continue
 		}
 
@@ -434,7 +526,7 @@ func (o *Orchestrator) triggerChainedWorkflows(w *Workflow, terminalStatus strin
 		case "", "always":
 			// always trigger
 		default:
-			log.Printf("[Orchestration] Unknown chain condition %q in workflow %q, treating as always", link.Condition, w.ID)
+			orchestrationLog.Warn("Unknown chain condition, treating as always", "condition", link.Condition, "workflow_id", w.ID)
 		}
 
 		// Capture for goroutine
@@ -444,12 +536,11 @@ func (o *Orchestrator) triggerChainedWorkflows(w *Workflow, terminalStatus strin
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Orchestration] Chain workflow panic for %q → %q: %v", parentID, link.WorkflowID, r)
+					orchestrationLog.Error("Chain workflow panic", "parent_id", parentID, "workflow_id", link.WorkflowID, "error", r)
 				}
 				o.wg.Done()
 			}()
-			log.Printf("[Orchestration] Chaining workflow %q → %q (condition: %s)",
-				parentID, link.WorkflowID, link.Condition)
+			orchestrationLog.Info("Chaining workflow", "parent_id", parentID, "workflow_id", link.WorkflowID, "condition", link.Condition)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -457,9 +548,9 @@ func (o *Orchestrator) triggerChainedWorkflows(w *Workflow, terminalStatus strin
 			chainStatus := "completed"
 			if err != nil {
 				chainStatus = "failed"
-				log.Printf("[Orchestration] Chained workflow %q failed: %v", link.WorkflowID, err)
+				orchestrationLog.Error("Chained workflow failed", "workflow_id", link.WorkflowID, "error", err)
 			} else {
-				log.Printf("[Orchestration] Chained workflow %q completed", link.WorkflowID)
+				orchestrationLog.Info("Chained workflow completed", "workflow_id", link.WorkflowID)
 			}
 
 			if b := o.GetBroadcaster(); b != nil {
@@ -700,6 +791,13 @@ func (w *Workflow) CreateVersion(description string) int {
 	}
 
 	w.VersionHistory = append(w.VersionHistory, version)
+
+	// Trim old versions to prevent unbounded memory growth
+	if len(w.VersionHistory) > maxVersionHistory {
+		// Keep the most recent versions
+		w.VersionHistory = w.VersionHistory[len(w.VersionHistory)-maxVersionHistory:]
+	}
+
 	w.UpdatedAt = now
 
 	return w.Version
@@ -774,7 +872,212 @@ func (w *Workflow) GetVersion(version int) *WorkflowVersion {
 	return nil
 }
 
-// GetNextNodes returns nodes that should execute after the given node
+// ValidationError represents a single workflow validation issue.
+// Inspired by n8n's workflow validation and Dify's node connection checks.
+type ValidationError struct {
+	Code    string `json:"code"`              // Machine-readable code
+	Message string `json:"message"`           // Human-readable description
+	NodeID  string `json:"nodeId,omitempty"`  // Node involved (if applicable)
+	EdgeID  string `json:"edgeId,omitempty"`  // Edge involved (if applicable)
+	Level   string `json:"level"`             // "error" or "warning"
+}
+
+// ValidationErrors is a slice of ValidationError with convenience methods.
+type ValidationErrors []ValidationError
+
+func (ve ValidationErrors) Error() string {
+	if len(ve) == 0 {
+		return "no errors"
+	}
+	var b strings.Builder
+	for i, e := range ve {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(e.Message)
+	}
+	return b.String()
+}
+
+// HasErrors returns true if any validation error has level "error".
+func (ve ValidationErrors) HasErrors() bool {
+	for _, e := range ve {
+		if e.Level == "error" {
+			return true
+		}
+	}
+	return false
+}
+
+// ErrorsOnly returns only error-level validation issues.
+func (ve ValidationErrors) ErrorsOnly() ValidationErrors {
+	var errs ValidationErrors
+	for _, e := range ve {
+		if e.Level == "error" {
+			errs = append(errs, e)
+		}
+	}
+	return errs
+}
+
+// Validate checks workflow structure for common issues before execution.
+// Returns nil if the workflow is valid. Returns ValidationErrors if issues found.
+// Inspired by n8n's pre-execution validation and LangGraph's graph verification.
+func (w *Workflow) Validate() ValidationErrors {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	var errs ValidationErrors
+
+	if len(w.Nodes) == 0 {
+		return append(errs, ValidationError{
+			Code: "EMPTY_WORKFLOW", Message: "workflow has no nodes", Level: "error",
+		})
+	}
+
+	// Build lookup maps
+	nodeIDs := make(map[string]bool, len(w.Nodes))
+	edgeIDs := make(map[string]bool, len(w.Edges))
+	for _, n := range w.Nodes {
+		if n.ID == "" {
+			errs = append(errs, ValidationError{
+				Code: "EMPTY_NODE_ID", Message: "node has empty ID", Level: "error",
+			})
+			continue
+		}
+		if nodeIDs[n.ID] {
+			errs = append(errs, ValidationError{
+				Code: "DUPLICATE_NODE_ID", Message: fmt.Sprintf("duplicate node ID %q", n.ID), NodeID: n.ID, Level: "error",
+			})
+		}
+		nodeIDs[n.ID] = true
+	}
+
+	for _, e := range w.Edges {
+		if e.ID == "" {
+			errs = append(errs, ValidationError{
+				Code: "EMPTY_EDGE_ID", Message: "edge has empty ID", Level: "error",
+			})
+			continue
+		}
+		if edgeIDs[e.ID] {
+			errs = append(errs, ValidationError{
+				Code: "DUPLICATE_EDGE_ID", Message: fmt.Sprintf("duplicate edge ID %q", e.ID), EdgeID: e.ID, Level: "error",
+			})
+		}
+		edgeIDs[e.ID] = true
+	}
+
+	// Validate edge references
+	hasIncoming := make(map[string]bool, len(w.Nodes))
+	hasOutgoing := make(map[string]bool, len(w.Nodes))
+	for _, e := range w.Edges {
+		if !nodeIDs[e.From] {
+			errs = append(errs, ValidationError{
+				Code: "INVALID_EDGE_SOURCE", Message: fmt.Sprintf("edge %q references non-existent source node %q", e.ID, e.From),
+				EdgeID: e.ID, Level: "error",
+			})
+		} else {
+			hasOutgoing[e.From] = true
+		}
+		if !nodeIDs[e.To] {
+			errs = append(errs, ValidationError{
+				Code: "INVALID_EDGE_TARGET", Message: fmt.Sprintf("edge %q references non-existent target node %q", e.ID, e.To),
+				EdgeID: e.ID, Level: "error",
+			})
+		} else {
+			hasIncoming[e.To] = true
+		}
+		// Self-referencing edge
+		if e.From == e.To {
+			errs = append(errs, ValidationError{
+				Code: "SELF_REFERENCING_EDGE", Message: fmt.Sprintf("edge %q connects node %q to itself", e.ID, e.From),
+				EdgeID: e.ID, NodeID: e.From, Level: "error",
+			})
+		}
+	}
+
+	// Check for start and end nodes
+	var startNodes, endNodes []string
+	for _, n := range w.Nodes {
+		if !hasIncoming[n.ID] {
+			startNodes = append(startNodes, n.ID)
+		}
+		if !hasOutgoing[n.ID] {
+			endNodes = append(endNodes, n.ID)
+		}
+	}
+
+	if len(startNodes) == 0 && len(w.Edges) > 0 {
+		errs = append(errs, ValidationError{
+			Code: "NO_START_NODE", Message: "no start node found (every node has incoming edges)", Level: "warning",
+		})
+	}
+	if len(endNodes) == 0 && len(w.Edges) > 0 {
+		errs = append(errs, ValidationError{
+			Code: "NO_END_NODE", Message: "no end node found (every node has outgoing edges)", Level: "warning",
+		})
+	}
+
+	// Check for orphan nodes (no incoming or outgoing edges) in non-graph modes
+	if w.Mode != ModeGraph {
+		for _, n := range w.Nodes {
+			if !hasIncoming[n.ID] && !hasOutgoing[n.ID] && len(w.Nodes) > 1 {
+				errs = append(errs, ValidationError{
+					Code: "ORPHAN_NODE", Message: fmt.Sprintf("node %q is disconnected (no edges)", n.ID),
+					NodeID: n.ID, Level: "warning",
+				})
+			}
+		}
+	}
+
+	// Sequential mode: warn about ambiguous branching (multiple outgoing edges without conditions)
+	if w.Mode == ModeSequential {
+		outgoingCount := make(map[string]int)
+		for _, e := range w.Edges {
+			outgoingCount[e.From]++
+		}
+		for nodeID, count := range outgoingCount {
+			if count > 1 {
+				// Check if edges have conditions
+				hasCondition := false
+				for _, e := range w.Edges {
+					if e.From == nodeID && e.Condition != "" {
+						hasCondition = true
+						break
+					}
+				}
+				if !hasCondition {
+					errs = append(errs, ValidationError{
+						Code: "AMBIGUOUS_BRANCHING", Message: fmt.Sprintf("node %q has %d outgoing edges without conditions in sequential mode", nodeID, count),
+						NodeID: nodeID, Level: "warning",
+					})
+				}
+			}
+		}
+	}
+
+	// Validate DependsOn references point to existing nodes
+	for _, n := range w.Nodes {
+		for _, dep := range n.DependsOn {
+			if !nodeIDs[dep] {
+				errs = append(errs, ValidationError{
+					Code: "INVALID_DEPENDS_ON", Message: fmt.Sprintf("node %q depends on non-existent node %q", n.ID, dep),
+					NodeID: n.ID, Level: "error",
+				})
+			}
+			// Self-dependency
+			if dep == n.ID {
+				errs = append(errs, ValidationError{
+					Code: "SELF_DEPENDENCY", Message: fmt.Sprintf("node %q depends on itself", n.ID),
+					NodeID: n.ID, Level: "error",
+				})
+			}
+		}
+	}
+
+	return errs
+}
 func (w *Workflow) GetNextNodes(nodeID string) []*WorkflowNode {
 	w.mu.RLock()
 	// Pre-read ChosenAction for action-based routing (Dify HITL pattern).
@@ -824,8 +1127,8 @@ func (w *Workflow) GetNextNodes(nodeID string) []*WorkflowNode {
 						// No ChosenAction set and condition is not a recognized keyword.
 						// This could be a typo (e.g., "sucess" instead of "success") or
 						// a condition waiting for future action input — skip to be safe.
-						log.Printf("[Orchestration] Edge condition %q has no matching ChosenAction, skipping edge %s->%s",
-							edge.Condition, edge.From, edge.To)
+						orchestrationLog.Warn("Edge condition has no matching ChosenAction, skipping",
+							"condition", edge.Condition, "from", edge.From, "to", edge.To)
 						skipEdge = true
 					}
 				}
@@ -926,7 +1229,8 @@ func snapshotWorkflowNode(n *WorkflowNode) *WorkflowNode {
 	cp := *n // shallow copy of struct
 	// Deep copy Config map using deepCopyAny (handles map[string]any recursively)
 	if n.Config != nil {
-		cp.Config = deepCopyAny(n.Config).(map[string]any)
+		// Safe assertion: n.Config is map[string]any, deepCopyAny preserves type
+		cp.Config = deepCopyAny(n.Config).(map[string]any) //nolint:errcheck
 	}
 	// Deep copy Result (any type)
 	cp.Result = deepCopyAny(n.Result)
@@ -1068,9 +1372,9 @@ func (o *Orchestrator) Execute(ctx context.Context, workflowID string) error {
 			return nil
 		}
 
-	// Only retry ClassifiedErrors that are retryable, or context deadline exceeded
-	// (which may succeed with a longer workflow timeout).
-	// Regular errors (not ClassifiedError) are not retried.
+		// Only retry ClassifiedErrors that are retryable, or context deadline exceeded
+		// (which may succeed with a longer workflow timeout).
+		// Regular errors (not ClassifiedError) are not retried.
 		var ce *ClassifiedError
 		isDeadlineExceeded := errors.Is(err, context.DeadlineExceeded)
 		if !errors.As(err, &ce) || !ce.IsRetryable() {
@@ -1101,8 +1405,8 @@ func (o *Orchestrator) Execute(ctx context.Context, workflowID string) error {
 			timer.Stop()
 			return fmt.Errorf("workflow %q cancelled during retry wait: %w", workflowID, ctx.Err())
 		case <-timer.C:
-			log.Printf("[Orchestration] Retrying workflow %q (attempt %d) after %v: %v",
-				workflowID, attempt, delay, err)
+			orchestrationLog.Warn("Retrying workflow after delay",
+				"workflow_id", workflowID, "attempt", attempt, "delay", delay, "error", err)
 		}
 	}
 }
@@ -1124,6 +1428,22 @@ func (o *Orchestrator) executeWorkflow(ctx context.Context, workflow *Workflow) 
 	// Check if context is already cancelled or timed out before doing any work
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	// Enforce max concurrent workflow limit (Temporal pattern)
+	if o.MaxConcurrentWorkflows > 0 {
+		o.mu.Lock()
+		if o.runningWorkflows >= o.MaxConcurrentWorkflows {
+			o.mu.Unlock()
+			return fmt.Errorf("max concurrent workflows (%d) reached, retry later", o.MaxConcurrentWorkflows)
+		}
+		o.runningWorkflows++
+		o.mu.Unlock()
+		defer func() {
+			o.mu.Lock()
+			o.runningWorkflows--
+			o.mu.Unlock()
+		}()
 	}
 
 	workflow.mu.Lock()
@@ -1183,7 +1503,7 @@ func (o *Orchestrator) executeSequential(ctx context.Context, w *Workflow) error
 			o.setWorkflowStatus(w, "failed")
 			report.AddFailure(current.ID, FailureTypeCancelled, ctx.Err().Error(), startTime, float64(time.Since(startTime).Milliseconds()))
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error: %v", compErr)
+				orchestrationLog.Error("Compensation error", "error", compErr)
 			}
 			execErr = ctx.Err()
 			break
@@ -1191,7 +1511,7 @@ func (o *Orchestrator) executeSequential(ctx context.Context, w *Workflow) error
 
 		// HIGH FIX: Cycle detection - skip already visited nodes
 		if visited[current.ID] {
-			log.Printf("[Orchestration] Cycle detected, skipping node %q", current.ID)
+			orchestrationLog.Warn("Cycle detected, skipping node", "node_id", current.ID)
 			break
 		}
 		visited[current.ID] = true
@@ -1251,7 +1571,7 @@ func (o *Orchestrator) executeSequential(ctx context.Context, w *Workflow) error
 			report.AddFailure(current.ID, ft, err.Error(), nodeStart, float64(time.Since(nodeStart).Milliseconds()))
 			// CRITICAL FIX: Run saga compensation on failure (Temporal pattern)
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error: %v", compErr)
+				orchestrationLog.Error("Compensation error", "error", compErr)
 			}
 			execErr = err
 			break
@@ -1298,6 +1618,18 @@ func classifyError(err error) FailureType {
 	}
 
 	// Check custom error types first (more reliable than string matching)
+	var classified *ClassifiedError
+	if errors.As(err, &classified) {
+		switch classified.Type {
+		case ErrorTypeTimeout:
+			return FailureTypeTimeout
+		case ErrorTypeCancelled:
+			return FailureTypeCancelled
+		case ErrorTypeNonRetryable:
+			return FailureTypeValidation
+		}
+	}
+
 	var timeoutErr *TimeoutError
 	if errors.As(err, &timeoutErr) {
 		return FailureTypeTimeout
@@ -1371,7 +1703,7 @@ func (o *Orchestrator) executeParallel(ctx context.Context, w *Workflow) error {
 		go func(n *WorkflowNode) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Orchestration] Parallel node %s panic: %v", n.ID, r)
+					orchestrationLog.Error("Parallel node panic", "node_id", n.ID, "error", r)
 					failNow := time.Now()
 					w.mu.Lock()
 					n.Status = TaskStatusFailed
@@ -1433,7 +1765,7 @@ func (o *Orchestrator) executeParallel(ctx context.Context, w *Workflow) error {
 			}
 			o.setWorkflowStatus(w, "failed")
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error: %v", compErr)
+				orchestrationLog.Error("Compensation error", "error", compErr)
 			}
 			report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 			w.mu.Lock()
@@ -1458,7 +1790,7 @@ func (o *Orchestrator) executeParallel(ctx context.Context, w *Workflow) error {
 			o.setWorkflowStatus(w, "failed")
 			// Run compensation for successful nodes when majority fails
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error (fail_majority): %v", compErr)
+				orchestrationLog.Error("Compensation error (fail_majority)", "error", compErr)
 			}
 			report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 			w.mu.Lock()
@@ -1561,7 +1893,7 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 		w.mu.Unlock()
 		o.setWorkflowStatus(w, "failed")
 		if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-			log.Printf("[Orchestration] Compensation error during hierarchical execution: %v", compErr)
+			orchestrationLog.Error("Compensation error during hierarchical execution", "error", compErr)
 		}
 		return err
 	}
@@ -1588,7 +1920,7 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 		go func(n *WorkflowNode) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Orchestration] Hierarchical node %s panic: %v", n.ID, r)
+					orchestrationLog.Error("Hierarchical node panic", "node_id", n.ID, "error", r)
 					failNow := time.Now()
 					w.mu.Lock()
 					n.Status = TaskStatusFailed
@@ -1646,7 +1978,7 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 			}
 			o.setWorkflowStatus(w, "failed")
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error: %v", compErr)
+				orchestrationLog.Error("Compensation error", "error", compErr)
 			}
 			report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 			w.mu.Lock()
@@ -1671,7 +2003,7 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 			o.setWorkflowStatus(w, "failed")
 			// Run compensation for successful workers when majority fails
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error (hierarchical fail_majority): %v", compErr)
+				orchestrationLog.Error("Compensation error (hierarchical fail_majority)", "error", compErr)
 			}
 			report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 			w.mu.Lock()
@@ -1696,7 +2028,7 @@ func (o *Orchestrator) executeHierarchical(ctx context.Context, w *Workflow) err
 		close(errChan)
 		for err := range errChan {
 			if err != nil {
-				log.Printf("[Orchestration] Hierarchical worker failed: %v", err)
+				orchestrationLog.Error("Hierarchical worker failed", "error", err)
 			}
 		}
 	}
@@ -1735,7 +2067,7 @@ func (o *Orchestrator) executeConsensual(ctx context.Context, w *Workflow) error
 		go func(n *WorkflowNode) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Orchestration] Consensual node %s panic: %v", n.ID, r)
+					orchestrationLog.Error("Consensual node panic", "node_id", n.ID, "error", r)
 					failNow := time.Now()
 					w.mu.Lock()
 					n.Status = TaskStatusFailed
@@ -1754,7 +2086,7 @@ func (o *Orchestrator) executeConsensual(ctx context.Context, w *Workflow) error
 					w.mu.Unlock()
 					report.AddFailure(n.ID, classifyError(err), err.Error(), nodeStart, float64(time.Since(nodeStart).Milliseconds()))
 				}
-				log.Printf("[Orchestration] Consensual node %s failed: %v", n.ID, err)
+				orchestrationLog.Error("Consensual node failed", "node_id", n.ID, "error", err)
 			} else {
 				// Snapshot node fields under lock to prevent data race
 				w.mu.RLock()
@@ -1825,7 +2157,7 @@ func (o *Orchestrator) executeConsensual(ctx context.Context, w *Workflow) error
 		report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 		// Run compensation for successfully completed nodes
 		if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-			log.Printf("[Orchestration] Compensation error during consensual execution: %v", compErr)
+			orchestrationLog.Error("Compensation error during consensual execution", "error", compErr)
 		}
 	}
 	w.mu.Lock()
@@ -1887,15 +2219,20 @@ func (s *RoundRobinSelector) Select(_ int, _ []GroupChatMessage, nodes []*Workfl
 
 // RandomSelector picks a random agent each turn.
 type RandomSelector struct {
-	// Seed for deterministic testing. 0 = random.
+	// Seed for deterministic testing. 0 = random (non-deterministic).
+	// When Seed > 0, the selector uses a seeded PRNG for reproducible results.
 	Seed int64
 }
 
-func (s *RandomSelector) Select(_ int, _ []GroupChatMessage, nodes []*WorkflowNode) int {
+func (s *RandomSelector) Select(turn int, _ []GroupChatMessage, nodes []*WorkflowNode) int {
 	if len(nodes) == 0 {
 		return -1
 	}
-	// Simple deterministic selection based on turn for testability
+	// When Seed is set, use turn-based deterministic selection for reproducibility.
+	// Otherwise use time-based selection.
+	if s.Seed > 0 {
+		return int((s.Seed + int64(turn))) % len(nodes)
+	}
 	return int(time.Now().UnixNano()) % len(nodes)
 }
 
@@ -1983,7 +2320,7 @@ func (o *Orchestrator) executeGroupChat(ctx context.Context, w *Workflow) error 
 		// Process signals before each turn
 		if o.signalBus != nil {
 			if err := o.signalBus.ProcessSignals(ctx, w); err != nil {
-				log.Printf("[GroupChat] Signal processing error: %v", err)
+				orchestrationLog.Error("Signal processing error", "error", err)
 			}
 		}
 
@@ -2009,7 +2346,7 @@ func (o *Orchestrator) executeGroupChat(ctx context.Context, w *Workflow) error 
 			w.LastExecutionReport = report
 			w.mu.Unlock()
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error during group chat execution: %v", compErr)
+				orchestrationLog.Error("Compensation error during group chat execution", "error", compErr)
 			}
 			return fmt.Errorf("group chat error at turn %d (speaker %s): %w", turn, speaker.ID, err)
 		}
@@ -2126,7 +2463,7 @@ func (o *Orchestrator) executeGraph(ctx context.Context, w *Workflow) error {
 			w.mu.Unlock()
 			// Run compensation for any completed nodes before cancellation
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error during graph cancellation for %q: %v", w.ID, compErr)
+				orchestrationLog.Error("Compensation error during graph cancellation", "workflow_id", w.ID, "error", compErr)
 			}
 			o.setWorkflowStatus(w, "failed")
 			return fmt.Errorf("workflow %q cancelled during graph execution: %w", w.ID, err)
@@ -2161,7 +2498,7 @@ func (o *Orchestrator) executeGraph(ctx context.Context, w *Workflow) error {
 		// Process any buffered signals before executing node (Temporal-inspired)
 		if o.signalBus != nil {
 			if err := o.signalBus.ProcessSignals(ctx, w); err != nil {
-				log.Printf("[Orchestration] Signal processing error: %v", err)
+				orchestrationLog.Error("Signal processing error", "error", err)
 			}
 		}
 
@@ -2184,7 +2521,7 @@ func (o *Orchestrator) executeGraph(ctx context.Context, w *Workflow) error {
 			o.setWorkflowStatus(w, "failed")
 			// CRITICAL FIX: Run saga compensation on failure (Temporal pattern)
 			if compErr := o.RunCompensation(ctx, w.ID); compErr != nil {
-				log.Printf("[Orchestration] Compensation error: %v", compErr)
+				orchestrationLog.Error("Compensation error", "error", compErr)
 			}
 			report.Finalize("failed", float64(time.Since(startTime).Milliseconds()))
 			w.mu.Lock()
@@ -2274,7 +2611,7 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 				// HIGH: Capture workflow ID before unlock for broadcast after unlock
 				wfID := w.ID
 				w.mu.Unlock()
-				log.Printf("[Orchestration] Cache hit for node %q (key: %s)", node.ID, key[:8])
+				orchestrationLog.Debug("Cache hit for node", "node_id", node.ID, "key", key[:8])
 				// Stream cache hit event (LangGraph streaming pattern)
 				if b := o.GetBroadcaster(); b != nil {
 					b.Broadcast("workflow_node_cached", map[string]any{
@@ -2324,7 +2661,7 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 		w.InterruptPhase = "before"
 		wfID := w.ID
 		w.mu.Unlock()
-		log.Printf("[Orchestration] Interrupt before node %q, workflow paused", node.ID)
+		orchestrationLog.Info("Interrupt before node, workflow paused", "node_id", node.ID)
 		if b := o.GetBroadcaster(); b != nil {
 			b.Broadcast("workflow_status_change", map[string]any{
 				"workflowId":        wfID,
@@ -2346,7 +2683,7 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 		if node.Config != nil {
 			resolvedConfig, err := o.variableStore.ResolveVariablesInMap(workflowID, node.Config)
 			if err != nil {
-				log.Printf("[Orchestration] Warning: variable resolution failed for node %q Config: %v", node.ID, err)
+				orchestrationLog.Warn("Variable resolution failed for node Config", "node_id", node.ID, "error", err)
 			} else {
 				w.mu.Lock()
 				node.Config = resolvedConfig
@@ -2355,6 +2692,196 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 		}
 	}
 
+	// === PER-NODE RETRY (Temporal per-activity retry pattern) ===
+	// Each node can define its own retry policy via Config["retryPolicy"].
+	// This overrides the workflow-level retry for individual activities.
+	nodePolicy := GetNodeRetryPolicy(node)
+	if nodePolicy != nil {
+		var lastErr error
+		for attempt := 0; ; attempt++ {
+			// Reset node state between retry attempts (Temporal pattern)
+			// Without this, failed attempts leave stale Result/ChosenAction
+			if attempt > 0 {
+				w.mu.Lock()
+				node.Result = nil
+				node.ChosenAction = ""
+				w.mu.Unlock()
+			}
+
+			err := o.dispatchNodeExecution(ctx, w, node)
+			if err == nil {
+				break
+			}
+			lastErr = err
+			if !nodePolicy.ShouldRetry(err, attempt) {
+				// Mark node as failed before returning (Bug fix: node left in running state)
+				w.mu.Lock()
+				node.Status = TaskStatusFailed
+				failTime := time.Now()
+				node.CompletedAt = &failTime
+				w.mu.Unlock()
+				// Clear heartbeat on failure
+				o.ClearNodeHeartbeat(w.ID, node.ID)
+				return err
+			}
+			delay := nodePolicy.GetNextDelay(attempt)
+			orchestrationLog.Info("Retrying node (per-node policy)",
+				"node_id", node.ID, "attempt", attempt+1, "delay", delay, "error", err)
+			select {
+			case <-ctx.Done():
+				// Clear heartbeat on context cancellation
+				o.ClearNodeHeartbeat(w.ID, node.ID)
+				// Return descriptive error with context (Bug fix: was bare ctx.Err())
+				return fmt.Errorf("node %q cancelled during retry wait after %d attempts: %w (last error: %v)",
+					node.ID, attempt+1, ctx.Err(), lastErr)
+			case <-time.After(delay):
+			}
+		}
+	} else {
+		if err := o.dispatchNodeExecution(ctx, w, node); err != nil {
+			// Clear heartbeat on single-attempt failure
+			o.ClearNodeHeartbeat(w.ID, node.ID)
+			return err
+		}
+	}
+
+	// Mark complete under workflow lock
+	completeTime := time.Now()
+
+	// === INTERRUPT CHECK: After node execution (LangGraph pattern) ===
+	// Read interrupt flag under lock (ResumeWorkflow writes this under w.mu.Lock)
+	w.mu.RLock()
+	interruptAfter := node.InterruptAfter
+	w.mu.RUnlock()
+	if interruptAfter {
+		w.mu.Lock()
+		w.Status = "paused"
+		w.InterruptedNodeID = node.ID
+		w.InterruptPhase = "after"
+		// Still record completion for this node
+		node.CompletedAt = &completeTime
+		node.Status = TaskStatusCompleted
+		w.execHistory = append(w.execHistory, ExecutionStep{
+			NodeID:    node.ID,
+			Status:    "completed",
+			Timestamp: completeTime,
+			Duration:  float64(completeTime.Sub(now).Milliseconds()),
+		})
+		// Record in saga log so compensation runs for this node if workflow fails after resume
+		w.sagaLog = append(w.sagaLog, SagaRecord{
+			NodeID:    node.ID,
+			Status:    "completed",
+			Result:    node.Result,
+			Completed: completeTime,
+		})
+		wfID := w.ID
+		w.mu.Unlock()
+		orchestrationLog.Info("Interrupt after node, workflow paused", "node_id", node.ID)
+		if b := o.GetBroadcaster(); b != nil {
+			b.Broadcast("workflow_status_change", map[string]any{
+				"workflowId":        wfID,
+				"status":            "paused",
+				"interruptedNodeId": node.ID,
+				"interruptPhase":    "after",
+			})
+		}
+		return NewInterruptError(node.ID, "after")
+	}
+
+	w.mu.Lock()
+	node.CompletedAt = &completeTime
+	node.Status = TaskStatusCompleted
+	w.execHistory = append(w.execHistory, ExecutionStep{
+		NodeID:    node.ID,
+		Status:    "completed",
+		Timestamp: completeTime,
+		Duration:  float64(completeTime.Sub(now).Milliseconds()),
+	})
+	// Record in saga log for potential compensation
+	w.sagaLog = append(w.sagaLog, SagaRecord{
+		NodeID:    node.ID,
+		Status:    "completed",
+		Result:    node.Result,
+		Completed: completeTime,
+	})
+	// Prevent unbounded growth
+	const maxExecHistory = 500
+	if len(w.execHistory) > maxExecHistory {
+		w.execHistory = w.execHistory[len(w.execHistory)-maxExecHistory:]
+	}
+	// Capture result for cache write (read under lock, write outside)
+	nodeResult := node.Result
+	nodeCacheKey := node.Config["cacheKey"]
+	nodeCacheTTL := DefaultCacheTTL
+	if nodeCacheKey != nil {
+		nodeCacheTTL = GetNodeCacheTTL(node)
+	}
+	nodeConfig := node.Config
+	w.mu.Unlock()
+
+	// Store result in cache (Prefect pattern)
+	if nodeCacheKey != nil && nodeCacheTTL >= 0 && nodeResult != nil {
+		var key string
+		if s, ok := nodeCacheKey.(string); ok && s == "auto" {
+			key = ComputeCacheKey(node.ID, nodeConfig)
+		} else {
+			key = ComputeCacheKey(node.ID, nodeCacheKey)
+		}
+		o.resultCache.Set(key, nodeResult, nodeCacheTTL, node.ID)
+	}
+
+	// Clear node heartbeat on completion (Temporal pattern)
+	o.ClearNodeHeartbeat(w.ID, node.ID)
+
+	// Write to state schema if node defines stateOutputs (LangGraph pattern)
+		// stateOutputs maps result keys to state keys, enabling reducer-based merging
+		if w.State != nil && nodeResult != nil && nodeConfig != nil {
+			if stateOutputs, ok := nodeConfig["stateOutputs"].(map[string]any); ok {
+			// If nodeResult is a map, map individual keys to state
+			if resultMap, ok := nodeResult.(map[string]any); ok {
+				for resultKey, stateKeyVal := range stateOutputs {
+					if stateKey, ok := stateKeyVal.(string); ok {
+						if val, exists := resultMap[resultKey]; exists {
+							w.State.Set(stateKey, val)
+						}
+					}
+				}
+			} else {
+				// NodeResult is not a map — write entire result to each state key
+				for _, stateKeyVal := range stateOutputs {
+					if stateKey, ok := stateKeyVal.(string); ok {
+						w.State.Set(stateKey, nodeResult)
+					}
+				}
+			}
+		}
+	}
+
+	// Auto-checkpoint after successful node execution (LangGraph pattern)
+	if o.AutoCheckpoint {
+		o.createCheckpoint(w)
+	}
+
+	// Stream node complete event (LangGraph streaming pattern)
+	if b := o.GetBroadcaster(); b != nil {
+		wfID := w.Snapshot().ID
+		durationMs := float64(time.Since(now).Milliseconds())
+		b.Broadcast("workflow_node_complete", map[string]any{
+			"workflowId": wfID,
+			"nodeId":     node.ID,
+			"nodeName":   node.Name,
+			"nodeType":   node.Type,
+			"durationMs": durationMs,
+			"cached":     nodeCacheKey != nil,
+		})
+	}
+
+	return nil
+}
+
+// dispatchNodeExecution executes the node-type-specific logic.
+// Extracted from executeNode to enable per-node retry wrapping.
+func (o *Orchestrator) dispatchNodeExecution(ctx context.Context, w *Workflow, node *WorkflowNode) error {
 	// Handle subgraph type: recursively execute nested workflow (LangGraph pattern)
 	if node.Type == "subgraph" && node.SubgraphID != "" {
 		subWorkflow := o.GetWorkflow(node.SubgraphID)
@@ -2550,7 +3077,7 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 		if _, hasVars := codeConfig["variables"]; !hasVars && len(vars) > 0 {
 			codeConfig["variables"] = vars
 		}
-		codeResult, err := ExecuteCodeNode(codeConfig)
+		codeResult, err := ExecuteCodeNode(ctx, codeConfig)
 		if err != nil {
 			return fmt.Errorf("code node %q failed: %w", node.ID, err)
 		}
@@ -2580,111 +3107,6 @@ func (o *Orchestrator) executeNode(ctx context.Context, w *Workflow, node *Workf
 			}
 		}
 	}
-
-	// Mark complete under workflow lock
-	completeTime := time.Now()
-
-	// === INTERRUPT CHECK: After node execution (LangGraph pattern) ===
-	// Read interrupt flag under lock (ResumeWorkflow writes this under w.mu.Lock)
-	w.mu.RLock()
-	interruptAfter := node.InterruptAfter
-	w.mu.RUnlock()
-	if interruptAfter {
-		w.mu.Lock()
-		w.Status = "paused"
-		w.InterruptedNodeID = node.ID
-		w.InterruptPhase = "after"
-		// Still record completion for this node
-		node.CompletedAt = &completeTime
-		node.Status = TaskStatusCompleted
-		w.execHistory = append(w.execHistory, ExecutionStep{
-			NodeID:    node.ID,
-			Status:    "completed",
-			Timestamp: completeTime,
-			Duration:  float64(completeTime.Sub(now).Milliseconds()),
-		})
-		// Record in saga log so compensation runs for this node if workflow fails after resume
-		w.sagaLog = append(w.sagaLog, SagaRecord{
-			NodeID:    node.ID,
-			Status:    "completed",
-			Result:    node.Result,
-			Completed: completeTime,
-		})
-		wfID := w.ID
-		w.mu.Unlock()
-		log.Printf("[Orchestration] Interrupt after node %q, workflow paused", node.ID)
-		if b := o.GetBroadcaster(); b != nil {
-			b.Broadcast("workflow_status_change", map[string]any{
-				"workflowId":        wfID,
-				"status":            "paused",
-				"interruptedNodeId": node.ID,
-				"interruptPhase":    "after",
-			})
-		}
-		return NewInterruptError(node.ID, "after")
-	}
-
-	w.mu.Lock()
-	node.CompletedAt = &completeTime
-	node.Status = TaskStatusCompleted
-	w.execHistory = append(w.execHistory, ExecutionStep{
-		NodeID:    node.ID,
-		Status:    "completed",
-		Timestamp: completeTime,
-		Duration:  float64(completeTime.Sub(now).Milliseconds()),
-	})
-	// Record in saga log for potential compensation
-	w.sagaLog = append(w.sagaLog, SagaRecord{
-		NodeID:    node.ID,
-		Status:    "completed",
-		Result:    node.Result,
-		Completed: completeTime,
-	})
-	// Prevent unbounded growth
-	const maxExecHistory = 500
-	if len(w.execHistory) > maxExecHistory {
-		w.execHistory = w.execHistory[len(w.execHistory)-maxExecHistory:]
-	}
-	// Capture result for cache write (read under lock, write outside)
-	nodeResult := node.Result
-	nodeCacheKey := node.Config["cacheKey"]
-	nodeCacheTTL := DefaultCacheTTL
-	if nodeCacheKey != nil {
-		nodeCacheTTL = GetNodeCacheTTL(node)
-	}
-	nodeConfig := node.Config
-	w.mu.Unlock()
-
-	// Store result in cache (Prefect pattern)
-	if nodeCacheKey != nil && nodeCacheTTL >= 0 && nodeResult != nil {
-		var key string
-		if s, ok := nodeCacheKey.(string); ok && s == "auto" {
-			key = ComputeCacheKey(node.ID, nodeConfig)
-		} else {
-			key = ComputeCacheKey(node.ID, nodeCacheKey)
-		}
-		o.resultCache.Set(key, nodeResult, nodeCacheTTL, node.ID)
-	}
-
-	// Auto-checkpoint after successful node execution (LangGraph pattern)
-	if o.AutoCheckpoint {
-		o.createCheckpoint(w)
-	}
-
-	// Stream node complete event (LangGraph streaming pattern)
-	if b := o.GetBroadcaster(); b != nil {
-		wfID := w.Snapshot().ID
-		durationMs := float64(time.Since(now).Milliseconds())
-		b.Broadcast("workflow_node_complete", map[string]any{
-			"workflowId": wfID,
-			"nodeId":     node.ID,
-			"nodeName":   node.Name,
-			"nodeType":   node.Type,
-			"durationMs": durationMs,
-			"cached":     nodeCacheKey != nil,
-		})
-	}
-
 	return nil
 }
 
@@ -2714,7 +3136,7 @@ func (o *Orchestrator) RunCompensation(ctx context.Context, workflowID string) e
 		return nil // Nothing to compensate
 	}
 
-	log.Printf("[Orchestration] Running saga compensation for workflow %q (%d steps to undo)", workflowID, len(sagaLog))
+	orchestrationLog.Info("Running saga compensation", "workflow_id", workflowID, "steps", len(sagaLog))
 
 	// Execute in reverse order (last completed → first completed)
 	compensationErrors := 0
@@ -2728,17 +3150,17 @@ func (o *Orchestrator) RunCompensation(ctx context.Context, workflowID string) e
 		// Check if the node implements Compensatable interface
 		compensatable, ok := record.Result.(Compensatable)
 		if !ok {
-			log.Printf("[Orchestration] Compensation: step %q has no compensator, skipping", record.NodeID)
+			orchestrationLog.Warn("Compensation: step has no compensator, skipping", "node_id", record.NodeID)
 			continue
 		}
 
 		compensatedCount++
 		if err := compensatable.Compensate(ctx, record.Result); err != nil {
-			log.Printf("[Orchestration] Compensation failed for step %q: %v", record.NodeID, err)
+			orchestrationLog.Error("Compensation failed for step", "node_id", record.NodeID, "error", err)
 			record.Status = "compensation_failed"
 			compensationErrors++
 		} else {
-			log.Printf("[Orchestration] Compensation succeeded for step %q", record.NodeID)
+			orchestrationLog.Info("Compensation succeeded for step", "node_id", record.NodeID)
 			record.Status = "compensated"
 		}
 	}
@@ -2963,7 +3385,7 @@ func (o *Orchestrator) ForkFromCheckpoint(checkpointID string, forkName string) 
 		} else {
 			// Node not in checkpoint (added after checkpoint was created)
 			nodeCopy := *n
-			nodeCopy.Status = ""     // Reset to unexecuted
+			nodeCopy.Status = "" // Reset to unexecuted
 			nodeCopy.Result = nil
 			nodeCopy.StartedAt = nil
 			nodeCopy.CompletedAt = nil
@@ -3007,6 +3429,13 @@ func (o *Orchestrator) GetWorkflow(id string) *Workflow {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.workflows[id]
+}
+
+// RunningWorkflows returns the number of currently executing workflows.
+func (o *Orchestrator) RunningWorkflows() int {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.runningWorkflows
 }
 
 // ListWorkflows returns all workflows
@@ -3119,9 +3548,9 @@ func (o *Orchestrator) ResumeWorkflow(ctx context.Context, workflowID string, in
 			}
 			if valid {
 				interruptedNode.ChosenAction = actionID
-				log.Printf("[Orchestration] Action selected: %q for node %q", actionID, interruptedNodeID)
+				orchestrationLog.Info("Action selected for interrupt", "action_id", actionID, "node_id", interruptedNodeID)
 			} else {
-				log.Printf("[Orchestration] Warning: action %q not found in InterruptActions for node %q, ignoring", actionID, interruptedNodeID)
+				orchestrationLog.Warn("Action not found in InterruptActions, ignoring", "action_id", actionID, "node_id", interruptedNodeID)
 			}
 		}
 	}
@@ -3131,7 +3560,7 @@ func (o *Orchestrator) ResumeWorkflow(ctx context.Context, workflowID string, in
 	w.InterruptPhase = ""
 	w.Status = "running"
 
-	log.Printf("[Orchestration] Resuming workflow %q from interrupt at node %q (phase: %s)", workflowID, interruptedNodeID, interruptPhase)
+	orchestrationLog.Info("Resuming workflow from interrupt", "workflow_id", workflowID, "node_id", interruptedNodeID, "phase", interruptPhase)
 
 	// Resume execution in a goroutine (non-blocking).
 	// Derive a new context from the parent to propagate cancellation/deadline.
@@ -3139,14 +3568,14 @@ func (o *Orchestrator) ResumeWorkflow(ctx context.Context, workflowID string, in
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Orchestration] Resume workflow panic for %q: %v", workflowID, r)
+				orchestrationLog.Error("Resume workflow panic", "workflow_id", workflowID, "error", r)
 			}
 			o.wg.Done()
 		}()
 		resumeCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if err := o.executeWorkflow(resumeCtx, w); err != nil {
-			log.Printf("[Orchestration] Resume workflow %q failed: %v", workflowID, err)
+			orchestrationLog.Error("Resume workflow failed", "workflow_id", workflowID, "error", err)
 		}
 	}()
 
@@ -3190,6 +3619,113 @@ func (o *Orchestrator) DeleteWorkflow(id string) {
 	}
 }
 
+// ExportWorkflow exports a workflow as a clean snapshot (JSON).
+// Unlike ToJSON(), this excludes runtime state for safe sharing.
+// Inspired by n8n's workflow export and CrewAI's crew serialization.
+func (o *Orchestrator) ExportWorkflow(id string) ([]byte, error) {
+	o.mu.RLock()
+	w, ok := o.workflows[id]
+	o.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("workflow %s not found", id)
+	}
+	return w.ExportSnapshot()
+}
+
+// ImportWorkflow creates a new workflow from an exported snapshot.
+// The new workflow gets a fresh ID to avoid conflicts.
+func (o *Orchestrator) ImportWorkflow(data []byte, name string) (*Workflow, error) {
+	w, err := ImportSnapshot(data, name)
+	if err != nil {
+		return nil, err
+	}
+
+	o.mu.Lock()
+	o.workflows[w.ID] = w
+	o.mu.Unlock()
+
+	if o.auditLogger != nil {
+		o.auditLogger.Log("api", "system", "import", "workflow", w.ID, map[string]any{
+			"name": name,
+		}, true, "")
+	}
+
+	return w, nil
+}
+
+// WorkflowStatus is a structured view of a workflow's runtime state.
+// Inspired by Temporal's Query API for inspecting running workflow state.
+type WorkflowStatus struct {
+	ID           string           `json:"id"`
+	Name         string           `json:"name"`
+	Mode         string           `json:"mode"`
+	Status       string           `json:"status"`
+	NodeCount    int              `json:"nodeCount"`
+	EdgeCount    int              `json:"edgeCount"`
+	NodeStatuses []NodeStatusView `json:"nodeStatuses"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	UpdatedAt    time.Time        `json:"updatedAt"`
+	Version      int              `json:"version"`
+}
+
+// NodeStatusView is a lightweight view of a node's runtime state.
+type NodeStatusView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"startedAt,omitempty"`
+	CompletedAt string `json:"completedAt,omitempty"`
+}
+
+// GetWorkflowStatus returns a structured status view of a workflow.
+// Unlike GetWorkflow which returns the full mutable object, this returns
+// a clean snapshot suitable for API responses and UI rendering.
+// Inspired by Temporal's Query API pattern.
+func (o *Orchestrator) GetWorkflowStatus(id string) (*WorkflowStatus, error) {
+	o.mu.RLock()
+	w, ok := o.workflows[id]
+	o.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("workflow not found: %s", id)
+	}
+
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	status := &WorkflowStatus{
+		ID:        w.ID,
+		Name:      w.Name,
+		Mode:      string(w.Mode),
+		Status:    w.Status,
+		NodeCount: len(w.Nodes),
+		EdgeCount: len(w.Edges),
+		CreatedAt: w.CreatedAt,
+		UpdatedAt: w.UpdatedAt,
+		Version:   w.Version,
+	}
+
+	status.NodeStatuses = make([]NodeStatusView, len(w.Nodes))
+	for i, n := range w.Nodes {
+		nv := NodeStatusView{
+			ID:     n.ID,
+			Name:   n.Name,
+			Type:   n.Type,
+			Status: string(n.Status),
+		}
+		if n.StartedAt != nil {
+			nv.StartedAt = n.StartedAt.Format(time.RFC3339)
+		}
+		if n.CompletedAt != nil {
+			nv.CompletedAt = n.CompletedAt.Format(time.RFC3339)
+		}
+		status.NodeStatuses[i] = nv
+	}
+
+	return status, nil
+}
+
 // ContinueAsNew resets the execution state of a workflow while preserving its identity.
 // Inspired by Temporal's Continue-As-New pattern: long-running workflows that complete
 // a logical epoch can reset their execution history to prevent unbounded memory growth,
@@ -3220,7 +3756,7 @@ func (o *Orchestrator) ContinueAsNew(ctx context.Context, workflowID string, opt
 		o.mu.Unlock()
 	} else {
 		o.mu.Lock()
-		o.checkpoints[workflowID] = nil
+		delete(o.checkpoints, workflowID)
 		o.mu.Unlock()
 	}
 
@@ -3293,23 +3829,99 @@ type ContinueAsNewOptions struct {
 // DefaultContinueAsNewOptions returns sensible defaults.
 func DefaultContinueAsNewOptions() ContinueAsNewOptions {
 	return ContinueAsNewOptions{
-		ResetNodeResults: true,
+		ResetNodeResults:  true,
 		ResetNodeStatuses: false,
-		KeepCheckpoints:  1,
+		KeepCheckpoints:   1,
 	}
 }
 
 // maxRoundsPerContinueAsNew is the round count divisor for computing run numbers.
 const maxRoundsPerContinueAsNew = 1000
 
-// ToJSON exports workflow as JSON
+// ToJSON exports workflow as JSON (includes runtime state - for debugging)
 func (w *Workflow) ToJSON() ([]byte, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return json.MarshalIndent(w, "", "  ")
 }
 
-// FromJSON imports workflow from JSON
+// ExportSnapshot exports a clean workflow snapshot for sharing/importing.
+// Unlike ToJSON(), this excludes runtime state (execHistory, sagaLog, etc.)
+// Inspired by n8n's workflow export and CrewAI's crew serialization.
+func (w *Workflow) ExportSnapshot() ([]byte, error) {
+	snapshot := w.Snapshot()
+	// Snapshot is already clean - just marshal it
+	return json.MarshalIndent(snapshot, "", "  ")
+}
+
+// ImportSnapshot creates a new workflow from an exported snapshot.
+// Generates a new ID to avoid conflicts with existing workflows.
+func ImportSnapshot(data []byte, name string) (*Workflow, error) {
+	var snapshot WorkflowSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return nil, fmt.Errorf("invalid snapshot format: %w", err)
+	}
+
+	// Validate required fields
+	if len(snapshot.Nodes) == 0 {
+		return nil, fmt.Errorf("snapshot must have at least one node")
+	}
+	for i := range snapshot.Nodes {
+		if snapshot.Nodes[i].ID == "" {
+			return nil, fmt.Errorf("node %d must have an ID", i)
+		}
+	}
+
+	// Create new workflow with fresh ID
+	now := time.Now()
+	w := &Workflow{
+		ID:          fmt.Sprintf("wf-%s", uuid.New().String()[:8]),
+		Name:        name,
+		Description: snapshot.Description,
+		Mode:        snapshot.Mode,
+		Status:      "draft",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Version:     1,
+		Nodes:       make([]*WorkflowNode, len(snapshot.Nodes)),
+		Edges:       make([]*WorkflowEdge, len(snapshot.Edges)),
+		execHistory: make([]ExecutionStep, 0),
+		sagaLog:     make([]SagaRecord, 0),
+	}
+
+	// Deep copy nodes
+	for i := range snapshot.Nodes {
+		n := snapshot.Nodes[i]
+		nodeCopy := n // Copy value
+		if n.Config != nil {
+			if cfg, ok := deepCopyAny(n.Config).(map[string]any); ok {
+				nodeCopy.Config = cfg
+			} else {
+				return nil, fmt.Errorf("node %q config must be a map", n.ID)
+			}
+		}
+		nodeCopy.Status = ""    // Reset status
+		nodeCopy.Result = nil   // Clear results
+		w.Nodes[i] = &nodeCopy
+	}
+
+	// Deep copy edges
+	for i := range snapshot.Edges {
+		e := snapshot.Edges[i]
+		edgeCopy := e // Copy value
+		w.Edges[i] = &edgeCopy
+	}
+
+	// Copy OnComplete if present
+	if len(snapshot.OnComplete) > 0 {
+		w.OnComplete = make([]WorkflowChainLink, len(snapshot.OnComplete))
+		copy(w.OnComplete, snapshot.OnComplete)
+	}
+
+	return w, nil
+}
+
+// FromJSON imports workflow from JSON (legacy compatibility)
 func FromJSON(data []byte) (*Workflow, error) {
 	var w Workflow
 	if err := json.Unmarshal(data, &w); err != nil {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -395,6 +396,7 @@ func TestNewLifecycle(t *testing.T) {
 func TestLifecycleSpawn(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	agent := lifecycle.Spawn("TestAgent", AgentTypeCoder)
 
@@ -419,6 +421,7 @@ func TestLifecycleSpawn(t *testing.T) {
 func TestLifecycleSpawnMultiple(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	agent1 := lifecycle.Spawn("Agent1", AgentTypeCoder)
 	agent2 := lifecycle.Spawn("Agent2", AgentTypeReviewer)
@@ -436,6 +439,7 @@ func TestLifecycleSpawnMultiple(t *testing.T) {
 func TestLifecycleTerminate(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	agent := lifecycle.Spawn("TestAgent", AgentTypeCoder)
 	err := lifecycle.Terminate(context.Background(), agent.ID)
@@ -462,6 +466,7 @@ func TestLifecycleTerminateNonExistent(t *testing.T) {
 func TestLifecycleCallbacks(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	var spawnCalled bool
 	var terminateCalled bool
@@ -678,6 +683,7 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 func TestLifecycleOnStateChange(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	var mu sync.Mutex
 	var stateChangedAgent *Agent
@@ -730,6 +736,7 @@ func TestLifecycleOnStateChange(t *testing.T) {
 func TestLifecycleOnStateChangeMultipleChanges(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	stateChanges := make([]AgentState, 0)
 	var mu sync.Mutex
@@ -765,6 +772,7 @@ func TestLifecycleOnStateChangeMultipleChanges(t *testing.T) {
 func TestLifecycleTerminateCancelsMonitor(t *testing.T) {
 	registry := NewRegistry()
 	lifecycle := NewLifecycle(registry)
+	defer lifecycle.Stop()
 
 	agent := lifecycle.Spawn("TestAgent", AgentTypeCoder)
 
@@ -956,5 +964,132 @@ func TestAgentSetGetConnection(t *testing.T) {
 	conn = agent.GetConnection()
 	if conn != nil {
 		t.Error("expected nil after SetConnection(nil)")
+	}
+}
+
+func TestLifecycleSpawnAfterStop(t *testing.T) {
+	registry := NewRegistry()
+	lifecycle := NewLifecycle(registry)
+
+	// Stop the lifecycle first
+	lifecycle.Stop()
+
+	// Spawn after stop should return nil
+	agent := lifecycle.Spawn("TestAgent", AgentTypeCoder)
+	if agent != nil {
+		t.Error("Spawn should return nil after lifecycle is stopped")
+	}
+
+	// Registry should remain empty
+	if registry.Count() != 0 {
+		t.Errorf("Expected 0 registered agents after stopped Spawn, got %d", registry.Count())
+	}
+}
+
+// setupAgentWithConn creates an Agent with a working InmemTransport-backed connection.
+// Returns the agent, the server handler for customization, and a cleanup function.
+func setupAgentWithConn(t *testing.T) (*Agent, *acp.MockHandler, func()) {
+	t.Helper()
+
+	conn, handler, cleanup := acp.NewTestConnection("test-agent")
+
+	agent := NewAgent("test-agent", AgentTypeCoder)
+	agent.SetConnection(conn)
+
+	return agent, handler, cleanup
+}
+
+func TestAgent_Execute_NilConnection(t *testing.T) {
+	agent := NewAgent("test-agent", AgentTypeCoder)
+
+	_, err := agent.Execute(context.Background(), acp.Prompt{{Type: "text", Text: "test"}})
+	if err != acp.ErrNoConnection {
+		t.Errorf("expected ErrNoConnection, got %v", err)
+	}
+}
+
+func TestAgent_Execute_Success(t *testing.T) {
+	agent, _, cleanup := setupAgentWithConn(t)
+	defer cleanup()
+
+	result, err := agent.Execute(context.Background(), acp.Prompt{
+		{Type: "text", Text: "Hello agent"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+	if result.AgentID != agent.ID {
+		t.Errorf("expected AgentID '%s', got '%s'", agent.ID, result.AgentID)
+	}
+	if result.StopReason != acp.StopEndTurn {
+		t.Errorf("expected StopEndTurn, got '%s'", result.StopReason)
+	}
+
+	// Verify state transitions: Idle → Thinking → Idle
+	if agent.GetState() != StateIdle {
+		t.Errorf("expected StateIdle after Execute, got %s", agent.GetState())
+	}
+}
+
+func TestAgent_Execute_StateTransitions(t *testing.T) {
+	agent, _, cleanup := setupAgentWithConn(t)
+	defer cleanup()
+
+	if agent.GetState() != StateIdle {
+		t.Fatalf("expected initial StateIdle, got %s", agent.GetState())
+	}
+
+	_, err := agent.Execute(context.Background(), acp.Prompt{
+		{Type: "text", Text: "test"},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Execute sets Thinking on entry and defers back to Idle.
+	// Verify the agent returned to Idle after completion.
+	if agent.GetState() != StateIdle {
+		t.Errorf("expected StateIdle after Execute, got %s", agent.GetState())
+	}
+}
+
+func TestAgent_Execute_WithContextCancellation(t *testing.T) {
+	agent, _, cleanup := setupAgentWithConn(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := agent.Execute(ctx, acp.Prompt{{Type: "text", Text: "test"}})
+	if err == nil {
+		t.Error("expected error when context is cancelled")
+	}
+}
+
+func TestAgent_Execute_ServerError(t *testing.T) {
+	agent, handler, cleanup := setupAgentWithConn(t)
+	defer cleanup()
+
+	// Make SessionPrompt fail
+	handler.SessionPromptFunc = func(ctx context.Context, params *acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
+		return nil, fmt.Errorf("agent overloaded")
+	}
+
+	// Pre-create a session so Execute doesn't try CreateSession first
+	conn := agent.GetConnection()
+	if conn == nil {
+		t.Fatal("agent should have a connection")
+	}
+	_, err := conn.CreateSession(context.Background(), acp.ModeDefault)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err = agent.Execute(context.Background(), acp.Prompt{{Type: "text", Text: "test"}})
+	if err == nil {
+		t.Error("expected error when server SessionPrompt fails")
 	}
 }

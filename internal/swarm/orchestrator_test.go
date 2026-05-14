@@ -1639,7 +1639,7 @@ func TestResolveSpeakerSelector_Default(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 	})
 
@@ -1658,7 +1658,7 @@ func TestResolveSpeakerSelector_Random(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "random",
@@ -1679,7 +1679,7 @@ func TestResolveSpeakerSelector_Auto_WithCustomFunc(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "auto",
@@ -1708,7 +1708,7 @@ func TestResolveSpeakerSelector_Auto_WithoutCustomFunc(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "auto",
@@ -1730,14 +1730,14 @@ func TestResolveSpeakerSelector_Manual_WithSignal(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "manual",
 		},
 	})
 	w.AddNode(&WorkflowNode{
-		ID:     "node-2",
+		ID:      "node-2",
 		AgentID: "agent-2",
 	})
 
@@ -1771,7 +1771,7 @@ func TestResolveSpeakerSelector_Manual_NoSignal(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "manual",
@@ -1794,7 +1794,7 @@ func TestResolveSpeakerSelector_Manual_UnknownAgent(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "manual",
@@ -1818,7 +1818,7 @@ func TestResolveSpeakerSelector_Manual_SignalNotString(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "manual",
@@ -1843,7 +1843,7 @@ func TestResolveSpeakerSelector_UnknownPolicy(t *testing.T) {
 	o := NewOrchestrator(nil)
 	w := o.CreateWorkflow("test", ModeGroupChat)
 	w.AddNode(&WorkflowNode{
-		ID:     "node-1",
+		ID:      "node-1",
 		AgentID: "agent-1",
 		Config: map[string]any{
 			"speaker_policy": "unknown_policy",

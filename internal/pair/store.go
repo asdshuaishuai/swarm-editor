@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +15,10 @@ import (
 
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
+	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var pairStoreLog = log.With("component", "PairStore")
 
 // validSessionIDRegex validates session IDs to prevent path traversal
 // Allows alphanumeric, dash, underscore, and dot (for timestamp-based IDs)
@@ -34,6 +36,55 @@ func validateSessionID(id string) error {
 		return fmt.Errorf("session ID contains invalid characters (only alphanumeric, dash, and underscore allowed)")
 	}
 	return nil
+}
+
+// copyStoredSession creates a deep copy of a StoredSession for safe read-only access.
+// This prevents callers from mutating internal state.
+func copyStoredSession(s *StoredSession) *StoredSession {
+	if s == nil {
+		return nil
+	}
+
+	cp := &StoredSession{
+		ID:          s.ID,
+		SessionID:   s.SessionID,
+		DriverID:    s.DriverID,
+		NavigatorID: s.NavigatorID,
+		State:       s.State,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
+		SwitchCount: s.SwitchCount,
+		CurrentFile: s.CurrentFile,
+		CursorPos:   s.CursorPos,
+		Selection:   s.Selection,
+	}
+
+	// Deep copy slices
+	if s.TurnHistory != nil {
+		cp.TurnHistory = make([]Turn, len(s.TurnHistory))
+		copy(cp.TurnHistory, s.TurnHistory)
+	}
+	if s.Edits != nil {
+		cp.Edits = make([]CodeEdit, len(s.Edits))
+		copy(cp.Edits, s.Edits)
+	}
+	if s.Messages != nil {
+		cp.Messages = make([]PairMessage, len(s.Messages))
+		copy(cp.Messages, s.Messages)
+	}
+	if s.Suggestions != nil {
+		cp.Suggestions = make([]Suggestion, len(s.Suggestions))
+		copy(cp.Suggestions, s.Suggestions)
+	}
+	// Deep copy Metadata map
+	if s.Metadata != nil {
+		cp.Metadata = make(map[string]any, len(s.Metadata))
+		for k, v := range s.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+
+	return cp
 }
 
 // Store manages session persistence
@@ -87,7 +138,7 @@ func NewStore(basePath string) (*Store, error) {
 	// Load existing sessions
 	if err := store.loadAll(); err != nil {
 		// Non-fatal: just start with empty store
-		log.Printf("Warning: failed to load existing sessions: %v", err)
+		pairStoreLog.Warn("Failed to load existing sessions", "error", err)
 	}
 
 	return store, nil
@@ -130,7 +181,7 @@ func (s *Store) Save(session *PairSession) error {
 	return s.saveToDisk(stored)
 }
 
-// Load loads a session by ID
+// Load loads a session by ID. Returns a copy to prevent mutation of internal state.
 func (s *Store) Load(id string) (*StoredSession, error) {
 	if err := validateSessionID(id); err != nil {
 		return nil, fmt.Errorf("invalid session ID: %w", err)
@@ -144,7 +195,7 @@ func (s *Store) Load(id string) (*StoredSession, error) {
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
 
-	return session, nil
+	return copyStoredSession(session), nil
 }
 
 // Delete removes a session
@@ -180,7 +231,7 @@ func (s *Store) List() []string {
 	return ids
 }
 
-// ListByState returns sessions in a specific state
+// ListByState returns sessions in a specific state. Returns copies to prevent mutation.
 func (s *Store) ListByState(state string) []*StoredSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -188,21 +239,21 @@ func (s *Store) ListByState(state string) []*StoredSession {
 	var result []*StoredSession
 	for _, session := range s.sessions {
 		if session.State == state {
-			result = append(result, session)
+			result = append(result, copyStoredSession(session))
 		}
 	}
 	return result
 }
 
-// ListRecent returns the most recent N sessions
+// ListRecent returns the most recent N sessions. Returns copies to prevent mutation.
 func (s *Store) ListRecent(limit int) []*StoredSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Collect all sessions
+	// Collect all sessions (as copies)
 	sessions := make([]*StoredSession, 0, len(s.sessions))
 	for _, session := range s.sessions {
-		sessions = append(sessions, session)
+		sessions = append(sessions, copyStoredSession(session))
 	}
 
 	// Sort by updated time (most recent first) using efficient sort
@@ -328,7 +379,7 @@ func (s *Store) loadAll() error {
 
 		// Validate session ID to prevent path traversal from crafted files
 		if err := validateSessionID(session.ID); err != nil {
-			log.Printf("Warning: skipping session with invalid ID from file %s: %v", entry.Name(), err)
+			pairStoreLog.Warn("Skipping session with invalid ID", "file", entry.Name(), "error", err)
 			continue
 		}
 
@@ -347,7 +398,7 @@ func (s *Store) sessionPath(id string) string {
 func (s *Store) Export(id string) ([]byte, error) {
 	session, err := s.Load(id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load session %q: %w", id, err)
 	}
 
 	return json.MarshalIndent(session, "", "  ")
@@ -377,7 +428,7 @@ func (s *Store) Import(data []byte) (*StoredSession, error) {
 	s.mu.Unlock()
 
 	if err := s.saveToDisk(&session); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("save session %q: %w", session.ID, err)
 	}
 
 	return &session, nil
@@ -391,7 +442,7 @@ func (s *Store) Restore(id string, driver, navigator *agent.Agent) (*PairSession
 
 	stored, err := s.Load(id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load session %q: %w", id, err)
 	}
 
 	session := &PairSession{

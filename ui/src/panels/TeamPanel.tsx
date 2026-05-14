@@ -226,6 +226,7 @@ export default function TeamPanel() {
                   value={newTeamName}
                   onChange={(e) => setNewTeamName(e.target.value)}
                   className="w-full input-mac"
+                  autoFocus
                   placeholder="My Team"
                 />
               </div>
@@ -275,6 +276,16 @@ function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
         onClick={() => {
           onSelect()
           setExpanded(!expanded)
+        }}
+        aria-expanded={expanded}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect()
+            setExpanded(!expanded)
+          }
         }}
       >
         <div className="flex items-center justify-between mb-2">

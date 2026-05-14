@@ -436,12 +436,12 @@ func TestIsEmptyValue(t *testing.T) {
 	}{
 		{nil, true},
 		{"", true},
-		{0, true},          // 0 (int) is considered empty by design
-		{0.0, true},        // 0.0 (float64) is considered empty by design
-		{int64(0), false},  // int64 is NOT handled by switch, falls through to default
-		{false, true},      // false is considered empty by design (!v)
-		{1, false},         // non-zero int is not empty
-		{true, false},      // true is not empty
+		{0, true},         // 0 (int) is considered empty by design
+		{0.0, true},       // 0.0 (float64) is considered empty by design
+		{int64(0), false}, // int64 is NOT handled by switch, falls through to default
+		{false, true},     // false is considered empty by design (!v)
+		{1, false},        // non-zero int is not empty
+		{true, false},     // true is not empty
 		{[]any{}, true},
 		{[]any{1}, false},
 		{map[string]any{}, true},

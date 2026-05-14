@@ -97,7 +97,7 @@ function ConsolePanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Output Area */}
-      <div ref={outputRef} className="flex-1 overflow-y-auto font-mono text-xs p-2 space-y-0.5 bg-[#0a0a0b]">
+      <div ref={outputRef} role="log" aria-live="polite" aria-label="Console output" className="flex-1 overflow-y-auto font-mono text-xs p-2 space-y-0.5 bg-[#0a0a0b]">
         {entries.length === 0 ? (
           <div className="text-slate-600 text-center py-4">
             Console output will appear here
@@ -146,10 +146,12 @@ export function BottomTabPanel({ defaultTab = 'agents', height = 200 }: BottomTa
       style={{ height }}
     >
       {/* Tab Bar */}
-      <div className="flex items-center bg-[#0a0a0b] border-b border-[#1f1f21]">
+      <div className="flex items-center bg-[#0a0a0b] border-b border-[#1f1f21]" role="tablist" aria-label="Bottom panel tabs">
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
               activeTab === tab.id
