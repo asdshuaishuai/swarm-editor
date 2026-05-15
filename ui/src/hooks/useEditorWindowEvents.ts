@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { editor } from 'monaco-editor'
 import { useWindowEvent } from './useWindowEvent'
 import { api } from '../services'
@@ -60,6 +61,10 @@ export function useEditorWindowEvents(options: UseEditorWindowEventsOptions) {
     fileContents, addToast,
   } = options
 
+  // Keep a ref to latest fileContents to avoid re-registering ws-reconnect on every keystroke
+  const fileContentsRef = useRef(fileContents)
+  useEffect(() => { fileContentsRef.current = fileContents }, [fileContents])
+
   useWindowEvent('close-all-tabs', handleCloseAllTabs, [handleCloseAllTabs])
   useWindowEvent('toggle-sidebar', () => { setShowFileTree(prev => !prev) }, [])
   useWindowEvent('close-current-tab', () => {
@@ -80,7 +85,7 @@ export function useEditorWindowEvents(options: UseEditorWindowEventsOptions) {
   useWindowEvent('ws-reconnect', () => {
     lspIncrementalRef.current = false
     secondaryLspIncrementalRef.current = false
-    const files = fileContents
+    const files = fileContentsRef.current
     if (lspOpenFileRef.current && files.has(lspOpenFileRef.current)) {
       const ext = lspOpenFileRef.current.split('.').pop()?.toLowerCase() || ''
       const lang = LSP_LANG_MAP[ext] || 'plaintext'
@@ -93,7 +98,7 @@ export function useEditorWindowEvents(options: UseEditorWindowEventsOptions) {
     }
     setTimeout(() => fetchDiagnostics(), 500)
     setTimeout(() => fetchSecondaryDiagnostics(), 500)
-  }, [fileContents])
+  }, [])
 
   // Warn before closing browser tab with unsaved changes
   useWindowEvent('beforeunload', (e: BeforeUnloadEvent) => {

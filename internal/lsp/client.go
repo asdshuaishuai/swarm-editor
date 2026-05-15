@@ -1840,6 +1840,8 @@ func (c *Client) request(ctx context.Context, method string, params any) (any, e
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
+		// Notify LSP server to stop processing this timed-out request
+		c.notify("$/cancelRequest", map[string]any{"id": id})
 		return nil, ErrRequestTimeout
 	case <-ctx.Done():
 		c.mu.Lock()

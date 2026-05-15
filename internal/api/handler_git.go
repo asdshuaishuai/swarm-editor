@@ -403,7 +403,7 @@ func (h *CommandHandler) handleGitBranchCreate(ctx context.Context, params json.
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create branch: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("failed to create branch: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"branch": req.Name, "checkout": req.Checkout}, nil
@@ -427,7 +427,7 @@ func (h *CommandHandler) handleGitBranchCheckout(ctx context.Context, params jso
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to checkout branch: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("failed to checkout branch: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"branch": req.Name}, nil
@@ -465,7 +465,7 @@ func (h *CommandHandler) handleGitPush(ctx context.Context, params json.RawMessa
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("push failed: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("push failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil
@@ -497,7 +497,7 @@ func (h *CommandHandler) handleGitPull(ctx context.Context, params json.RawMessa
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("pull failed: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("pull failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil
@@ -512,7 +512,7 @@ func (h *CommandHandler) handleGitStash(ctx context.Context, params json.RawMess
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("stash failed: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("stash failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil
@@ -527,7 +527,7 @@ func (h *CommandHandler) handleGitStashPop(ctx context.Context, params json.RawM
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("stash pop failed: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("stash pop failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil
@@ -542,7 +542,7 @@ func (h *CommandHandler) handleGitUndoCommit(ctx context.Context, params json.Ra
 	cmd.Dir = h.server.workspacePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("undo commit failed: %s", strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("undo commit failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil

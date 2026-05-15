@@ -782,7 +782,7 @@ func toFileURI(filename string) string {
 			filename = abs
 		}
 	}
-	return "file://" + filename
+	return "file://" + filepath.ToSlash(filename)
 }
 
 // FileURI converts a workspace-relative file path to a file:// URI.
@@ -791,7 +791,7 @@ func FileURI(workspacePath, relPath string) string {
 	if !filepath.IsAbs(absPath) {
 		absPath, _ = filepath.Abs(absPath)
 	}
-	return "file://" + absPath
+	return "file://" + filepath.ToSlash(absPath)
 }
 
 // Close stops all LSP servers.
