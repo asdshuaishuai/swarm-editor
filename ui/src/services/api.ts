@@ -262,6 +262,10 @@ export const agentApi = {
     return { ...result, sessionId: result.id, agentName: '' }
   },
 
+  async getSessions(): Promise<SessionInfo[]> {
+    return getClient().invoke<SessionInfo[]>('get_sessions')
+  },
+
   async sendMessage(sessionId: string, message: string): Promise<{ sessionId: string; stopReason: string; content?: string }> {
     await getClient().invoke<{ status: string; timestamp: string }>('send_message', { sessionId, message })
     return { sessionId, stopReason: 'complete', content: '' }
@@ -1132,6 +1136,7 @@ export const api = {
   automations: automationApi,
   artifacts: artifactApi,
   variables: variableApi,
+  instructions: instructionsApi,
   events,
 }
 
