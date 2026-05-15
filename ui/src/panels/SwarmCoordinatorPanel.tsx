@@ -18,6 +18,7 @@ import {
 import type { CoordinationTask } from '../types'
 import { api } from '../services'
 import { logger } from '../utils'
+import { getWebSocketClient } from '../services/websocket'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 
 interface SwarmCoordinatorPanelProps {
@@ -76,56 +77,19 @@ export default function SwarmCoordinatorPanel({
     }
   }, [])
 
-  // Simulated task updates
+  // Real task updates via WebSocket
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Simulate task progress updates
-      setTasks((prev) =>
-        prev.map((t) => {
-          if (t.status === 'running') {
-            // Auto-complete if already at 100%
-            if (t.progress >= 1) {
-              return {
-                ...t,
-                status: 'completed' as const,
-                results: {
-                  'default-agent': {
-                    agentId: 'default-agent',
-                    content: `Task "${t.title}" completed successfully.`,
-                    startedAt: new Date(Date.now() - 10000).toISOString(),
-                    completedAt: new Date().toISOString(),
-                    duration: 10000,
-                  },
-                },
-              }
-            }
-            // Increment progress
-            const newProgress = Math.min(t.progress + 0.1, 1)
-            // Auto-complete when progress reaches 100%
-            if (newProgress >= 1) {
-              return {
-                ...t,
-                progress: 1,
-                status: 'completed' as const,
-                results: {
-                  'default-agent': {
-                    agentId: 'default-agent',
-                    content: `Task "${t.title}" completed successfully.`,
-                    startedAt: new Date(Date.now() - 10000).toISOString(),
-                    completedAt: new Date().toISOString(),
-                    duration: 10000,
-                  },
-                },
-              }
-            }
-            return { ...t, progress: newProgress }
-          }
-          return t
-        })
-      )
-    }, 1000)
-
-    return () => clearInterval(interval)
+    const ws = getWebSocketClient()
+    const unsub = ws.subscribe('swarm_task_update', (data: unknown) => {
+      if (!mountedRef.current) return
+      const update = data as { taskId: string; status: string; progress?: number }
+      setTasks(prev => prev.map(t =>
+        t.id === update.taskId
+          ? { ...t, status: update.status as CoordinationTask['status'], progress: update.progress ?? t.progress }
+          : t
+      ))
+    })
+    return () => unsub()
   }, [])
 
   const handleSubmitTask = useCallback(async () => {
