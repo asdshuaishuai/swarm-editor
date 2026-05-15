@@ -454,14 +454,17 @@ func (c *Client) OnNotification(method string, handler func(params json.RawMessa
 }
 
 // Completion sends a textDocument/completion request.
-func (c *Client) Completion(ctx context.Context, uri string, line, column int) ([]map[string]any, error) {
+func (c *Client) Completion(ctx context.Context, uri string, line, column int, triggerKind int, triggerChar string) ([]map[string]any, error) {
+	context := map[string]any{
+		"triggerKind": triggerKind,
+	}
+	if triggerKind == 2 && triggerChar != "" {
+		context["triggerCharacter"] = triggerChar
+	}
 	params := map[string]any{
 		"textDocument": map[string]any{"uri": uri},
 		"position":     map[string]any{"line": line, "character": column},
-		"context": map[string]any{
-			"triggerKind":     2,  // TriggerCharacter
-			"triggerCharacter": ".",
-		},
+		"context":      context,
 	}
 
 	result, err := c.request(ctx, "textDocument/completion", params)
@@ -822,7 +825,7 @@ func (c *Client) OnTypeFormatting(ctx context.Context, uri string, line, column 
 	params := map[string]any{
 		"textDocument": map[string]any{"uri": uri},
 		"position":     map[string]any{"line": line, "character": column},
-		"ch":           map[string]any{"character": triggerChar},
+		"ch":           triggerChar,
 		"options":       opts,
 	}
 
@@ -2232,29 +2235,26 @@ func parseWorkspaceEditFromChanges(items []any) *WorkspaceEdit {
 
 func parseWorkspaceEdit(m map[string]any) *WorkspaceEdit {
 	we := &WorkspaceEdit{}
-	if changes, ok := m["changes"].([]any); ok {
-		for _, c := range changes {
-			cm, ok := c.(map[string]any)
+	// LSP spec: changes is { [uri: string]: TextEdit[] } (map, not array)
+	if changesMap, ok := m["changes"].(map[string]any); ok {
+		for uri, editsRaw := range changesMap {
+			editsArr, ok := editsRaw.([]any)
 			if !ok {
 				continue
 			}
-			tde := TextDocumentEdit{
-				URI: stringValue(cm, "uri"),
-			}
-			if edits, ok := cm["edits"].([]any); ok {
-				for _, e := range edits {
-					em, ok := e.(map[string]any)
-					if !ok {
-						continue
-					}
-					te := TextEdit{
-						NewText: stringValue(em, "newText"),
-					}
-					if r, ok := em["range"].(map[string]any); ok {
-						te.Range = parseRange(r)
-					}
-					tde.Edits = append(tde.Edits, te)
+			tde := TextDocumentEdit{URI: uri}
+			for _, e := range editsArr {
+				em, ok := e.(map[string]any)
+				if !ok {
+					continue
 				}
+				te := TextEdit{
+					NewText: stringValue(em, "newText"),
+				}
+				if r, ok := em["range"].(map[string]any); ok {
+					te.Range = parseRange(r)
+				}
+				tde.Edits = append(tde.Edits, te)
 			}
 			we.Changes = append(we.Changes, tde)
 		}

@@ -763,10 +763,12 @@ func (h *CommandHandler) handleLSPDiagnostics(_ context.Context, params json.Raw
 
 func (h *CommandHandler) handleLSPCompletion(ctx context.Context, params json.RawMessage) (any, error) {
 	var req struct {
-		URI    string `json:"uri"`
-		File   string `json:"file"`
-		Line   int    `json:"line"`
-		Column int    `json:"column"`
+		URI             string `json:"uri"`
+		File            string `json:"file"`
+		Line            int    `json:"line"`
+		Column          int    `json:"column"`
+		TriggerKind     int    `json:"triggerKind"`
+		TriggerCharacter string `json:"triggerCharacter"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, safeUnmarshalError(err)
@@ -785,7 +787,13 @@ func (h *CommandHandler) handleLSPCompletion(ctx context.Context, params json.Ra
 		uri = lsp.FileURI(h.server.workspacePath, req.File)
 	}
 
-	items, err := mgr.Completion(ctx, uri, req.File, req.Line, req.Column)
+	// Default to Invoked (1) if not specified
+	triggerKind := req.TriggerKind
+	if triggerKind == 0 {
+		triggerKind = 1
+	}
+
+	items, err := mgr.Completion(ctx, uri, req.File, req.Line, req.Column, triggerKind, req.TriggerCharacter)
 	if err != nil {
 		return nil, safeError("completion failed", err)
 	}

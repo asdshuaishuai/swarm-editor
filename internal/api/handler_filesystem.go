@@ -154,7 +154,7 @@ func (h *CommandHandler) handleSearchFiles(ctx context.Context, params json.RawM
 		return nil
 	})
 
-	if err != nil && err != io.EOF && ctx.Err() != nil {
+	if err != nil && err != io.EOF {
 		return nil, safeError("file search failed", err)
 	}
 
@@ -359,7 +359,7 @@ func (h *CommandHandler) handleSearchContent(ctx context.Context, params json.Ra
 		return nil
 	})
 
-	if err != nil && err != io.EOF && ctx.Err() != nil {
+	if err != nil && err != io.EOF {
 		return nil, safeError("content search failed", err)
 	}
 
@@ -566,7 +566,7 @@ func (h *CommandHandler) handleReplaceContent(ctx context.Context, params json.R
 		return nil
 	})
 
-	if err != nil && err != io.EOF && ctx.Err() != nil {
+	if err != nil && err != io.EOF {
 		return nil, safeError("replace failed", err)
 	}
 

@@ -56,9 +56,11 @@ export const lspApi = {
     file: string,
     line: number,
     column: number,
-    uri?: string
+    uri?: string,
+    triggerKind?: number,
+    triggerCharacter?: string
   ): Promise<{ items: CompletionItem[] }> {
-    return getClient().invoke('lsp_completion', { file, line, column, uri })
+    return getClient().invoke('lsp_completion', { file, line, column, uri, triggerKind, triggerCharacter })
   },
 
   async hover(

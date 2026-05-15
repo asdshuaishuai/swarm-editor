@@ -216,7 +216,7 @@ func TestManagerUnknownLanguage(t *testing.T) {
 		t.Error("expected error for unknown language")
 	}
 
-	_, err = m.Completion(context.Background(), "file:///readme.md", "readme.md", 0, 0)
+	_, err = m.Completion(context.Background(), "file:///readme.md", "readme.md", 0, 0, 1, "")
 	if err == nil {
 		t.Error("expected error for unknown language")
 	}

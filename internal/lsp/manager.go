@@ -249,7 +249,7 @@ func (m *Manager) GetClient(ctx context.Context, filename string) (*Client, erro
 
 // Completion requests completions for a file at a position.
 // Note: Caller must ensure DidOpen was called before this; we don't re-open here.
-func (m *Manager) Completion(ctx context.Context, uri, filename string, line, column int) ([]map[string]any, error) {
+func (m *Manager) Completion(ctx context.Context, uri, filename string, line, column, triggerKind int, triggerChar string) ([]map[string]any, error) {
 	client, err := m.GetClient(ctx, filename)
 	if err != nil {
 		return nil, err
@@ -259,7 +259,7 @@ func (m *Manager) Completion(ctx context.Context, uri, filename string, line, co
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	return client.Completion(ctx, uri, line, column)
+	return client.Completion(ctx, uri, line, column, triggerKind, triggerChar)
 }
 
 // Hover requests hover information for a file at a position.

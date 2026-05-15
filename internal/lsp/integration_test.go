@@ -104,7 +104,7 @@ func main() {
 		compCtx, compCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer compCancel()
 
-		items, err := client.Completion(compCtx, uri, 9, 8) // "fmt.P" -> should suggest Println or other fmt functions
+		items, err := client.Completion(compCtx, uri, 9, 8, 1, "") // "fmt.P" -> Invoked (triggerKind 1)
 		if err != nil {
 			t.Fatalf("Completion failed: %v", err)
 		}
@@ -245,7 +245,7 @@ func main() {
 		// Verify completion still works
 		compCtx, compCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer compCancel()
-		items, err := client.Completion(compCtx, uri, 9, 5)
+		items, err := client.Completion(compCtx, uri, 9, 5, 1, "")
 		if err != nil {
 			t.Fatalf("Completion after incremental changes failed: %v", err)
 		}
@@ -533,7 +533,7 @@ func main() {
 	defer compCancel()
 
 	// Line 5 (0-indexed): "\tfmt.Println()" — complete after "fmt."
-	items, err := mgr.Completion(compCtx, uri, "test.go", 5, 5)
+	items, err := mgr.Completion(compCtx, uri, "test.go", 5, 5, 1, "")
 	if err != nil {
 		t.Fatalf("Manager completion failed: %v", err)
 	}

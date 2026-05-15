@@ -4,15 +4,12 @@ import type { editor } from 'monaco-editor'
 import { useAppStore } from '../store/appStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import { useSplitPaneStore } from '../stores/splitPaneStore'
-import { useSettings } from '../hooks/useSettings'
-import { useTheme } from '../hooks/useTheme'
 import { useWindowEvent } from '../hooks/useWindowEvent'
 import { useEditorSettingsEvents } from '../hooks/useEditorSettingsEvents'
 import { useCommandPaletteEvents } from '../hooks/useCommandPaletteEvents'
 import { useDiagnostics } from '../hooks/useDiagnostics'
 import { useGitDiffDecorations } from '../hooks/useGitDiffDecorations'
 import { FileEntry, GitFileStatus } from '../services'
-import { lspApi } from '../services/lspApi'
 import BottomPanel from './BottomPanel'
 import ExplorerPanel from './ExplorerPanel'
 import { TabBar } from '../components/TabBar'
@@ -31,17 +28,13 @@ import DiffEditorPanel from '../components/DiffEditorPanel'
 import SourceControlPanel from '../components/SourceControlPanel'
 import { OutlinePanel } from '../components/OutlinePanel'
 import { gitDiffApi } from '../services/api'
-import { useMenuKeyboardNav } from '../hooks/useMenuKeyboardNav'
-import { registerSwarmTheme, getMonacoTheme } from '../theme/monacoTheme'
+import { getMonacoTheme } from '../theme/monacoTheme'
 import { LSP_LANG_MAP, buildEditorOptions } from '../utils/monaco'
-import { registerLSPProviders } from '../utils/monacoLSP'
+import { createEditorMountHandler } from '../utils/monacoEditorMountFactory'
 import { createEditorChangeHandler } from '../utils/monacoEditorChange'
-import { handleSaveForEditor, saveFileByPath } from '../utils/editorSave'
-import { registerCommonEditorCommands } from '../utils/monacoCommonCommands'
 import { findSymbolPath } from '../utils/monacoSymbols'
 import { navigateProblem as navigateProblemUtil } from '../utils/navigateProblem'
 import { executeWithAgent as executeWithAgentUtil } from '../utils/executeWithAgent'
-import { registerSecondaryContentChangeListener } from '../utils/monacoEditorMount'
 import { loadFile as loadFileUtil } from '../utils/loadFile'
 import { useWorkspaceInit } from '../hooks/useWorkspaceInit'
 import { autoSaveDirtyFiles, saveSingleFile } from '../utils/tabCloseActions'
@@ -50,17 +43,27 @@ import { createTabCloseHandlers } from '../utils/tabCloseHandlers'
 import { useFileWatcher } from '../hooks/useFileWatcher'
 import { useGitStatus } from '../hooks/useGitStatus'
 import { useEditorUIState } from '../hooks/useEditorUIState'
+import { useEditorRefs } from '../hooks/useEditorRefs'
 import { useEditorWindowEvents } from '../hooks/useEditorWindowEvents'
 import { usePaneModelSync } from '../hooks/usePaneModelSync'
 import { useSearchParamNavigation } from '../hooks/useSearchParamNavigation'
+import { useEditorStores } from '../hooks/useEditorStores'
+import { useEditorCallbacks } from '../hooks/useEditorCallbacks'
+import { useEditorCleanup } from '../hooks/useEditorCleanup'
+import { useEditorSaveHandlers } from '../hooks/useEditorSaveHandlers'
+import { useTabContextMenu } from '../hooks/useTabContextMenu'
 
 export default function EditorPanel() {
-  const swarms = useAppStore(state => state.swarms)
-  const addToast = useAppStore(state => state.addToast)
-  const updateFileProblems = useAppStore(state => state.updateFileProblems)
-  const workspaceProblems = useAppStore(state => state.workspaceProblems)
-  const { settings, updateSetting } = useSettings()
-  const { effectiveTheme } = useTheme()
+  // All store selectors consolidated (app, workspace, splitPane, settings, theme)
+  const {
+    swarms, addToast, updateFileProblems, workspaceProblems,
+    settings, updateSetting, effectiveTheme, cursorPosition,
+    openFiles, currentFile, fileContents, dirtyFiles, pinnedFiles,
+    previewTab, wsLanguage, openFileFromStore, closeFile,
+    closeAllFiles, closeOthers, closeToLeft, closeToRight, closeSaved,
+    reorderFiles, undoCloseFile, togglePin, updateFileContent, clearDirty, setLanguage,
+    splitDirection, activePaneId, setActivePane, toggleSplit, closeSplit, paneFiles, setPaneFile,
+  } = useEditorStores()
 
   // R5169: Ref for inlayHints setting (avoid stale closure in Monaco provider)
   const inlayHintsRef = useRef(settings.inlayHints)
@@ -93,51 +96,6 @@ export default function EditorPanel() {
   // P1 fix: Separate symbols per pane (was sharing between main/secondary)
   const [documentSymbols, setDocumentSymbols] = useState<any[]>([])
   const [secondaryDocumentSymbols, setSecondaryDocumentSymbols] = useState<any[]>([])
-  const cursorPosition = useAppStore(state => state.editorCursorPosition)
-
-  // workspaceStore — multi-file tabs
-  const openFiles = useWorkspaceStore(state => state.openFiles)
-  const currentFile = useWorkspaceStore(state => state.currentFile)
-  const fileContents = useWorkspaceStore(state => state.fileContents)
-  const dirtyFiles = useWorkspaceStore(state => state.dirtyFiles)
-  const pinnedFiles = useWorkspaceStore(state => state.pinnedFiles)
-  const previewTab = useWorkspaceStore(state => state.previewTab)
-  const wsLanguage = useWorkspaceStore(state => state.language)
-  const openFileFromStore = useWorkspaceStore(state => state.openFile)
-  const closeFile = useWorkspaceStore(state => state.closeFile)
-  const closeAllFiles = useWorkspaceStore(state => state.closeAllFiles)
-  const closeOthers = useWorkspaceStore(state => state.closeOthers)
-  const closeToLeft = useWorkspaceStore(state => state.closeToLeft)
-  const closeToRight = useWorkspaceStore(state => state.closeToRight)
-  const closeSaved = useWorkspaceStore(state => state.closeSaved)
-  const reorderFiles = useWorkspaceStore(state => state.reorderFiles)
-  const undoCloseFile = useWorkspaceStore(state => state.undoCloseFile)
-  const togglePin = useWorkspaceStore(state => state.togglePin)
-
-  // splitPaneStore — split editor state
-  const splitDirection = useSplitPaneStore(s => s.splitDirection)
-  const activePaneId = useSplitPaneStore(s => s.activePaneId)
-  const setActivePane = useSplitPaneStore(s => s.setActivePane)
-  const toggleSplit = useSplitPaneStore(s => s.toggleSplit)
-  const closeSplit = useSplitPaneStore(s => s.closeSplit)
-  const paneFiles = useSplitPaneStore(s => s.paneFiles)
-  const setPaneFile = useSplitPaneStore(s => s.setPaneFile)
-  const updateFileContent = useWorkspaceStore(state => state.updateFileContent)
-  const clearDirty = useWorkspaceStore(state => state.clearDirty)
-  const setLanguage = useWorkspaceStore(state => state.setLanguage)
-
-  // Format document handler (VS Code/Cursor pattern)
-  const handleFormat = useCallback(() => {
-    const editor = activePaneId === 'secondary' && splitDirection !== 'none'
-      ? secondaryEditorRef.current
-      : editorRef.current
-    if (editor) {
-      const formatAction = editor.getAction('editor.action.formatDocument')
-      if (formatAction) {
-        formatAction.run()
-      }
-    }
-  }, [activePaneId, splitDirection])
 
   // Derived: current file content
   const code = currentFile ? (fileContents.get(currentFile) ?? '') : ''
@@ -174,30 +132,22 @@ export default function EditorPanel() {
     }
   })
 
-  // Monaco model cache (per-file undo history)
-  const modelCacheRef = useRef<Map<string, editor.ITextModel>>(new Map())
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
-  const monacoRef = useRef<typeof import('monaco-editor') | null>(null)
-  const mountedRef = useRef(true)
-  const lspDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lspOpenFileRef = useRef<string | null>(null)
-  const lspIncrementalRef = useRef(false)
-  const lspPendingChangesRef = useRef<any[]>([])
-  const lspInitiatedEditRef = useRef(false) // true while LSP edit is being applied to model
-  const externalReloadRef = useRef(false) // true while external file reload is being applied to model
-  const providerDisposablesRef = useRef<any[]>([])
-  const viewStateMapRef = useRef<Map<string, editor.ICodeEditorViewState>>(new Map()) // VS Code: remember scroll/cursor per file
+  // All editor refs (main + secondary pane)
+  const {
+    modelCacheRef, editorRef, monacoRef, mountedRef,
+    lspDebounceRef, autoSaveTimeoutRef, lspOpenFileRef,
+    lspIncrementalRef, lspPendingChangesRef, lspInitiatedEditRef,
+    externalReloadRef, providerDisposablesRef, viewStateMapRef,
+    secondaryEditorRef, secondaryLspOpenFileRef, secondaryLspDebounceRef,
+    secondaryLspIncrementalRef, secondaryLspPendingChangesRef,
+    secondaryLspInitiatedEditRef, secondaryAutoSaveTimeoutRef, secondaryDisposablesRef,
+  } = useEditorRefs()
 
-  // Secondary pane refs (for split editor)
-  const secondaryEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
-  const secondaryLspOpenFileRef = useRef<string | null>(null)
-  const secondaryLspDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const secondaryLspIncrementalRef = useRef(false)
-  const secondaryLspPendingChangesRef = useRef<any[]>([])
-  const secondaryLspInitiatedEditRef = useRef(false)
-  const secondaryAutoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const secondaryDisposablesRef = useRef<any[]>([])
+  // Format + close-split callbacks (shared editor actions)
+  const { handleFormat, handleCloseSplit } = useEditorCallbacks({
+    activePaneId, splitDirection, editorRef, secondaryEditorRef,
+    secondaryDisposablesRef, secondaryAutoSaveTimeoutRef, secondaryLspOpenFileRef, closeSplit,
+  })
 
   // R5080/R5083: Git diff gutter decorations (VS Code/Cursor pattern)
   useGitDiffDecorations(editorRef, secondaryEditorRef, monacoRef, currentFile, secondaryFile, splitDirection, gitStatusMap)
@@ -262,25 +212,6 @@ export default function EditorPanel() {
     }
   }, [closeFile, dirtyFiles])
 
-  // P1 fix: Handle close split with proper LSP cleanup (was bypassed by X button)
-  const handleCloseSplit = useCallback(() => {
-    // Dispose secondary editor listeners before closing
-    secondaryDisposablesRef.current.forEach((d: any) => d.dispose())
-    secondaryDisposablesRef.current = []
-    // P2 fix: Clear pending auto-save timeout (was leaving dangling timeout)
-    if (secondaryAutoSaveTimeoutRef.current) {
-      clearTimeout(secondaryAutoSaveTimeoutRef.current)
-      secondaryAutoSaveTimeoutRef.current = null
-    }
-    // P1 fix: Send didClose before clearing reference (was missing)
-    if (secondaryLspOpenFileRef.current) {
-      lspApi.didClose(secondaryLspOpenFileRef.current).catch(() => {})
-    }
-    // Clear secondary LSP file reference (fix: stale state on reopen)
-    secondaryLspOpenFileRef.current = null
-    closeSplit()
-  }, [closeSplit])
-
   // Welcome panel file click
   const handleWelcomeFileClick = useCallback((path: string) => {
     openFileFromStore(path)
@@ -334,63 +265,12 @@ export default function EditorPanel() {
     }
   }, [effectiveTheme])
 
-  // Monaco Editor 初始化 - 注册自定义主题 + LSP providers
-  const handleEditorMount: OnMount = (editor, monaco) => {
-    editorRef.current = editor
-    monacoRef.current = monaco
-    registerSwarmTheme(monaco)
-    monaco.editor.setTheme(getMonacoTheme(effectiveTheme))
-
-    // Dispose previous providers to prevent duplicates on remount
-    providerDisposablesRef.current.forEach(d => d.dispose())
-    providerDisposablesRef.current = []
-
-    const disposables: any[] = []
-
-    registerLSPProviders(monaco, editor, disposables, {
-      inlayHintsRef,
-      lspInitiatedEditRef,
-      lspOpenFileRef,
-      lspPendingChangesRef,
-    })
-    // Register common keybindings shared with secondary pane
-    registerCommonEditorCommands({
-      editor,
-      monaco,
-      disposables,
-      settings,
-      updateSetting: updateSetting as (key: string, value: any) => void,
-      onSave: handleSave,
-      onAccessibilityHelp: () => setShowAccessibilityHelp(true),
-      onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
-      onNavigateProblem: (direction) => navigateProblemRef.current(editor, currentFile, direction),
-    })
-
-    providerDisposablesRef.current = disposables
-  }
-
-  // Track mounted state to prevent setState on unmounted component
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      if (lspDebounceRef.current) clearTimeout(lspDebounceRef.current)
-      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
-      // Main pane LSP cleanup (P2 fix: was missing)
-      if (lspOpenFileRef.current) {
-        lspApi.didClose(lspOpenFileRef.current).catch(() => {})
-      }
-      // Secondary pane cleanup
-      if (secondaryLspDebounceRef.current) clearTimeout(secondaryLspDebounceRef.current)
-      if (secondaryAutoSaveTimeoutRef.current) clearTimeout(secondaryAutoSaveTimeoutRef.current)
-      if (secondaryLspOpenFileRef.current) {
-        lspApi.didClose(secondaryLspOpenFileRef.current).catch(() => {})
-      }
-      // Dispose LSP providers to prevent leaks on remount
-      providerDisposablesRef.current.forEach(d => d.dispose())
-      providerDisposablesRef.current = []
-    }
-  }, [])
+  // Track mounted state + cleanup on unmount
+  useEditorCleanup({
+    mountedRef, lspDebounceRef, autoSaveTimeoutRef, lspOpenFileRef,
+    secondaryLspDebounceRef, secondaryAutoSaveTimeoutRef, secondaryLspOpenFileRef,
+    providerDisposablesRef,
+  })
 
   // Git status polling for file tree decorations (VS Code/Cursor pattern)
   const fetchGitStatusRef = useGitStatus({ workspace, setGitStatusMap })
@@ -450,44 +330,28 @@ export default function EditorPanel() {
     })
   }
 
-  const handleSave = async () => {
-    // Save the active pane's editor (split-aware)
-    // R5097: Use getState() to avoid stale closure in addCommand handlers
-    const { activePaneId: paneId, splitDirection: split } = useSplitPaneStore.getState()
-    const isSecondary = paneId === 'secondary' && split !== 'none'
-    await handleSaveForEditor({
-      editorInstance: isSecondary ? secondaryEditorRef.current : editorRef.current,
-      lspOpenFileRef: isSecondary ? secondaryLspOpenFileRef : lspOpenFileRef,
-      lspDebounceRef: isSecondary ? secondaryLspDebounceRef : lspDebounceRef,
-      lspPendingChangesRef: isSecondary ? secondaryLspPendingChangesRef : lspPendingChangesRef,
-      lspInitiatedEditRef: isSecondary ? secondaryLspInitiatedEditRef : lspInitiatedEditRef,
-      monacoRef,
-      mountedRef,
-      modelCacheRef,
-      updateFileContent,
-      clearDirty,
-      fetchGitStatusRef,
-      setLoading,
-      addToast: useAppStore.getState().addToast,
-    })
-  }
+  // Save handlers (split-aware save + per-file auto-save)
+  const { handleSave, handleSaveFileByPath } = useEditorSaveHandlers({
+    editorRef, secondaryEditorRef, monacoRef, mountedRef, modelCacheRef,
+    lspOpenFileRef, secondaryLspOpenFileRef,
+    lspDebounceRef, secondaryLspDebounceRef,
+    lspPendingChangesRef, secondaryLspPendingChangesRef,
+    lspInitiatedEditRef, secondaryLspInitiatedEditRef,
+    fetchGitStatusRef, fileContents, updateFileContent, clearDirty,
+    setLoading,
+  })
 
-  // P1 fix: Save a specific file by path (for auto-save when user may have switched tabs)
-  const handleSaveFileByPath = async (filePath: string) => {
-    await saveFileByPath({
-      filePath,
-      modelCacheRef,
-      fileContents,
-      mountedRef,
-      clearDirty,
-      updateFileContent,
-      lspOpenFileRef,
-      secondaryLspOpenFileRef,
-      fetchGitStatusRef,
-      setLoading,
-      addToast: useAppStore.getState().addToast,
-    })
-  }
+  // Monaco Editor mount handlers (main + secondary)
+  const handleEditorMount: OnMount = createEditorMountHandler({
+    editorRef, monacoRef, providerDisposablesRef,
+    inlayHintsRef, lspInitiatedEditRef, lspOpenFileRef, lspPendingChangesRef,
+    settings, updateSetting: updateSetting as (key: string, value: any) => void,
+    onSave: handleSave,
+    onAccessibilityHelp: () => setShowAccessibilityHelp(true),
+    onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
+    onNavigateProblem: (direction) => navigateProblemRef.current(editorRef.current!, currentFile, direction),
+    effectiveTheme: effectiveTheme as 'dark' | 'light', isMain: true,
+  })
 
   // Command palette / keyboard shortcut events
   useCommandPaletteEvents({
@@ -540,55 +404,18 @@ export default function EditorPanel() {
   )
 
   // Secondary pane editor mount (split editor)
-  const handleSecondaryEditorMount: OnMount = (editor, monaco) => {
-    secondaryEditorRef.current = editor
-
-    // Clear previous secondary disposables
-    secondaryDisposablesRef.current.forEach((d: any) => d.dispose())
-    secondaryDisposablesRef.current = []
-
-    // Focus tracking — set this pane as active when focused
-    secondaryDisposablesRef.current.push(
-      editor.onDidFocusEditorWidget(() => {
-        setActivePane('secondary')
-      })
-    )
-
-    // Per-pane content change listener for incremental LSP sync
-    registerSecondaryContentChangeListener({
-      editor,
-      disposables: secondaryDisposablesRef.current,
-      secondaryLspInitiatedEditRef,
-      secondaryLspPendingChangesRef,
-    })
-
-    // Register common keybindings shared with main pane
-    registerCommonEditorCommands({
-      editor,
-      monaco,
-      disposables: secondaryDisposablesRef.current,
-      settings,
-      updateSetting: updateSetting as (key: string, value: any) => void,
-      onSave: () => handleSaveForEditor({
-        editorInstance: editor,
-        lspOpenFileRef: secondaryLspOpenFileRef,
-        lspDebounceRef: secondaryLspDebounceRef,
-        lspPendingChangesRef: secondaryLspPendingChangesRef,
-        lspInitiatedEditRef: secondaryLspInitiatedEditRef,
-        monacoRef,
-        mountedRef,
-        modelCacheRef,
-        updateFileContent,
-        clearDirty,
-        fetchGitStatusRef,
-        setLoading,
-        addToast: useAppStore.getState().addToast,
-      }),
-      onAccessibilityHelp: () => setShowAccessibilityHelp(true),
-      onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
-      onNavigateProblem: (direction) => navigateProblemRef.current(editor, secondaryFile, direction),
-    })
-  }
+  const handleSecondaryEditorMount: OnMount = createEditorMountHandler({
+    editorRef: secondaryEditorRef, monacoRef, providerDisposablesRef,
+    inlayHintsRef, lspInitiatedEditRef: secondaryLspInitiatedEditRef,
+    lspOpenFileRef: secondaryLspOpenFileRef, lspPendingChangesRef: secondaryLspPendingChangesRef,
+    settings, updateSetting: updateSetting as (key: string, value: any) => void,
+    onSave: handleSave,
+    onAccessibilityHelp: () => setShowAccessibilityHelp(true),
+    onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
+    onNavigateProblem: (direction) => navigateProblemRef.current(secondaryEditorRef.current!, secondaryFile, direction),
+    effectiveTheme: effectiveTheme as 'dark' | 'light', isMain: false,
+    secondaryDisposablesRef, secondaryLspInitiatedEditRef, secondaryLspPendingChangesRef, setActivePane,
+  })
 
   // Secondary pane editor change handler
   const handleSecondaryEditorChange = createEditorChangeHandler(
@@ -611,34 +438,10 @@ export default function EditorPanel() {
     },
   )
 
-  // File tree context menu handlers (P1 feature - Cursor/VS Code pattern)
-  const handleTabContextMenu = (e: React.MouseEvent, path: string) => {
-    setTabContextMenu({ visible: true, x: e.clientX, y: e.clientY, path })
-  }
-
-  const closeTabContextMenu = () => {
-    setTabContextMenu({ visible: false, x: 0, y: 0, path: null })
-  }
-
-  const tabMenuKeyDown = useMenuKeyboardNav(tabContextMenuRef, closeTabContextMenu)
-
-  // Close tab context menu on click outside / Escape
-  useEffect(() => {
-    if (!tabContextMenu.visible) return
-    const handleClick = () => closeTabContextMenu()
-    const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') closeTabContextMenu() }
-    const stopNativePropagation = (e: Event) => e.stopPropagation()
-    // Capture ref at effect setup time for cleanup
-    const menuRef = tabContextMenuRef.current
-    document.addEventListener('click', handleClick)
-    document.addEventListener('keydown', handleEscape)
-    menuRef?.addEventListener('click', stopNativePropagation, true)
-    return () => {
-      document.removeEventListener('click', handleClick)
-      document.removeEventListener('keydown', handleEscape)
-      menuRef?.removeEventListener('click', stopNativePropagation, true)
-    }
-  }, [tabContextMenu.visible])
+  // Tab context menu state + handlers (VS Code/Cursor pattern)
+  const { handleTabContextMenu, closeTabContextMenu, tabMenuKeyDown } = useTabContextMenu({
+    tabContextMenu, setTabContextMenu, tabContextMenuRef,
+  })
 
   // Shared Monaco editor options (deduplicated for main + secondary panes)
   const editorOptions = useMemo(() => buildEditorOptions({
@@ -669,6 +472,16 @@ export default function EditorPanel() {
     wordBasedSuggestions: settings.wordBasedSuggestions,
     suggestOnTriggerCharacters: settings.suggestOnTriggerCharacters,
   }), [settings])
+
+  // Navigate active editor to a symbol position (shared by OutlinePanel + EditorBreadcrumbs)
+  const navigateToPosition = useCallback((line: number, column: number) => {
+    const activeEditor = activePaneId === 'secondary' ? secondaryEditorRef.current : editorRef.current
+    if (activeEditor) {
+      activeEditor.revealLineInCenter(line + 1)
+      activeEditor.setPosition({ lineNumber: line + 1, column: column + 1 })
+      activeEditor.focus()
+    }
+  }, [activePaneId])
 
   // Pane drag/drop handlers (cross-pane tab drag support)
   const mainDragDrop = useMemo(() => createEditorDragDropHandlers({
@@ -785,18 +598,7 @@ export default function EditorPanel() {
               <div className="flex-1 overflow-hidden">
                 <OutlinePanel
                   filePath={currentFile}
-                  onSymbolClick={(line, column) => {
-                    // R5097: Navigate in the active pane's editor
-                    const activeEditor = activePaneId === 'secondary' ? secondaryEditorRef.current : editorRef.current
-                    if (activeEditor) {
-                      activeEditor.revealLineInCenter(line + 1)
-                      activeEditor.setPosition({
-                        lineNumber: line + 1,
-                        column: column + 1
-                      })
-                      activeEditor.focus()
-                    }
-                  }}
+                  onSymbolClick={navigateToPosition}
                 />
               </div>
             ) : null}
@@ -833,30 +635,15 @@ export default function EditorPanel() {
                   hasDiffView={!!diffView}
                   onOpenDiff={handleOpenDiff}
                   onNavigateToSymbol={(line, column) => {
-                    const activeEditor = activePaneId === 'secondary' ? secondaryEditorRef.current : editorRef.current
-                    if (activeEditor) {
-                      activeEditor.setSelection({
-                        startLineNumber: line + 1,
-                        startColumn: column + 1,
-                        endLineNumber: line + 1,
-                        endColumn: column + 1,
-                      })
-                      activeEditor.revealRangeInCenter({
-                        startLineNumber: line + 1,
-                        startColumn: column + 1,
-                        endLineNumber: line + 1,
-                        endColumn: column + 1,
-                      })
-                      activeEditor.focus()
-                    }
+                    navigateToPosition(line, column)
                   }}
                   onExpandDirectory={(dirPath) => {
-                    const segs = dirPath.split('/')
-                    const newExpanded = new Set(expandedDirs)
-                    for (let i = 0; i < segs.length; i++) {
-                      newExpanded.add(segs.slice(0, i + 1).join('/'))
-                    }
-                    setExpandedDirs(newExpanded)
+                    setExpandedDirs(prev => {
+                      const next = new Set(prev)
+                      const segs = dirPath.split('/')
+                      for (let i = 0; i < segs.length; i++) next.add(segs.slice(0, i + 1).join('/'))
+                      return next
+                    })
                   }}
                   onShowFileTree={() => setShowFileTree(true)}
                 />
