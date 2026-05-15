@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { EmergenceDashboard } from '../components/EmergenceDashboard'
 import { useHandoffStore } from '../stores/handoffStore'
-import { api } from '../services'
+import { api, type AgentInfo } from '../services'
 import { logger } from '../utils'
 
 interface AgentMessage {
@@ -32,8 +32,11 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
   const [tasks, setTasks] = useState<TaskInfo[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [agentObjects, setAgentObjects] = useState<AgentInfo[]>([])
+  const [isSending, setIsSending] = useState(false)
   const { activeHandoff } = useHandoffStore()
   const mountedRef = useRef(true)
+  const sessionRef = useRef<string | null>(null)
 
   // Track mounted state to prevent setState on unmounted component
   useEffect(() => {
@@ -65,6 +68,7 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
         // 获取真实 agents
         const agents = await api.agent.getAgents()
         if (!mountedRef.current) return
+        setAgentObjects(agents)
         setAvailableAgents(agents.map(a => a.name))
       } catch (error) {
         logger.debug('AgentDispatch', 'Failed to load data:', error)
@@ -76,22 +80,86 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
     loadData()
   }, [])
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return
+  // Cleanup session on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionRef.current) {
+        api.agent.closeSession(sessionRef.current).catch(() => {})
+      }
+    }
+  }, [])
 
+  const handleSendMessage = useCallback(async () => {
+    if (!inputValue.trim() || isSending) return
+
+    const content = inputValue.trim()
     const newMessage: AgentMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: inputValue.trim(),
+      content,
       timestamp: new Date()
     }
 
     setMessages(prev => [...prev, newMessage])
     setInputValue('')
 
-    // In real implementation, send to backend
-    logger.debug('AgentDispatch', 'Sending message:', newMessage.content)
-  }
+    // Resolve agent ID from selected agent name
+    const agentId = selectedAgent
+      ? (agentObjects.find(a => a.name === selectedAgent)?.id ?? selectedAgent)
+      : null
+
+    if (!agentId) {
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}-err`,
+        role: 'system',
+        content: 'Please select an agent before sending a message.',
+        timestamp: new Date()
+      }])
+      return
+    }
+
+    setIsSending(true)
+    try {
+      // Create session if none exists
+      if (!sessionRef.current) {
+        const session = await api.agent.createSession(agentId, 'default')
+        sessionRef.current = session.id
+      }
+
+      // Send message to backend
+      const response = await api.agent.sendMessage(sessionRef.current, content)
+
+      if (!mountedRef.current) return
+
+      // Add assistant response if content was returned
+      if (response.content) {
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}-resp`,
+          role: 'assistant',
+          content: response.content!,
+          timestamp: new Date(),
+          agentName: selectedAgent ?? undefined
+        }])
+      }
+    } catch (error) {
+      logger.debug('AgentDispatch', 'Failed to send message:', error)
+      if (!mountedRef.current) return
+
+      // Reset session on error so next message creates a new one
+      sessionRef.current = null
+
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}-err`,
+        role: 'system',
+        content: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date()
+      }])
+    } finally {
+      if (mountedRef.current) {
+        setIsSending(false)
+      }
+    }
+  }, [inputValue, isSending, selectedAgent, agentObjects])
 
   const getStatusColor = (status: TaskInfo['status']) => {
     switch (status) {
@@ -255,10 +323,10 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
                 />
                 <button
                   onClick={handleSendMessage}
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() || isSending}
                   className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Send
+                  {isSending ? '...' : 'Send'}
                 </button>
               </div>
             </div>
@@ -276,7 +344,13 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
             availableAgents.map((agent) => (
               <button
                 key={agent}
-                onClick={() => setSelectedAgent(agent)}
+                onClick={() => {
+                  if (selectedAgent !== agent && sessionRef.current) {
+                    api.agent.closeSession(sessionRef.current).catch(() => {})
+                    sessionRef.current = null
+                  }
+                  setSelectedAgent(agent)
+                }}
                 className={`flex-shrink-0 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
                   selectedAgent === agent
                     ? getAgentColor(agent)
