@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { Team, TeamMember, MemberRole } from '../types'
-import { api } from '../services'
+import { api, type AgentInfo } from '../services'
 import { logger } from '../utils'
 
 const roleIcons: Record<MemberRole, React.ReactNode> = {
@@ -262,6 +262,33 @@ interface TeamCardProps {
 
 function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([])
+  const [assigning, setAssigning] = useState<string | null>(null)
+  const addToast = useAppStore(state => state.addToast)
+
+  const loadAgents = async () => {
+    try {
+      const agents = await api.agent.getAgents()
+      setAvailableAgents(agents)
+    } catch (err) {
+      logger.error('Team', 'Failed to load agents:', err)
+    }
+  }
+
+  const handleAssignAgent = async (agentId: string) => {
+    setAssigning(agentId)
+    try {
+      await api.team.addAgentToTeam(team.id, agentId)
+      addToast('success', 'Agent assigned', 'Agent added to team successfully')
+      setShowAssignModal(false)
+    } catch (err) {
+      logger.error('Team', 'Failed to assign agent:', err)
+      addToast('error', 'Failed to assign agent', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setAssigning(null)
+    }
+  }
 
   return (
     <div
@@ -342,19 +369,97 @@ function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
 
           {/* Actions */}
           <div className="flex items-center gap-2 mt-4">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                addToast('info', 'Not yet implemented', 'Invite feature is coming soon')
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors"
+            >
               <UserPlus size={14} />
               <span>Invite</span>
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                addToast('info', 'Not yet implemented', 'Workspaces feature is coming soon')
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors"
+            >
               <FolderOpen size={14} />
               <span>Workspaces</span>
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowAssignModal(true)
+                loadAgents()
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors"
+            >
               <Bot size={14} />
               <span>Assign Agent</span>
             </button>
           </div>
+
+          {/* Assign Agent Modal */}
+          {showAssignModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[380px] shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Assign Agent to Team">
+                <div className="flex justify-between items-center mb-5">
+                  <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                    <Bot size={18} className="text-accent" />
+                    Assign Agent
+                  </h3>
+                  <button
+                    onClick={() => setShowAssignModal(false)}
+                    className="p-1.5 hover:bg-card-hover rounded-mac transition-colors"
+                  >
+                    <X size={18} className="text-text-secondary" />
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {availableAgents.length === 0 ? (
+                    <p className="text-sm text-text-tertiary text-center py-4">No agents available</p>
+                  ) : (
+                    availableAgents.map((agent) => (
+                      <div
+                        key={agent.id}
+                        className="flex items-center justify-between p-3 rounded-mac hover:bg-card-hover transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-accent/10 rounded-mac">
+                            <Bot size={14} className="text-accent" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-text-primary font-medium">{agent.name}</p>
+                            <p className="text-xs text-text-tertiary">{agent.type}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleAssignAgent(agent.id)}
+                          disabled={assigning === agent.id}
+                          className="px-3 py-1 text-xs bg-accent/10 hover:bg-accent/20 text-accent rounded-mac transition-colors disabled:opacity-50"
+                        >
+                          {assigning === agent.id ? 'Assigning...' : 'Add'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex justify-end mt-5 pt-4 border-t border-glass-border">
+                  <button
+                    onClick={() => setShowAssignModal(false)}
+                    className="btn-secondary"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -19,6 +19,13 @@ vi.mock('../services', () => ({
         agents: [],
         createdAt: new Date().toISOString(),
       }),
+      addAgentToTeam: vi.fn().mockResolvedValue({ status: 'ok' }),
+    },
+    agent: {
+      getAgents: vi.fn().mockResolvedValue([
+        { id: 'agent-1', name: 'Claude Code', type: 'coder', state: 'idle' },
+        { id: 'agent-2', name: 'Kimi Code', type: 'coder', state: 'running' },
+      ]),
     },
   },
 }))
@@ -199,6 +206,105 @@ describe('TeamPanel with teams', () => {
     expect(screen.getByText('Invite')).toBeInTheDocument()
     expect(screen.getByText('Workspaces')).toBeInTheDocument()
     expect(screen.getByText('Assign Agent')).toBeInTheDocument()
+  })
+
+  it('shows toast when Invite clicked', async () => {
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeam],
+        activeTeam: null,
+        setActiveTeam: mockSetActiveTeam,
+        agents: [],
+        addToast: mockAddToast,
+      }
+      return selector ? selector(state) : state
+    })
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Invite'))
+    expect(mockAddToast).toHaveBeenCalledWith('info', 'Not yet implemented', 'Invite feature is coming soon')
+  })
+
+  it('shows toast when Workspaces clicked', async () => {
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeam],
+        activeTeam: null,
+        setActiveTeam: mockSetActiveTeam,
+        agents: [],
+        addToast: mockAddToast,
+      }
+      return selector ? selector(state) : state
+    })
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Workspaces'))
+    expect(mockAddToast).toHaveBeenCalledWith('info', 'Not yet implemented', 'Workspaces feature is coming soon')
+  })
+
+  it('opens assign agent modal when Assign Agent clicked', async () => {
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Assign Agent'))
+    await waitFor(() => {
+      expect(screen.getByText('Claude Code')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Kimi Code')).toBeInTheDocument()
+  })
+
+  it('closes assign agent modal when Close clicked', async () => {
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Assign Agent'))
+    await waitFor(() => {
+      expect(screen.getByText('Claude Code')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Close'))
+    expect(screen.queryByText('Claude Code')).not.toBeInTheDocument()
+  })
+
+  it('assigns agent when Add clicked', async () => {
+    const { api } = await import('../services')
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeam],
+        activeTeam: null,
+        setActiveTeam: mockSetActiveTeam,
+        agents: [],
+        addToast: mockAddToast,
+      }
+      return selector ? selector(state) : state
+    })
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Assign Agent'))
+    await waitFor(() => {
+      expect(screen.getByText('Claude Code')).toBeInTheDocument()
+    })
+    const addButtons = screen.getAllByText('Add')
+    fireEvent.click(addButtons[0])
+    await waitFor(() => {
+      expect(api.team.addAgentToTeam).toHaveBeenCalledWith('1', 'agent-1')
+    })
+    expect(mockAddToast).toHaveBeenCalledWith('success', 'Agent assigned', 'Agent added to team successfully')
   })
 })
 
