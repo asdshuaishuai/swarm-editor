@@ -103,6 +103,11 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 		return nil, errNotFound("agent not found")
 	}
 
+	// Try to establish ACP connection
+	if connMgr := h.server.ConnManager(); connMgr != nil {
+		_, _ = connMgr.Connect(ctx, req.ID) // best effort — agent may work without ACP
+	}
+
 	ag.SetState(agent.StateIdle)
 	return map[string]string{"status": "started"}, nil
 }
@@ -130,7 +135,12 @@ func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMes
 		return nil, errNotFound("agent not found")
 	}
 
-	ag.SetState(agent.StateError) // Using Error as "stopped" state
+	// Disconnect ACP connection if exists
+	if connMgr := h.server.ConnManager(); connMgr != nil {
+		_ = connMgr.Disconnect(req.ID) // best effort
+	}
+
+	ag.SetState(agent.StateIdle) // Clean stop, not error
 	return map[string]string{"status": "stopped"}, nil
 }
 
