@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import {
   Users,
@@ -44,56 +44,54 @@ export default function TeamPanel() {
     }
   }, [])
 
-  // Load teams from backend on mount
-  useEffect(() => {
-    let cancelled = false
-    const loadTeams = async () => {
-      setLoading(true)
-      try {
-        const teamInfos = await api.team.getTeams()
-        if (cancelled) return
-        // Use getState() to avoid stale closure over teams/agents
-        const { teams: currentTeams, agents: currentAgents } = useAppStore.getState()
-        // Convert TeamInfo[] to Team[] and update store
-        for (const teamInfo of teamInfos) {
-          const existingTeam = currentTeams.find(t => t.id === teamInfo.id)
-          if (!existingTeam) {
-            const team: Team = {
-              id: teamInfo.id,
-              name: teamInfo.name,
-              description: teamInfo.description || '',
-              owner: teamInfo.ownerId,
-              members: teamInfo.members.map(m => ({
-                id: m.id,
-                name: m.name,
-                email: '', // TeamMemberInfo doesn't have email
-                role: m.role as MemberRole,
-                joinedAt: teamInfo.createdAt,
-                online: m.online,
-              })),
-              agents: currentAgents.filter(a => teamInfo.agents.includes(a.id)),
-              workspaces: [],
-              stats: {
-                memberCount: teamInfo.members.length,
-                onlineMembers: teamInfo.members.filter(m => m.online).length,
-                agentCount: teamInfo.agents.length,
-                idleAgents: 0,
-                workspaceCount: 0, // TeamInfo doesn't have workspaces
-              },
-            }
-            useAppStore.getState().addTeam(team)
+  // Load teams from backend — extracted to useCallback so it can be passed to children
+  const loadTeams = useCallback(async () => {
+    setLoading(true)
+    try {
+      const teamInfos = await api.team.getTeams()
+      // Use getState() to avoid stale closure over teams/agents
+      const { teams: currentTeams, agents: currentAgents } = useAppStore.getState()
+      // Convert TeamInfo[] to Team[] and update store
+      for (const teamInfo of teamInfos) {
+        const existingTeam = currentTeams.find(t => t.id === teamInfo.id)
+        if (!existingTeam) {
+          const team: Team = {
+            id: teamInfo.id,
+            name: teamInfo.name,
+            description: teamInfo.description || '',
+            owner: teamInfo.ownerId,
+            members: teamInfo.members.map(m => ({
+              id: m.id,
+              name: m.name,
+              email: '', // TeamMemberInfo doesn't have email
+              role: m.role as MemberRole,
+              joinedAt: teamInfo.createdAt,
+              online: m.online,
+            })),
+            agents: currentAgents.filter(a => teamInfo.agents.includes(a.id)),
+            workspaces: [],
+            stats: {
+              memberCount: teamInfo.members.length,
+              onlineMembers: teamInfo.members.filter(m => m.online).length,
+              agentCount: teamInfo.agents.length,
+              idleAgents: 0,
+              workspaceCount: 0, // TeamInfo doesn't have workspaces
+            },
           }
+          useAppStore.getState().addTeam(team)
         }
-      } catch (err) {
-        if (cancelled) return
-        logger.error('Team', 'Failed to load teams:', err)
-      } finally {
-        if (!cancelled) setLoading(false)
       }
+    } catch (err) {
+      logger.error('Team', 'Failed to load teams:', err)
+    } finally {
+      setLoading(false)
     }
+  }, [])
+
+  // Load teams on mount
+  useEffect(() => {
     loadTeams()
-    return () => { cancelled = true }
-  }, []) // Only run on mount
+  }, [loadTeams])
 
   const handleCreateTeam = async () => {
     if (!newTeamName.trim()) return
@@ -193,6 +191,7 @@ export default function TeamPanel() {
                 team={team}
                 isActive={activeTeam?.id === team.id}
                 onSelect={() => setActiveTeam(team)}
+                onAssign={loadTeams}
               />
             ))}
           </div>
@@ -258,9 +257,10 @@ interface TeamCardProps {
   team: Team
   isActive: boolean
   onSelect: () => void
+  onAssign?: () => void
 }
 
-function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
+function TeamCard({ team, isActive, onSelect, onAssign }: TeamCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([])
@@ -282,6 +282,7 @@ function TeamCard({ team, isActive, onSelect }: TeamCardProps) {
       await api.team.addAgentToTeam(team.id, agentId)
       addToast('success', 'Agent assigned', 'Agent added to team successfully')
       setShowAssignModal(false)
+      onAssign?.()
     } catch (err) {
       logger.error('Team', 'Failed to assign agent:', err)
       addToast('error', 'Failed to assign agent', err instanceof Error ? err.message : 'Unknown error')
