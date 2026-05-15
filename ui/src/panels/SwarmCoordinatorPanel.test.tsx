@@ -26,6 +26,7 @@ vi.mock('../services', () => ({
           },
         },
       }),
+      getSwarmTasks: vi.fn().mockResolvedValue({ pending: 0, running: 0, completed: 0 }),
     },
   },
 }))

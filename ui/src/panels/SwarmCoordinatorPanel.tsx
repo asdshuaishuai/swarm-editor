@@ -92,6 +92,36 @@ export default function SwarmCoordinatorPanel({
     return () => unsub()
   }, [])
 
+  // Polling fallback: refresh task stats from backend every 10s when tasks are running.
+  // The backend does not yet emit swarm_task_update events, so this keeps the UI in sync.
+  useEffect(() => {
+    if (!activeSwarm) return
+    const hasRunningTasks = tasks.some(t => t.status === 'running')
+    if (!hasRunningTasks) return
+
+    const interval = setInterval(async () => {
+      if (!mountedRef.current || !activeSwarm) return
+      try {
+        const stats = await api.swarm.getSwarmTasks(activeSwarm.id)
+        if (!mountedRef.current) return
+        // If running count dropped to 0 but we still have locally-running tasks,
+        // mark them as completed (the backend finished them while we were polling).
+        if (stats.running === 0) {
+          setTasks(prev => prev.map(t =>
+            t.status === 'running' ? { ...t, status: 'completed' as const, progress: 1 } : t
+          ))
+          setSelectedTask(prev =>
+            prev?.status === 'running' ? { ...prev, status: 'completed' as const, progress: 1 } : prev
+          )
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [activeSwarm, tasks])
+
   const handleSubmitTask = useCallback(async () => {
     if (!activeSwarm) {
       addToast('warning', 'No Active Swarm', 'Please select or create a swarm first')
