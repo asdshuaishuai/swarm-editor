@@ -37,6 +37,7 @@ export function SupervisorPanel() {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([])
   const [expandedSection, setExpandedSection] = useState<string | null>('tasks')
+  const [loading, setLoading] = useState(false)
   const mountedRef = useRef(true)
 
   const { activeHandoff, resolveHandoff } = useHandoffStore()
@@ -144,6 +145,29 @@ export function SupervisorPanel() {
     }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId))
   }
+
+  const handleRefresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      await loadData()
+    } finally {
+      if (mountedRef.current) setLoading(false)
+    }
+  }, [loadData])
+
+  const handlePauseAll = useCallback(async () => {
+    const activeAgents = agents.filter(a => a.state === 'active' || a.state === 'executing')
+    if (activeAgents.length === 0) return
+    setLoading(true)
+    try {
+      await Promise.all(activeAgents.map(a => api.agent.stopAgent(a.id)))
+      await loadData()
+    } catch (err) {
+      logger.error('SupervisorPanel', 'Failed to pause agents:', err)
+    } finally {
+      if (mountedRef.current) setLoading(false)
+    }
+  }, [agents, loadData])
 
   const getHealthStatus = () => {
     const running = agents.filter(a => a.status === 'running').length
@@ -363,11 +387,11 @@ export function SupervisorPanel() {
 
       {/* Footer - Quick Actions */}
       <div className="px-3 py-2 border-t border-[#1f1f21] flex items-center gap-2">
-        <button className="flex-1 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 rounded transition-colors">
-          Pause All
+        <button onClick={handlePauseAll} disabled={loading} className="flex-1 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 rounded transition-colors disabled:opacity-50">
+          {loading ? 'Pausing...' : 'Pause All'}
         </button>
-        <button className="flex-1 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 rounded transition-colors">
-          Refresh
+        <button onClick={handleRefresh} disabled={loading} className="flex-1 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 rounded transition-colors disabled:opacity-50">
+          {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
     </div>
