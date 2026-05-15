@@ -104,12 +104,21 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 	}
 
 	// Try to establish ACP connection
+	var connWarning string
 	if connMgr := h.server.ConnManager(); connMgr != nil {
-		_, _ = connMgr.Connect(ctx, req.ID) // best effort — agent may work without ACP
+		_, err := connMgr.Connect(ctx, req.ID)
+		if err != nil {
+			connWarning = fmt.Sprintf("ACP connection failed: %v", err)
+			// Still set idle — agent config is valid, just ACP connection failed
+		}
 	}
 
 	ag.SetState(agent.StateIdle)
-	return map[string]string{"status": "started"}, nil
+	result := map[string]string{"status": "started"}
+	if connWarning != "" {
+		result["warning"] = connWarning
+	}
+	return result, nil
 }
 
 func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMessage) (any, error) {
