@@ -1165,7 +1165,16 @@ func TestClientHub_Unregister_CleansStaleSessions(t *testing.T) {
 
 	readMessage(t, conn, 2*time.Second)
 
-	// Close triggers Unregister via ReadLoop, which should clean sessionToAgent
+	// Associate sessions with the connecting client
+	client := getClient(t, s.hub)
+	s.mu.Lock()
+	if s.clientSessions == nil {
+		s.clientSessions = make(map[string]map[string]struct{})
+	}
+	s.clientSessions[client.ID] = map[string]struct{}{"sess1": {}, "sess2": {}}
+	s.mu.Unlock()
+
+	// Close triggers Unregister via ReadLoop, which should clean this client's sessions
 	conn.Close()
 	time.Sleep(100 * time.Millisecond)
 

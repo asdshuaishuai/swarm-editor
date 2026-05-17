@@ -67,7 +67,7 @@ import {
 import { useAppStore } from '../store/appStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import { api, gitApi } from '../services'
-import { getFileIcon, getFileIconColor } from '../utils'
+import { getFileIcon, getFileIconColor, logger } from '../utils'
 import { lspApi } from '../services/lspApi'
 import type { SwarmInfo } from '../services'
 import type { Swarm } from '../types'
@@ -374,9 +374,9 @@ export function CommandPalette() {
       // R5175: Missing tab commands
       { id: 'close-tab', label: 'Close Tab', description: 'Close the current tab', icon: <X size={18} />, action: () => { window.dispatchEvent(new CustomEvent('close-current-tab')) }, category: 'navigation', shortcut: 'Ctrl+W' },
       // Tab navigation
-      { id: 'next-tab', label: 'Next Tab', description: 'Switch to the next tab', icon: <ArrowRight size={18} />, action: () => { const store = useWorkspaceStore.getState(); const files = store.openFiles; const cur = store.currentFile; if (!cur || files.length <= 1) return; const idx = files.indexOf(cur); if (idx === -1 || idx >= files.length - 1) return; store.openFile(files[idx + 1]).catch(() => {}) }, category: 'navigation', shortcut: 'Ctrl+PageDown' },
-      { id: 'prev-tab', label: 'Previous Tab', description: 'Switch to the previous tab', icon: <ArrowLeft size={18} />, action: () => { const store = useWorkspaceStore.getState(); const files = store.openFiles; const cur = store.currentFile; if (!cur || files.length <= 1) return; const idx = files.indexOf(cur); if (idx === -1 || idx <= 0) return; store.openFile(files[idx - 1]).catch(() => {}) }, category: 'navigation', shortcut: 'Ctrl+PageUp' },
-      { id: 'reopen-closed-tab', label: 'Reopen Closed Tab', description: 'Reopen the last closed tab', icon: <RotateCcw size={18} />, action: () => { useWorkspaceStore.getState().undoCloseFile().catch(() => {}) }, category: 'navigation', shortcut: 'Ctrl+Shift+T' },
+      { id: 'next-tab', label: 'Next Tab', description: 'Switch to the next tab', icon: <ArrowRight size={18} />, action: () => { const store = useWorkspaceStore.getState(); const files = store.openFiles; const cur = store.currentFile; if (!cur || files.length <= 1) return; const idx = files.indexOf(cur); if (idx === -1 || idx >= files.length - 1) return; store.openFile(files[idx + 1]).catch((e) => { logger.warn('CommandPalette', 'Failed to open next tab', e) }) }, category: 'navigation', shortcut: 'Ctrl+PageDown' },
+      { id: 'prev-tab', label: 'Previous Tab', description: 'Switch to the previous tab', icon: <ArrowLeft size={18} />, action: () => { const store = useWorkspaceStore.getState(); const files = store.openFiles; const cur = store.currentFile; if (!cur || files.length <= 1) return; const idx = files.indexOf(cur); if (idx === -1 || idx <= 0) return; store.openFile(files[idx - 1]).catch((e) => { logger.warn('CommandPalette', 'Failed to open prev tab', e) }) }, category: 'navigation', shortcut: 'Ctrl+PageUp' },
+      { id: 'reopen-closed-tab', label: 'Reopen Closed Tab', description: 'Reopen the last closed tab', icon: <RotateCcw size={18} />, action: () => { useWorkspaceStore.getState().undoCloseFile().catch((e) => { logger.warn('CommandPalette', 'Failed to reopen tab', e) }) }, category: 'navigation', shortcut: 'Ctrl+Shift+T' },
       { id: 'reveal-active-file', label: 'Reveal Active File in Explorer', description: 'Show the current file in the file tree', icon: <Files size={18} />, action: () => { window.dispatchEvent(new CustomEvent('reveal-active-file')) }, category: 'navigation' },
       // Copy Path commands
       { id: 'copy-path', label: 'Copy Path', description: 'Copy the absolute path of the active file', icon: <Clipboard size={18} />, action: () => { const currentFile = useWorkspaceStore.getState().currentFile; if (currentFile) { navigator.clipboard.writeText(currentFile); addToast('success', 'Copied', currentFile) } else { addToast('error', 'No file open', 'Open a file first') } }, category: 'navigation', shortcut: 'Ctrl+K P' },
@@ -646,7 +646,7 @@ export function CommandPalette() {
           label: highlightFuzzyMatch(f.name, f.nameIndices),
           description: highlightFuzzyMatch(relativePath, f.pathIndices),
           icon: <Icon size={16} className={iconColor} />,
-          action: () => { openFile(f.path).catch(() => {}) },
+          action: () => { openFile(f.path).catch((e) => { logger.warn('CommandPalette', `Failed to open ${f.path}`, e) }) },
           isFile: true,
           filePath: f.path,
         }
@@ -675,7 +675,7 @@ export function CommandPalette() {
           if (s.uri) {
             // Convert file:// URI to path
             const filePath = s.uri.replace(/^file:\/\//, '')
-            openFile(decodeURIComponent(filePath)).catch(() => {})
+            openFile(decodeURIComponent(filePath)).catch((e) => { logger.warn('CommandPalette', `Failed to open symbol file`, e) })
             setTimeout(() => {
               document.dispatchEvent(new CustomEvent('goto-line-direct', { detail: { line: s.line + 1 } }))
             }, 100)

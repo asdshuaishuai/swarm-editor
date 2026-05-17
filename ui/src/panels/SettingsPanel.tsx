@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { logger } from '../utils'
 import {
   Settings as SettingsIcon,
   Palette,
@@ -24,6 +25,7 @@ import { useSettings, type Settings } from '../hooks/useSettings'
 import { useTheme } from '../hooks/useTheme'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { instructionsApi } from '../services/api'
+import { useAppStore } from '../store/appStore'
 
 const settingsSections = [
   { id: 'general', label: 'General', icon: SettingsIcon },
@@ -44,6 +46,7 @@ export default function SettingsPanel() {
   const [searchQuery, setSearchQuery] = useState('')
   const { settings, updateSetting, resetSettings, addAllowedIpRange, removeAllowedIpRange } = useSettings()
   const { setTheme } = useTheme()
+  const addToast = useAppStore(state => state.addToast)
   const [newIpRange, setNewIpRange] = useState('')
   const [showProxyPassword, setShowProxyPassword] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
@@ -97,8 +100,9 @@ export default function SettingsPanel() {
     try {
       await instructionsApi.save(instructionsContent)
       await loadInstructions()
-    } catch {
-      // Save failed
+    } catch (e) {
+      logger.error('Settings', 'Failed to save instructions', e)
+      addToast('error', 'Save failed', e instanceof Error ? e.message : 'Unknown error')
     }
     setInstructionsSaving(false)
   }, [instructionsContent, loadInstructions])

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { monitoringApi } from '../services'
 import type { EmergenceData } from '../services'
-import { logger } from '../utils'
+import { logger, formatRelativeTime } from '../utils'
 
 // Emergence signal types matching backend
 type SignalType = 'congestion' | 'opportunity' | 'self_organization' | 'innovation' | 'synergy'
@@ -281,14 +281,7 @@ export function EmergenceDashboard({ swarmId, onSignalClick }: EmergenceDashboar
     return 'from-red-500/20 to-red-600/10'
   }
 
-  const formatTimeAgo = (date: Date) => {
-    const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
-    if (seconds < 60) return `${seconds}s ago`
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    return `${hours}h ago`
-  }
+  const formatTimeAgo = (date: Date) => formatRelativeTime(date)
 
   return (
     <div className="h-full flex flex-col bg-[#0a0a0b] rounded-xl border border-[#1f1f21]">

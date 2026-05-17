@@ -3,23 +3,33 @@ import { describe, it, expect, vi } from 'vitest'
 import { BrowserRouter } from 'react-router-dom'
 import MainLayout from './MainLayout'
 
-// Mock child components with factory functions
-vi.mock('../../panels/WorktreePanel', () => ({
-  __esModule: true,
-  WorktreePanel: () => <div data-testid="worktree-panel">WorktreePanel</div>,
-  default: () => <div data-testid="worktree-panel">WorktreePanel</div>,
+// Mock the store
+vi.mock('../../store/appStore', () => ({
+  useAppStore: vi.fn((selector?: (state: unknown) => unknown) => {
+    const state = {
+      agents: [
+        { id: 'claude-code', name: 'Claude Code', type: 'coder', state: 'idle' },
+        { id: 'kimi-code', name: 'Kimi Code', type: 'coder', state: 'idle' },
+      ],
+      zenMode: false,
+      initialize: vi.fn(),
+      toasts: [],
+      removeToast: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  }),
 }))
 
-vi.mock('../../panels/SupervisorPanel', () => ({
-  __esModule: true,
-  SupervisorPanel: () => <div data-testid="supervisor-panel">SupervisorPanel</div>,
-  default: () => <div data-testid="supervisor-panel">SupervisorPanel</div>,
-}))
-
-vi.mock('../../panels/BottomTabPanel', () => ({
-  __esModule: true,
-  BottomTabPanel: () => <div data-testid="bottom-tab-panel">BottomTabPanel</div>,
-  default: () => <div data-testid="bottom-tab-panel">BottomTabPanel</div>,
+// Mock services
+vi.mock('../../services', () => ({
+  api: {
+    agent: {
+      getAgents: vi.fn().mockResolvedValue([
+        { id: 'claude-code', name: 'Claude Code', state: 'idle' },
+        { id: 'kimi-code', name: 'Kimi Code', state: 'idle' },
+      ]),
+    },
+  },
 }))
 
 // Helper to render with Router
@@ -42,40 +52,12 @@ describe('MainLayout', () => {
     expect(screen.getByText('Test Content')).toBeInTheDocument()
   })
 
-  it('renders WorktreePanel on left', () => {
-    renderWithRouter(
-      <MainLayout>
-        <div>Content</div>
-      </MainLayout>
-    )
-    expect(screen.getByTestId('worktree-panel')).toBeInTheDocument()
-  })
-
-  it('renders SupervisorPanel on right', () => {
-    renderWithRouter(
-      <MainLayout>
-        <div>Content</div>
-      </MainLayout>
-    )
-    expect(screen.getByTestId('supervisor-panel')).toBeInTheDocument()
-  })
-
-  it('renders BottomTabPanel at bottom', () => {
-    renderWithRouter(
-      <MainLayout>
-        <div>Content</div>
-      </MainLayout>
-    )
-    expect(screen.getByTestId('bottom-tab-panel')).toBeInTheDocument()
-  })
-
   it('has correct layout structure with flex classes', () => {
     const { container } = renderWithRouter(
       <MainLayout>
         <div>Content</div>
       </MainLayout>
     )
-    // Check for flex layout classes on root
     expect(container.firstChild).toHaveClass('flex', 'flex-col', 'h-screen')
   })
 
@@ -88,6 +70,26 @@ describe('MainLayout', () => {
     expect(screen.getByText('Swarm Editor')).toBeInTheDocument()
   })
 
+  it('renders AgentCluster in left panel', () => {
+    renderWithRouter(
+      <MainLayout>
+        <div>Content</div>
+      </MainLayout>
+    )
+    // AgentCluster shows agent names from mocked store
+    expect(screen.getByText('Claude Code')).toBeInTheDocument()
+  })
+
+  it('renders CodeObserver in right panel', () => {
+    renderWithRouter(
+      <MainLayout>
+        <div>Content</div>
+      </MainLayout>
+    )
+    // CodeObserver has tabs
+    expect(screen.getByText('变更文件')).toBeInTheDocument()
+  })
+
   it('collapses left panel when toggle is clicked', () => {
     renderWithRouter(
       <MainLayout>
@@ -95,11 +97,11 @@ describe('MainLayout', () => {
       </MainLayout>
     )
 
-    const toggleBtn = screen.getByLabelText('Toggle Worktree Panel')
+    const toggleBtn = screen.getByLabelText('切换左侧面板')
     fireEvent.click(toggleBtn)
 
-    // Worktree panel should no longer be visible
-    expect(screen.queryByTestId('worktree-panel')).not.toBeInTheDocument()
+    // AgentCluster should no longer be visible
+    expect(screen.queryByText('Claude Code')).not.toBeInTheDocument()
   })
 
   it('collapses right panel when toggle is clicked', () => {
@@ -109,22 +111,20 @@ describe('MainLayout', () => {
       </MainLayout>
     )
 
-    const toggleBtn = screen.getByLabelText('Toggle Supervisor Panel')
+    const toggleBtn = screen.getByLabelText('切换右侧面板')
     fireEvent.click(toggleBtn)
 
-    expect(screen.queryByTestId('supervisor-panel')).not.toBeInTheDocument()
+    // CodeObserver should no longer be visible
+    expect(screen.queryByText('变更文件')).not.toBeInTheDocument()
   })
 
-  it('collapses bottom panel when toggle is clicked', () => {
+  it('always renders center content area', () => {
     renderWithRouter(
       <MainLayout>
-        <div>Content</div>
+        <div data-testid="center">Center Content</div>
       </MainLayout>
     )
 
-    const toggleBtn = screen.getByLabelText('Toggle Bottom Panel')
-    fireEvent.click(toggleBtn)
-
-    expect(screen.queryByTestId('bottom-tab-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('center')).toBeInTheDocument()
   })
 })

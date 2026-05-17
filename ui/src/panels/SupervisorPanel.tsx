@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api, AgentInfo } from '../services'
 import { logger } from '../utils'
 import { useHandoffStore } from '../stores/handoffStore'
+import type { AuditEvent, AuditStats, ScheduleRunnerStatus } from '../services/api'
 
 interface TaskItem {
   id: string
@@ -31,6 +32,16 @@ interface ReviewItem {
   data?: unknown
 }
 
+interface SupervisorStatsData {
+  totalAgents: number
+  healthyAgents: number
+  degradedAgents: number
+  unhealthyAgents: number
+  busyAgents: number
+  avgResponseTime: number
+  throughput: number
+}
+
 export function SupervisorPanel() {
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [tasks, setTasks] = useState<TaskItem[]>([])
@@ -38,6 +49,10 @@ export function SupervisorPanel() {
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([])
   const [expandedSection, setExpandedSection] = useState<string | null>('tasks')
   const [loading, setLoading] = useState(false)
+  const [supervisorStats, setSupervisorStats] = useState<SupervisorStatsData | null>(null)
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+  const [auditStats, setAuditStats] = useState<AuditStats | null>(null)
+  const [scheduleRunner, setScheduleRunner] = useState<ScheduleRunnerStatus | null>(null)
   const mountedRef = useRef(true)
 
   const { activeHandoff, resolveHandoff } = useHandoffStore()
@@ -53,14 +68,21 @@ export function SupervisorPanel() {
   // Load data from backend
   const loadData = useCallback(async () => {
     try {
-      // 获取真实的 agents 数据
-      const agentList = await api.agent.getAgents()
+      // Parallel fetch agents, swarms, supervisor stats, audit, and schedule runner
+      const [agentList, swarms, supStats, auditResult, auditStatsResult, runnerResult] = await Promise.all([
+        api.agent.getAgents(),
+        api.swarm.getSwarms(),
+        api.monitoring.getSupervisorStats().catch(() => null),
+        api.monitoring.listAuditEvents({ limit: 20 }).catch(() => []),
+        api.monitoring.getAuditStats().catch(() => null),
+        api.monitoring.getScheduleRunnerStatus().catch(() => null),
+      ])
       if (!mountedRef.current) return
       setAgents(agentList)
-
-      // 获取 swarms 数据来构建 tasks
-      const swarms = await api.swarm.getSwarms()
-      if (!mountedRef.current) return
+      if (supStats) setSupervisorStats(supStats as SupervisorStatsData)
+      setAuditEvents(auditResult)
+      if (auditStatsResult) setAuditStats(auditStatsResult)
+      if (runnerResult) setScheduleRunner(runnerResult as ScheduleRunnerStatus)
 
       const taskItems: TaskItem[] = []
 
@@ -170,15 +192,28 @@ export function SupervisorPanel() {
   }, [agents, loadData])
 
   const getHealthStatus = () => {
+    if (supervisorStats) {
+      if (supervisorStats.unhealthyAgents > 0) return { status: 'degraded', color: 'text-yellow-500', bg: 'bg-yellow-500/20' }
+      if (supervisorStats.busyAgents > 0) return { status: 'active', color: 'text-green-500', bg: 'bg-green-500/20' }
+      return { status: 'idle', color: 'text-slate-500', bg: 'bg-slate-500/20' }
+    }
     const running = agents.filter(a => a.status === 'running').length
     const errorCount = agents.filter(a => a.status === 'error').length
-
     if (errorCount > 0) return { status: 'degraded', color: 'text-yellow-500', bg: 'bg-yellow-500/20' }
     if (running > 0) return { status: 'active', color: 'text-green-500', bg: 'bg-green-500/20' }
     return { status: 'idle', color: 'text-slate-500', bg: 'bg-slate-500/20' }
   }
 
   const health = getHealthStatus()
+
+  const handleCancelTask = useCallback(async (swarmId: string, taskId: string) => {
+    try {
+      await api.swarm.cancelTask(swarmId, taskId, 'user_cancelled')
+      await loadData()
+    } catch (err) {
+      logger.error('SupervisorPanel', 'Failed to cancel task:', err)
+    }
+  }, [loadData])
 
   const toggleSection = (section: string) => {
     setExpandedSection(prev => prev === section ? null : section)
@@ -251,18 +286,30 @@ export function SupervisorPanel() {
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-green-400">{agents.filter(a => a.status === 'running').length}</div>
-                <div className="text-[10px] text-slate-500">Running</div>
+                <div className="text-lg font-bold text-green-400">{supervisorStats?.healthyAgents ?? agents.filter(a => a.status === 'running').length}</div>
+                <div className="text-[10px] text-slate-500">Healthy</div>
               </div>
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-slate-400">{agents.filter(a => a.status === 'idle').length}</div>
+                <div className="text-lg font-bold text-slate-400">{supervisorStats ? supervisorStats.totalAgents - supervisorStats.busyAgents - supervisorStats.unhealthyAgents : agents.filter(a => a.status === 'idle').length}</div>
                 <div className="text-[10px] text-slate-500">Idle</div>
               </div>
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-red-400">{agents.filter(a => a.status === 'error').length}</div>
-                <div className="text-[10px] text-slate-500">Error</div>
+                <div className="text-lg font-bold text-red-400">{supervisorStats?.unhealthyAgents ?? agents.filter(a => a.status === 'error').length}</div>
+                <div className="text-[10px] text-slate-500">Unhealthy</div>
               </div>
             </div>
+            {supervisorStats && (
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="p-2 bg-slate-800/50 rounded">
+                  <div className="text-sm font-bold text-blue-400">{Math.round(supervisorStats.avgResponseTime)}ms</div>
+                  <div className="text-[10px] text-slate-500">Avg Response</div>
+                </div>
+                <div className="p-2 bg-slate-800/50 rounded">
+                  <div className="text-sm font-bold text-purple-400">{supervisorStats.throughput.toFixed(1)}/s</div>
+                  <div className="text-[10px] text-slate-500">Throughput</div>
+                </div>
+              </div>
+            )}
           </div>,
           undefined
         )}
@@ -276,17 +323,28 @@ export function SupervisorPanel() {
           </svg>,
           <div className="px-3 space-y-1">
             {tasks.map(task => (
-              <div key={task.id} className="p-2 bg-slate-800/30 rounded">
+              <div key={task.id} className="p-2 bg-slate-800/30 rounded group">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-white truncate flex-1">{task.title}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                    task.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
-                    task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                    task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                    'bg-slate-500/20 text-slate-400'
-                  }`}>
-                    {task.status}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      task.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
+                      task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                      task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                      'bg-slate-500/20 text-slate-400'
+                    }`}>
+                      {task.status}
+                    </span>
+                    {task.status === 'running' && (
+                      <button
+                        onClick={() => handleCancelTask(task.id, task.id)}
+                        className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-all"
+                        title="Cancel task"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-slate-500">{task.agentName}</span>
@@ -382,6 +440,116 @@ export function SupervisorPanel() {
             ))}
           </div>,
           undefined
+        )}
+
+        {/* Audit Log Section */}
+        {renderSection(
+          'audit',
+          'Audit Log',
+          <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>,
+          <div className="px-3 space-y-1">
+            {auditStats && (
+              <div className="flex items-center justify-between text-[10px] text-slate-500 mb-2">
+                <span>{auditStats.count} events</span>
+                <span className={auditStats.enabled ? 'text-green-400' : 'text-slate-500'}>
+                  {auditStats.enabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+            )}
+            {auditEvents.length === 0 ? (
+              <div className="text-center py-4 text-slate-500 text-xs">No audit events</div>
+            ) : (
+              auditEvents.slice(0, 10).map(event => (
+                <div key={event.id} className="flex items-start gap-2 py-1">
+                  <div className={`w-1.5 h-1.5 rounded-full mt-1.5 ${
+                    event.success ? 'bg-green-500' : 'bg-red-500'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] text-slate-300 truncate">
+                      <span className="text-slate-500">{event.actor}</span> {event.action} <span className="text-slate-500">{event.resourceType}</span>
+                    </p>
+                    <span className="text-[10px] text-slate-500">{formatTimeAgo(new Date(event.timestamp))}</span>
+                  </div>
+                </div>
+              ))
+            )}
+            {auditEvents.length > 0 && (
+              <button
+                onClick={async () => {
+                  try {
+                    await api.monitoring.clearAuditLog()
+                    setAuditEvents([])
+                    setAuditStats(prev => prev ? { ...prev, count: 0 } : null)
+                  } catch (err) {
+                    logger.error('SupervisorPanel', 'Failed to clear audit log:', err)
+                  }
+                }}
+                className="w-full mt-2 py-1 text-[10px] text-slate-500 hover:text-red-400 bg-slate-800/30 rounded transition-colors"
+              >
+                Clear Audit Log
+              </button>
+            )}
+          </div>,
+          auditStats?.count ? Math.min(auditStats.count, 99) : undefined
+        )}
+
+        {/* Schedule Runner Section */}
+        {renderSection(
+          'schedule-runner',
+          'Schedule Runner',
+          <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>,
+          <div className="px-3 space-y-2">
+            {scheduleRunner ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-300">
+                    Status: <span className={scheduleRunner.running ? 'text-green-400' : 'text-slate-500'}>
+                      {scheduleRunner.running ? 'Running' : 'Stopped'}
+                    </span>
+                  </span>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const result = scheduleRunner.running
+                          ? await api.monitoring.stopScheduleRunner()
+                          : await api.monitoring.startScheduleRunner()
+                        setScheduleRunner(result)
+                      } catch (err) {
+                        logger.error('SupervisorPanel', 'Failed to toggle schedule runner:', err)
+                      }
+                    }}
+                    className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
+                      scheduleRunner.running
+                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                        : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                    }`}
+                  >
+                    {scheduleRunner.running ? 'Stop' : 'Start'}
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {scheduleRunner.scheduleCount} schedule(s)
+                </div>
+                {scheduleRunner.schedules && scheduleRunner.schedules.length > 0 && (
+                  <div className="space-y-1 mt-1">
+                    {scheduleRunner.schedules.map(s => (
+                      <div key={s.id} className="p-1.5 bg-slate-800/30 rounded text-[10px]">
+                        <div className="text-slate-300">{s.name}</div>
+                        <div className="text-slate-500">{s.cron}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-4 text-slate-500 text-xs">Schedule runner not available</div>
+            )}
+          </div>,
+          scheduleRunner?.running ? scheduleRunner.scheduleCount : undefined
         )}
       </div>
 

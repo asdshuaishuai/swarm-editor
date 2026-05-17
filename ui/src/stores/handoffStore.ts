@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { api } from '../services'
 import { logger } from '../utils'
 
 export interface HandoffRequestData {
@@ -32,12 +33,14 @@ export const useHandoffStore = create<HandoffStore>((set, get) => ({
   resolveHandoff: (accepted, summary) => {
     const handoff = get().activeHandoff
     if (handoff) {
-      // In production, this would notify the backend
-      logger.warn('Handoff', 'Resolved:', {
-        id: handoff.id,
-        accepted,
-        summary: summary || null
-      })
+      // Notify backend of handoff resolution
+      api.swarm.resolveHandoff(handoff.id, accepted, summary)
+        .then(() => {
+          logger.debug('Handoff', 'Resolved via backend:', { id: handoff.id, accepted })
+        })
+        .catch((err) => {
+          logger.warn('Handoff', 'Backend resolution failed, clearing locally:', err)
+        })
       set({ activeHandoff: null })
     }
   }

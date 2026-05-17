@@ -29,13 +29,14 @@ type HealthDetails struct {
 
 // HealthChecker performs health checks on MCP servers
 type HealthChecker struct {
-	mu       sync.RWMutex
-	interval time.Duration
-	timeout  time.Duration
-	statuses map[string]*HealthStatus
-	onChange func(serverName string, status *HealthStatus)
-	stopChan chan struct{}
-	running  bool
+	mu         sync.RWMutex
+	interval   time.Duration
+	timeout    time.Duration
+	statuses   map[string]*HealthStatus
+	onChange   func(serverName string, status *HealthStatus)
+	getClient  func(serverName string) (*Client, bool)
+	stopChan   chan struct{}
+	running    bool
 }
 
 // HealthCheckerConfig configures the health checker
@@ -64,6 +65,13 @@ func NewHealthChecker(config *HealthCheckerConfig) *HealthChecker {
 		onChange: config.OnChange,
 		stopChan: make(chan struct{}),
 	}
+}
+
+// SetClientGetter sets the function used to look up MCP clients by name
+func (hc *HealthChecker) SetClientGetter(fn func(serverName string) (*Client, bool)) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.getClient = fn
 }
 
 // Start starts the health check loop
@@ -116,16 +124,23 @@ func (hc *HealthChecker) checkAll() {
 	for name := range hc.statuses {
 		serverNames = append(serverNames, name)
 	}
+	getClient := hc.getClient
 	hc.mu.RUnlock()
 
+	if getClient == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), hc.timeout)
+	defer cancel()
+
 	for _, name := range serverNames {
-		// Health check would be performed here
-		// For now, we just update the timestamp
-		hc.mu.Lock()
-		if status, ok := hc.statuses[name]; ok {
-			status.LastChecked = time.Now()
+		client, ok := getClient(name)
+		if !ok {
+			continue
 		}
-		hc.mu.Unlock()
+		status := hc.CheckServer(ctx, client)
+		hc.UpdateStatus(name, status)
 	}
 }
 

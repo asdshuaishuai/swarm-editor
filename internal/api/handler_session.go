@@ -72,6 +72,15 @@ func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.Ra
 
 	h.server.mu.Lock()
 	h.server.sessionToAgent[string(session.ID)] = req.AgentID
+	if h.clientID != "" {
+		if h.server.clientSessions == nil {
+			h.server.clientSessions = make(map[string]map[string]struct{})
+		}
+		if h.server.clientSessions[h.clientID] == nil {
+			h.server.clientSessions[h.clientID] = make(map[string]struct{})
+		}
+		h.server.clientSessions[h.clientID][string(session.ID)] = struct{}{}
+	}
 	h.server.mu.Unlock()
 
 	return SessionInfo{
@@ -137,6 +146,7 @@ func (h *CommandHandler) handleSendMessage(ctx context.Context, params json.RawM
 	return map[string]any{
 		"sessionId":  req.SessionID,
 		"stopReason": result.StopReason,
+		"content":    result.Content,
 	}, nil
 }
 
@@ -229,6 +239,28 @@ func (h *CommandHandler) handleSaveCustomInstructions(ctx context.Context, param
 	return map[string]string{"status": "saved", "path": ".swarm-instructions.md"}, nil
 }
 
+func (h *CommandHandler) handleGetSessions(ctx context.Context, params json.RawMessage) (any, error) {
+	h.server.mu.RLock()
+	sessionToAgent := h.server.sessionToAgent
+	h.server.mu.RUnlock()
+
+	if sessionToAgent == nil {
+		return []SessionInfo{}, nil
+	}
+
+	result := make([]SessionInfo, 0, len(sessionToAgent))
+	for sessionID, agentID := range sessionToAgent {
+		result = append(result, SessionInfo{
+			ID:        sessionID,
+			AgentID:   agentID,
+			CreatedAt: time.Now().Format(time.RFC3339),
+			UpdatedAt: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	return result, nil
+}
+
 func (h *CommandHandler) handleCloseSession(ctx context.Context, params json.RawMessage) (any, error) {
 	var req struct {
 		SessionID string `json:"sessionId"`
@@ -246,6 +278,10 @@ func (h *CommandHandler) handleCloseSession(ctx context.Context, params json.Raw
 	// Clean up session -> agent mapping
 	h.server.mu.Lock()
 	delete(h.server.sessionToAgent, req.SessionID)
+	// Also remove from clientSessions tracking
+	for _, sessions := range h.server.clientSessions {
+		delete(sessions, req.SessionID)
+	}
 	h.server.mu.Unlock()
 
 	return map[string]string{"status": "closed"}, nil

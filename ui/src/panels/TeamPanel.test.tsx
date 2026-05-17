@@ -203,54 +203,22 @@ describe('TeamPanel with teams', () => {
       expect(screen.getByText('Test Team')).toBeInTheDocument()
     })
     fireEvent.click(screen.getByText('Test Team'))
-    expect(screen.getByText('Invite')).toBeInTheDocument()
-    expect(screen.getByText('Workspaces')).toBeInTheDocument()
     expect(screen.getByText('Assign Agent')).toBeInTheDocument()
-  })
-
-  it('shows toast when Invite clicked', async () => {
-    const mockAddToast = vi.fn()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        teams: [mockTeam],
-        activeTeam: null,
-        setActiveTeam: mockSetActiveTeam,
-        agents: [],
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
-    })
-    render(<TeamPanel />)
-    await waitFor(() => {
-      expect(screen.getByText('Test Team')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByText('Test Team'))
-    fireEvent.click(screen.getByText('Invite'))
-    expect(mockAddToast).toHaveBeenCalledWith('info', 'Not yet implemented', 'Invite feature is coming soon')
-  })
-
-  it('shows toast when Workspaces clicked', async () => {
-    const mockAddToast = vi.fn()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        teams: [mockTeam],
-        activeTeam: null,
-        setActiveTeam: mockSetActiveTeam,
-        agents: [],
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
-    })
-    render(<TeamPanel />)
-    await waitFor(() => {
-      expect(screen.getByText('Test Team')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByText('Test Team'))
-    fireEvent.click(screen.getByText('Workspaces'))
-    expect(mockAddToast).toHaveBeenCalledWith('info', 'Not yet implemented', 'Workspaces feature is coming soon')
+    expect(screen.getByText('Delete Team')).toBeInTheDocument()
   })
 
   it('opens assign agent modal when Assign Agent clicked', async () => {
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        teams: [mockTeam],
+        activeTeam: null,
+        setActiveTeam: mockSetActiveTeam,
+        agents: [],
+        addToast: mockAddToast,
+      }
+      return selector ? selector(state) : state
+    })
     render(<TeamPanel />)
     await waitFor(() => {
       expect(screen.getByText('Test Team')).toBeInTheDocument()
@@ -258,8 +226,21 @@ describe('TeamPanel with teams', () => {
     fireEvent.click(screen.getByText('Test Team'))
     fireEvent.click(screen.getByText('Assign Agent'))
     await waitFor(() => {
-      expect(screen.getByText('Claude Code')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Assign Agent to Team' })).toBeInTheDocument()
     })
+  })
+
+  it('shows available agents in assign modal', async () => {
+    render(<TeamPanel />)
+    await waitFor(() => {
+      expect(screen.getByText('Test Team')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Test Team'))
+    fireEvent.click(screen.getByText('Assign Agent'))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Assign Agent to Team' })).toBeInTheDocument()
+    })
+    expect(screen.getByText('Claude Code')).toBeInTheDocument()
     expect(screen.getByText('Kimi Code')).toBeInTheDocument()
   })
 

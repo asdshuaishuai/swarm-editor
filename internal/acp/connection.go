@@ -333,6 +333,23 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	transport := NewStdioTransport(stdout, stdin)
 	client := NewClient(transport)
 
+	// Wire update handler to accumulate content in sessions
+	client.OnUpdate(func(sessionID SessionID, update *Update) {
+		conn.mu.RLock()
+		session, ok := conn.sessions[sessionID]
+		onUpdate := conn.onUpdate
+		conn.mu.RUnlock()
+
+		if ok && update.Content != nil {
+			session.AddContent(*update.Content)
+		}
+
+		// Forward to external handler if set
+		if onUpdate != nil {
+			onUpdate(sessionID, update)
+		}
+	})
+
 	conn.mu.Lock()
 	conn.transport = transport
 	conn.client = client
@@ -695,22 +712,42 @@ func (c *AgentConnection) SendPrompt(ctx context.Context, sessionID SessionID, p
 		return nil, fmt.Errorf("agent not connected")
 	}
 	client := c.client
+	session, hasSession := c.sessions[sessionID]
 	c.mu.RUnlock()
+
+	// Start content capture for this prompt turn
+	if hasSession {
+		session.StartContentCapture()
+	}
 
 	result, err := client.SessionPrompt(ctx, &SessionPromptParams{
 		SessionID: sessionID,
 		Prompt:    prompt,
 	})
 	if err != nil {
+		if hasSession {
+			session.FinishContentCapture()
+		}
 		return nil, fmt.Errorf("session prompt: %w", err)
 	}
 
-	// Update session last active
-	c.mu.Lock()
-	if session, ok := c.sessions[sessionID]; ok {
+	// Collect accumulated content from session updates
+	if hasSession {
+		session.FinishContentCapture()
+		blocks := session.WaitForContent(5 * time.Second)
+		if len(blocks) > 0 {
+			var textParts []string
+			for _, block := range blocks {
+				if block.Type == "text" && block.Text != "" {
+					textParts = append(textParts, block.Text)
+				}
+			}
+			if len(textParts) > 0 {
+				result.Content = strings.Join(textParts, "")
+			}
+		}
 		session.LastActive = time.Now()
 	}
-	c.mu.Unlock()
 
 	return result, nil
 }

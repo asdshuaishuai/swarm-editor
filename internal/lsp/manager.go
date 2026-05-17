@@ -58,6 +58,14 @@ var languageIDs = map[string]string{
 }
 
 // Manager manages LSP server instances for different languages.
+// openDocInfo tracks an open document for crash recovery re-send.
+type openDocInfo struct {
+	uri      string
+	language string
+	content  string
+	filename string
+}
+
 type Manager struct {
 	scanner *Scanner
 	rootDir string
@@ -67,6 +75,7 @@ type Manager struct {
 	docVersion  map[string]int64            // uri -> document version (per-document versioning)
 	diagnostics map[string][]Diagnostic     // uri -> diagnostics from LSP server
 	closedDocs  map[string]struct{}         // URIs that were explicitly closed (suppress stale diagnostics)
+	openDocs    map[string]openDocInfo      // uri -> open doc info (for crash recovery)
 	diagHandler func(uri string, diags []Diagnostic) // optional callback for diagnostics
 }
 
@@ -79,6 +88,7 @@ func NewManager(rootDir string, scanner *Scanner) *Manager {
 		docVersion:  make(map[string]int64),
 		diagnostics: make(map[string][]Diagnostic),
 		closedDocs:  make(map[string]struct{}),
+		openDocs:    make(map[string]openDocInfo),
 	}
 }
 
@@ -191,7 +201,20 @@ func (m *Manager) StartServer(ctx context.Context, language string) error {
 		return nil
 	}
 	m.clients[serverName] = client
+
+	// Re-send didOpen for all tracked documents belonging to this server (crash recovery)
+	var reopenDocs []openDocInfo
+	for _, doc := range m.openDocs {
+		if GetServerName(doc.filename) == serverName {
+			reopenDocs = append(reopenDocs, doc)
+		}
+	}
 	m.mu.Unlock()
+
+	for _, doc := range reopenDocs {
+		client.DidOpen(doc.uri, doc.language, doc.content)
+		managerLog.Info("re-sent didOpen after server restart", "uri", doc.uri, "server", serverName)
+	}
 
 	managerLog.Info("LSP server started", "server", serverName, "language", language)
 	return nil
@@ -657,11 +680,13 @@ func (m *Manager) DidOpen(ctx context.Context, uri, filename, content string) {
 	if err != nil {
 		return
 	}
-	// Remove from closed set so diagnostics flow again
+	language := GetLanguageID(filename)
+	// Track open document for crash recovery
 	m.mu.Lock()
 	delete(m.closedDocs, uri)
+	m.openDocs[uri] = openDocInfo{uri: uri, language: language, content: content, filename: filename}
 	m.mu.Unlock()
-	client.DidOpen(uri, GetLanguageID(filename), content)
+	client.DidOpen(uri, language, content)
 }
 
 // DidChange notifies the appropriate LSP server that a document was changed (full sync).
@@ -684,6 +709,11 @@ func (m *Manager) DidChange(filename string, content string) {
 	m.mu.Lock()
 	m.docVersion[uri]++
 	version := m.docVersion[uri]
+	// Keep tracked content up-to-date for crash recovery
+	if doc, ok := m.openDocs[uri]; ok {
+		doc.content = content
+		m.openDocs[uri] = doc
+	}
 	m.mu.Unlock()
 
 	client.DidChange(uri, content, int(version))
@@ -752,6 +782,7 @@ func (m *Manager) DidClose(filename string) {
 	m.mu.Lock()
 	delete(m.docVersion, uri)
 	delete(m.diagnostics, uri)
+	delete(m.openDocs, uri)
 	m.closedDocs[uri] = struct{}{} // suppress stale diagnostics after close
 	m.mu.Unlock()
 }

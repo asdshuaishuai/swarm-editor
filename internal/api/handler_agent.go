@@ -11,38 +11,92 @@ import (
 )
 
 func (h *CommandHandler) handleGetAgents(ctx context.Context, params json.RawMessage) (any, error) {
-	registry := h.server.Registry()
-	if registry == nil {
-		return []AgentInfo{}, nil
+	result := make([]AgentInfo, 0)
+	seen := make(map[string]bool)
+
+	// Load config for command/description/enabled fields
+	configAgents := make(map[string]*acp.AgentConfig)
+	if cfg, err := acp.LoadConfig(""); err == nil {
+		for _, a := range cfg.Agents {
+			configAgents[a.ID] = a
+		}
 	}
 
-	agents := registry.GetAll()
-	result := make([]AgentInfo, 0, len(agents))
-
-	// Add internal agents
-	for _, a := range agents {
-		result = append(result, AgentInfo{
-			ID:    string(a.ID),
-			Name:  a.Name,
-			Type:  string(a.Type),
-			State: string(a.GetState()),
-		})
+	// Add internal agents from registry
+	if registry := h.server.Registry(); registry != nil {
+		for _, a := range registry.GetAll() {
+			id := string(a.ID)
+			info := AgentInfo{
+				ID:    id,
+				Name:  a.Name,
+				Type:  string(a.Type),
+				State: string(a.GetState()),
+			}
+			if cfg, ok := configAgents[id]; ok {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			result = append(result, info)
+			seen[id] = true
+		}
 	}
 
 	// Add external agents from connection manager
 	if cm := h.server.ConnManager(); cm != nil {
-		connections := cm.GetConnected()
-		for _, conn := range connections {
+		for _, conn := range cm.GetConnected() {
+			if seen[conn.ID] {
+				continue
+			}
 			name := ""
+			var cfg *acp.AgentConfig
 			if conn.Config != nil {
 				name = conn.Config.Name
 			}
-			result = append(result, AgentInfo{
+			if c, ok := configAgents[conn.ID]; ok {
+				cfg = c
+			}
+			info := AgentInfo{
 				ID:    conn.ID,
 				Name:  name,
 				Type:  "external",
 				State: "connected",
-			})
+			}
+			if cfg != nil {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			result = append(result, info)
+			seen[conn.ID] = true
+		}
+	}
+
+	// Add scanned CLI agents
+	if scanner := h.server.Scanner(); scanner != nil {
+		for _, cli := range scanner.GetAgents() {
+			if seen[cli.ID] {
+				continue
+			}
+			state := "available"
+			if cli.Status == agent.AgentStatusRunning {
+				state = "running"
+			}
+			info := AgentInfo{
+				ID:           cli.ID,
+				Name:         cli.Name,
+				Type:         "cli",
+				State:        state,
+				Command:      cli.Path,
+				Capabilities: cli.Capabilities,
+			}
+			if cfg, ok := configAgents[cli.ID]; ok {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			result = append(result, info)
+			seen[cli.ID] = true
 		}
 	}
 
@@ -154,7 +208,18 @@ func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMes
 }
 
 func (h *CommandHandler) handleRefreshAgents(ctx context.Context, params json.RawMessage) (any, error) {
-	// Trigger agent discovery
+	// Trigger CLI agent scan
+	scanner := h.server.Scanner()
+	if scanner != nil {
+		scanned, err := scanner.Scan(ctx)
+		if err != nil {
+			apiLog.Warn("agent scan failed", "error", err)
+		} else {
+			apiLog.Info("agent scan completed", "count", len(scanned))
+		}
+	}
+
+	// Return merged list (registry + external connections)
 	return h.handleGetAgents(ctx, params)
 }
 
@@ -290,3 +355,214 @@ func (h *CommandHandler) handleGetConfigPath(ctx context.Context, params json.Ra
 	return filepath.Join(acp.ConfigDir, acp.ConfigFile), nil
 }
 
+func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMessage) (any, error) {
+	scanner := h.server.Scanner()
+	skillScanner := agent.NewSkillScanner()
+
+	// Set workspace dir for project-local skill scanning
+	if h.server.workspacePath != "" {
+		skillScanner.SetWorkspaceDir(h.server.workspacePath)
+	}
+
+	var skills []agent.SkillInfo
+	var err error
+
+	if scanner != nil {
+		// Ensure agent scan has been done
+		if len(scanner.GetAgents()) == 0 {
+			scanner.Scan(ctx)
+		}
+		skills, err = skillScanner.ScanWithAgents(scanner.GetAgents())
+
+		// Also discover MCP-based skills with tool introspection
+		if err == nil {
+			discovery := agent.NewMCPDiscovery(scanner)
+			if mcpServers, mcpErr := discovery.DiscoverAll(); mcpErr == nil && len(mcpServers) > 0 {
+				// Collect tools from connected MCP servers
+				serverTools := make(map[string][]agent.MCPTool)
+				for _, srv := range mcpServers {
+					if client, ok := h.server.GetMCPClient(srv.Name); ok {
+						tools := client.ListTools()
+						mcpTools := make([]agent.MCPTool, 0, len(tools))
+						for _, t := range tools {
+							mcpTools = append(mcpTools, agent.MCPTool{
+								Name:        t.Name,
+								Description: t.Description,
+							})
+						}
+						if len(mcpTools) > 0 {
+							serverTools[srv.Name] = mcpTools
+						}
+					}
+				}
+
+				mcpSkills, mcpErr := skillScanner.ScanWithMCPTools(mcpServers, serverTools)
+				if mcpErr == nil {
+					// Merge MCP skills, avoiding duplicates
+					seen := make(map[string]bool)
+					for _, s := range skills {
+						seen[s.ID] = true
+					}
+					for _, s := range mcpSkills {
+						if !seen[s.ID] {
+							skills = append(skills, s)
+						}
+					}
+				}
+			}
+		}
+	} else {
+		skills, err = skillScanner.Scan()
+	}
+
+	if err != nil {
+		return nil, safeError("skill scan failed", err)
+	}
+
+	// Convert to response format
+	result := make([]map[string]any, 0, len(skills))
+	for _, s := range skills {
+		result = append(result, map[string]any{
+			"id":          s.ID,
+			"name":        s.Name,
+			"description": s.Description,
+			"source":      string(s.Source),
+			"path":        s.Path,
+			"agentId":     s.AgentID,
+			"tags":        s.Tags,
+		})
+	}
+
+	return result, nil
+}
+
+func (h *CommandHandler) handleExecuteCode(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		FilePath string `json:"filePath"`
+		Content  string `json:"content"`
+		Language string `json:"language"`
+		AgentID  string `json:"agentId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.Content) == "" {
+		return nil, errValidation("content is required")
+	}
+
+	// Find an available agent for code execution
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		if cm := h.server.ConnManager(); cm != nil {
+			connections := cm.GetConnected()
+			if len(connections) > 0 {
+				agentID = connections[0].ID
+			}
+		}
+	}
+
+	if agentID == "" {
+		return map[string]any{
+			"success": false,
+			"output":  "",
+			"error":   "No agent available for code execution. Please connect an agent first.",
+		}, nil
+	}
+
+	connMgr := h.server.ConnManager()
+	if connMgr == nil {
+		return map[string]any{
+			"success": false,
+			"output":  "",
+			"error":   "Agent connection manager not available",
+		}, nil
+	}
+
+	conn, ok := connMgr.GetConnection(agentID)
+	if !ok {
+		return map[string]any{
+			"success": false,
+			"output":  "",
+			"error":   fmt.Sprintf("Agent %s is not connected", agentID),
+		}, nil
+	}
+
+	// Create a session for code execution
+	session, err := conn.CreateSession(ctx, acp.ModeDefault)
+	if err != nil {
+		return map[string]any{
+			"success": false,
+			"output":  "",
+			"error":   fmt.Sprintf("Failed to create session: %v", err),
+		}, nil
+	}
+
+	// Register session
+	sessionID := string(session.ID)
+	h.server.mu.Lock()
+	if h.server.sessionToAgent == nil {
+		h.server.sessionToAgent = make(map[string]string)
+	}
+	h.server.sessionToAgent[sessionID] = agentID
+	h.server.mu.Unlock()
+
+	// Build execution prompt
+	fileName := req.FilePath
+	if idx := strings.LastIndex(fileName, "/"); idx >= 0 {
+		fileName = fileName[idx+1:]
+	}
+	promptText := fmt.Sprintf("Execute the following %s code from %s:\n\n```%s\n%s\n```\n\nRun this code and report the output.", req.Language, fileName, req.Language, req.Content)
+
+	prompt := acp.Prompt{
+		{Type: "text", Text: promptText},
+	}
+
+	result, err := conn.SendPrompt(ctx, session.ID, prompt)
+
+	// Clean up session
+	h.server.mu.Lock()
+	delete(h.server.sessionToAgent, sessionID)
+	h.server.mu.Unlock()
+	conn.CloseSession(ctx, session.ID)
+
+	if err != nil {
+		return map[string]any{
+			"success": false,
+			"output":  "",
+			"error":   fmt.Sprintf("Execution failed: %v", err),
+		}, nil
+	}
+
+	return map[string]any{
+		"success": result.StopReason == acp.StopEndTurn,
+		"output":  "",
+		"error":   "",
+	}, nil
+}
+
+func (h *CommandHandler) handleTestAgent(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	req.ID = strings.TrimSpace(req.ID)
+	if req.ID == "" {
+		return nil, errValidation("agent id is required")
+	}
+
+	scanner := h.server.Scanner()
+	if scanner == nil {
+		return nil, NewAPIError(CodeInternalError, "scanner not available")
+	}
+
+	status := scanner.CheckStatus(ctx, req.ID)
+
+	return map[string]any{
+		"id":     req.ID,
+		"status": string(status),
+	}, nil
+}

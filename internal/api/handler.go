@@ -28,7 +28,8 @@ const (
 
 // CommandHandler handles WebSocket commands from UI
 type CommandHandler struct {
-	server *WebSocketServer
+	server   *WebSocketServer
+	clientID string // Set by handleMessage before each command
 }
 
 // NewCommandHandler creates a new command handler
@@ -66,10 +67,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleDeleteAgent(ctx, params)
 	case "get_config_path":
 		return h.handleGetConfigPath(ctx, params)
+	case "scan_skills":
+		return h.handleScanSkills(ctx, params)
+	case "test_agent":
+		return h.handleTestAgent(ctx, params)
 
 	// Session management
 	case "create_session":
 		return h.handleCreateSession(ctx, params)
+	case "get_sessions":
+		return h.handleGetSessions(ctx, params)
 	case "send_message":
 		return h.handleSendMessage(ctx, params)
 	case "get_custom_instructions":
@@ -102,6 +109,14 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleGetSwarmTasks(ctx, params)
 	case "execute_task":
 		return h.handleExecuteTask(ctx, params)
+	case "cancel_task":
+		return h.handleCancelTask(ctx, params)
+	case "assign_task":
+		return h.handleAssignTask(ctx, params)
+	case "get_consensus":
+		return h.handleGetConsensus(ctx, params)
+	case "resolve_handoff":
+		return h.handleResolveHandoff(ctx, params)
 
 	// Team management
 	case "get_teams":
@@ -128,6 +143,14 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (a
 		return h.handleAddMCPServer(ctx, params)
 	case "remove_mcp_server":
 		return h.handleRemoveMCPServer(ctx, params)
+	case "scan_mcp_servers":
+		return h.handleScanMCPServers(ctx, params)
+	case "list_mcp_tools":
+		return h.handleListMCPTools(ctx, params)
+
+	// Code execution
+	case "execute_code":
+		return h.handleExecuteCode(ctx, params)
 
 	// Monitoring
 	case "get_supervisor_stats":

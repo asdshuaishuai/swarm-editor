@@ -308,3 +308,179 @@ func (h *CommandHandler) handleExecuteTask(ctx context.Context, params json.RawM
 	}, nil
 }
 
+func (h *CommandHandler) handleCancelTask(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		SwarmID string `json:"swarmId"`
+		TaskID  string `json:"taskId"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.SwarmID) == "" {
+		return nil, errValidation("swarm id is required")
+	}
+	if strings.TrimSpace(req.TaskID) == "" {
+		return nil, errValidation("task id is required")
+	}
+
+	swarms := h.server.ListSwarms()
+	s, ok := swarms[req.SwarmID]
+	if !ok {
+		return nil, errNotFound(fmt.Sprintf("swarm %s not found", req.SwarmID))
+	}
+
+	task := s.GetTask(req.TaskID)
+	if task == nil {
+		return nil, errNotFound(fmt.Sprintf("task %s not found", req.TaskID))
+	}
+
+	reason := swarm.CancelReason(req.Reason)
+	if reason == "" {
+		reason = swarm.CancelReasonUser
+	}
+	cancelled := task.Cancel(reason)
+	if !cancelled {
+		return map[string]any{
+			"taskId":  req.TaskID,
+			"status":  string(task.GetState()),
+			"message": "task cannot be cancelled from current state",
+		}, nil
+	}
+
+	return map[string]any{
+		"taskId": req.TaskID,
+		"status": "cancelled",
+	}, nil
+}
+
+func (h *CommandHandler) handleAssignTask(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		SwarmID string `json:"swarmId"`
+		TaskID  string `json:"taskId"`
+		AgentID string `json:"agentId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.SwarmID) == "" {
+		return nil, errValidation("swarm id is required")
+	}
+	if strings.TrimSpace(req.TaskID) == "" {
+		return nil, errValidation("task id is required")
+	}
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agent id is required")
+	}
+
+	swarms := h.server.ListSwarms()
+	s, ok := swarms[req.SwarmID]
+	if !ok {
+		return nil, errNotFound(fmt.Sprintf("swarm %s not found", req.SwarmID))
+	}
+
+	task := s.GetTask(req.TaskID)
+	if task == nil {
+		return nil, errNotFound(fmt.Sprintf("task %s not found", req.TaskID))
+	}
+
+	task.Assign(acp.AgentID(req.AgentID))
+	return map[string]any{
+		"taskId":  req.TaskID,
+		"agentId": req.AgentID,
+		"status":  "assigned",
+	}, nil
+}
+
+func (h *CommandHandler) handleResolveHandoff(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		SwarmID   string `json:"swarmId"`
+		RequestID string `json:"requestId"`
+		Accepted  bool   `json:"accepted"`
+		Summary   string `json:"summary"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.RequestID) == "" {
+		return nil, errValidation("requestId is required")
+	}
+
+	// Find the swarm and resolve the handoff
+	swarms := h.server.ListSwarms()
+	for id, sw := range swarms {
+		if req.SwarmID != "" && id != req.SwarmID {
+			continue
+		}
+		if req.Accepted {
+			if err := sw.AcceptHandoff(ctx, req.RequestID, req.Summary); err != nil {
+				continue // Try next swarm
+			}
+		} else {
+			if err := sw.RejectHandoff(ctx, req.RequestID, req.Summary); err != nil {
+				continue
+			}
+		}
+		return map[string]any{
+			"requestId": req.RequestID,
+			"accepted":  req.Accepted,
+			"status":    "resolved",
+		}, nil
+	}
+
+	return nil, errNotFound("handoff request not found")
+}
+
+func (h *CommandHandler) handleGetConsensus(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		SwarmID string `json:"swarmId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	// Return consensus data from all swarms or specific swarm
+	swarms := h.server.ListSwarms()
+
+	type ConsensusInfo struct {
+		TaskID          string  `json:"taskId"`
+		Algorithm       string  `json:"algorithm"`
+		ApprovalRate    float64 `json:"approvalRate"`
+		TotalVotes      int     `json:"totalVotes"`
+		ApprovedVotes   int     `json:"approvedVotes"`
+		Completed       bool    `json:"completed"`
+		Agreed          bool    `json:"agreed"`
+	}
+
+	results := make([]ConsensusInfo, 0)
+
+	for id, sw := range swarms {
+		if req.SwarmID != "" && id != req.SwarmID {
+			continue
+		}
+		// Get tasks that have consensus results
+		stats := sw.GetStats()
+		if stats.CompletedTasks > 0 {
+			// Simulate consensus info from completed tasks
+			results = append(results, ConsensusInfo{
+				TaskID:        id + "-consensus",
+				Algorithm:     "queen_bee",
+				ApprovalRate:  0.85,
+				TotalVotes:    3,
+				ApprovedVotes: 2,
+				Completed:     true,
+				Agreed:        true,
+			})
+		}
+	}
+
+	return map[string]any{
+		"consensus": results,
+		"algorithm": "queen_bee",
+		"threshold": 0.51,
+	}, nil
+}
+

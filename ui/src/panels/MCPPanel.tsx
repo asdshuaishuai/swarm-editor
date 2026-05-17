@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Plug,
   Plus,
@@ -9,7 +9,13 @@ import {
   X,
   Server,
   Power,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
+  Play,
+  Loader2,
 } from 'lucide-react'
+import type { MCPToolInfo } from '../services/api'
 import { useSettings, MCPServerSetting } from '../hooks/useSettings'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useAppStore } from '../store/appStore'
@@ -153,13 +159,19 @@ export default function MCPPanel() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              addToast('info', 'Refresh', 'Reloading MCP server configurations...')
-              logger.info('MCP', 'Manual refresh triggered')
+            onClick={async () => {
+              addToast('info', 'Scanning', 'Scanning for MCP servers...')
+              try {
+                const discovered = await api.mcp.scanServers()
+                addToast('success', 'Scan complete', `Found ${discovered.length} MCP servers`)
+                logger.info('MCP', 'Scan completed', discovered)
+              } catch (e) {
+                addToast('error', 'Scan failed', e instanceof Error ? e.message : 'Unknown error')
+              }
             }}
             className="p-2 hover:bg-card-hover rounded-mac transition-colors"
-            title="Refresh"
-            aria-label="Refresh"
+            title="Scan for MCP servers"
+            aria-label="Scan for MCP servers"
           >
             <RefreshCw size={16} className="text-text-secondary" />
           </button>
@@ -461,6 +473,47 @@ interface MCPServerCardProps {
 }
 
 function MCPServerCard({ server, onEdit, onDelete, onToggle }: MCPServerCardProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [tools, setTools] = useState<MCPToolInfo[]>([])
+  const [loadingTools, setLoadingTools] = useState(false)
+  const [callingTool, setCallingTool] = useState<string | null>(null)
+  const [toolResult, setToolResult] = useState<{ name: string; result: unknown } | null>(null)
+  const addToast = useAppStore(state => state.addToast)
+
+  const loadTools = useCallback(async () => {
+    if (server.status !== 'connected') return
+    setLoadingTools(true)
+    try {
+      const result = await api.mcp.listTools(server.id)
+      setTools(result)
+    } catch (err) {
+      logger.error('MCP', 'Failed to list tools:', err)
+    } finally {
+      setLoadingTools(false)
+    }
+  }, [server.id, server.status])
+
+  useEffect(() => {
+    if (expanded && server.status === 'connected' && tools.length === 0) {
+      loadTools()
+    }
+  }, [expanded, server.status, tools.length, loadTools])
+
+  const handleCallTool = async (toolName: string) => {
+    setCallingTool(toolName)
+    setToolResult(null)
+    try {
+      const result = await api.mcp.callTool(server.id, toolName, {})
+      setToolResult({ name: toolName, result })
+      addToast('success', 'Tool Called', `${toolName} executed successfully`)
+    } catch (err) {
+      logger.error('MCP', 'Tool call failed:', err)
+      addToast('error', 'Tool Call Failed', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setCallingTool(null)
+    }
+  }
+
   const statusColors = {
     connected: 'bg-success',
     disconnected: 'bg-text-tertiary',
@@ -489,6 +542,58 @@ function MCPServerCard({ server, onEdit, onDelete, onToggle }: MCPServerCardProp
       {server.args.length > 0 && (
         <div className="mb-3 p-2 bg-glass/50 rounded-mac text-xs font-mono text-text-tertiary truncate">
           {server.args.join(' ')}
+        </div>
+      )}
+
+      {/* Tools section - expandable when connected */}
+      {server.status === 'connected' && (
+        <div className="mb-3">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <Wrench size={12} />
+            <span>{loadingTools ? 'Loading tools...' : `${tools.length} tools`}</span>
+          </button>
+
+          {expanded && tools.length > 0 && (
+            <div className="mt-2 space-y-1.5 ml-5">
+              {tools.map((tool) => (
+                <div key={tool.name} className="flex items-center justify-between p-2 bg-glass/30 rounded-mac group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-text-primary truncate">{tool.name}</p>
+                    {tool.description && (
+                      <p className="text-[10px] text-text-tertiary truncate">{tool.description}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleCallTool(tool.name)}
+                    disabled={callingTool === tool.name}
+                    className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-accent/10 rounded-mac transition-all"
+                    title={`Call ${tool.name}`}
+                  >
+                    {callingTool === tool.name ? (
+                      <Loader2 size={12} className="animate-spin text-accent" />
+                    ) : (
+                      <Play size={12} className="text-text-secondary" />
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {expanded && toolResult && (
+            <div className="mt-2 ml-5 p-2 bg-glass/30 rounded-mac">
+              <p className="text-[10px] font-medium text-accent mb-1">{toolResult.name} result:</p>
+              <pre className="text-[10px] text-text-secondary overflow-x-auto max-h-32 overflow-y-auto">
+                {typeof toolResult.result === 'string'
+                  ? toolResult.result
+                  : JSON.stringify(toolResult.result, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

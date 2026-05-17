@@ -1,5 +1,6 @@
 import { lspApi } from '../services/lspApi'
 import { hasLSPSupport, convertSelectionRangeChain, parseWorkspaceEdits } from '../utils/monaco'
+import { logger } from '.'
 
 export function registerLSPProviders(
   monaco: any,
@@ -50,7 +51,7 @@ disposables.push(monaco.languages.registerCompletionItemProvider('*', {
           return suggestion
         }),
       }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return { suggestions: [] }
     }
   },
@@ -71,7 +72,7 @@ disposables.push(monaco.languages.registerHoverProvider('*', {
           ? result.contents.map((c: any) => typeof c === 'string' ? { value: c } : c)
           : [{ value: String(result.contents) }]
       return { contents }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -93,7 +94,7 @@ disposables.push(monaco.languages.registerDefinitionProvider('*', {
           loc.range.end.line + 1, loc.range.end.character + 1,
         ),
       }))
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -115,7 +116,7 @@ disposables.push(monaco.languages.registerImplementationProvider('*', {
           loc.range.end.line + 1, loc.range.end.character + 1,
         ),
       }))
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -137,7 +138,7 @@ disposables.push(monaco.languages.registerTypeDefinitionProvider('*', {
           loc.range.end.line + 1, loc.range.end.character + 1,
         ),
       }))
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -159,7 +160,7 @@ disposables.push(monaco.languages.registerReferenceProvider('*', {
           loc.range.end.line + 1, loc.range.end.character + 1,
         ),
       }))
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -195,7 +196,7 @@ disposables.push(monaco.languages.registerSignatureHelpProvider('*', {
         },
         dispose() {},
       }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -256,7 +257,7 @@ disposables.push(monaco.languages.registerCodeActionProvider('*', {
         }
       })
       return { actions } as any
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return { actions: [] } as any
     }
   },
@@ -291,7 +292,7 @@ disposables.push(monaco.languages.registerRenameProvider('*', {
       lspInitiatedEditRef.current = true
       setTimeout(() => { lspInitiatedEditRef.current = false }, 0)
       return edits
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -313,7 +314,7 @@ disposables.push(monaco.languages.registerDocumentHighlightProvider('*', {
         ),
         kind: h.kind ?? 1,
       }))
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -356,7 +357,7 @@ disposables.push(monaco.languages.registerDocumentSymbolProvider('*', {
       }
 
       return result.symbols.map(convertSymbol)
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -382,7 +383,7 @@ disposables.push(monaco.languages.registerLinkProvider('*', {
         tooltip: link.tooltip || undefined,
       }))
       return { links }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -411,7 +412,7 @@ disposables.push(monaco.languages.registerCodeLensProvider('*', {
         } : undefined,
       }))
       return { lenses, dispose: () => {} }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return { lenses: [] }
     }
   },
@@ -444,7 +445,7 @@ disposables.push(monaco.languages.registerInlayHintsProvider('*', {
         paddingRight: h.paddingRight || false,
       }))
       return { hints, dispose: () => {} }
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return { hints: [] }
     }
   },
@@ -467,7 +468,7 @@ disposables.push(monaco.languages.registerFoldingRangeProvider('*', {
              : undefined,
       }))
       return ranges
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return []
     }
   },
@@ -496,7 +497,7 @@ disposables.push(monaco.languages.registerSelectionRangeProvider('*', {
       // Monaco expects SelectionRange[][] — outer array per position, inner array is expand chain
       const chains: any[][] = result.ranges.map((sr: any) => convertSelectionRangeChain(sr, monaco))
       return chains
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return []
     }
   },
@@ -524,7 +525,7 @@ disposables.push(monaco.languages.registerDocumentRangeFormattingEditProvider('*
 
       const edits = parseWorkspaceEdits(model, result.edit, monaco)
       return edits.length > 0 ? edits : null
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -554,7 +555,7 @@ disposables.push(monaco.languages.registerOnTypeFormattingEditProvider('*', {
 
       const edits = parseWorkspaceEdits(model, result.edit, monaco)
       return edits.length > 0 ? edits : null
-    } catch {
+    } catch (e) { logger.debug('LSP', 'provider error', e);
       return null
     }
   },
@@ -602,7 +603,7 @@ const registerSemanticTokensProvider = (languageId: string, legend: { tokenTypes
           resultId: result.tokens.resultId,
           data: new Uint32Array(result.tokens.data),
         }
-      } catch {
+      } catch (e) { logger.debug('LSP', 'provider error', e);
         return null
       }
     },
@@ -631,7 +632,7 @@ const registerSemanticTokensProvider = (languageId: string, legend: { tokenTypes
           resultId: result.tokens.resultId,
           data: new Uint32Array(result.tokens.data),
         }
-      } catch {
+      } catch (e) { logger.debug('LSP', 'provider error', e);
         return null
       }
     },

@@ -212,6 +212,9 @@ type AgentInfo struct {
 	Name         string   `json:"name"`
 	Type         string   `json:"type"`
 	State        string   `json:"state"`
+	Command      string   `json:"command,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Enabled      *bool    `json:"enabled,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
 	LastActive   string   `json:"lastActive,omitempty"`
 }
@@ -265,12 +268,18 @@ type MessageInfo struct {
 
 // MCPServerInfo represents MCP server information for UI
 type MCPServerInfo struct {
-	ID      string     `json:"id"`
-	Name    string     `json:"name"`
-	Command string     `json:"command"`
-	Args    []string   `json:"args,omitempty"`
-	Status  string     `json:"status"`
-	Tools   []ToolInfo `json:"tools,omitempty"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type,omitempty"`
+	Command  string            `json:"command,omitempty"`
+	Args     []string          `json:"args,omitempty"`
+	URL      string            `json:"url,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Disabled bool              `json:"disabled,omitempty"`
+	Source   string            `json:"source,omitempty"`
+	Status   string            `json:"status"`
+	Tools    []ToolInfo        `json:"tools,omitempty"`
 }
 
 // ToolInfo represents MCP tool information for UI
@@ -407,6 +416,9 @@ type WebSocketServer struct {
 	// LSP
 	lspManager *lsp.Manager
 
+	// Agent scanning
+	scanner *agent.Scanner
+
 	// Emergence
 	emergenceService *EmergenceService // Real-time emergence dashboard data
 
@@ -420,7 +432,8 @@ type WebSocketServer struct {
 	scheduleRunner *swarm.ScheduleRunner // Cron-based schedule runner
 
 	// Sessions
-	sessionToAgent map[string]string // sessionID -> agentID mapping
+	sessionToAgent  map[string]string            // sessionID -> agentID mapping
+	clientSessions  map[string]map[string]struct{} // clientID -> set of sessionIDs
 
 	mu     sync.RWMutex
 	ctx    context.Context
@@ -490,6 +503,9 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 	// Initialize terminal manager for real PTY sessions
 	terminalMgr := terminal.NewManager(cfg.WorkspacePath)
 
+	// Initialize agent scanner for CLI discovery
+	agentScanner := agent.NewScanner()
+
 	s := &WebSocketServer{
 		addr:             cfg.Addr,
 		registry:         cfg.Registry,
@@ -502,6 +518,8 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		emergenceService: emergenceService,
 		lspManager:       lspManager,
 		terminalMgr:      terminalMgr,
+		scanner:          agentScanner,
+		clientSessions:   make(map[string]map[string]struct{}),
 		authToken:        cfg.AuthToken,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -642,6 +660,11 @@ func (s *WebSocketServer) Registry() *agent.Registry {
 // ConnManager returns the connection manager
 func (s *WebSocketServer) ConnManager() *acp.ConnectionManager {
 	return s.connManager
+}
+
+// Scanner returns the agent CLI scanner
+func (s *WebSocketServer) Scanner() *agent.Scanner {
+	return s.scanner
 }
 
 // TeamManager returns the team manager
@@ -959,19 +982,25 @@ func (h *ClientHub) Unregister(client *Client) {
 	clientCount := len(h.clients)
 	h.mu.Unlock()
 
-	// Clean up session -> agent mappings to prevent memory leak.
-	// When a client disconnects without calling close_session, entries
-	// in sessionToAgent become stale. Clear all entries since we don't
-	// track which client owns which session (bounded at maxSessions=1000).
+	// Clean up session -> agent mappings owned by this client.
 	h.server.mu.Lock()
-	if len(h.server.sessionToAgent) > 0 {
-		count := len(h.server.sessionToAgent)
-		h.server.sessionToAgent = make(map[string]string)
+	if sessions, ok := h.server.clientSessions[client.ID]; ok {
+		count := 0
+		for sid := range sessions {
+			if _, exists := h.server.sessionToAgent[sid]; exists {
+				delete(h.server.sessionToAgent, sid)
+				count++
+			}
+		}
+		delete(h.server.clientSessions, client.ID)
 		h.server.mu.Unlock()
-		hubLog.Info("Client unregistered", "client_id", client.ID, "total", clientCount, "cleaned_sessions", count)
-		return
+		if count > 0 {
+			hubLog.Info("Client unregistered", "client_id", client.ID, "total", clientCount, "cleaned_sessions", count)
+			return
+		}
+	} else {
+		h.server.mu.Unlock()
 	}
-	h.server.mu.Unlock()
 
 	hubLog.Info("Client unregistered", "client_id", client.ID, "total", clientCount)
 }
@@ -1215,7 +1244,9 @@ func (c *Client) handleMessage(data []byte) {
 		return
 	}
 
-	result, err := c.server.Handler().HandleCommand(req.Method, req.Params)
+	handler := c.server.Handler()
+	handler.clientID = c.ID
+	result, err := handler.HandleCommand(req.Method, req.Params)
 	if err != nil {
 		// Log error for debugging
 		wsLog.Warn("Command error", "method", req.Method, "error", err)

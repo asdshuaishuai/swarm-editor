@@ -267,6 +267,13 @@ func (t *Task) SetPriority(priority TaskPriority) {
 	t.Priority = priority
 }
 
+// GetState returns the current task state (thread-safe)
+func (t *Task) GetState() TaskState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.State
+}
+
 // GetPriority returns the task priority
 func (t *Task) GetPriority() TaskPriority {
 	t.mu.RLock()

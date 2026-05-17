@@ -3,7 +3,6 @@ import { useAppStore } from '../store/appStore'
 import {
   Users,
   Plus,
-  UserPlus,
   Settings,
   FolderOpen,
   Bot,
@@ -11,6 +10,8 @@ import {
   Shield,
   Code2,
   X,
+  Trash2,
+  UserMinus,
 } from 'lucide-react'
 import { Team, TeamMember, MemberRole } from '../types'
 import { api, type AgentInfo } from '../services'
@@ -265,6 +266,8 @@ function TeamCard({ team, isActive, onSelect, onAssign }: TeamCardProps) {
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([])
   const [assigning, setAssigning] = useState<string | null>(null)
+  const [removingAgent, setRemovingAgent] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const addToast = useAppStore(state => state.addToast)
 
   const loadAgents = async () => {
@@ -288,6 +291,35 @@ function TeamCard({ team, isActive, onSelect, onAssign }: TeamCardProps) {
       addToast('error', 'Failed to assign agent', err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setAssigning(null)
+    }
+  }
+
+  const handleRemoveAgent = async (agentId: string) => {
+    setRemovingAgent(agentId)
+    try {
+      await api.team.removeAgentFromTeam(team.id, agentId)
+      addToast('success', 'Agent removed', 'Agent removed from team')
+      onAssign?.()
+    } catch (err) {
+      logger.error('Team', 'Failed to remove agent:', err)
+      addToast('error', 'Failed to remove agent', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setRemovingAgent(null)
+    }
+  }
+
+  const handleDeleteTeam = async () => {
+    if (!confirm(`Delete team "${team.name}"? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await api.team.deleteTeam(team.id)
+      addToast('success', 'Team deleted', `Team "${team.name}" has been deleted`)
+      onAssign?.()
+    } catch (err) {
+      logger.error('Team', 'Failed to delete team:', err)
+      addToast('error', 'Failed to delete team', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -368,28 +400,36 @@ function TeamCard({ team, isActive, onSelect, onAssign }: TeamCardProps) {
             </div>
           </div>
 
+          {/* Agents */}
+          {team.agents && team.agents.length > 0 && (
+            <div className="mt-3">
+              <h5 className="text-xs font-semibold text-text-tertiary mb-2 uppercase tracking-wider">
+                Agents
+              </h5>
+              <div className="space-y-1">
+                {team.agents.map((agent) => (
+                  <div key={agent.id} className="flex items-center justify-between py-1.5 px-2 rounded-mac hover:bg-card-hover transition-colors group">
+                    <div className="flex items-center gap-2">
+                      <Bot size={12} className="text-accent" />
+                      <span className="text-sm text-text-primary">{agent.name}</span>
+                      <span className="text-[10px] text-text-tertiary capitalize">{agent.state}</span>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemoveAgent(agent.id) }}
+                      disabled={removingAgent === agent.id}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-all disabled:opacity-50"
+                      title="Remove agent from team"
+                    >
+                      <UserMinus size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex items-center gap-2 mt-4">
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                addToast('info', 'Not yet implemented', 'Invite feature is coming soon')
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors"
-            >
-              <UserPlus size={14} />
-              <span>Invite</span>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                addToast('info', 'Not yet implemented', 'Workspaces feature is coming soon')
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-glass hover:bg-card-hover border border-glass-border rounded-mac text-xs text-text-primary transition-colors"
-            >
-              <FolderOpen size={14} />
-              <span>Workspaces</span>
-            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -400,6 +440,14 @@ function TeamCard({ team, isActive, onSelect, onAssign }: TeamCardProps) {
             >
               <Bot size={14} />
               <span>Assign Agent</span>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDeleteTeam() }}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-mac text-xs text-red-400 transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+              <span>{deleting ? 'Deleting...' : 'Delete Team'}</span>
             </button>
           </div>
 

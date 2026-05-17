@@ -31,6 +31,26 @@ vi.mock('../services', () => ({
   },
 }))
 
+// Mock scheduling service
+vi.mock('../services/scheduling', () => ({
+  schedulingService: {
+    sortTasksByPriority: vi.fn((tasks: Array<{ priority: number }>) =>
+      [...tasks].sort((a, b) => b.priority - a.priority)
+    ),
+    getSchedulingStats: vi.fn(() => ({
+      totalTasksScheduled: 5,
+      avgWaitTime: 1200,
+      avgExecutionTime: 3000,
+      starvationPreventions: 0,
+      loadBalanceEfficiency: 0.85,
+      predictionAccuracy: 0.85,
+    })),
+    calculateLoadBalanceEfficiency: vi.fn(() => 0.85),
+    recordTaskScheduled: vi.fn(),
+    updateAgentLoad: vi.fn(),
+  },
+}))
+
 describe('SwarmCoordinatorPanel', () => {
   beforeEach(() => {
     vi.useFakeTimers()

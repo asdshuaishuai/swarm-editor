@@ -52,6 +52,13 @@ export function createEditorMountHandler(options: EditorMountOptions) {
 
     const disposables: any[] = []
 
+    // Track focus for active pane switching (replaces 200ms polling)
+    if (setActivePane) {
+      disposables.push(
+        editor.onDidFocusEditorWidget(() => { setActivePane(isMain ? 'main' : 'secondary') })
+      )
+    }
+
     if (isMain) {
       registerLSPProviders(monaco, editor, disposables, {
         inlayHintsRef,
@@ -62,10 +69,6 @@ export function createEditorMountHandler(options: EditorMountOptions) {
     } else {
       secondaryDisposablesRef!.current.forEach((d: any) => d.dispose())
       secondaryDisposablesRef!.current = []
-
-      secondaryDisposablesRef!.current.push(
-        editor.onDidFocusEditorWidget(() => { setActivePane!('secondary') })
-      )
 
       registerSecondaryContentChangeListener({
         editor,

@@ -23,6 +23,10 @@ vi.mock('../services', () => ({
         lastActive: new Date().toISOString(),
         enabled: true,
       })),
+      testAgent: vi.fn().mockImplementation(async (agentId: string) => ({
+        id: agentId,
+        status: 'available',
+      })),
     },
   },
 }))

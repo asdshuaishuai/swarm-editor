@@ -187,6 +187,7 @@ type SessionPromptParams struct {
 // SessionPromptResult is the result of a prompt turn
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+	Content    string     `json:"content,omitempty"`
 }
 
 // StopReason indicates why the agent stopped

@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore'
 import { LSP_LANG_MAP } from '../utils/monaco'
 import { lspApi } from '../services/lspApi'
 import { executeEditorAction } from '../utils/monacoEditorActions'
+import { logger } from '../utils'
 
 interface UseEditorWindowEventsOptions {
   // Tab management
@@ -123,8 +124,8 @@ export function useEditorWindowEvents(options: UseEditorWindowEventsOptions) {
             newDirty.delete(path)
             return { dirtyFiles: newDirty }
           })
-        } catch {
-          // Silently ignore save errors
+        } catch (e) {
+          logger.error('Editor', `Failed to save ${path}`, e)
         }
       }
     }

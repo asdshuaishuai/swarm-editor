@@ -7,6 +7,7 @@ import (
 "path/filepath"
 "strings"
 "github.com/swarm-editor/swarm-editor/internal/acp"
+"github.com/swarm-editor/swarm-editor/internal/agent"
 )
 
 func (h *CommandHandler) handleGetMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
@@ -210,5 +211,74 @@ func (h *CommandHandler) handleRemoveMCPServer(ctx context.Context, params json.
 	}
 
 	return map[string]string{"id": req.ServerID, "status": "removed"}, nil
+}
+
+func (h *CommandHandler) handleScanMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
+	scanner := h.server.Scanner()
+	if scanner == nil {
+		return []MCPServerInfo{}, nil
+	}
+
+	// Ensure scanner has results
+	if len(scanner.GetAgents()) == 0 {
+		if _, err := scanner.Scan(ctx); err != nil {
+			return nil, safeError("agent scan failed", err)
+		}
+	}
+
+	discovery := agent.NewMCPDiscovery(scanner)
+	discovered, err := discovery.DiscoverAll()
+	if err != nil {
+		return nil, safeError("MCP discovery failed", err)
+	}
+
+	result := make([]MCPServerInfo, 0, len(discovered))
+	for _, s := range discovered {
+		result = append(result, MCPServerInfo{
+			ID:       s.Name,
+			Name:     s.Name,
+			Type:     s.Type,
+			Command:  s.Command,
+			Args:     s.Args,
+			URL:      s.URL,
+			Headers:  s.Headers,
+			Env:      s.Env,
+			Disabled: s.Disabled,
+			Source:   s.Source,
+			Status:   "discovered",
+		})
+	}
+
+	return result, nil
+}
+
+func (h *CommandHandler) handleListMCPTools(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		ServerID string `json:"serverId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.ServerID) == "" {
+		return nil, errValidation("serverId is required")
+	}
+
+	client, ok := h.server.GetMCPClient(req.ServerID)
+	if !ok {
+		return nil, errNotFound("MCP server not found")
+	}
+
+	tools := client.ListTools()
+	result := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		result = append(result, map[string]any{
+			"name":        t.Name,
+			"description": t.Description,
+			"inputSchema": t.InputSchema,
+		})
+	}
+
+	return result, nil
 }
 

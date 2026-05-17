@@ -30,6 +30,16 @@ export interface AgentConfig {
   env?: Record<string, string>
 }
 
+export interface SkillInfo {
+  id: string
+  name: string
+  description?: string
+  source: 'filesystem' | 'mcp' | 'agent'
+  path?: string
+  agentId?: string
+  tags?: string[]
+}
+
 export interface FileEntry {
   name: string
   path: string
@@ -137,6 +147,14 @@ export interface MCPServerInfo {
   id: string
   name: string
   status: string
+  type?: string
+  command?: string
+  args?: string[]
+  url?: string
+  headers?: Record<string, string>
+  env?: Record<string, string>
+  disabled?: boolean
+  source?: string
   tools?: MCPToolInfo[]
 }
 
@@ -253,10 +271,6 @@ export const agentApi = {
     await getClient().invoke('delete_agent', { id })
   },
 
-  async getConfigPath(): Promise<string> {
-    return getClient().invoke<string>('get_config_path')
-  },
-
   async createSession(agentId: string, mode?: string): Promise<SessionInfo & { agentName?: string }> {
     const result = await getClient().invoke<SessionInfo>('create_session', { agentId, mode: mode || 'default' })
     return { ...result, sessionId: result.id, agentName: '' }
@@ -267,12 +281,23 @@ export const agentApi = {
   },
 
   async sendMessage(sessionId: string, message: string): Promise<{ sessionId: string; stopReason: string; content?: string }> {
-    await getClient().invoke<{ status: string; timestamp: string }>('send_message', { sessionId, message })
-    return { sessionId, stopReason: 'complete', content: '' }
+    return getClient().invoke<{ sessionId: string; stopReason: string; content?: string }>('send_message', { sessionId, message })
   },
 
   async closeSession(sessionId: string): Promise<void> {
     await getClient().invoke('close_session', { sessionId })
+  },
+
+  async scanSkills(): Promise<SkillInfo[]> {
+    return getClient().invoke<SkillInfo[]>('scan_skills')
+  },
+
+  async testAgent(id: string): Promise<{ id: string; status: string }> {
+    return getClient().invoke('test_agent', { id })
+  },
+
+  async getConfigPath(): Promise<string> {
+    return getClient().invoke<string>('get_config_path')
   },
 }
 
@@ -280,35 +305,67 @@ export const agentApi = {
 export const swarmApi = {
   async getSwarms(): Promise<SwarmInfo[]> {
     const swarms = await getClient().invoke<SwarmInfo[]>('get_swarms')
-    // Add backward compatibility fields
-    return swarms.map(s => ({
-      ...s,
-      state: s.status,
-      agents: [],
-      stats: {
-        agentCount: s.agentCount,
-        idleAgents: 0,
-        executingAgents: 0,
-        pendingTasks: s.taskCount,
-        completedTasks: 0,
-      } as SwarmTaskStats,
+    // Fetch real task stats for each swarm
+    const enriched = await Promise.all(swarms.map(async s => {
+      try {
+        const taskStats = await getClient().invoke<Record<string, number>>('get_swarm_tasks', { swarmId: s.id })
+        return {
+          ...s,
+          state: s.status,
+          agents: [],
+          stats: {
+            agentCount: s.agentCount,
+            idleAgents: taskStats['idle'] ?? 0,
+            executingAgents: taskStats['running'] ?? 0,
+            pendingTasks: taskStats['pending'] ?? s.taskCount,
+            completedTasks: taskStats['completed'] ?? 0,
+          } as SwarmTaskStats,
+        }
+      } catch {
+        return {
+          ...s,
+          state: s.status,
+          agents: [],
+          stats: {
+            agentCount: s.agentCount,
+            idleAgents: 0,
+            executingAgents: 0,
+            pendingTasks: s.taskCount,
+            completedTasks: 0,
+          } as SwarmTaskStats,
+        }
+      }
     }))
+    return enriched
   },
 
   async getSwarm(id: string): Promise<SwarmInfo> {
     const swarm = await getClient().invoke<SwarmInfo>('get_swarm', { id })
-    // Add backward compatibility fields
-    return {
-      ...swarm,
-      state: swarm.status,
-      agents: [],
-      stats: {
+    // Fetch real task stats
+    let stats: SwarmTaskStats
+    try {
+      const taskStats = await getClient().invoke<Record<string, number>>('get_swarm_tasks', { swarmId: id })
+      stats = {
+        agentCount: swarm.agentCount,
+        idleAgents: taskStats['idle'] ?? 0,
+        executingAgents: taskStats['running'] ?? 0,
+        pendingTasks: taskStats['pending'] ?? swarm.taskCount,
+        completedTasks: taskStats['completed'] ?? 0,
+      }
+    } catch {
+      stats = {
         agentCount: swarm.agentCount,
         idleAgents: 0,
         executingAgents: 0,
         pendingTasks: swarm.taskCount,
         completedTasks: 0,
-      } as SwarmTaskStats,
+      }
+    }
+    return {
+      ...swarm,
+      state: swarm.status,
+      agents: [],
+      stats,
     }
   },
 
@@ -359,6 +416,32 @@ export const swarmApi = {
   async getSwarmTasks(swarmId: string): Promise<Record<string, number>> {
     return getClient().invoke('get_swarm_tasks', { swarmId })
   },
+
+  async cancelTask(swarmId: string, taskId: string, reason?: string): Promise<{ taskId: string; status: string }> {
+    return getClient().invoke('cancel_task', { swarmId, taskId, reason })
+  },
+
+  async assignTask(swarmId: string, taskId: string, agentId: string): Promise<{ taskId: string; agentId: string; status: string }> {
+    return getClient().invoke('assign_task', { swarmId, taskId, agentId })
+  },
+
+  async getConsensus(swarmId?: string): Promise<{ consensus: ConsensusInfo[]; algorithm: string; threshold: number }> {
+    return getClient().invoke('get_consensus', { swarmId })
+  },
+
+  async resolveHandoff(requestId: string, accepted: boolean, summary?: string, swarmId?: string): Promise<{ requestId: string; accepted: boolean; status: string }> {
+    return getClient().invoke('resolve_handoff', { requestId, accepted, summary, swarmId })
+  },
+}
+
+export interface ConsensusInfo {
+  taskId: string
+  algorithm: string
+  approvalRate: number
+  totalVotes: number
+  approvedVotes: number
+  completed: boolean
+  agreed: boolean
 }
 
 export interface SwarmTaskResult {
@@ -386,16 +469,16 @@ export const teamApi = {
     return getClient().invoke<TeamInfo>('create_team', { name, ownerId })
   },
 
-  async deleteTeam(id: string): Promise<{ status: string }> {
-    return getClient().invoke('delete_team', { id })
-  },
-
   async addAgentToTeam(teamId: string, agentId: string): Promise<{ status: string }> {
     return getClient().invoke('add_agent_to_team', { teamId, agentId })
   },
 
-  async removeAgentFromTeam(teamId: string, agentId: string): Promise<{ status: string }> {
-    return getClient().invoke('remove_agent_from_team', { teamId, agentId })
+  async deleteTeam(teamId: string): Promise<void> {
+    await getClient().invoke('delete_team', { teamId })
+  },
+
+  async removeAgentFromTeam(teamId: string, agentId: string): Promise<void> {
+    await getClient().invoke('remove_agent_from_team', { teamId, agentId })
   },
 }
 
@@ -438,9 +521,43 @@ export const mcpApi = {
   async removeServer(serverId: string): Promise<void> {
     await getClient().invoke('remove_mcp_server', { serverId })
   },
+
+  async scanServers(): Promise<MCPServerInfo[]> {
+    return getClient().invoke<MCPServerInfo[]>('scan_mcp_servers')
+  },
+
+  async listTools(serverId: string): Promise<MCPToolInfo[]> {
+    return getClient().invoke<MCPToolInfo[]>('list_mcp_tools', { serverId })
+  },
 }
 
 // Monitoring API
+export interface AuditEvent {
+  id: string
+  timestamp: string
+  eventType: string
+  actor: string
+  action: string
+  resourceType: string
+  resourceId: string
+  details?: Record<string, unknown>
+  success: boolean
+  errorMsg?: string
+}
+
+export interface AuditStats {
+  count: number
+  enabled: boolean
+}
+
+export interface ScheduleRunnerStatus {
+  running: boolean
+  scheduleCount: number
+  lastRun?: string
+  nextRun?: string
+  schedules?: Array<{ id: string; name: string; cron: string; lastRun?: string; nextRun?: string }>
+}
+
 export const monitoringApi = {
   async getSupervisorStats(): Promise<SupervisorStats> {
     return getClient().invoke<SupervisorStats>('get_supervisor_stats')
@@ -448,6 +565,30 @@ export const monitoringApi = {
 
   async getEmergenceData(): Promise<EmergenceData> {
     return getClient().invoke<EmergenceData>('get_emergence_data')
+  },
+
+  async listAuditEvents(filter?: { eventType?: string; actor?: string; limit?: number }): Promise<AuditEvent[]> {
+    return getClient().invoke<AuditEvent[]>('list_audit_events', filter || {})
+  },
+
+  async getAuditStats(): Promise<AuditStats> {
+    return getClient().invoke<AuditStats>('get_audit_stats')
+  },
+
+  async clearAuditLog(): Promise<void> {
+    await getClient().invoke('clear_audit_log', { confirm: true })
+  },
+
+  async getScheduleRunnerStatus(): Promise<ScheduleRunnerStatus> {
+    return getClient().invoke<ScheduleRunnerStatus>('get_schedule_runner_status')
+  },
+
+  async startScheduleRunner(): Promise<ScheduleRunnerStatus> {
+    return getClient().invoke<ScheduleRunnerStatus>('start_schedule_runner')
+  },
+
+  async stopScheduleRunner(): Promise<ScheduleRunnerStatus> {
+    return getClient().invoke<ScheduleRunnerStatus>('stop_schedule_runner')
   },
 }
 
@@ -678,14 +819,6 @@ export const backendApi = {
     getClient().disconnect()
     return 'disconnected'
   },
-
-  async enableReconnect(): Promise<void> {
-    // No-op for WebSocket - always enabled
-  },
-
-  async disableReconnect(): Promise<void> {
-    // No-op for WebSocket - always enabled
-  },
 }
 
 export interface BackendStatus {
@@ -716,6 +849,10 @@ export const events = {
 
   onPermissionRequest(handler: (payload: PermissionRequest) => void): () => void {
     return getClient().subscribe('permission_request', handler as (payload: unknown) => void)
+  },
+
+  async sendPermissionResponse(requestId: string, approved: boolean, resolvedBy: string, reason?: string): Promise<void> {
+    await getClient().invoke('permission_response', { requestId, approved, resolvedBy, reason })
   },
 
   onAgentMessage(handler: (payload: { sessionId: string; content: string }) => void): () => void {
@@ -1059,6 +1196,22 @@ export const workflowApi = {
       },
     })
   },
+
+  async exportWorkflow(id: string): Promise<{ data: string; format: string; size: number; exported: string }> {
+    return getClient().invoke('export_workflow', { id })
+  },
+
+  async importWorkflow(data: string, name: string): Promise<{ id: string; name: string }> {
+    return getClient().invoke('import_workflow', { data, name })
+  },
+
+  async validate(id: string): Promise<{ valid: boolean; errors: unknown }> {
+    return getClient().invoke('validate_workflow', { id })
+  },
+
+  async getStatus(id: string): Promise<unknown> {
+    return getClient().invoke('get_workflow_status', { id })
+  },
 }
 
 // Automation API (Prefect 3 Automations pattern)
@@ -1142,30 +1295,6 @@ export const api = {
 
 // Note: Types are already exported via 'export interface' above
 
-// Event types for backward compatibility
-export interface SwarmTaskUpdateEvent {
-  swarm_id: string
-  swarmId: string
-  task_id: string
-  taskId: string
-  status: string
-  progress: number
-}
-
-export interface SwarmStatusEvent {
-  swarm_id: string
-  swarmId: string
-  new_state: string
-  status: string
-}
-
-export interface AgentStatusEvent {
-  agent_id: string
-  agentId: string
-  status: string
-  state: string
-}
-
 export interface PermissionRequestEvent {
   id: string
   sessionId: string
@@ -1173,10 +1302,4 @@ export interface PermissionRequestEvent {
   description: string
   options?: PermissionOption[]
   metadata?: Record<string, unknown>
-}
-
-export interface LogEvent {
-  level: string
-  source: string
-  message: string
 }

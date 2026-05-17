@@ -309,17 +309,6 @@ export default function EditorPanel() {
     fileContents, addToast,
   })
 
-  // Main editor focus tracking
-  useEffect(() => {
-    const checkFocus = () => {
-      if (editorRef.current?.hasTextFocus()) {
-        setActivePane('main')
-      }
-    }
-    const interval = setInterval(checkFocus, 200)
-    return () => clearInterval(interval)
-  }, [setActivePane])
-
   useWorkspaceInit({ mountedRef, setLoading, setWorkspace, addToast })
 
   const loadFile = async (entry: FileEntry) => {
@@ -351,6 +340,7 @@ export default function EditorPanel() {
     onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
     onNavigateProblem: (direction) => navigateProblemRef.current(editorRef.current!, currentFile, direction),
     effectiveTheme: effectiveTheme as 'dark' | 'light', isMain: true,
+    setActivePane,
   })
 
   // Command palette / keyboard shortcut events

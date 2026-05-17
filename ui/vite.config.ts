@@ -5,7 +5,6 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  // Use oxc instead of deprecated esbuild
   oxc: {
     jsx: 'automatic',
   },
@@ -21,6 +20,10 @@ export default defineConfig({
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+  },
+  build: {
+    // chunk 大小警告
+    chunkSizeWarningLimit: 500,
   },
   test: {
     globals: true,

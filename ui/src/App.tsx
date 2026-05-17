@@ -1,13 +1,8 @@
-import { Routes, Route } from 'react-router-dom'
-import { useEffect, useState, useCallback } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { useAppStore } from './store/appStore'
 import { useACPEvents, useTheme } from './hooks'
 import MainLayout from './components/layouts/MainLayout'
-import EditorPage from './panels/EditorPanel'
-import SwarmPage from './panels/SwarmPanel'
-import TeamPage from './panels/TeamPanel'
-import SettingsPage from './panels/SettingsPanel'
-import WorkflowPage from './panels/WorkflowPanel'
 import { ToastContainer } from './components/Toast'
 import { PermissionDialog, PermissionQueueIndicator } from './components/PermissionDialog'
 import { CommandPalette } from './components/CommandPalette'
@@ -16,6 +11,23 @@ import { HandoffDialog, useHandoffStore } from './components/HandoffDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import StatusBar from './components/StatusBar'
 import { TabSwitcher } from './components/TabSwitcher'
+
+// 懒加载页面组件 - 减少初始 bundle
+const EditorPage = lazy(() => import('./panels/EditorPanel'))
+const SwarmPage = lazy(() => import('./panels/SwarmPanel'))
+const TeamPage = lazy(() => import('./panels/TeamPanel'))
+const SettingsPage = lazy(() => import('./panels/SettingsPanel'))
+const WorkflowPage = lazy(() => import('./panels/WorkflowPanel'))
+const AgentCollaborationPage = lazy(() => import('./panels/AgentCollaborationPanel').then(m => ({ default: m.AgentCollaborationPanel })))
+
+// 加载指示器
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-full" style={{ background: 'var(--bg-base)' }}>
+      <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>Loading...</div>
+    </div>
+  )
+}
 
 function App() {
   const initialize = useAppStore(state => state.initialize)
@@ -164,13 +176,17 @@ function App() {
     <>
       <ErrorBoundary>
         <MainLayout>
-          <Routes>
-            <Route path="/" element={<ErrorBoundary><EditorPage /></ErrorBoundary>} />
-            <Route path="/swarm" element={<ErrorBoundary><SwarmPage /></ErrorBoundary>} />
-            <Route path="/team" element={<ErrorBoundary><TeamPage /></ErrorBoundary>} />
-            <Route path="/workflow" element={<ErrorBoundary><WorkflowPage /></ErrorBoundary>} />
-            <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<ErrorBoundary><AgentCollaborationPage /></ErrorBoundary>} />
+              <Route path="/editor" element={<ErrorBoundary><EditorPage /></ErrorBoundary>} />
+              <Route path="/swarm" element={<ErrorBoundary><SwarmPage /></ErrorBoundary>} />
+              <Route path="/team" element={<ErrorBoundary><TeamPage /></ErrorBoundary>} />
+              <Route path="/workflow" element={<ErrorBoundary><WorkflowPage /></ErrorBoundary>} />
+              <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </MainLayout>
       </ErrorBoundary>
       <ToastContainer toasts={toasts} onDismiss={removeToast} position="bottom-right" />

@@ -20,6 +20,7 @@ import { api } from '../services'
 import { logger } from '../utils'
 import { getWebSocketClient } from '../services/websocket'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { schedulingService } from '../services/scheduling'
 
 interface SwarmCoordinatorPanelProps {
   /** Initial tasks for testing purposes */
@@ -69,6 +70,10 @@ export default function SwarmCoordinatorPanel({
     failed: tasks.filter(t => t.status === 'failed').length,
   }), [tasks])
 
+  // Scheduling stats from the scheduling service
+  const schedulingStats = useMemo(() => schedulingService.getSchedulingStats(), [tasks])
+  const loadBalanceEfficiency = useMemo(() => schedulingService.calculateLoadBalanceEfficiency(), [tasks])
+
   // Track mounted state to prevent setState on unmounted component
   useEffect(() => {
     mountedRef.current = true
@@ -92,12 +97,10 @@ export default function SwarmCoordinatorPanel({
     return () => unsub()
   }, [])
 
-  // Polling fallback: refresh task stats from backend every 10s when tasks are running.
+  // Polling fallback: refresh task stats from backend every 10s when there's an active swarm.
   // The backend does not yet emit swarm_task_update events, so this keeps the UI in sync.
   useEffect(() => {
     if (!activeSwarm) return
-    const hasRunningTasks = tasks.some(t => t.status === 'running')
-    if (!hasRunningTasks) return
 
     const interval = setInterval(async () => {
       if (!mountedRef.current || !activeSwarm) return
@@ -120,7 +123,7 @@ export default function SwarmCoordinatorPanel({
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [activeSwarm, tasks])
+  }, [activeSwarm])
 
   const handleSubmitTask = useCallback(async () => {
     if (!activeSwarm) {
@@ -152,6 +155,9 @@ export default function SwarmCoordinatorPanel({
         results: {},
         createdAt: new Date().toISOString(),
       }
+
+      // Record scheduling event
+      schedulingService.recordTaskScheduled(task, 'pending')
 
       setTasks((prev) => [...prev, task])
       setNewTaskModal(false)
@@ -223,6 +229,13 @@ export default function SwarmCoordinatorPanel({
           progress: 1,
         } : prev
       )
+
+      // Update scheduling agent load
+      const agentIds = Object.keys(result.agentResults)
+      agentIds.forEach(id => {
+        const r = result.agentResults[id]
+        schedulingService.updateAgentLoad(id, 0, 5, r.durationMs)
+      })
     } catch (err) {
       logger.error('Swarm', 'Failed to execute task:', err)
       // Check if component is still mounted before updating state
@@ -335,7 +348,7 @@ export default function SwarmCoordinatorPanel({
         {/* Task List */}
         <div className="flex-1 overflow-y-auto p-4">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-4 gap-3 mb-3">
             <StatCard
               icon={<Clock size={16} />}
               label="Pending"
@@ -362,6 +375,22 @@ export default function SwarmCoordinatorPanel({
             />
           </div>
 
+          {/* Scheduling Stats */}
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="bg-glass border border-glass-border rounded-mac p-2.5">
+              <span className="text-xs text-text-tertiary">Scheduled</span>
+              <div className="text-sm font-bold text-text-primary">{schedulingStats.totalTasksScheduled}</div>
+            </div>
+            <div className="bg-glass border border-glass-border rounded-mac p-2.5">
+              <span className="text-xs text-text-tertiary">Load Balance</span>
+              <div className="text-sm font-bold text-text-primary">{Math.round(loadBalanceEfficiency * 100)}%</div>
+            </div>
+            <div className="bg-glass border border-glass-border rounded-mac p-2.5">
+              <span className="text-xs text-text-tertiary">Starvation</span>
+              <div className="text-sm font-bold text-text-primary">{schedulingStats.starvationPreventions}</div>
+            </div>
+          </div>
+
           {/* Task List */}
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-text-tertiary">
@@ -373,8 +402,7 @@ export default function SwarmCoordinatorPanel({
             </div>
           ) : (
             <div className="space-y-2">
-              {tasks
-                .sort((a, b) => b.priority - a.priority)
+              {schedulingService.sortTasksByPriority(tasks)
                 .map((task) => (
                   <TaskCard
                     key={task.id}

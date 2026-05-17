@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { AgentDispatchPanel } from './AgentDispatchPanel'
+import { api } from '../services'
+import { logger } from '../utils'
 
 type TabId = 'agents' | 'console'
 
@@ -56,7 +58,9 @@ function ConsolePanel() {
     }
   }, [entries])
 
-  const handleCommand = (cmd: string) => {
+  const sessionRef = useRef<string | null>(null)
+
+  const handleCommand = useCallback(async (cmd: string) => {
     const newEntry: ConsoleEntry = {
       id: `cmd-${Date.now()}`,
       type: 'command',
@@ -64,21 +68,48 @@ function ConsolePanel() {
       timestamp: new Date()
     }
     setEntries(prev => [...prev, newEntry])
+    setInput('')
 
-    // Mock response
-    setTimeout(() => {
+    try {
+      // Create session if needed
+      if (!sessionRef.current) {
+        const agents = await api.agent.getAgents()
+        const agentId = agents[0]?.id || 'claude-code'
+        const session = await api.agent.createSession(agentId, 'default')
+        sessionRef.current = session.id
+      }
+
+      const result = await api.agent.sendMessage(sessionRef.current, cmd)
+
       if (!mountedRef.current) return
       const response: ConsoleEntry = {
         id: `res-${Date.now()}`,
-        type: cmd.includes('error') ? 'error' : 'success',
-        message: `Executed: ${cmd}`,
+        type: 'success',
+        message: result.content || 'Command executed',
         timestamp: new Date()
       }
       setEntries(prev => [...prev, response])
-    }, 100)
+    } catch (err) {
+      if (!mountedRef.current) return
+      logger.error('Console', 'Command failed:', err)
+      const response: ConsoleEntry = {
+        id: `err-${Date.now()}`,
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Command failed',
+        timestamp: new Date()
+      }
+      setEntries(prev => [...prev, response])
+    }
+  }, [])
 
-    setInput('')
-  }
+  // Cleanup session on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionRef.current) {
+        api.agent.closeSession(sessionRef.current).catch(() => {})
+      }
+    }
+  }, [])
 
   const getTypeColor = (type: ConsoleEntry['type']) => {
     switch (type) {

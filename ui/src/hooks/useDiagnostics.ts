@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { editor } from 'monaco-editor'
 import { lspApi } from '../services/lspApi'
 import { getWebSocketClient } from '../services/websocket'
+import { logger } from '../utils'
 
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<any>,
@@ -72,8 +73,8 @@ export function useDiagnostics(
       const uri = `file://${lspOpenFileRef.current}`
       const result = await lspApi.diagnostics(uri)
       applyDiagnosticsMarkers(result.diagnostics?.[uri] || [], uri)
-    } catch {
-      // Silently ignore — push will handle it
+    } catch (e) {
+      logger.debug('Diagnostics', 'Failed to fetch diagnostics', e)
     }
   }, [applyDiagnosticsMarkers, lspOpenFileRef])
 
@@ -83,8 +84,8 @@ export function useDiagnostics(
       const uri = `file://${secondaryLspOpenFileRef.current}`
       const result = await lspApi.diagnostics(uri)
       applyDiagnosticsMarkers(result.diagnostics?.[uri] || [], uri)
-    } catch {
-      // Silently ignore — push will handle it
+    } catch (e) {
+      logger.debug('Diagnostics', 'Failed to fetch diagnostics', e)
     }
   }, [applyDiagnosticsMarkers, secondaryLspOpenFileRef])
 

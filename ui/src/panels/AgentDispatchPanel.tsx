@@ -18,6 +18,8 @@ interface TaskInfo {
   status: 'pending' | 'in_progress' | 'completed' | 'error'
   assignedAgent?: string
   progress: number
+  swarmId?: string
+  priority?: string
 }
 
 interface AgentDispatchPanelProps {
@@ -34,6 +36,8 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
   const [agentObjects, setAgentObjects] = useState<AgentInfo[]>([])
   const [isSending, setIsSending] = useState(false)
+  const [showNewTaskModal, setShowNewTaskModal] = useState(false)
+  const [newTask, setNewTask] = useState({ title: '', description: '', priority: 'medium', swarmId: '' })
   const { activeHandoff } = useHandoffStore()
   const mountedRef = useRef(true)
   const sessionRef = useRef<string | null>(null)
@@ -50,8 +54,11 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
   useEffect(() => {
     const loadData = async () => {
       try {
-        // 获取 swarms 数据来构建 tasks
-        const swarms = await api.swarm.getSwarms()
+        // Parallel fetch swarms and agents
+        const [swarms, agents] = await Promise.all([
+          api.swarm.getSwarms(),
+          api.agent.getAgents(),
+        ])
         if (!mountedRef.current) return
 
         const taskItems: TaskInfo[] = swarms.map(swarm => ({
@@ -65,9 +72,6 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
         }))
         setTasks(taskItems)
 
-        // 获取真实 agents
-        const agents = await api.agent.getAgents()
-        if (!mountedRef.current) return
         setAgentObjects(agents)
         setAvailableAgents(agents.map(a => a.name))
       } catch (error) {
@@ -84,7 +88,7 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
   useEffect(() => {
     return () => {
       if (sessionRef.current) {
-        api.agent.closeSession(sessionRef.current).catch(() => {})
+        api.agent.closeSession(sessionRef.current).catch((e) => { logger.debug('AgentDispatch', 'Failed to close session', e) })
       }
     }
   }, [])
@@ -161,6 +165,71 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
     }
   }, [inputValue, isSending, selectedAgent, agentObjects])
 
+  const handleCreateTask = useCallback(async () => {
+    if (!newTask.title.trim()) return
+    try {
+      // Find first available swarm or use provided swarmId
+      let targetSwarmId = newTask.swarmId
+      if (!targetSwarmId) {
+        const swarms = await api.swarm.getSwarms()
+        if (swarms.length > 0) {
+          targetSwarmId = swarms[0].id
+        } else {
+          // Create a new swarm
+          const swarm = await api.swarm.createSwarm({
+            name: 'Default Swarm',
+            topology: 'mesh',
+            strategy: 'parallel',
+            agentIds: agentObjects.slice(0, 3).map(a => a.id),
+          })
+          targetSwarmId = swarm.id
+        }
+      }
+      await api.swarm.submitTask({
+        swarmId: targetSwarmId!,
+        title: newTask.title,
+        description: newTask.description,
+        priority: newTask.priority,
+      })
+      setShowNewTaskModal(false)
+      setNewTask({ title: '', description: '', priority: 'medium', swarmId: '' })
+      // Reload tasks
+      const swarms = await api.swarm.getSwarms()
+      const taskItems: TaskInfo[] = swarms.map(swarm => ({
+        id: swarm.id,
+        name: swarm.name,
+        status: swarm.state === 'running' ? 'in_progress' : swarm.state === 'created' ? 'pending' : 'completed',
+        assignedAgent: (swarm.agents && swarm.agents.length > 0) ? swarm.agents[0] : undefined,
+        progress: swarm.stats?.completedTasks
+          ? (() => { const total = (swarm.stats.pendingTasks ?? 0) + swarm.stats.completedTasks; return total > 0 ? Math.round((swarm.stats.completedTasks / total) * 100) : 0 })()
+          : 0
+      }))
+      setTasks(taskItems)
+    } catch (err) {
+      logger.error('AgentDispatch', 'Failed to create task:', err)
+    }
+  }, [newTask, agentObjects])
+
+  const handleCancelTask = useCallback(async (taskId: string) => {
+    try {
+      await api.swarm.cancelTask(taskId, taskId, 'user_cancelled')
+      // Reload tasks
+      const swarms = await api.swarm.getSwarms()
+      const taskItems: TaskInfo[] = swarms.map(swarm => ({
+        id: swarm.id,
+        name: swarm.name,
+        status: swarm.state === 'running' ? 'in_progress' : swarm.state === 'created' ? 'pending' : 'completed',
+        assignedAgent: (swarm.agents && swarm.agents.length > 0) ? swarm.agents[0] : undefined,
+        progress: swarm.stats?.completedTasks
+          ? (() => { const total = (swarm.stats.pendingTasks ?? 0) + swarm.stats.completedTasks; return total > 0 ? Math.round((swarm.stats.completedTasks / total) * 100) : 0 })()
+          : 0
+      }))
+      setTasks(taskItems)
+    } catch (err) {
+      logger.error('AgentDispatch', 'Failed to cancel task:', err)
+    }
+  }, [])
+
   const getStatusColor = (status: TaskInfo['status']) => {
     switch (status) {
       case 'completed': return 'text-green-400 bg-green-500/20'
@@ -230,20 +299,46 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
 
         {activeView === 'tasks' && (
           <div className="h-full overflow-y-auto p-2 space-y-2">
+            {/* Create Task Button */}
+            <button
+              onClick={() => setShowNewTaskModal(true)}
+              className="w-full py-2 text-xs text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors flex items-center justify-center gap-1"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New Task
+            </button>
+
             {tasks.map((task) => (
               <div
                 key={task.id}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTaskClick?.(task.id) }}}
-                onClick={() => onTaskClick?.(task.id)}
-                className="bg-slate-800/30 rounded-lg p-3 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                className="bg-slate-800/30 rounded-lg p-3 group"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-white">{task.name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(task.status)}`}>
-                    {task.status.replace('_', ' ')}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTaskClick?.(task.id) }}}
+                    onClick={() => onTaskClick?.(task.id)}
+                    className="text-xs font-medium text-white cursor-pointer hover:text-blue-400 transition-colors"
+                  >
+                    {task.name}
                   </span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(task.status)}`}>
+                      {task.status.replace('_', ' ')}
+                    </span>
+                    {task.status === 'in_progress' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCancelTask(task.id) }}
+                        className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-all"
+                        title="Cancel task"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {task.assignedAgent && (
@@ -267,6 +362,65 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
                 </div>
               </div>
             ))}
+
+            {/* New Task Modal */}
+            {showNewTaskModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-[#1a1a1e] border border-slate-700 rounded-lg p-4 w-96 max-w-[90vw]">
+                  <h4 className="text-sm font-semibold text-white mb-3">Create New Task</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] text-slate-400 mb-1 block">Title</label>
+                      <input
+                        type="text"
+                        value={newTask.title}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+                        placeholder="Task title..."
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400 mb-1 block">Description</label>
+                      <textarea
+                        value={newTask.description}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
+                        placeholder="Describe the task..."
+                        rows={3}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 outline-none resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400 mb-1 block">Priority</label>
+                      <select
+                        value={newTask.priority}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, priority: e.target.value }))}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded px-3 py-1.5 text-xs text-white focus:border-blue-500 outline-none"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setShowNewTaskModal(false)}
+                      className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateTask}
+                      disabled={!newTask.title.trim()}
+                      className="px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 transition-colors disabled:opacity-50"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -346,7 +500,7 @@ export function AgentDispatchPanel({ swarmId, onTaskClick }: AgentDispatchPanelP
                 key={agent}
                 onClick={() => {
                   if (selectedAgent !== agent && sessionRef.current) {
-                    api.agent.closeSession(sessionRef.current).catch(() => {})
+                    api.agent.closeSession(sessionRef.current).catch((e) => { logger.debug('AgentDispatch', 'Failed to close session', e) })
                     sessionRef.current = null
                   }
                   setSelectedAgent(agent)

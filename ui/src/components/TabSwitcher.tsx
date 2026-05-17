@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useWorkspaceStore } from '../stores/workspaceStore'
-import { getFileIcon, getFileIconColor } from '../utils'
+import { getFileIcon, getFileIconColor, logger } from '../utils'
 
 // Tab focus mode state (module-level, shared across components)
 let tabMovesFocus = false
@@ -158,7 +158,7 @@ export function TabSwitcher() {
       if (e.ctrlKey && e.shiftKey && e.key === 'T' && !visibleRef.current) {
         e.preventDefault()
         e.stopPropagation()
-        useWorkspaceStore.getState().undoCloseFile().catch(() => {})
+        useWorkspaceStore.getState().undoCloseFile().catch((e) => { logger.warn('TabSwitcher', 'Failed to reopen tab', e) })
         return
       }
 
@@ -216,7 +216,7 @@ export function TabSwitcher() {
         // VS Code: Ctrl+PageUp/PageDown does NOT wrap — stops at first/last tab
         const newIdx = e.key === 'PageUp' ? idx - 1 : idx + 1
         if (newIdx < 0 || newIdx >= files.length) return
-        useWorkspaceStore.getState().openFile(files[newIdx]).catch(() => {})
+        useWorkspaceStore.getState().openFile(files[newIdx]).catch((e) => { logger.warn('TabSwitcher', 'Failed to open tab', e) })
         return
       }
 
@@ -227,7 +227,7 @@ export function TabSwitcher() {
           e.preventDefault()
           const files = useWorkspaceStore.getState().openFiles
           if (tabNum <= files.length) {
-            useWorkspaceStore.getState().openFile(files[tabNum - 1]).catch(() => {})
+            useWorkspaceStore.getState().openFile(files[tabNum - 1]).catch((e) => { logger.warn('TabSwitcher', 'Failed to open tab', e) })
           }
           return
         }
