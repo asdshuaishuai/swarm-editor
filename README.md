@@ -1,6 +1,6 @@
 # Swarm Editor - 多Agent协调编辑器
 
-一个基于 ACP 协议的多Agent协调编辑器，支持Agent共识、涌现智能和可靠调度。
+一个基于 ACP 协议的多Agent协调编辑器，支持Agent共识、涌现智能、动态调度和可靠协调。
 
 ## 核心定位
 
@@ -11,22 +11,24 @@
 │                    Swarm Editor 核心能力                         │
 ├─────────────────────────────────────────────────────────────────┤
 │  编辑器核心                                                      │
-│  ├── 代码编辑 (Monaco Editor)                                    │
+│  ├── 代码编辑 (Monaco Editor + LSP)                              │
 │  ├── Agent 对话面板                                              │
 │  ├── 多 Agent 协调                                               │
 │  └── 任务调度与执行                                               │
 ├─────────────────────────────────────────────────────────────────┤
 │  协调能力                                                         │
 │  ├── Agent Handoff (任务交接)                                    │
-│  ├── 结果共识 (Queen Bee 投票)                                   │
-│  ├── 涌现智能 (信息素路由)                                        │
-│  └── 健康监控 (Supervisor)                                       │
+│  ├── 结果共识 (Queen Bee + PBFT)                                 │
+│  ├── 涌现智能 (信息素路由 + 自组织协商)                            │
+│  ├── 动态调度 (负载预测 + 饥饿防护)                               │
+│  ├── 健康监控 (Supervisor + 审计日志)                             │
+│  └── 自动扫描 (Agent/MCP/Skill 发现)                             │
 ├─────────────────────────────────────────────────────────────────┤
 │  可靠性                                                           │
 │  ├── 熔断器 (Circuit Breaker)                                    │
 │  ├── 死信队列 (DLQ)                                              │
 │  ├── 重试/超时策略                                                │
-│  └── 工件管理                                                     │
+│  └── 工件管理 + 检查点恢复                                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -36,23 +38,31 @@
 - **ACP 协议原生**: Agent Client Protocol，支持 stdio/WebSocket/TCP
 - **MCP 集成**: Model Context Protocol 工具发现和调用
 - **A2A 协议**: Agent-to-Agent 跨实例通信
+- **LSP 桥接**: 语言服务器协议，代码补全/跳转/重构
 
 ### Agent 协调
-- **智能调度**: round_robin / least_loaded / priority / capability
-- **Agent Handoff**: 任务在Agent间平滑交接
-- **结果共识**: Queen Bee 投票机制，多数一致性保证
-- **涌现智能**: 信息素路由 + 自组织协商
+- **智能调度**: round_robin / least_loaded / priority / capability，动态优先级调整，负载预测
+- **Agent Handoff**: 任务在Agent间平滑交接，后端驱动的接受/拒绝流程
+- **结果共识**: Queen Bee 投票 + PBFT 拜占庭容错，故障节点检测
+- **涌现智能**: 信息素路由 + 自组织协商 + 涌现信号检测
+
+### 自动发现
+- **Agent Scanner**: 自动发现系统已安装的 ACP Agent (Claude Code, Kimi Code 等)
+- **MCP Scanner**: 从 Agent 配置中发现 MCP 服务器
+- **Skill Scanner**: 扫描本地技能目录、Agent 能力、MCP 工具
 
 ### 可靠性
 - **Circuit Breaker**: 熔断器防止级联故障
 - **DLQ**: Dead Letter Queue 失败隔离
 - **Guardrails**: Agent 输出验证
 - **重试/超时策略**: 灵活的可靠性配置
+- **检查点恢复**: 工作流执行中断后可从检查点恢复
 
 ### 可观测性
-- **审计日志**: 完整操作追踪
-- **Emergence Dashboard**: 涌现行为可视化
-- **Supervisor**: Agent 健康监控
+- **审计日志**: 完整操作追踪，支持按类型/Actor/资源过滤
+- **Emergence Dashboard**: 信息素健康度、涌现信号、Agent 利用率可视化
+- **Supervisor**: Agent 健康监控 + 调度运行器状态管理
+- **调度统计**: 负载均衡效率、饥饿防护次数、平均等待时间
 
 ## 架构概览
 
@@ -98,7 +108,7 @@
 | 通信协议 | JSON-RPC 2.0 over WebSocket | 双向实时通信 |
 | Agent 协议 | ACP (stdio/WebSocket/TCP) | 标准化 Agent 通信 |
 | 工具协议 | MCP (Model Context Protocol) | 工具集成标准 |
-| 测试 | Vitest + React Testing Library | 878 个 UI 测试 |
+| 测试 | Vitest + React Testing Library | 1027 个 UI 测试 |
 
 ## 目录结构
 
@@ -144,6 +154,9 @@ swarm-editor/
 │       ├── panels/             # 面板组件
 │       └── services/           # API 客户端
 ├── docs/                       # 文档
+│   ├── WIKI.md                 # 项目百科
+│   ├── DEVELOPMENT.md          # 开发指南
+│   └── ROADMAP.md              # 发展路线
 └── CLAUDE.md                   # Claude Code 指引
 ```
 
@@ -166,7 +179,7 @@ go build -o bin/swarm-agent ./cmd/swarm-agent
 # 运行测试
 make test              # Go 测试
 make test-race         # 带 race 检测
-cd ui && npm run test  # UI 测试 (878 个)
+cd ui && npm run test  # UI 测试 (1027 个)
 
 # 开发模式 - 后端
 ./bin/swarm-editor
@@ -207,24 +220,39 @@ cd ui && npm run dev
 |------|--------------|--------|-------------|----------|
 | 多 Agent 协调 | ✅ 原生 | ❌ 单 Agent | ❌ 单 Agent | ❌ 单 Agent |
 | 涌现智能 | ✅ 独创 | ❌ | ❌ | ❌ |
-| 结果共识 | ✅ Queen Bee | ❌ | ❌ | ❌ |
+| 结果共识 | ✅ Queen Bee + PBFT | ❌ | ❌ | ❌ |
+| 动态调度 | ✅ 负载预测+饥饿防护 | ❌ | ❌ | ❌ |
 | Agent Handoff | ✅ | ❌ | ❌ | ❌ |
 | ACP 协议 | ✅ 原生 | ❌ | ❌ | ❌ |
 | MCP 支持 | ✅ | ✅ | ✅ | ✅ |
+| 自动扫描 | ✅ Agent/MCP/Skill | ❌ | ❌ | ❌ |
+| 审计日志 | ✅ | ❌ | ❌ | ❌ |
 | Go 后端 | ✅ 高性能 | ❌ TS | ❌ TS | ❌ TS |
 | 熔断器/DLQ | ✅ | ❌ | ❌ | ❌ |
+| 检查点恢复 | ✅ | ❌ | ❌ | ❌ |
 
-## 待改进项
+## 已完成功能 (R5935)
 
 ### 编辑器核心
-- [ ] Monaco Editor 深度集成 (代码补全、跳转)
-- [ ] 文件树增强 (多工作区、搜索)
-- [ ] Agent 对话面板优化
+- [x] Monaco Editor + LSP 桥接 (补全、跳转、悬停、重构)
+- [x] 文件树 + 多工作区
+- [x] Agent 对话面板 (ACP Session)
+- [x] 终端集成 (PTY WebSocket)
 
 ### 协调能力
+- [x] 动态调度 (负载预测 + 优先级衰减 + 饥饿防护)
+- [x] PBFT 拜占庭共识 + 故障节点检测
+- [x] 信息素健康度 + 涌现信号可视化
+- [x] 审计日志 (事件追踪 + 统计 + 清除)
+- [x] 调度运行器 (定时任务启停管理)
+- [x] 工作流检查点/恢复/报告/缓存管理
+- [x] Agent/MCP/Skill 自动扫描
+- [x] 团队管理 (Agent 分配/移除/删除)
+
+### 待改进
+- [ ] 内联代码补全 (Tab 补全)
+- [ ] Monaco 集成补全
 - [ ] 更智能的任务分解
-- [ ] Agent 能力匹配优化
-- [ ] 共识算法调优
 
 ## 协议支持
 
@@ -243,13 +271,32 @@ cd ui && npm run dev
 ### WebSocket 命令
 
 完整的 WebSocket API 支持以下命令：
-- Agent: add/update/delete/list
-- Swarm: create/delete/list/execute
-- Workflow: create/update/delete/execute/list
-- Team: create/join/leave/list
-- MCP: add/remove/list servers
-- Automation: create/delete/list
-- Artifact/Variable: CRUD 操作
+- Agent: add/update/delete/list, create_session/send_message/close_session, refresh_agents
+- Swarm: create/delete/list/execute, submit_task/execute_task, cancel_task/assign_task, get_consensus/resolve_handoff
+- Workflow: create/update/delete/execute/list, get_checkpoints/restore, get_report/resume, clear_node_cache/clear_all_caches
+- Team: create/delete/list, add_agent/remove_agent
+- MCP: add/remove/list servers, scan_mcp_servers
+- Monitoring: get_supervisor_stats, get_emergence_data, list_audit_events/get_audit_stats/clear_audit_log
+- Schedule: start_schedule_runner/stop_schedule_runner/get_schedule_runner_status
+- Skills: scan_skills
+
+## 前端服务层
+
+| 服务 | 文件 | 用途 | 状态 |
+|------|------|------|------|
+| schedulingService | `services/scheduling.ts` | 动态调度算法 (负载预测/优先级/饥饿防护) | ✅ 活跃 |
+| byzantineService | `services/byzantine.ts` | PBFT 拜占庭共识 (消息处理/视图切换/故障检测) | ✅ 活跃 |
+| monitoringApi | `services/api.ts` | Supervisor 统计 + 涌现数据 + 审计日志 + 调度运行器 | ✅ 活跃 |
+| swarmApi | `services/api.ts` | 蜂群管理 + 任务提交/执行/取消 + 共识/Handoff | ✅ 活跃 |
+| workflowApi | `services/api.ts` | 工作流 CRUD + 检查点/恢复/报告/缓存 | ✅ 活跃 |
+| lspApi | `services/lspApi.ts` | LSP 协议桥接 (补全/跳转/悬停/重构) | ✅ 活跃 |
+| gitApi | `services/api.ts` | Git 操作 (提交/分支/Stash/Diff) | ✅ 活跃 |
+
+## 文档
+
+- [项目百科 (WIKI.md)](docs/WIKI.md) — 架构详解、API 参考、配置说明
+- [开发指南 (DEVELOPMENT.md)](docs/DEVELOPMENT.md) — 编码规范、测试策略、构建部署
+- [发展路线 (ROADMAP.md)](docs/ROADMAP.md) — 功能规划、优先级、时间线
 
 ## 许可证
 
