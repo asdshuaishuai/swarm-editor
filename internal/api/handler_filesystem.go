@@ -235,13 +235,18 @@ func (h *CommandHandler) handleSearchContent(ctx context.Context, params json.Ra
 	// Determine search root (folder restriction)
 	searchRoot := h.server.workspacePath
 	if req.Folder != "" {
-		folderPath := filepath.Join(h.server.workspacePath, req.Folder)
-		if abs, err := filepath.Abs(folderPath); err == nil {
-			folderPath = abs
-		}
-		// Safety: ensure folder is within workspace
-		if strings.HasPrefix(folderPath, filepath.Clean(h.server.workspacePath)+string(os.PathSeparator)) {
-			searchRoot = folderPath
+		// Clean folder path to prevent path traversal (e.g. "../" or absolute paths)
+		// filepath.Join discards base if child starts with "/", so we must clean first.
+		cleanFolder := filepath.Clean(req.Folder)
+		if !strings.HasPrefix(cleanFolder, "..") && !filepath.IsAbs(cleanFolder) {
+			folderPath := filepath.Join(h.server.workspacePath, cleanFolder)
+			if abs, err := filepath.Abs(folderPath); err == nil {
+				folderPath = abs
+			}
+			// Safety: ensure folder is within workspace
+			if strings.HasPrefix(folderPath, filepath.Clean(h.server.workspacePath)+string(os.PathSeparator)) {
+				searchRoot = folderPath
+			}
 		}
 	}
 

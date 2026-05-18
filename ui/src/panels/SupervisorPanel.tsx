@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, AgentInfo } from '../services'
+import { api, AgentInfo, TaskInfo } from '../services'
 import { logger } from '../utils'
 import { useHandoffStore } from '../stores/handoffStore'
 import type { AuditEvent, AuditStats, ScheduleRunnerStatus } from '../services/api'
@@ -86,17 +86,21 @@ export function SupervisorPanel() {
 
       const taskItems: TaskItem[] = []
 
-      swarms.forEach(swarm => {
-        if (swarm.stats && swarm.stats.pendingTasks + swarm.stats.executingAgents > 0) {
-          const totalTasks = swarm.stats.pendingTasks + swarm.stats.completedTasks
+      // Fetch real tasks from each swarm
+      const taskResults = await Promise.all(
+        swarms.map(swarm => api.swarm.getSwarmTasks(swarm.id).catch(() => [] as TaskInfo[]))
+      )
+      swarms.forEach((swarm, i) => {
+        const tasks = taskResults[i]
+        for (const task of tasks) {
           taskItems.push({
-            id: swarm.id,
-            title: swarm.name,
-            status: swarm.state === 'running' ? 'running' : 'pending',
-            agentId: swarm.coordinatorId || '',
-            agentName: 'Coordinator',
-            progress: totalTasks > 0 ? (swarm.stats.completedTasks / totalTasks) * 100 : 0,
-            createdAt: new Date(swarm.createdAt || Date.now())
+            id: task.id,
+            title: task.title,
+            status: task.status as TaskItem['status'],
+            agentId: (task.assignedTo?.[0]) || swarm.coordinatorId || '',
+            agentName: task.assignedTo?.[0] || 'Unassigned',
+            progress: task.status === 'completed' ? 100 : 0,
+            createdAt: new Date(task.createdAt || Date.now())
           })
         }
       })
@@ -107,11 +111,12 @@ export function SupervisorPanel() {
       const activityItems: ActivityItem[] = agentList
         .filter(a => a.lastActive)
         .map(agent => {
-          const activityType: ActivityItem['type'] = agent.status === 'error' ? 'error' : agent.status === 'running' ? 'commit' : 'review'
+          const agentState = agent.state || agent.status || 'unknown'
+          const activityType: ActivityItem['type'] = agentState === 'error' ? 'error' : agentState === 'running' || agentState === 'executing' ? 'commit' : 'review'
           return {
             id: `activity-${agent.id}`,
             type: activityType,
-            message: agent.status === 'running' ? `${agent.name} is working` : `${agent.name} is ${agent.status}`,
+            message: agentState === 'running' || agentState === 'executing' ? `${agent.name} is working` : `${agent.name} is ${agentState}`,
             agent: agent.name,
             timestamp: new Date(agent.lastActive || Date.now())
           }
@@ -197,8 +202,8 @@ export function SupervisorPanel() {
       if (supervisorStats.busyAgents > 0) return { status: 'active', color: 'text-green-500', bg: 'bg-green-500/20' }
       return { status: 'idle', color: 'text-slate-500', bg: 'bg-slate-500/20' }
     }
-    const running = agents.filter(a => a.status === 'running').length
-    const errorCount = agents.filter(a => a.status === 'error').length
+    const running = agents.filter(a => (a.state || a.status) === 'running' || (a.state || a.status) === 'executing').length
+    const errorCount = agents.filter(a => (a.state || a.status) === 'error').length
     if (errorCount > 0) return { status: 'degraded', color: 'text-yellow-500', bg: 'bg-yellow-500/20' }
     if (running > 0) return { status: 'active', color: 'text-green-500', bg: 'bg-green-500/20' }
     return { status: 'idle', color: 'text-slate-500', bg: 'bg-slate-500/20' }
@@ -286,15 +291,15 @@ export function SupervisorPanel() {
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-green-400">{supervisorStats?.healthyAgents ?? agents.filter(a => a.status === 'running').length}</div>
+                <div className="text-lg font-bold text-green-400">{supervisorStats?.healthyAgents ?? agents.filter(a => (a.state || a.status) === 'running' || (a.state || a.status) === 'executing').length}</div>
                 <div className="text-[10px] text-slate-500">Healthy</div>
               </div>
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-slate-400">{supervisorStats ? supervisorStats.totalAgents - supervisorStats.busyAgents - supervisorStats.unhealthyAgents : agents.filter(a => a.status === 'idle').length}</div>
+                <div className="text-lg font-bold text-slate-400">{supervisorStats ? supervisorStats.totalAgents - supervisorStats.busyAgents - supervisorStats.unhealthyAgents : agents.filter(a => (a.state || a.status) === 'idle').length}</div>
                 <div className="text-[10px] text-slate-500">Idle</div>
               </div>
               <div className="p-2 bg-slate-800/50 rounded">
-                <div className="text-lg font-bold text-red-400">{supervisorStats?.unhealthyAgents ?? agents.filter(a => a.status === 'error').length}</div>
+                <div className="text-lg font-bold text-red-400">{supervisorStats?.unhealthyAgents ?? agents.filter(a => (a.state || a.status) === 'error').length}</div>
                 <div className="text-[10px] text-slate-500">Unhealthy</div>
               </div>
             </div>

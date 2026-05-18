@@ -53,20 +53,13 @@ export function AgentCollaborationPanel({ primaryAgentId, onSwitchAgent }: Agent
       if (swarms.length > 0) {
         // Get tasks from first active swarm
         const activeSwarm = swarms.find(s => s.status === 'running') || swarms[0]
-        const taskStats = await api.swarm.getSwarmTasks(activeSwarm.id)
-        // Convert stats to task display
-        const mappedTasks: SwarmTask[] = []
-        if (taskStats) {
-          Object.entries(taskStats).forEach(([status, count]) => {
-            for (let i = 0; i < (count as number); i++) {
-              mappedTasks.push({
-                id: `${status}-${i}`,
-                name: `${status === 'pending' ? '待处理' : status === 'completed' ? '已完成' : '执行中'}任务`,
-                status: status as SwarmTask['status'],
-              })
-            }
-          })
-        }
+        const taskList = await api.swarm.getSwarmTasks(activeSwarm.id)
+        // Convert task list to task display
+        const mappedTasks: SwarmTask[] = (taskList || []).map(task => ({
+          id: task.id,
+          name: task.title,
+          status: task.status as SwarmTask['status'],
+        }))
         setTasks(mappedTasks)
       }
       // Update consensus data with Byzantine processing

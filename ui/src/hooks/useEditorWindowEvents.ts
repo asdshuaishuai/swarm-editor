@@ -90,12 +90,12 @@ export function useEditorWindowEvents(options: UseEditorWindowEventsOptions) {
     if (lspOpenFileRef.current && files.has(lspOpenFileRef.current)) {
       const ext = lspOpenFileRef.current.split('.').pop()?.toLowerCase() || ''
       const lang = LSP_LANG_MAP[ext] || 'plaintext'
-      lspApi.didOpen(`file://${lspOpenFileRef.current}`, lspOpenFileRef.current, lang, files.get(lspOpenFileRef.current) || '').catch(() => {})
+      lspApi.didOpen('', lspOpenFileRef.current, lang, files.get(lspOpenFileRef.current) || '').catch(() => {})
     }
     if (secondaryLspOpenFileRef.current && files.has(secondaryLspOpenFileRef.current)) {
       const ext = secondaryLspOpenFileRef.current.split('.').pop()?.toLowerCase() || ''
       const lang = LSP_LANG_MAP[ext] || 'plaintext'
-      lspApi.didOpen(`file://${secondaryLspOpenFileRef.current}`, secondaryLspOpenFileRef.current, lang, files.get(secondaryLspOpenFileRef.current) || '').catch(() => {})
+      lspApi.didOpen('', secondaryLspOpenFileRef.current, lang, files.get(secondaryLspOpenFileRef.current) || '').catch(() => {})
     }
     setTimeout(() => fetchDiagnostics(), 500)
     setTimeout(() => fetchSecondaryDiagnostics(), 500)

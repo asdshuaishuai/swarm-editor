@@ -147,32 +147,47 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 		return nil, errValidation("agent id is required")
 	}
 
+	// Check registry first
 	registry := h.server.Registry()
-	if registry == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.ID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	// Try to establish ACP connection
-	var connWarning string
-	if connMgr := h.server.ConnManager(); connMgr != nil {
-		_, err := connMgr.Connect(ctx, req.ID)
-		if err != nil {
-			connWarning = fmt.Sprintf("ACP connection failed: %v", err)
-			// Still set idle — agent config is valid, just ACP connection failed
+	if registry != nil {
+		if ag, ok := registry.Get(acp.AgentID(req.ID)); ok {
+			var connWarning string
+			if connMgr := h.server.ConnManager(); connMgr != nil {
+				if _, err := connMgr.Connect(ctx, req.ID); err != nil {
+					connWarning = fmt.Sprintf("ACP connection failed: %v", err)
+				}
+			}
+			ag.SetState(agent.StateIdle)
+			result := map[string]string{"status": "started"}
+			if connWarning != "" {
+				result["warning"] = connWarning
+			}
+			return result, nil
 		}
 	}
 
-	ag.SetState(agent.StateIdle)
-	result := map[string]string{"status": "started"}
-	if connWarning != "" {
-		result["warning"] = connWarning
+	// CLI agent path: connect via ACP using scanned agent info
+	scanner := h.server.Scanner()
+	if scanner != nil {
+		for _, cli := range scanner.GetAgents() {
+			if cli.ID == req.ID {
+				var connWarning string
+				if connMgr := h.server.ConnManager(); connMgr != nil {
+					if _, err := connMgr.Connect(ctx, req.ID); err != nil {
+						connWarning = fmt.Sprintf("ACP connection failed: %v", err)
+						return map[string]string{"status": "error", "warning": connWarning}, nil
+					}
+				}
+				result := map[string]string{"status": "started"}
+				if connWarning != "" {
+					result["warning"] = connWarning
+				}
+				return result, nil
+			}
+		}
 	}
-	return result, nil
+
+	return nil, errNotFound("agent not found")
 }
 
 func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMessage) (any, error) {
@@ -188,22 +203,18 @@ func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMes
 		return nil, errValidation("agent id is required")
 	}
 
-	registry := h.server.Registry()
-	if registry == nil {
-		return nil, NewAPIError(CodeInternalError, "service unavailable")
-	}
-
-	ag, ok := registry.Get(acp.AgentID(req.ID))
-	if !ok {
-		return nil, errNotFound("agent not found")
-	}
-
-	// Disconnect ACP connection if exists
+	// Disconnect ACP connection if exists (works for both registry and CLI agents)
 	if connMgr := h.server.ConnManager(); connMgr != nil {
 		_ = connMgr.Disconnect(req.ID) // best effort
 	}
 
-	ag.SetState(agent.StateIdle) // Clean stop, not error
+	// Update registry agent state if present
+	if registry := h.server.Registry(); registry != nil {
+		if ag, ok := registry.Get(acp.AgentID(req.ID)); ok {
+			ag.SetState(agent.StateIdle)
+		}
+	}
+
 	return map[string]string{"status": "stopped"}, nil
 }
 
@@ -536,7 +547,7 @@ func (h *CommandHandler) handleExecuteCode(ctx context.Context, params json.RawM
 
 	return map[string]any{
 		"success": result.StopReason == acp.StopEndTurn,
-		"output":  "",
+		"output":  result.Content,
 		"error":   "",
 	}, nil
 }

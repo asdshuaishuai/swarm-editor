@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { editor } from 'monaco-editor'
 import { lspApi } from '../services/lspApi'
 import { getWebSocketClient } from '../services/websocket'
-import { logger } from '../utils'
+import { logger, toFileUri } from '../utils'
 
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<any>,
@@ -70,7 +70,7 @@ export function useDiagnostics(
   const fetchDiagnostics = useCallback(async () => {
     if (!lspOpenFileRef.current) return
     try {
-      const uri = `file://${lspOpenFileRef.current}`
+      const uri = toFileUri(lspOpenFileRef.current)
       const result = await lspApi.diagnostics(uri)
       applyDiagnosticsMarkers(result.diagnostics?.[uri] || [], uri)
     } catch (e) {
@@ -81,7 +81,7 @@ export function useDiagnostics(
   const fetchSecondaryDiagnostics = useCallback(async () => {
     if (!secondaryLspOpenFileRef.current) return
     try {
-      const uri = `file://${secondaryLspOpenFileRef.current}`
+      const uri = toFileUri(secondaryLspOpenFileRef.current)
       const result = await lspApi.diagnostics(uri)
       applyDiagnosticsMarkers(result.diagnostics?.[uri] || [], uri)
     } catch (e) {
@@ -94,8 +94,8 @@ export function useDiagnostics(
     const ws = getWebSocketClient()
     const unsubscribe = ws.subscribe('lsp_diagnostics_update', (data: any) => {
       if (!data?.uri) return
-      const mainPath = lspOpenFileRef.current ? `file://${lspOpenFileRef.current}` : ''
-      const secondaryPath = secondaryLspOpenFileRef.current ? `file://${secondaryLspOpenFileRef.current}` : ''
+      const mainPath = lspOpenFileRef.current ? toFileUri(lspOpenFileRef.current) : ''
+      const secondaryPath = secondaryLspOpenFileRef.current ? toFileUri(secondaryLspOpenFileRef.current) : ''
       if (data.uri === mainPath || data.uri === secondaryPath) {
         applyDiagnosticsMarkers(data.diagnostics || [], data.uri)
       }

@@ -8,6 +8,7 @@ import (
 "strings"
 "github.com/swarm-editor/swarm-editor/internal/acp"
 "github.com/swarm-editor/swarm-editor/internal/agent"
+"github.com/swarm-editor/swarm-editor/internal/mcp"
 )
 
 func (h *CommandHandler) handleGetMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
@@ -162,10 +163,28 @@ func (h *CommandHandler) handleAddMCPServer(ctx context.Context, params json.Raw
 		return nil, safeError("failed to save config", err)
 	}
 
+	// Register runtime MCP client so it's immediately usable
+	client := mcp.NewClient(&mcp.ClientConfig{
+		Name:    req.Config.Name,
+		Command: req.Config.Command,
+		Args:    req.Config.Args,
+		Env:     req.Config.Env,
+	})
+	h.server.AddMCPClient(req.Config.Name, client)
+
+	// Try to connect (non-fatal if it fails — server config is saved)
+	var connectStatus string
+	if err := client.Connect(ctx); err != nil {
+		connectStatus = "disconnected"
+		apiLog.Warn("MCP server saved but connect failed", "name", req.Config.Name, "error", err)
+	} else {
+		connectStatus = "connected"
+	}
+
 	return map[string]any{
 		"id":     req.Config.Name,
 		"name":   req.Config.Name,
-		"status": "disconnected",
+		"status": connectStatus,
 		"tools":  []any{},
 	}, nil
 }

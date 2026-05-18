@@ -105,11 +105,12 @@ export default function SwarmCoordinatorPanel({
     const interval = setInterval(async () => {
       if (!mountedRef.current || !activeSwarm) return
       try {
-        const stats = await api.swarm.getSwarmTasks(activeSwarm.id)
+        const taskList = await api.swarm.getSwarmTasks(activeSwarm.id)
         if (!mountedRef.current) return
-        // If running count dropped to 0 but we still have locally-running tasks,
+        // If no tasks are still running but we have locally-running tasks,
         // mark them as completed (the backend finished them while we were polling).
-        if (stats.running === 0) {
+        const hasRunning = taskList.some(t => t.status === 'running')
+        if (!hasRunning) {
           setTasks(prev => prev.map(t =>
             t.status === 'running' ? { ...t, status: 'completed' as const, progress: 1 } : t
           ))
@@ -132,12 +133,21 @@ export default function SwarmCoordinatorPanel({
     }
 
     try {
+      // Map numeric priority to backend enum
+      const priorityMap: Record<number, string> = {
+        1: 'low', 2: 'low', 3: 'low',
+        4: 'medium', 5: 'medium', 6: 'medium',
+        7: 'high', 8: 'high', 9: 'high',
+        10: 'critical',
+      }
+      const priorityStr = priorityMap[newTask.priority] || 'medium'
+
       // 提交任务到后端
       const taskId = await api.swarm.submitTask({
         swarmId: activeSwarm.id,
         title: newTask.title,
         description: newTask.description,
-        priority: String(newTask.priority),
+        priority: priorityStr,
       })
 
       // Check if component is still mounted before updating state

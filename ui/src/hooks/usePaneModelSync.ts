@@ -3,6 +3,7 @@ import type { editor } from 'monaco-editor'
 import { lspApi } from '../services/lspApi'
 import { getLSPLanguageId, LSP_LANG_MAP } from '../utils/monaco'
 import { fetchDocumentSymbols as fetchDocumentSymbolsUtil } from '../utils/fetchDocumentSymbols'
+import { ensureSemanticTokensProvider } from '../utils/monacoLSP'
 
 interface PaneModelSyncOptions {
   filePath: string | null
@@ -68,7 +69,10 @@ export function usePaneModelSync(options: PaneModelSyncOptions) {
       }
       lspOpenFileRef.current = filePath
       lspIncrementalRef.current = false
-      lspApi.didOpen(`file://${filePath}`, filePath, lspLang, content).catch(() => {})
+      // Let backend generate consistent URI via lsp.FileURI() to avoid path encoding mismatches
+      lspApi.didOpen('', filePath, lspLang, content).catch(() => {})
+      // Fetch per-server semantic token legend and register provider for this language
+      ensureSemanticTokensProvider(lspLang, filePath)
       lspApi.supportsIncrementalSync(filePath).then((r: any) => {
         lspIncrementalRef.current = !!r?.supported
       }).catch(() => { lspIncrementalRef.current = false })

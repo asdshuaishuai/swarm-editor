@@ -290,6 +290,17 @@ func (s *Swarm) GetTask(taskID string) *Task {
 	return s.tasks[taskID]
 }
 
+// GetAllTasks returns all tasks in the swarm (pending, running, completed).
+func (s *Swarm) GetAllTasks() []*Task {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*Task, 0, len(s.tasks))
+	for _, t := range s.tasks {
+		result = append(result, t)
+	}
+	return result
+}
+
 // Start starts the swarm
 func (s *Swarm) Start(ctx context.Context) error {
 	s.mu.Lock()

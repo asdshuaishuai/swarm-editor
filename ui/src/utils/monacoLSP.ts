@@ -2,6 +2,103 @@ import { lspApi } from '../services/lspApi'
 import { hasLSPSupport, convertSelectionRangeChain, parseWorkspaceEdits } from '../utils/monaco'
 import { logger } from '.'
 
+// Module-level refs set by registerLSPProviders, used by semantic token registration
+let _monaco: any = null
+let _disposables: any[] = []
+
+// Register LSP semantic tokens provider (LSP-driven syntax highlighting — Cursor/Windsurf pattern)
+// Monaco requires per-language providers because each LSP server has a different legend.
+// We lazily register providers when a file of that language is first opened.
+
+// Default legend (gopls) used before LSP server provides its legend
+const defaultLegend = {
+  tokenTypes: [
+    'namespace', 'type', 'typeParameter', 'parameter', 'variable',
+    'function', 'method', 'macro', 'keyword', 'comment',
+    'string', 'number', 'operator', 'label',
+  ],
+  tokenModifiers: [
+    'definition', 'readonly', 'defaultLibrary',
+    'array', 'bool', 'chan', 'format', 'interface',
+    'map', 'number', 'pointer', 'signature', 'slice', 'string', 'struct',
+  ],
+}
+
+// Track which languages have providers registered
+const registeredLanguages = new Set<string>()
+
+// Register semantic tokens provider for a specific language with its legend
+const registerSemanticTokensProvider = (languageId: string, legend: { tokenTypes: string[]; tokenModifiers: string[] }) => {
+  if (registeredLanguages.has(languageId) || !_monaco) return
+  registeredLanguages.add(languageId)
+
+  // Register full document provider
+  _disposables.push(_monaco.languages.registerDocumentSemanticTokensProvider(languageId, {
+    displayName: `LSP-${languageId}`,
+    getLegend: () => legend,
+    provideDocumentSemanticTokens: async (model: any, _lastResultId: string | null, token: any) => {
+      const filePath = model.uri.path.replace(/^\//, '')
+      if (!hasLSPSupport(filePath)) return null
+      try {
+        const result = await lspApi.semanticTokens(filePath)
+        if (token?.isCancellationRequested) return null
+        if (!result?.tokens?.data) return null
+
+        return {
+          resultId: result.tokens.resultId,
+          data: new Uint32Array(result.tokens.data),
+        }
+      } catch (e) { logger.debug('LSP', 'provider error', e);
+        return null
+      }
+    },
+    releaseDocumentSemanticTokens: () => {},
+  }))
+
+  // Register range provider
+  _disposables.push(_monaco.languages.registerDocumentRangeSemanticTokensProvider(languageId, {
+    displayName: `LSP-${languageId}`,
+    getLegend: () => legend,
+    provideDocumentRangeSemanticTokens: async (model: any, range: any, token: any) => {
+      const filePath = model.uri.path.replace(/^\//, '')
+      if (!hasLSPSupport(filePath)) return null
+      try {
+        const result = await lspApi.semanticTokensRange(
+          filePath,
+          range.startLineNumber - 1,
+          range.startColumn - 1,
+          range.endLineNumber - 1,
+          range.endColumn - 1,
+        )
+        if (token?.isCancellationRequested) return null
+        if (!result?.tokens?.data) return null
+
+        return {
+          resultId: result.tokens.resultId,
+          data: new Uint32Array(result.tokens.data),
+        }
+      } catch (e) { logger.debug('LSP', 'provider error', e);
+        return null
+      }
+    },
+  }))
+}
+
+// Lazy registration: fetch legend from LSP server when a file of that language is first opened.
+// Falls back to defaultLegend (gopls) if the server doesn't provide one.
+export const ensureSemanticTokensProvider = async (languageId: string, filePath: string) => {
+  if (registeredLanguages.has(languageId)) return
+  try {
+    const result = await lspApi.semanticTokensLegend(filePath)
+    const legend = result?.legend
+    if (legend?.tokenTypes?.length) {
+      registerSemanticTokensProvider(languageId, legend)
+      return
+    }
+  } catch { /* fall through to default */ }
+  registerSemanticTokensProvider(languageId, defaultLegend)
+}
+
 export function registerLSPProviders(
   monaco: any,
   editor: any,
@@ -14,6 +111,8 @@ export function registerLSPProviders(
   },
 ) {
   const { inlayHintsRef, lspInitiatedEditRef, lspOpenFileRef, lspPendingChangesRef } = refs
+  _monaco = monaco
+  _disposables = disposables
 
 disposables.push(monaco.languages.registerCompletionItemProvider('*', {
   triggerCharacters: ['.', '(', '"', "'", '/', '@', '<', ' '],
@@ -561,89 +660,7 @@ disposables.push(monaco.languages.registerOnTypeFormattingEditProvider('*', {
   },
 }))
 
-// Register LSP semantic tokens provider (LSP-driven syntax highlighting — Cursor/Windsurf pattern)
-// Monaco requires per-language providers because each LSP server has a different legend.
-// We lazily register providers when a file of that language is first opened.
-
-// Default legend (gopls) used before LSP server provides its legend
-const defaultLegend = {
-  tokenTypes: [
-    'namespace', 'type', 'typeParameter', 'parameter', 'variable',
-    'function', 'method', 'macro', 'keyword', 'comment',
-    'string', 'number', 'operator', 'label',
-  ],
-  tokenModifiers: [
-    'definition', 'readonly', 'defaultLibrary',
-    'array', 'bool', 'chan', 'format', 'interface',
-    'map', 'number', 'pointer', 'signature', 'slice', 'string', 'struct',
-  ],
-}
-
-// Track which languages have providers registered
-const registeredLanguages = new Set<string>()
-
-// Register semantic tokens provider for a specific language with its legend
-const registerSemanticTokensProvider = (languageId: string, legend: { tokenTypes: string[]; tokenModifiers: string[] }) => {
-  if (registeredLanguages.has(languageId)) return
-  registeredLanguages.add(languageId)
-
-  // Register full document provider
-  disposables.push(monaco.languages.registerDocumentSemanticTokensProvider(languageId, {
-    displayName: `LSP-${languageId}`,
-    getLegend: () => legend,
-    provideDocumentSemanticTokens: async (model: any, _lastResultId: string | null, token: any) => {
-      const filePath = model.uri.path.replace(/^\//, '')
-      if (!hasLSPSupport(filePath)) return null
-      try {
-        const result = await lspApi.semanticTokens(filePath)
-        if (token?.isCancellationRequested) return null
-        if (!result?.tokens?.data) return null
-
-        return {
-          resultId: result.tokens.resultId,
-          data: new Uint32Array(result.tokens.data),
-        }
-      } catch (e) { logger.debug('LSP', 'provider error', e);
-        return null
-      }
-    },
-    releaseDocumentSemanticTokens: () => {},
-  }))
-
-  // Register range provider
-  disposables.push(monaco.languages.registerDocumentRangeSemanticTokensProvider(languageId, {
-    displayName: `LSP-${languageId}`,
-    getLegend: () => legend,
-    provideDocumentRangeSemanticTokens: async (model: any, range: any, token: any) => {
-      const filePath = model.uri.path.replace(/^\//, '')
-      if (!hasLSPSupport(filePath)) return null
-      try {
-        const result = await lspApi.semanticTokensRange(
-          filePath,
-          range.startLineNumber - 1,
-          range.startColumn - 1,
-          range.endLineNumber - 1,
-          range.endColumn - 1,
-        )
-        if (token?.isCancellationRequested) return null
-        if (!result?.tokens?.data) return null
-
-        return {
-          resultId: result.tokens.resultId,
-          data: new Uint32Array(result.tokens.data),
-        }
-      } catch (e) { logger.debug('LSP', 'provider error', e);
-        return null
-      }
-    },
-  }))
-}
-
-// Register Go with default legend immediately (most common use case)
-// NOTE: For simplicity, we use gopls legend for all languages. This works for gopls.
-// For other LSP servers (rust-analyzer, pyright), the legend may not match perfectly,
-// but semantic tokens will still be highlighted (just potentially with wrong types).
-// TODO: Per-server legend handling for multi-language workspaces
+// Eagerly register Go since it's the most common case and the defaultLegend matches gopls
 registerSemanticTokensProvider('go', defaultLegend)
 // Skip changes from LSP-initiated edits (formatting, rename, code actions)
 // to prevent sending stale edits back to the LSP server as incremental changes

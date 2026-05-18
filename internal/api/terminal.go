@@ -54,6 +54,9 @@ func (s *WebSocketServer) HandleTerminalWebSocket(w http.ResponseWriter, r *http
 	}
 	pty := sess.Pty
 
+	// Write mutex prevents concurrent WebSocket writes from PTY output goroutine
+	// and pong/control responses (gorilla/websocket is not safe for concurrent writes)
+	var writeMu sync.Mutex
 	var once sync.Once
 	done := make(chan struct{})
 
@@ -70,7 +73,10 @@ func (s *WebSocketServer) HandleTerminalWebSocket(w http.ResponseWriter, r *http
 				return
 			}
 			if n > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				writeMu.Lock()
+				err := conn.WriteMessage(websocket.BinaryMessage, buf[:n])
+				writeMu.Unlock()
+				if err != nil {
 					return
 				}
 			}
@@ -94,7 +100,9 @@ func (s *WebSocketServer) HandleTerminalWebSocket(w http.ResponseWriter, r *http
 				case "input":
 					pty.Write([]byte(tm.Data))
 				case "ping":
+					writeMu.Lock()
 					conn.WriteJSON(map[string]string{"type": "pong"})
+					writeMu.Unlock()
 				}
 				continue
 			}

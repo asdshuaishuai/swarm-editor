@@ -36,14 +36,14 @@ func TestCommandHandler_HandleCommand(t *testing.T) {
 	handler := NewCommandHandler(server)
 
 	t.Run("unknown method returns error", func(t *testing.T) {
-		_, err := handler.HandleCommand("unknown_method", nil)
+		_, err := handler.HandleCommand("unknown_method", nil, "test")
 		if err == nil {
 			t.Error("Expected error for unknown method")
 		}
 	})
 
 	t.Run("get_agents returns empty list", func(t *testing.T) {
-		result, err := handler.HandleCommand("get_agents", nil)
+		result, err := handler.HandleCommand("get_agents", nil, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -57,7 +57,7 @@ func TestCommandHandler_HandleCommand(t *testing.T) {
 	})
 
 	t.Run("get_swarms returns empty list", func(t *testing.T) {
-		result, err := handler.HandleCommand("get_swarms", nil)
+		result, err := handler.HandleCommand("get_swarms", nil, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -71,7 +71,7 @@ func TestCommandHandler_HandleCommand(t *testing.T) {
 	})
 
 	t.Run("get_teams returns empty list", func(t *testing.T) {
-		result, err := handler.HandleCommand("get_teams", nil)
+		result, err := handler.HandleCommand("get_teams", nil, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestCommandHandler_HandleCreateSwarm(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		result, err := handler.HandleCommand("create_swarm", paramsJSON)
+		result, err := handler.HandleCommand("create_swarm", paramsJSON, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestCommandHandler_HandleCreateSwarm(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		result, err := handler.HandleCommand("create_swarm", paramsJSON)
+		result, err := handler.HandleCommand("create_swarm", paramsJSON, "test")
 		// Empty name is allowed, just creates swarm with empty name
 		_ = result
 		_ = err
@@ -142,7 +142,7 @@ func TestCommandHandler_HandleCreateSwarm(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("create_swarm", paramsJSON)
+		_, err := handler.HandleCommand("create_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for name too long")
 		}
@@ -165,7 +165,7 @@ func TestCommandHandler_HandleCreateTeam(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		result, err := handler.HandleCommand("create_team", paramsJSON)
+		result, err := handler.HandleCommand("create_team", paramsJSON, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -185,7 +185,7 @@ func TestCommandHandler_HandleCreateTeam(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("create_team", paramsJSON)
+		_, err := handler.HandleCommand("create_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for missing name")
 		}
@@ -208,7 +208,7 @@ func TestCommandHandler_HandleStartAgent(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("start_agent", paramsJSON)
+		_, err := handler.HandleCommand("start_agent", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for non-existent agent")
 		}
@@ -229,7 +229,7 @@ func TestCommandHandler_HandleGetAgent(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("get_agent", paramsJSON)
+		_, err := handler.HandleCommand("get_agent", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for non-existent agent")
 		}
@@ -253,7 +253,7 @@ func TestCommandHandler_HandleSubmitTask(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("submit_task", paramsJSON)
+		_, err := handler.HandleCommand("submit_task", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for non-existent swarm")
 		}
@@ -265,7 +265,7 @@ func TestCommandHandler_InvalidJSON(t *testing.T) {
 	handler := NewCommandHandler(server)
 
 	t.Run("invalid JSON params", func(t *testing.T) {
-		_, err := handler.HandleCommand("create_swarm", []byte("invalid json"))
+		_, err := handler.HandleCommand("create_swarm", []byte("invalid json"), "test")
 		if err == nil {
 			t.Error("Expected error for invalid JSON")
 		}
@@ -284,7 +284,7 @@ func TestCommandHandler_ListFiles(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		result, err := handler.HandleCommand("list_dir", paramsJSON)
+		result, err := handler.HandleCommand("list_dir", paramsJSON, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -312,7 +312,7 @@ func TestCommandHandler_GetCheckpoints(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("get_checkpoints", paramsJSON)
+		_, err := handler.HandleCommand("get_checkpoints", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for non-existent swarm")
 		}
@@ -326,7 +326,7 @@ func TestCommandHandler_MCPCommands(t *testing.T) {
 	handler := NewCommandHandler(server)
 
 	t.Run("get_mcp_servers with no servers", func(t *testing.T) {
-		result, err := handler.HandleCommand("get_mcp_servers", nil)
+		result, err := handler.HandleCommand("get_mcp_servers", nil, "test")
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -345,7 +345,7 @@ func TestCommandHandler_MCPCommands(t *testing.T) {
 		}
 		paramsJSON, _ := json.Marshal(params)
 
-		_, err := handler.HandleCommand("start_mcp_server", paramsJSON)
+		_, err := handler.HandleCommand("start_mcp_server", paramsJSON, "test")
 		if err == nil {
 			t.Error("Expected error for non-existent MCP server")
 		}
@@ -386,23 +386,26 @@ func TestCommandHandler_HandleStopAgent(t *testing.T) {
 	t.Run("stop non-existent agent", func(t *testing.T) {
 		params := map[string]interface{}{"id": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("stop_agent", paramsJSON)
-		if err == nil {
-			t.Error("expected error for non-existent agent")
+		result, err := handler.HandleCommand("stop_agent", paramsJSON, "test")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if m, ok := result.(map[string]string); !ok || m["status"] != "stopped" {
+			t.Errorf("expected stopped status, got %v", result)
 		}
 	})
 
 	t.Run("stop with empty id", func(t *testing.T) {
 		params := map[string]interface{}{"id": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("stop_agent", paramsJSON)
+		_, err := handler.HandleCommand("stop_agent", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty agent id")
 		}
 	})
 
 	t.Run("stop with invalid json", func(t *testing.T) {
-		_, err := handler.HandleCommand("stop_agent", []byte("bad"))
+		_, err := handler.HandleCommand("stop_agent", []byte("bad"), "test")
 		if err == nil {
 			t.Error("expected error for invalid json")
 		}
@@ -416,7 +419,7 @@ func TestCommandHandler_HandleRefreshAgents(t *testing.T) {
 	handler := NewCommandHandler(server)
 
 	t.Run("refresh returns empty list", func(t *testing.T) {
-		result, err := handler.HandleCommand("refresh_agents", nil)
+		result, err := handler.HandleCommand("refresh_agents", nil, "test")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -438,7 +441,7 @@ func TestCommandHandler_HandleDeleteTeam(t *testing.T) {
 
 		params := map[string]interface{}{"id": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		result, err := handler.HandleCommand("delete_team", paramsJSON)
+		result, err := handler.HandleCommand("delete_team", paramsJSON, "test")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -458,7 +461,7 @@ func TestCommandHandler_HandleDeleteTeam(t *testing.T) {
 
 		params := map[string]interface{}{"id": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("delete_team", paramsJSON)
+		_, err := handler.HandleCommand("delete_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty id")
 		}
@@ -469,7 +472,7 @@ func TestCommandHandler_HandleDeleteTeam(t *testing.T) {
 		server := &WebSocketServer{teamManager: teamMgr}
 		handler := NewCommandHandler(server)
 
-		_, err := handler.HandleCommand("delete_team", []byte("bad"))
+		_, err := handler.HandleCommand("delete_team", []byte("bad"), "test")
 		if err == nil {
 			t.Error("expected error for invalid json")
 		}
@@ -485,7 +488,7 @@ func TestCommandHandler_HandleAddAgentToTeam(t *testing.T) {
 
 		params := map[string]interface{}{"teamId": "non-existent", "agentId": "agent-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for non-existent team")
 		}
@@ -497,7 +500,7 @@ func TestCommandHandler_HandleAddAgentToTeam(t *testing.T) {
 
 		params := map[string]interface{}{"agentId": "agent-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for missing team id")
 		}
@@ -509,7 +512,7 @@ func TestCommandHandler_HandleAddAgentToTeam(t *testing.T) {
 
 		params := map[string]interface{}{"teamId": "team-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON)
+		_, err := handler.HandleCommand("add_agent_to_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for missing agent id")
 		}
@@ -524,7 +527,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam(t *testing.T) {
 
 		params := map[string]interface{}{"teamId": "non-existent", "agentId": "agent-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for non-existent team")
 		}
@@ -536,7 +539,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam(t *testing.T) {
 
 		params := map[string]interface{}{"agentId": "agent-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for missing team id")
 		}
@@ -548,7 +551,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam(t *testing.T) {
 
 		params := map[string]interface{}{"teamId": "team-1"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON)
+		_, err := handler.HandleCommand("remove_agent_from_team", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for missing agent id")
 		}
@@ -563,7 +566,7 @@ func TestCommandHandler_HandleStartSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("start_swarm", paramsJSON)
+		_, err := handler.HandleCommand("start_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for non-existent swarm")
 		}
@@ -576,7 +579,7 @@ func TestCommandHandler_HandleStartSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("start_swarm", paramsJSON)
+		_, err := handler.HandleCommand("start_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty swarm id")
 		}
@@ -591,7 +594,7 @@ func TestCommandHandler_HandleStopSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("stop_swarm", paramsJSON)
+		_, err := handler.HandleCommand("stop_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for non-existent swarm")
 		}
@@ -604,7 +607,7 @@ func TestCommandHandler_HandleStopSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("stop_swarm", paramsJSON)
+		_, err := handler.HandleCommand("stop_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty swarm id")
 		}
@@ -619,7 +622,7 @@ func TestCommandHandler_HandleGetSwarmTasks(t *testing.T) {
 
 		params := map[string]interface{}{"swarmId": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON)
+		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for non-existent swarm")
 		}
@@ -632,7 +635,7 @@ func TestCommandHandler_HandleGetSwarmTasks(t *testing.T) {
 
 		params := map[string]interface{}{"swarmId": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON)
+		_, err := handler.HandleCommand("get_swarm_tasks", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty swarm id")
 		}
@@ -652,13 +655,13 @@ func TestCommandHandler_HandleGetTeamsWithManager(t *testing.T) {
 			"description": "desc",
 		}
 		createJSON, _ := json.Marshal(createParams)
-		_, err := handler.HandleCommand("create_team", createJSON)
+		_, err := handler.HandleCommand("create_team", createJSON, "test")
 		if err != nil {
 			t.Fatalf("create_team: %v", err)
 		}
 
 		// List teams
-		result, err := handler.HandleCommand("get_teams", nil)
+		result, err := handler.HandleCommand("get_teams", nil, "test")
 		if err != nil {
 			t.Fatalf("get_teams: %v", err)
 		}
@@ -683,7 +686,7 @@ func TestCommandHandler_HandleDeleteSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": "non-existent"}
 		paramsJSON, _ := json.Marshal(params)
-		result, err := handler.HandleCommand("delete_swarm", paramsJSON)
+		result, err := handler.HandleCommand("delete_swarm", paramsJSON, "test")
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -703,7 +706,7 @@ func TestCommandHandler_HandleDeleteSwarm(t *testing.T) {
 
 		params := map[string]interface{}{"id": ""}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("delete_swarm", paramsJSON)
+		_, err := handler.HandleCommand("delete_swarm", paramsJSON, "test")
 		if err == nil {
 			t.Error("expected error for empty swarm id")
 		}
@@ -758,7 +761,7 @@ func newTestHandler() (*CommandHandler, *WebSocketServer) {
 func TestCommandHandler_HandleGetConfigPath(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	result, err := handler.HandleCommand("get_config_path", nil)
+	result, err := handler.HandleCommand("get_config_path", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -786,7 +789,7 @@ func TestCommandHandler_HandleCreateSession_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("create_session", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("create_session", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -798,7 +801,7 @@ func TestCommandHandler_HandleCreateSession_NoConnManager(t *testing.T) {
 	handler, server := newTestHandler()
 	server.connManager = nil
 
-	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent"}`))
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error when connManager is nil")
 	}
@@ -819,7 +822,7 @@ func TestCommandHandler_HandleSendMessage_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("send_message", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("send_message", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -830,7 +833,7 @@ func TestCommandHandler_HandleSendMessage_Validation(t *testing.T) {
 func TestCommandHandler_HandleSendMessage_SessionNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "nonexistent", "message": "hello"}`))
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "nonexistent", "message": "hello"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent session")
 	}
@@ -850,7 +853,7 @@ func TestCommandHandler_HandleCloseSession_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("close_session", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("close_session", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -862,7 +865,7 @@ func TestCommandHandler_HandleCloseSession_Success(t *testing.T) {
 	handler, server := newTestHandler()
 	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
 
-	result, err := handler.HandleCommand("close_session", json.RawMessage(`{"sessionId": "session-1"}`))
+	result, err := handler.HandleCommand("close_session", json.RawMessage(`{"sessionId": "session-1"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -896,7 +899,7 @@ func TestCommandHandler_HandlePermissionResponse_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("permission_response", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("permission_response", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -908,7 +911,7 @@ func TestCommandHandler_HandlePermissionResponse_NoTeamManager(t *testing.T) {
 	handler, server := newTestHandler()
 	server.teamManager = nil
 
-	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`))
+	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`), "test")
 	if err == nil {
 		t.Error("expected error when teamManager is nil")
 	}
@@ -917,7 +920,7 @@ func TestCommandHandler_HandlePermissionResponse_NoTeamManager(t *testing.T) {
 func TestCommandHandler_HandleGetSwarm_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -926,7 +929,7 @@ func TestCommandHandler_HandleGetSwarm_NotFound(t *testing.T) {
 func TestCommandHandler_HandleGetSwarm_EmptyID(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": ""}`))
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`{"id": ""}`), "test")
 	if err == nil {
 		t.Error("expected error for empty id")
 	}
@@ -935,7 +938,7 @@ func TestCommandHandler_HandleGetSwarm_EmptyID(t *testing.T) {
 func TestCommandHandler_HandleGetSwarm_InvalidJSON(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`invalid`))
+	_, err := handler.HandleCommand("get_swarm", json.RawMessage(`invalid`), "test")
 	if err == nil {
 		t.Error("expected error for invalid json")
 	}
@@ -956,7 +959,7 @@ func TestCommandHandler_HandleExecuteTask_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("execute_task", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("execute_task", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -967,7 +970,7 @@ func TestCommandHandler_HandleExecuteTask_Validation(t *testing.T) {
 func TestCommandHandler_HandleExecuteTask_SwarmNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("execute_task", json.RawMessage(`{"swarmId": "nonexistent", "taskId": "t1"}`))
+	_, err := handler.HandleCommand("execute_task", json.RawMessage(`{"swarmId": "nonexistent", "taskId": "t1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -987,7 +990,7 @@ func TestCommandHandler_HandleStopMCPServer_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -998,7 +1001,7 @@ func TestCommandHandler_HandleStopMCPServer_Validation(t *testing.T) {
 func TestCommandHandler_HandleStopMCPServer_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`))
+	_, err := handler.HandleCommand("stop_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent server")
 	}
@@ -1020,7 +1023,7 @@ func TestCommandHandler_HandleCallMCPTool_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1031,7 +1034,7 @@ func TestCommandHandler_HandleCallMCPTool_Validation(t *testing.T) {
 func TestCommandHandler_HandleCallMCPTool_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(`{"serverId": "nonexistent", "toolName": "tool1"}`))
+	_, err := handler.HandleCommand("call_mcp_tool", json.RawMessage(`{"serverId": "nonexistent", "toolName": "tool1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent server")
 	}
@@ -1040,7 +1043,7 @@ func TestCommandHandler_HandleCallMCPTool_NotFound(t *testing.T) {
 func TestCommandHandler_HandleGetSupervisorStats(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	result, err := handler.HandleCommand("get_supervisor_stats", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1058,7 +1061,7 @@ func TestCommandHandler_HandleGetSupervisorStats_NilRegistry(t *testing.T) {
 	handler, server := newTestHandler()
 	server.registry = nil
 
-	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	result, err := handler.HandleCommand("get_supervisor_stats", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1076,7 +1079,7 @@ func TestCommandHandler_HandleGetEmergenceData_Fallback(t *testing.T) {
 	handler, _ := newTestHandler()
 	// No emergence service, no swarms — should return fallback data
 
-	result, err := handler.HandleCommand("get_emergence_data", nil)
+	result, err := handler.HandleCommand("get_emergence_data", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1106,7 +1109,7 @@ func TestCommandHandler_HandleAddMCPServer_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1128,7 +1131,7 @@ func TestCommandHandler_HandleRemoveMCPServer_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1160,7 +1163,7 @@ func TestCommandHandler_HandleAddAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("add_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("add_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1183,7 +1186,7 @@ func TestCommandHandler_HandleUpdateAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("update_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("update_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1205,7 +1208,7 @@ func TestCommandHandler_HandleDeleteAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("delete_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("delete_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -1219,7 +1222,7 @@ func TestCommandHandler_HandleCreateSwarm_Success(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"name": "Test Swarm", "topology": "mesh", "strategy": "round_robin"}`)
-	result, err := handler.HandleCommand("create_swarm", params)
+	result, err := handler.HandleCommand("create_swarm", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1250,7 +1253,7 @@ func TestCommandHandler_HandleGetSwarm_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"id": "test-swarm-1"}`)
-	result, err := handler.HandleCommand("get_swarm", params)
+	result, err := handler.HandleCommand("get_swarm", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1275,7 +1278,7 @@ func TestCommandHandler_HandleStartSwarm_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"id": "swarm-start"}`)
-	result, err := handler.HandleCommand("start_swarm", params)
+	result, err := handler.HandleCommand("start_swarm", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1297,7 +1300,7 @@ func TestCommandHandler_HandleStopSwarm_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"id": "swarm-stop"}`)
-	result, err := handler.HandleCommand("stop_swarm", params)
+	result, err := handler.HandleCommand("stop_swarm", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1319,21 +1322,18 @@ func TestCommandHandler_HandleGetSwarmTasks_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"swarmId": "swarm-tasks"}`)
-	result, err := handler.HandleCommand("get_swarm_tasks", params)
+	result, err := handler.HandleCommand("get_swarm_tasks", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	tasks, ok := result.(map[string]any)
+	tasks, ok := result.([]TaskInfo)
 	if !ok {
-		t.Fatal("expected map[string]any")
+		t.Fatal("expected []TaskInfo")
 	}
-	// Check that expected keys exist
-	if _, ok := tasks["pending"]; !ok {
-		t.Error("expected 'pending' key")
-	}
-	if _, ok := tasks["completed"]; !ok {
-		t.Error("expected 'completed' key")
+	// Empty swarm returns empty task list
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks, got %d", len(tasks))
 	}
 }
 
@@ -1345,7 +1345,7 @@ func TestCommandHandler_HandleSubmitTask_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"swarmId": "swarm-submit", "title": "Test task", "description": "test"}`)
-	result, err := handler.HandleCommand("submit_task", params)
+	result, err := handler.HandleCommand("submit_task", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1365,7 +1365,7 @@ func TestCommandHandler_HandleAddAgentToTeam_Success(t *testing.T) {
 
 	// Create team first (ownerId is required)
 	createParams := json.RawMessage(`{"name": "Test Team", "ownerId": "owner-1"}`)
-	createResult, err := handler.HandleCommand("create_team", createParams)
+	createResult, err := handler.HandleCommand("create_team", createParams, "test")
 	if err != nil {
 		t.Fatalf("create_team failed: %v", err)
 	}
@@ -1383,7 +1383,7 @@ func TestCommandHandler_HandleAddAgentToTeam_Success(t *testing.T) {
 
 	// Add agent to team using the actual team ID
 	params := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent"}`, teamInfo.ID))
-	result, err := handler.HandleCommand("add_agent_to_team", params)
+	result, err := handler.HandleCommand("add_agent_to_team", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1402,7 +1402,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam_Success(t *testing.T) {
 
 	// Create team first (ownerId is required)
 	createParams := json.RawMessage(`{"name": "Test Team 2", "ownerId": "owner-2"}`)
-	createResult, err := handler.HandleCommand("create_team", createParams)
+	createResult, err := handler.HandleCommand("create_team", createParams, "test")
 	if err != nil {
 		t.Fatalf("create_team failed: %v", err)
 	}
@@ -1418,11 +1418,11 @@ func TestCommandHandler_HandleRemoveAgentFromTeam_Success(t *testing.T) {
 	ag.ID = "test-agent-2"
 	server.registry.Register(ag)
 	addParams := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent-2"}`, teamInfo.ID))
-	_, _ = handler.HandleCommand("add_agent_to_team", addParams)
+	_, _ = handler.HandleCommand("add_agent_to_team", addParams, "test")
 
 	// Remove agent from team
 	params := json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "test-agent-2"}`, teamInfo.ID))
-	result, err := handler.HandleCommand("remove_agent_from_team", params)
+	result, err := handler.HandleCommand("remove_agent_from_team", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1442,7 +1442,7 @@ func TestCommandHandler_HandleListWorkflows_Empty(t *testing.T) {
 	handler, server := newTestHandler()
 	server.SetOrchestrator(swarm.NewOrchestrator(nil))
 
-	result, err := handler.HandleCommand("list_workflows", nil)
+	result, err := handler.HandleCommand("list_workflows", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1461,7 +1461,7 @@ func TestCommandHandler_HandleCreateWorkflow_Success(t *testing.T) {
 	server.SetOrchestrator(swarm.NewOrchestrator(nil))
 
 	params := json.RawMessage(`{"name": "Test Workflow", "mode": "sequential"}`)
-	result, err := handler.HandleCommand("create_workflow", params)
+	result, err := handler.HandleCommand("create_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1487,7 +1487,7 @@ func TestCommandHandler_HandleGetWorkflow_Success(t *testing.T) {
 	wf := orch.CreateWorkflow("Get Test", swarm.ModeSequential)
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("get_workflow", params)
+	result, err := handler.HandleCommand("get_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1511,7 +1511,7 @@ func TestCommandHandler_HandleUpdateWorkflow_Success(t *testing.T) {
 
 	// Update workflow requires nested "workflow" object
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "workflow": {"name": "Updated Name"}}`, wf.ID))
-	result, err := handler.HandleCommand("update_workflow", params)
+	result, err := handler.HandleCommand("update_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1534,7 +1534,7 @@ func TestCommandHandler_HandleDeleteWorkflow_Success(t *testing.T) {
 	wf := orch.CreateWorkflow("Delete Test", swarm.ModeSequential)
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("delete_workflow", params)
+	result, err := handler.HandleCommand("delete_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1558,7 +1558,7 @@ func TestCommandHandler_HandleAddWorkflowNode_Success(t *testing.T) {
 
 	// Uses "id" not "workflowId", and node is nested
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "node": {"type": "agent", "name": "Test Node", "agentId": "test-agent"}}`, wf.ID))
-	result, err := handler.HandleCommand("add_workflow_node", params)
+	result, err := handler.HandleCommand("add_workflow_node", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1582,7 +1582,7 @@ func TestCommandHandler_HandleGetWorkflowCheckpoints_Success(t *testing.T) {
 
 	// Uses "id" not "workflowId"
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("get_workflow_checkpoints", params)
+	result, err := handler.HandleCommand("get_workflow_checkpoints", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1601,7 +1601,7 @@ func TestCommandHandler_HandleClearNodeCache_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"nodeId": "test-node"}`)
-	result, err := handler.HandleCommand("clear_node_cache", params)
+	result, err := handler.HandleCommand("clear_node_cache", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1620,7 +1620,7 @@ func TestCommandHandler_HandleClearAllCaches_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("clear_all_caches", nil)
+	result, err := handler.HandleCommand("clear_all_caches", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1650,7 +1650,7 @@ func TestCommandHandler_HandleExecuteWorkflow_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("execute_workflow", tt.params)
+			_, err := handler.HandleCommand("execute_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1663,7 +1663,7 @@ func TestCommandHandler_HandleExecuteWorkflow_NoOrchestrator(t *testing.T) {
 	// No orchestrator set
 
 	params := json.RawMessage(`{"id": "test-workflow"}`)
-	_, err := handler.HandleCommand("execute_workflow", params)
+	_, err := handler.HandleCommand("execute_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -1675,7 +1675,7 @@ func TestCommandHandler_HandleListAutomations_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 	// No orchestrator set
 
-	_, err := handler.HandleCommand("list_automations", nil)
+	_, err := handler.HandleCommand("list_automations", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -1686,7 +1686,7 @@ func TestCommandHandler_HandleListAutomations_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("list_automations", nil)
+	result, err := handler.HandleCommand("list_automations", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1718,7 +1718,7 @@ func TestCommandHandler_HandleAddAutomation_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("add_automation", tt.params)
+			_, err := handler.HandleCommand("add_automation", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1730,7 +1730,7 @@ func TestCommandHandler_HandleAddAutomation_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-auto", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	_, err := handler.HandleCommand("add_automation", params)
+	_, err := handler.HandleCommand("add_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -1742,7 +1742,7 @@ func TestCommandHandler_HandleAddAutomation_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "test-auto", "name": "Test Automation", "trigger": {"type": "task_complete"}, "actions": [], "enabled": true}`)
-	result, err := handler.HandleCommand("add_automation", params)
+	result, err := handler.HandleCommand("add_automation", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1765,7 +1765,7 @@ func TestCommandHandler_HandleAddAutomation_InvalidCooldown(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "test-auto", "cooldown": "invalid"}`)
-	_, err := handler.HandleCommand("add_automation", params)
+	_, err := handler.HandleCommand("add_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for invalid cooldown")
 	}
@@ -1787,7 +1787,7 @@ func TestCommandHandler_HandleRemoveAutomation_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("remove_automation", tt.params)
+			_, err := handler.HandleCommand("remove_automation", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1802,10 +1802,10 @@ func TestCommandHandler_HandleRemoveAutomation_Success(t *testing.T) {
 
 	// Add automation first
 	addParams := json.RawMessage(`{"id": "test-remove", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	handler.HandleCommand("add_automation", addParams)
+	handler.HandleCommand("add_automation", addParams, "test")
 
 	params := json.RawMessage(`{"id": "test-remove"}`)
-	result, err := handler.HandleCommand("remove_automation", params)
+	result, err := handler.HandleCommand("remove_automation", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1835,7 +1835,7 @@ func TestCommandHandler_HandleEnableAutomation_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("enable_automation", tt.params)
+			_, err := handler.HandleCommand("enable_automation", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1850,10 +1850,10 @@ func TestCommandHandler_HandleEnableAutomation_Success(t *testing.T) {
 
 	// Add automation first
 	addParams := json.RawMessage(`{"id": "test-enable", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	handler.HandleCommand("add_automation", addParams)
+	handler.HandleCommand("add_automation", addParams, "test")
 
 	params := json.RawMessage(`{"id": "test-enable", "enabled": false}`)
-	result, err := handler.HandleCommand("enable_automation", params)
+	result, err := handler.HandleCommand("enable_automation", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1873,7 +1873,7 @@ func TestCommandHandler_HandleListArtifacts_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	// Returns empty list without error when no orchestrator
-	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test"}`))
+	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1891,7 +1891,7 @@ func TestCommandHandler_HandleListArtifacts_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test-wf"}`))
+	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1919,7 +1919,7 @@ func TestCommandHandler_HandleGetArtifact_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("get_artifact", tt.params)
+			_, err := handler.HandleCommand("get_artifact", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1934,7 +1934,7 @@ func TestCommandHandler_HandleGetArtifact_Success(t *testing.T) {
 
 	// Test with non-existent artifact - should return error
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent"}`)
-	_, err := handler.HandleCommand("get_artifact", params)
+	_, err := handler.HandleCommand("get_artifact", params, "test")
 	// This should return an error since artifact doesn't exist
 	if err == nil {
 		t.Error("expected error for non-existent artifact")
@@ -1959,7 +1959,7 @@ func TestCommandHandler_HandleCreateArtifact_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("create_artifact", tt.params)
+			_, err := handler.HandleCommand("create_artifact", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -1973,7 +1973,7 @@ func TestCommandHandler_HandleCreateArtifact_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"result": 42}}`)
-	result, err := handler.HandleCommand("create_artifact", params)
+	result, err := handler.HandleCommand("create_artifact", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2000,7 +2000,7 @@ func TestCommandHandler_HandleDeleteArtifact_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("delete_artifact", tt.params)
+			_, err := handler.HandleCommand("delete_artifact", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2014,7 +2014,7 @@ func TestCommandHandler_HandleDeleteArtifact_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
-	result, err := handler.HandleCommand("delete_artifact", params)
+	result, err := handler.HandleCommand("delete_artifact", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2033,7 +2033,7 @@ func TestCommandHandler_HandleDeleteArtifact_Success(t *testing.T) {
 func TestCommandHandler_HandleListVariables_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`))
+	_, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2044,7 +2044,7 @@ func TestCommandHandler_HandleListVariables_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`))
+	result, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2071,7 +2071,7 @@ func TestCommandHandler_HandleAddVariable_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("add_variable", tt.params)
+			_, err := handler.HandleCommand("add_variable", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2085,7 +2085,7 @@ func TestCommandHandler_HandleAddVariable_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "TEST_VAR", "name": "Test Var", "value": "test_value"}`)
-	result, err := handler.HandleCommand("add_variable", params)
+	result, err := handler.HandleCommand("add_variable", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2117,7 +2117,7 @@ func TestCommandHandler_HandleRemoveVariable_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("remove_variable", tt.params)
+			_, err := handler.HandleCommand("remove_variable", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2131,11 +2131,11 @@ func TestCommandHandler_HandleRemoveVariable_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	// Add variable first
-	addResult, _ := handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "REMOVE_VAR", "value": "test"}`))
+	addResult, _ := handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "REMOVE_VAR", "value": "test"}`), "test")
 	varID := addResult.(map[string]string)["id"]
 
 	params := json.RawMessage(fmt.Sprintf(`{"workflowId": "test-wf", "variableId": "%s"}`, varID))
-	result, err := handler.HandleCommand("remove_variable", params)
+	result, err := handler.HandleCommand("remove_variable", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2167,7 +2167,7 @@ func TestCommandHandler_HandleSetVariableValue_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("set_variable_value", tt.params)
+			_, err := handler.HandleCommand("set_variable_value", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2181,10 +2181,10 @@ func TestCommandHandler_HandleSetVariableValue_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	// Add variable first
-	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "old"}`))
+	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "old"}`), "test")
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "new_value"}`)
-	result, err := handler.HandleCommand("set_variable_value", params)
+	result, err := handler.HandleCommand("set_variable_value", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2214,7 +2214,7 @@ func TestCommandHandler_HandleResolveVariables_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("resolve_variables", tt.params)
+			_, err := handler.HandleCommand("resolve_variables", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2228,10 +2228,10 @@ func TestCommandHandler_HandleResolveVariables_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	// Add variable first
-	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "NAME", "value": "World"}`))
+	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "NAME", "value": "World"}`), "test")
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "template": "Hello {{NAME}}!"}`)
-	result, err := handler.HandleCommand("resolve_variables", params)
+	result, err := handler.HandleCommand("resolve_variables", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2250,7 +2250,7 @@ func TestCommandHandler_HandleResolveVariables_Success(t *testing.T) {
 func TestCommandHandler_HandleListAuditEvents_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`))
+	_, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`), "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2261,7 +2261,7 @@ func TestCommandHandler_HandleListAuditEvents_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`))
+	result, err := handler.HandleCommand("list_audit_events", json.RawMessage(`{}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2273,7 +2273,7 @@ func TestCommandHandler_HandleListAuditEvents_Success(t *testing.T) {
 func TestCommandHandler_HandleGetAuditStats_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_audit_stats", nil)
+	_, err := handler.HandleCommand("get_audit_stats", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2284,7 +2284,7 @@ func TestCommandHandler_HandleGetAuditStats_Success(t *testing.T) {
 	orch := swarm.NewOrchestrator(nil)
 	server.SetOrchestrator(orch)
 
-	result, err := handler.HandleCommand("get_audit_stats", nil)
+	result, err := handler.HandleCommand("get_audit_stats", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2296,7 +2296,7 @@ func TestCommandHandler_HandleGetAuditStats_Success(t *testing.T) {
 func TestCommandHandler_HandleClearAuditLog_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("clear_audit_log", nil)
+	_, err := handler.HandleCommand("clear_audit_log", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2308,7 +2308,7 @@ func TestCommandHandler_HandleClearAuditLog_Success(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"confirm": true}`)
-	result, err := handler.HandleCommand("clear_audit_log", params)
+	result, err := handler.HandleCommand("clear_audit_log", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2327,7 +2327,7 @@ func TestCommandHandler_HandleClearAuditLog_Success(t *testing.T) {
 func TestCommandHandler_HandleStartScheduleRunner_NoRunner(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("start_schedule_runner", nil)
+	_, err := handler.HandleCommand("start_schedule_runner", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing schedule runner")
 	}
@@ -2340,7 +2340,7 @@ func TestCommandHandler_HandleStartScheduleRunner_Success(t *testing.T) {
 	runner := swarm.NewScheduleRunner(nil, orch, nil)
 	server.SetScheduleRunner(runner)
 
-	result, err := handler.HandleCommand("start_schedule_runner", nil)
+	result, err := handler.HandleCommand("start_schedule_runner", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2360,7 +2360,7 @@ func TestCommandHandler_HandleStartScheduleRunner_Success(t *testing.T) {
 func TestCommandHandler_HandleStopScheduleRunner_NoRunner(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("stop_schedule_runner", nil)
+	_, err := handler.HandleCommand("stop_schedule_runner", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing schedule runner")
 	}
@@ -2374,7 +2374,7 @@ func TestCommandHandler_HandleStopScheduleRunner_Success(t *testing.T) {
 	runner.Start()
 	server.SetScheduleRunner(runner)
 
-	result, err := handler.HandleCommand("stop_schedule_runner", nil)
+	result, err := handler.HandleCommand("stop_schedule_runner", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2391,7 +2391,7 @@ func TestCommandHandler_HandleStopScheduleRunner_Success(t *testing.T) {
 func TestCommandHandler_HandleGetScheduleRunnerStatus_NoRunner(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_schedule_runner_status", nil)
+	_, err := handler.HandleCommand("get_schedule_runner_status", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing schedule runner")
 	}
@@ -2404,7 +2404,7 @@ func TestCommandHandler_HandleGetScheduleRunnerStatus_Success(t *testing.T) {
 	runner := swarm.NewScheduleRunner(nil, orch, nil)
 	server.SetScheduleRunner(runner)
 
-	result, err := handler.HandleCommand("get_schedule_runner_status", nil)
+	result, err := handler.HandleCommand("get_schedule_runner_status", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2436,7 +2436,7 @@ func TestCommandHandler_HandleResumeWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("resume_workflow", tt.params)
+			_, err := handler.HandleCommand("resume_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2448,7 +2448,7 @@ func TestCommandHandler_HandleResumeWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow"}`)
-	_, err := handler.HandleCommand("resume_workflow", params)
+	_, err := handler.HandleCommand("resume_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2474,7 +2474,7 @@ func TestCommandHandler_HandleAddWorkflowEdge_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("add_workflow_edge", tt.params)
+			_, err := handler.HandleCommand("add_workflow_edge", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2486,7 +2486,7 @@ func TestCommandHandler_HandleAddWorkflowEdge_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "from": "a", "to": "b"}`)
-	_, err := handler.HandleCommand("add_workflow_edge", params)
+	_, err := handler.HandleCommand("add_workflow_edge", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2504,7 +2504,7 @@ func TestCommandHandler_HandleAddWorkflowEdge_Success(t *testing.T) {
 
 	// Add edge
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "edge": {"from": "node-a", "to": "node-b", "condition": "success", "label": "on success"}}`, wf.ID))
-	result, err := handler.HandleCommand("add_workflow_edge", params)
+	result, err := handler.HandleCommand("add_workflow_edge", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2548,7 +2548,7 @@ func TestCommandHandler_HandleRestoreWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("restore_workflow", tt.params)
+			_, err := handler.HandleCommand("restore_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2560,7 +2560,7 @@ func TestCommandHandler_HandleRestoreWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "wf-1", "checkpointId": "cp-1"}`)
-	_, err := handler.HandleCommand("restore_workflow", params)
+	_, err := handler.HandleCommand("restore_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2572,7 +2572,7 @@ func TestCommandHandler_HandleRestoreWorkflow_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-wf", "checkpointId": "cp-1"}`)
-	_, err := handler.HandleCommand("restore_workflow", params)
+	_, err := handler.HandleCommand("restore_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for non-existent workflow/checkpoint")
 	}
@@ -2597,7 +2597,7 @@ func TestCommandHandler_HandleGetWorkflowReport_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("get_workflow_report", tt.params)
+			_, err := handler.HandleCommand("get_workflow_report", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -2609,7 +2609,7 @@ func TestCommandHandler_HandleGetWorkflowReport_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "wf-1"}`)
-	_, err := handler.HandleCommand("get_workflow_report", params)
+	_, err := handler.HandleCommand("get_workflow_report", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -2621,7 +2621,7 @@ func TestCommandHandler_HandleGetWorkflowReport_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-wf"}`)
-	_, err := handler.HandleCommand("get_workflow_report", params)
+	_, err := handler.HandleCommand("get_workflow_report", params, "test")
 	if err == nil {
 		t.Error("expected error for non-existent workflow")
 	}
@@ -2993,7 +2993,7 @@ func TestCommandHandler_HandleWriteFile_Success(t *testing.T) {
 	server.workspacePath = tmpDir
 
 	params := json.RawMessage(`{"path": "subdir/test.txt", "content": "hello world"}`)
-	result, err := handler.HandleCommand("write_file", params)
+	result, err := handler.HandleCommand("write_file", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3023,7 +3023,7 @@ func TestCommandHandler_HandleWriteFile_EdgeCases(t *testing.T) {
 
 	t.Run("path traversal attempt", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "../etc/passwd", "content": "malicious"}`)
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for path traversal")
 		}
@@ -3046,7 +3046,7 @@ func TestCommandHandler_HandleWriteFile_EdgeCases(t *testing.T) {
 			"content": largeContent,
 		}
 		paramsJSON, _ := json.Marshal(params)
-		_, err := handler.HandleCommand("write_file", paramsJSON)
+		_, err := handler.HandleCommand("write_file", paramsJSON, "test")
 		if err == nil {
 			t.Fatal("expected error for content too large")
 		}
@@ -3064,7 +3064,7 @@ func TestCommandHandler_HandleWriteFile_EdgeCases(t *testing.T) {
 
 	t.Run("empty path", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "", "content": "test"}`)
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for empty path")
 		}
@@ -3084,7 +3084,7 @@ func TestCommandHandler_HandleWriteFile_EdgeCases(t *testing.T) {
 		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
 		serverNoWorkspace.workspacePath = ""
 		params := json.RawMessage(`{"path": "test.txt", "content": "test"}`)
-		_, err := handlerNoWorkspace.HandleCommand("write_file", params)
+		_, err := handlerNoWorkspace.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for workspace not configured")
 		}
@@ -3111,7 +3111,7 @@ func TestCommandHandler_HandleListDir_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("test"), 0644)
 
 	params := json.RawMessage(`{"path": "."}`)
-	result, err := handler.HandleCommand("list_dir", params)
+	result, err := handler.HandleCommand("list_dir", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3147,7 +3147,7 @@ func TestCommandHandler_HandleListDir_EdgeCases(t *testing.T) {
 
 	t.Run("path traversal", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "../.."}`)
-		_, err := handler.HandleCommand("list_dir", params)
+		_, err := handler.HandleCommand("list_dir", params, "test")
 		if err == nil {
 			t.Fatal("expected error for path traversal")
 		}
@@ -3167,7 +3167,7 @@ func TestCommandHandler_HandleListDir_EdgeCases(t *testing.T) {
 		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
 		serverNoWorkspace.workspacePath = ""
 		params := json.RawMessage(`{"path": "."}`)
-		_, err := handlerNoWorkspace.HandleCommand("list_dir", params)
+		_, err := handlerNoWorkspace.HandleCommand("list_dir", params, "test")
 		if err == nil {
 			t.Fatal("expected error for workspace not configured")
 		}
@@ -3182,7 +3182,7 @@ func TestCommandHandler_HandleListDir_EdgeCases(t *testing.T) {
 
 	t.Run("non-existent path", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "nonexistent"}`)
-		_, err := handler.HandleCommand("list_dir", params)
+		_, err := handler.HandleCommand("list_dir", params, "test")
 		if err == nil {
 			t.Fatal("expected error for non-existent path")
 		}
@@ -3207,7 +3207,7 @@ func TestCommandHandler_HandleReadFile_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte(expectedContent), 0644)
 
 	params := json.RawMessage(`{"path": "test.txt"}`)
-	result, err := handler.HandleCommand("read_file", params)
+	result, err := handler.HandleCommand("read_file", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3229,7 +3229,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 	t.Run("directory instead of file", func(t *testing.T) {
 		os.MkdirAll(filepath.Join(tmpDir, "mydir"), 0755)
 		params := json.RawMessage(`{"path": "mydir"}`)
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for directory")
 		}
@@ -3247,7 +3247,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 
 	t.Run("path traversal", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "../etc/passwd"}`)
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for path traversal")
 		}
@@ -3265,7 +3265,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 		largeContent := make([]byte, 10*1024*1024+1) // 10MB + 1 byte
 		os.WriteFile(filepath.Join(tmpDir, "large.txt"), largeContent, 0644)
 		params := json.RawMessage(`{"path": "large.txt"}`)
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for file too large")
 		}
@@ -3283,7 +3283,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 
 	t.Run("empty path", func(t *testing.T) {
 		params := json.RawMessage(`{"path": ""}`)
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for empty path")
 		}
@@ -3300,7 +3300,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 		handlerNoWorkspace, serverNoWorkspace := newTestHandler()
 		serverNoWorkspace.workspacePath = ""
 		params := json.RawMessage(`{"path": "test.txt"}`)
-		_, err := handlerNoWorkspace.HandleCommand("read_file", params)
+		_, err := handlerNoWorkspace.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for workspace not configured")
 		}
@@ -3315,7 +3315,7 @@ func TestCommandHandler_HandleReadFile_EdgeCases(t *testing.T) {
 
 	t.Run("file not found", func(t *testing.T) {
 		params := json.RawMessage(`{"path": "nonexistent.txt"}`)
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Fatal("expected error for file not found")
 		}
@@ -3335,7 +3335,7 @@ func TestCommandHandler_HandleExecuteTask_EdgeCases(t *testing.T) {
 
 	t.Run("missing swarmId", func(t *testing.T) {
 		params := json.RawMessage(`{"taskId": "task-1"}`)
-		_, err := handler.HandleCommand("execute_task", params)
+		_, err := handler.HandleCommand("execute_task", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing swarmId")
 		}
@@ -3353,7 +3353,7 @@ func TestCommandHandler_HandleExecuteTask_EdgeCases(t *testing.T) {
 
 	t.Run("missing taskId", func(t *testing.T) {
 		params := json.RawMessage(`{"swarmId": "swarm-1"}`)
-		_, err := handler.HandleCommand("execute_task", params)
+		_, err := handler.HandleCommand("execute_task", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing taskId")
 		}
@@ -3371,7 +3371,7 @@ func TestCommandHandler_HandleExecuteTask_EdgeCases(t *testing.T) {
 
 	t.Run("swarm not found", func(t *testing.T) {
 		params := json.RawMessage(`{"swarmId": "nonexistent", "taskId": "task-1"}`)
-		_, err := handler.HandleCommand("execute_task", params)
+		_, err := handler.HandleCommand("execute_task", params, "test")
 		if err == nil {
 			t.Fatal("expected error for swarm not found")
 		}
@@ -3395,14 +3395,14 @@ func TestCommandHandler_HandleExecuteTask_EdgeCases(t *testing.T) {
 			"strategy": "round_robin",
 		}
 		createParamsJSON, _ := json.Marshal(createParams)
-		result, err := handler.HandleCommand("create_swarm", createParamsJSON)
+		result, err := handler.HandleCommand("create_swarm", createParamsJSON, "test")
 		if err != nil {
 			t.Fatalf("failed to create swarm: %v", err)
 		}
 		swarmInfo := result.(SwarmInfo)
 
 		params := json.RawMessage(`{"swarmId": "` + swarmInfo.ID + `", "taskId": "nonexistent-task"}`)
-		_, err = handler.HandleCommand("execute_task", params)
+		_, err = handler.HandleCommand("execute_task", params, "test")
 		if err == nil {
 			t.Fatal("expected error for task not found")
 		}
@@ -3424,7 +3424,7 @@ func TestCommandHandler_HandleStopMCPServer_EdgeCases(t *testing.T) {
 
 	t.Run("missing serverId", func(t *testing.T) {
 		params := json.RawMessage(`{}`)
-		_, err := handler.HandleCommand("stop_mcp_server", params)
+		_, err := handler.HandleCommand("stop_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing serverId")
 		}
@@ -3442,7 +3442,7 @@ func TestCommandHandler_HandleStopMCPServer_EdgeCases(t *testing.T) {
 
 	t.Run("server not found", func(t *testing.T) {
 		params := json.RawMessage(`{"serverId": "nonexistent-server"}`)
-		_, err := handler.HandleCommand("stop_mcp_server", params)
+		_, err := handler.HandleCommand("stop_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for server not found")
 		}
@@ -3460,7 +3460,7 @@ func TestCommandHandler_HandleStopMCPServer_EdgeCases(t *testing.T) {
 
 	t.Run("empty serverId", func(t *testing.T) {
 		params := json.RawMessage(`{"serverId": "   "}`)
-		_, err := handler.HandleCommand("stop_mcp_server", params)
+		_, err := handler.HandleCommand("stop_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for empty serverId")
 		}
@@ -3479,7 +3479,7 @@ func TestCommandHandler_HandleRestoreWorkflow_EdgeCases(t *testing.T) {
 
 	t.Run("missing workflow id", func(t *testing.T) {
 		params := json.RawMessage(`{"checkpointId": "cp-1"}`)
-		_, err := handler.HandleCommand("restore_workflow", params)
+		_, err := handler.HandleCommand("restore_workflow", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing workflow id")
 		}
@@ -3497,7 +3497,7 @@ func TestCommandHandler_HandleRestoreWorkflow_EdgeCases(t *testing.T) {
 
 	t.Run("empty workflow id", func(t *testing.T) {
 		params := json.RawMessage(`{"id": "   ", "checkpointId": "cp-1"}`)
-		_, err := handler.HandleCommand("restore_workflow", params)
+		_, err := handler.HandleCommand("restore_workflow", params, "test")
 		if err == nil {
 			t.Fatal("expected error for empty workflow id")
 		}
@@ -3512,7 +3512,7 @@ func TestCommandHandler_HandleRestoreWorkflow_EdgeCases(t *testing.T) {
 
 	t.Run("missing checkpoint id", func(t *testing.T) {
 		params := json.RawMessage(`{"id": "wf-1"}`)
-		_, err := handler.HandleCommand("restore_workflow", params)
+		_, err := handler.HandleCommand("restore_workflow", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing checkpoint id")
 		}
@@ -3530,7 +3530,7 @@ func TestCommandHandler_HandleRestoreWorkflow_EdgeCases(t *testing.T) {
 
 	t.Run("orchestrator not configured", func(t *testing.T) {
 		params := json.RawMessage(`{"id": "wf-1", "checkpointId": "cp-1"}`)
-		_, err := handler.HandleCommand("restore_workflow", params)
+		_, err := handler.HandleCommand("restore_workflow", params, "test")
 		if err == nil {
 			t.Fatal("expected error for orchestrator not configured")
 		}
@@ -3552,7 +3552,7 @@ func TestCommandHandler_HandleGetWorkflowReport_EdgeCases(t *testing.T) {
 
 	t.Run("missing workflow id", func(t *testing.T) {
 		params := json.RawMessage(`{}`)
-		_, err := handler.HandleCommand("get_workflow_report", params)
+		_, err := handler.HandleCommand("get_workflow_report", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing workflow id")
 		}
@@ -3570,7 +3570,7 @@ func TestCommandHandler_HandleGetWorkflowReport_EdgeCases(t *testing.T) {
 
 	t.Run("empty workflow id", func(t *testing.T) {
 		params := json.RawMessage(`{"id": "   "}`)
-		_, err := handler.HandleCommand("get_workflow_report", params)
+		_, err := handler.HandleCommand("get_workflow_report", params, "test")
 		if err == nil {
 			t.Fatal("expected error for empty workflow id")
 		}
@@ -3585,7 +3585,7 @@ func TestCommandHandler_HandleGetWorkflowReport_EdgeCases(t *testing.T) {
 
 	t.Run("orchestrator not configured", func(t *testing.T) {
 		params := json.RawMessage(`{"id": "wf-1"}`)
-		_, err := handler.HandleCommand("get_workflow_report", params)
+		_, err := handler.HandleCommand("get_workflow_report", params, "test")
 		if err == nil {
 			t.Fatal("expected error for orchestrator not configured")
 		}
@@ -3617,7 +3617,7 @@ func TestCommandHandler_HandleGetWorkflowReport_EdgeCases(t *testing.T) {
 		handlerWithOrch := NewCommandHandler(server)
 
 		params := json.RawMessage(`{"id": "wf-no-report"}`)
-		_, err := handlerWithOrch.HandleCommand("get_workflow_report", params)
+		_, err := handlerWithOrch.HandleCommand("get_workflow_report", params, "test")
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -3649,7 +3649,7 @@ func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"name":"test-mcp","command":"npx","args":["-y","@modelcontextprotocol/server-test"]}}`)
-		result, err := handler.HandleCommand("add_mcp_server", params)
+		result, err := handler.HandleCommand("add_mcp_server", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3671,7 +3671,7 @@ func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"command":"npx"}}`)
-		_, err := handler.HandleCommand("add_mcp_server", params)
+		_, err := handler.HandleCommand("add_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing name")
 		}
@@ -3690,7 +3690,7 @@ func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"name":"test"}}`)
-		_, err := handler.HandleCommand("add_mcp_server", params)
+		_, err := handler.HandleCommand("add_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing command")
 		}
@@ -3701,7 +3701,7 @@ func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
 		defer restore()
 
 		handler, _ := newTestHandler()
-		_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(`{invalid}`))
+		_, err := handler.HandleCommand("add_mcp_server", json.RawMessage(`{invalid}`), "test")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -3713,7 +3713,7 @@ func TestCommandHandler_HandleAddMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"name":"env-mcp","command":"node","env":{"API_KEY":"test123"}}}`)
-		result, err := handler.HandleCommand("add_mcp_server", params)
+		result, err := handler.HandleCommand("add_mcp_server", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3736,13 +3736,13 @@ func TestCommandHandler_HandleRemoveMCPServer(t *testing.T) {
 
 		// First add a server
 		addParams := json.RawMessage(`{"config":{"name":"remove-test","command":"npx"}}`)
-		if _, err := handler.HandleCommand("add_mcp_server", addParams); err != nil {
+		if _, err := handler.HandleCommand("add_mcp_server", addParams, "test"); err != nil {
 			t.Fatalf("failed to add server: %v", err)
 		}
 
 		// Now remove it
 		removeParams := json.RawMessage(`{"serverId":"remove-test"}`)
-		result, err := handler.HandleCommand("remove_mcp_server", removeParams)
+		result, err := handler.HandleCommand("remove_mcp_server", removeParams, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3764,7 +3764,7 @@ func TestCommandHandler_HandleRemoveMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"serverId":"nonexistent"}`)
-		_, err := handler.HandleCommand("remove_mcp_server", params)
+		_, err := handler.HandleCommand("remove_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for nonexistent server")
 		}
@@ -3783,7 +3783,7 @@ func TestCommandHandler_HandleRemoveMCPServer(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"serverId":"  "}`)
-		_, err := handler.HandleCommand("remove_mcp_server", params)
+		_, err := handler.HandleCommand("remove_mcp_server", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing server id")
 		}
@@ -3794,7 +3794,7 @@ func TestCommandHandler_HandleRemoveMCPServer(t *testing.T) {
 		defer restore()
 
 		handler, _ := newTestHandler()
-		_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(`{invalid}`))
+		_, err := handler.HandleCommand("remove_mcp_server", json.RawMessage(`{invalid}`), "test")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -3810,7 +3810,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"id":"test-agent","name":"Test Agent","command":"claude"}}`)
-		result, err := handler.HandleCommand("add_agent", params)
+		result, err := handler.HandleCommand("add_agent", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3835,7 +3835,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"name":"Test"}}`)
-		_, err := handler.HandleCommand("add_agent", params)
+		_, err := handler.HandleCommand("add_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing id")
 		}
@@ -3854,7 +3854,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"id":"test"}}`)
-		_, err := handler.HandleCommand("add_agent", params)
+		_, err := handler.HandleCommand("add_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing name")
 		}
@@ -3867,7 +3867,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 		handler, _ := newTestHandler()
 		longID := strings.Repeat("a", 256)
 		params := json.RawMessage(fmt.Sprintf(`{"config":{"id":"%s","name":"Test"}}`, longID))
-		_, err := handler.HandleCommand("add_agent", params)
+		_, err := handler.HandleCommand("add_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for too long id")
 		}
@@ -3880,7 +3880,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 		handler, _ := newTestHandler()
 		longName := strings.Repeat("a", 256)
 		params := json.RawMessage(fmt.Sprintf(`{"config":{"id":"test","name":"%s"}}`, longName))
-		_, err := handler.HandleCommand("add_agent", params)
+		_, err := handler.HandleCommand("add_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for too long name")
 		}
@@ -3891,7 +3891,7 @@ func TestCommandHandler_HandleAddAgent(t *testing.T) {
 		defer restore()
 
 		handler, _ := newTestHandler()
-		_, err := handler.HandleCommand("add_agent", json.RawMessage(`{invalid}`))
+		_, err := handler.HandleCommand("add_agent", json.RawMessage(`{invalid}`), "test")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -3907,13 +3907,13 @@ func TestCommandHandler_HandleUpdateAgent(t *testing.T) {
 
 		// First add an agent
 		addParams := json.RawMessage(`{"config":{"id":"upd-agent","name":"Original","command":"claude"}}`)
-		if _, err := handler.HandleCommand("add_agent", addParams); err != nil {
+		if _, err := handler.HandleCommand("add_agent", addParams, "test"); err != nil {
 			t.Fatalf("failed to add agent: %v", err)
 		}
 
 		// Now update it
 		updateParams := json.RawMessage(`{"config":{"id":"upd-agent","name":"Updated","command":"claude","description":"updated desc"}}`)
-		result, err := handler.HandleCommand("update_agent", updateParams)
+		result, err := handler.HandleCommand("update_agent", updateParams, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3932,7 +3932,7 @@ func TestCommandHandler_HandleUpdateAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"name":"Test"}}`)
-		_, err := handler.HandleCommand("update_agent", params)
+		_, err := handler.HandleCommand("update_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing id")
 		}
@@ -3944,7 +3944,7 @@ func TestCommandHandler_HandleUpdateAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"config":{"id":"nonexistent","name":"Test"}}`)
-		_, err := handler.HandleCommand("update_agent", params)
+		_, err := handler.HandleCommand("update_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for nonexistent agent")
 		}
@@ -3955,7 +3955,7 @@ func TestCommandHandler_HandleUpdateAgent(t *testing.T) {
 		defer restore()
 
 		handler, _ := newTestHandler()
-		_, err := handler.HandleCommand("update_agent", json.RawMessage(`{invalid}`))
+		_, err := handler.HandleCommand("update_agent", json.RawMessage(`{invalid}`), "test")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -3971,13 +3971,13 @@ func TestCommandHandler_HandleDeleteAgent(t *testing.T) {
 
 		// First add an agent
 		addParams := json.RawMessage(`{"config":{"id":"del-agent","name":"Delete Me","command":"claude"}}`)
-		if _, err := handler.HandleCommand("add_agent", addParams); err != nil {
+		if _, err := handler.HandleCommand("add_agent", addParams, "test"); err != nil {
 			t.Fatalf("failed to add agent: %v", err)
 		}
 
 		// Now delete it
 		deleteParams := json.RawMessage(`{"id":"del-agent"}`)
-		result, err := handler.HandleCommand("delete_agent", deleteParams)
+		result, err := handler.HandleCommand("delete_agent", deleteParams, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -3996,7 +3996,7 @@ func TestCommandHandler_HandleDeleteAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"id":""}`)
-		_, err := handler.HandleCommand("delete_agent", params)
+		_, err := handler.HandleCommand("delete_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for missing id")
 		}
@@ -4008,7 +4008,7 @@ func TestCommandHandler_HandleDeleteAgent(t *testing.T) {
 
 		handler, _ := newTestHandler()
 		params := json.RawMessage(`{"id":"nonexistent"}`)
-		_, err := handler.HandleCommand("delete_agent", params)
+		_, err := handler.HandleCommand("delete_agent", params, "test")
 		if err == nil {
 			t.Fatal("expected error for nonexistent agent")
 		}
@@ -4019,7 +4019,7 @@ func TestCommandHandler_HandleDeleteAgent(t *testing.T) {
 		defer restore()
 
 		handler, _ := newTestHandler()
-		_, err := handler.HandleCommand("delete_agent", json.RawMessage(`{invalid}`))
+		_, err := handler.HandleCommand("delete_agent", json.RawMessage(`{invalid}`), "test")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
 		}
@@ -4033,7 +4033,7 @@ func TestCommandHandler_HandleGetAgents(t *testing.T) {
 	a := agent.NewAgent("test-agent", agent.AgentTypeCoder)
 	server.registry.Register(a)
 
-	result, err := handler.HandleCommand("get_agents", nil)
+	result, err := handler.HandleCommand("get_agents", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4067,7 +4067,7 @@ func TestCommandHandler_HandleGetAgents_NilRegistry(t *testing.T) {
 	server := &WebSocketServer{registry: nil}
 	handler := NewCommandHandler(server)
 
-	result, err := handler.HandleCommand("get_agents", nil)
+	result, err := handler.HandleCommand("get_agents", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4096,7 +4096,7 @@ func TestCommandHandler_HandleGetAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("get_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("get_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -4107,7 +4107,7 @@ func TestCommandHandler_HandleGetAgent_Validation(t *testing.T) {
 func TestCommandHandler_HandleGetAgent_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
+	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "nonexistent-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent agent")
 	}
@@ -4117,7 +4117,7 @@ func TestCommandHandler_HandleGetAgent_NilRegistry(t *testing.T) {
 	server := &WebSocketServer{registry: nil}
 	handler := NewCommandHandler(server)
 
-	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "test-agent"}`))
+	_, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "test-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error when registry is nil")
 	}
@@ -4130,7 +4130,7 @@ func TestCommandHandler_HandleGetAgent_Success(t *testing.T) {
 	a := agent.NewAgent("test-get-agent", agent.AgentTypeCoder)
 	server.registry.Register(a)
 
-	result, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	result, err := handler.HandleCommand("get_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4158,7 +4158,7 @@ func TestCommandHandler_HandleStartAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("start_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("start_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -4169,7 +4169,7 @@ func TestCommandHandler_HandleStartAgent_Validation(t *testing.T) {
 func TestCommandHandler_HandleStartAgent_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
+	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "nonexistent-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent agent")
 	}
@@ -4179,7 +4179,7 @@ func TestCommandHandler_HandleStartAgent_NilRegistry(t *testing.T) {
 	server := &WebSocketServer{registry: nil}
 	handler := NewCommandHandler(server)
 
-	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "test-agent"}`))
+	_, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "test-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error when registry is nil")
 	}
@@ -4192,7 +4192,7 @@ func TestCommandHandler_HandleStartAgent_Success(t *testing.T) {
 	a := agent.NewAgent("test-start-agent", agent.AgentTypeCoder)
 	server.registry.Register(a)
 
-	result, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	result, err := handler.HandleCommand("start_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4220,7 +4220,7 @@ func TestCommandHandler_HandleStopAgent_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := handler.HandleCommand("stop_agent", json.RawMessage(tt.params))
+			_, err := handler.HandleCommand("stop_agent", json.RawMessage(tt.params), "test")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -4231,9 +4231,12 @@ func TestCommandHandler_HandleStopAgent_Validation(t *testing.T) {
 func TestCommandHandler_HandleStopAgent_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "nonexistent-agent"}`))
-	if err == nil {
-		t.Error("expected error for nonexistent agent")
+	result, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "nonexistent-agent"}`), "test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if m, ok := result.(map[string]string); !ok || m["status"] != "stopped" {
+		t.Errorf("expected stopped status, got %v", result)
 	}
 }
 
@@ -4241,9 +4244,12 @@ func TestCommandHandler_HandleStopAgent_NilRegistry(t *testing.T) {
 	server := &WebSocketServer{registry: nil}
 	handler := NewCommandHandler(server)
 
-	_, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "test-agent"}`))
-	if err == nil {
-		t.Error("expected error when registry is nil")
+	result, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "test-agent"}`), "test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if m, ok := result.(map[string]string); !ok || m["status"] != "stopped" {
+		t.Errorf("expected stopped status, got %v", result)
 	}
 }
 
@@ -4254,7 +4260,7 @@ func TestCommandHandler_HandleStopAgent_Success(t *testing.T) {
 	a := agent.NewAgent("test-stop-agent", agent.AgentTypeCoder)
 	server.registry.Register(a)
 
-	result, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`))
+	result, err := handler.HandleCommand("stop_agent", json.RawMessage(`{"id": "`+string(a.ID)+`"}`), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4276,7 +4282,7 @@ func TestCommandHandler_HandleCreateSession_AgentNotConnected(t *testing.T) {
 	// that doesn't have the agent connected
 	server.connManager = acp.NewConnectionManager(&acp.Config{})
 
-	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "disconnected-agent"}`))
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "disconnected-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error when agent is not connected")
 	}
@@ -4292,7 +4298,7 @@ func TestCommandHandler_HandleCreateSession_Success(t *testing.T) {
 	cm.RegisterTestConnection(conn)
 	server.connManager = cm
 
-	result, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent", "mode": "editing"}`))
+	result, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "test-agent", "mode": "editing"}`), "test")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -4352,7 +4358,7 @@ func TestCommandHandler_HandleCreateSession_SessionModes(t *testing.T) {
 			server.connManager = cm
 
 			params := fmt.Sprintf(`{"agentId": "mode-agent", "mode": %q}`, tt.mode)
-			result, err := handler.HandleCommand("create_session", json.RawMessage(params))
+			result, err := handler.HandleCommand("create_session", json.RawMessage(params), "test")
 			if err != nil {
 				t.Fatalf("unexpected error for mode %q: %v", tt.mode, err)
 			}
@@ -4380,7 +4386,7 @@ func TestCommandHandler_HandleCreateSession_MaxSessions(t *testing.T) {
 	}
 	server.mu.Unlock()
 
-	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "max-agent"}`))
+	_, err := handler.HandleCommand("create_session", json.RawMessage(`{"agentId": "max-agent"}`), "test")
 	if err == nil {
 		t.Error("expected error when max sessions reached")
 	}
@@ -4396,7 +4402,7 @@ func TestCommandHandler_HandleSendMessage_NoConnManager(t *testing.T) {
 	// Set up a session mapping
 	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
 
-	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`))
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`), "test")
 	if err == nil {
 		t.Error("expected error when connManager is nil")
 	}
@@ -4408,7 +4414,7 @@ func TestCommandHandler_HandleSendMessage_AgentNotConnected(t *testing.T) {
 	server.sessionToAgent = map[string]string{"session-1": "agent-1"}
 	server.connManager = acp.NewConnectionManager(&acp.Config{})
 
-	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`))
+	_, err := handler.HandleCommand("send_message", json.RawMessage(`{"sessionId": "session-1", "message": "hello"}`), "test")
 	if err == nil {
 		t.Error("expected error when agent is not connected")
 	}
@@ -4421,7 +4427,7 @@ func TestCommandHandler_HandlePermissionResponse_NilPermissionManager(t *testing
 	// teamManager exists but has no permission manager
 	server.teamManager = team.NewManagerWithDir("")
 
-	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`))
+	_, err := handler.HandleCommand("permission_response", json.RawMessage(`{"requestId": "r1", "approved": true, "resolvedBy": "user"}`), "test")
 	if err == nil {
 		t.Error("expected error when permission manager is nil")
 	}
@@ -4444,7 +4450,7 @@ func TestCommandHandler_HandleGetSupervisorStats_WithAgents(t *testing.T) {
 	errorAgent.SetState(agent.StateError)
 	server.registry.Register(errorAgent)
 
-	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	result, err := handler.HandleCommand("get_supervisor_stats", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4476,7 +4482,7 @@ func TestCommandHandler_HandleGetSupervisorStats_ExecutingAgent(t *testing.T) {
 	executingAgent.SetState(agent.StateExecuting)
 	server.registry.Register(executingAgent)
 
-	result, err := handler.HandleCommand("get_supervisor_stats", nil)
+	result, err := handler.HandleCommand("get_supervisor_stats", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4502,7 +4508,7 @@ func TestCommandHandler_HandleGetSupervisorStats_ExecutingAgent(t *testing.T) {
 func TestCommandHandler_HandleListWorkflows_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("list_workflows", nil)
+	_, err := handler.HandleCommand("list_workflows", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4532,7 +4538,7 @@ func TestCommandHandler_HandleCreateWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("create_workflow", tt.params)
+			_, err := handler.HandleCommand("create_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4544,7 +4550,7 @@ func TestCommandHandler_HandleCreateWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"name": "Test Workflow"}`)
-	_, err := handler.HandleCommand("create_workflow", params)
+	_, err := handler.HandleCommand("create_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4567,7 +4573,7 @@ func TestCommandHandler_HandleGetWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("get_workflow", tt.params)
+			_, err := handler.HandleCommand("get_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4579,7 +4585,7 @@ func TestCommandHandler_HandleGetWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow"}`)
-	_, err := handler.HandleCommand("get_workflow", params)
+	_, err := handler.HandleCommand("get_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4591,7 +4597,7 @@ func TestCommandHandler_HandleGetWorkflow_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
-	_, err := handler.HandleCommand("get_workflow", params)
+	_, err := handler.HandleCommand("get_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4621,7 +4627,7 @@ func TestCommandHandler_HandleUpdateWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("update_workflow", tt.params)
+			_, err := handler.HandleCommand("update_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4633,7 +4639,7 @@ func TestCommandHandler_HandleUpdateWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow", "workflow": {"name": "Updated"}}`)
-	_, err := handler.HandleCommand("update_workflow", params)
+	_, err := handler.HandleCommand("update_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4645,7 +4651,7 @@ func TestCommandHandler_HandleUpdateWorkflow_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow", "workflow": {"name": "Updated"}}`)
-	_, err := handler.HandleCommand("update_workflow", params)
+	_, err := handler.HandleCommand("update_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4666,7 +4672,7 @@ func TestCommandHandler_HandleUpdateWorkflow_WithDescription(t *testing.T) {
 	wf := orch.CreateWorkflow("Test", swarm.ModeSequential)
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "workflow": {"name": "Updated Name", "description": "Updated Description"}}`, wf.ID))
-	result, err := handler.HandleCommand("update_workflow", params)
+	result, err := handler.HandleCommand("update_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4700,7 +4706,7 @@ func TestCommandHandler_HandleDeleteWorkflow_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("delete_workflow", tt.params)
+			_, err := handler.HandleCommand("delete_workflow", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4712,7 +4718,7 @@ func TestCommandHandler_HandleDeleteWorkflow_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow"}`)
-	_, err := handler.HandleCommand("delete_workflow", params)
+	_, err := handler.HandleCommand("delete_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4724,7 +4730,7 @@ func TestCommandHandler_HandleDeleteWorkflow_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
-	_, err := handler.HandleCommand("delete_workflow", params)
+	_, err := handler.HandleCommand("delete_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4743,7 +4749,7 @@ func TestCommandHandler_HandleExecuteWorkflow_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow"}`)
-	_, err := handler.HandleCommand("execute_workflow", params)
+	_, err := handler.HandleCommand("execute_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4766,7 +4772,7 @@ func TestCommandHandler_HandleGetWorkflowCheckpoints_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("get_workflow_checkpoints", tt.params)
+			_, err := handler.HandleCommand("get_workflow_checkpoints", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4778,7 +4784,7 @@ func TestCommandHandler_HandleGetWorkflowCheckpoints_NoOrchestrator(t *testing.T
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow"}`)
-	_, err := handler.HandleCommand("get_workflow_checkpoints", params)
+	_, err := handler.HandleCommand("get_workflow_checkpoints", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4801,7 +4807,7 @@ func TestCommandHandler_HandleClearNodeCache_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("clear_node_cache", tt.params)
+			_, err := handler.HandleCommand("clear_node_cache", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4813,7 +4819,7 @@ func TestCommandHandler_HandleClearNodeCache_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"nodeId": "test-node"}`)
-	_, err := handler.HandleCommand("clear_node_cache", params)
+	_, err := handler.HandleCommand("clear_node_cache", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4822,7 +4828,7 @@ func TestCommandHandler_HandleClearNodeCache_NoOrchestrator(t *testing.T) {
 func TestCommandHandler_HandleClearAllCaches_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("clear_all_caches", nil)
+	_, err := handler.HandleCommand("clear_all_caches", nil, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4848,7 +4854,7 @@ func TestCommandHandler_HandleAddWorkflowNode_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("add_workflow_node", tt.params)
+			_, err := handler.HandleCommand("add_workflow_node", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -4860,7 +4866,7 @@ func TestCommandHandler_HandleAddWorkflowNode_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-workflow", "node": {"name": "Test Node"}}`)
-	_, err := handler.HandleCommand("add_workflow_node", params)
+	_, err := handler.HandleCommand("add_workflow_node", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4872,7 +4878,7 @@ func TestCommandHandler_HandleAddWorkflowNode_WorkflowNotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow", "node": {"name": "Test Node"}}`)
-	_, err := handler.HandleCommand("add_workflow_node", params)
+	_, err := handler.HandleCommand("add_workflow_node", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4893,7 +4899,7 @@ func TestCommandHandler_HandleAddWorkflowNode_WithCustomType(t *testing.T) {
 	wf := orch.CreateWorkflow("Node Type Test", swarm.ModeSequential)
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s", "node": {"type": "condition", "name": "Condition Node", "agentId": "test-agent"}}`, wf.ID))
-	result, err := handler.HandleCommand("add_workflow_node", params)
+	result, err := handler.HandleCommand("add_workflow_node", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4913,7 +4919,7 @@ func TestCommandHandler_HandleAddWorkflowEdge_WorkflowNotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-workflow", "edge": {"from": "node-a", "to": "node-b"}}`)
-	_, err := handler.HandleCommand("add_workflow_edge", params)
+	_, err := handler.HandleCommand("add_workflow_edge", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -4930,7 +4936,7 @@ func TestCommandHandler_HandleRemoveAutomation_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-automation"}`)
-	_, err := handler.HandleCommand("remove_automation", params)
+	_, err := handler.HandleCommand("remove_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4942,7 +4948,7 @@ func TestCommandHandler_HandleRemoveAutomation_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-automation"}`)
-	_, err := handler.HandleCommand("remove_automation", params)
+	_, err := handler.HandleCommand("remove_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent automation")
 	}
@@ -4959,7 +4965,7 @@ func TestCommandHandler_HandleEnableAutomation_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"id": "test-automation", "enabled": true}`)
-	_, err := handler.HandleCommand("enable_automation", params)
+	_, err := handler.HandleCommand("enable_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -4971,7 +4977,7 @@ func TestCommandHandler_HandleEnableAutomation_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent-automation", "enabled": true}`)
-	_, err := handler.HandleCommand("enable_automation", params)
+	_, err := handler.HandleCommand("enable_automation", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent automation")
 	}
@@ -5001,7 +5007,7 @@ func TestCommandHandler_HandleListArtifacts_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("list_artifacts", tt.params)
+			_, err := handler.HandleCommand("list_artifacts", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5016,11 +5022,11 @@ func TestCommandHandler_HandleGetArtifact_ById(t *testing.T) {
 
 	// Create an artifact first
 	createParams := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"value": 42}}`)
-	handler.HandleCommand("create_artifact", createParams)
+	handler.HandleCommand("create_artifact", createParams, "test")
 
 	// Get by ID (which is workflowId + key combined internally)
 	params := json.RawMessage(`{"id": "test-wf:test-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params)
+	_, err := handler.HandleCommand("get_artifact", params, "test")
 	// May or may not work depending on implementation
 	_ = err
 }
@@ -5029,7 +5035,7 @@ func TestCommandHandler_HandleGetArtifact_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params)
+	_, err := handler.HandleCommand("get_artifact", params, "test")
 	if err == nil {
 		t.Error("expected error for missing orchestrator")
 	}
@@ -5042,7 +5048,7 @@ func TestCommandHandler_HandleGetArtifact_NoStore(t *testing.T) {
 
 	// Test with valid params but no artifact exists
 	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params)
+	_, err := handler.HandleCommand("get_artifact", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent artifact")
 	}
@@ -5064,7 +5070,7 @@ func TestCommandHandler_HandleGetArtifact_MissingParams(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("get_artifact", tt.params)
+			_, err := handler.HandleCommand("get_artifact", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5089,7 +5095,7 @@ func TestCommandHandler_HandleListVariables_Validation(t *testing.T) {
 			orch := swarm.NewOrchestrator(nil)
 			server.SetOrchestrator(orch)
 
-			_, err := handler.HandleCommand("list_variables", tt.params)
+			_, err := handler.HandleCommand("list_variables", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5104,7 +5110,7 @@ func TestCommandHandler_HandleResumeWorkflow_Error(t *testing.T) {
 
 	// Try to resume a non-existent workflow
 	params := json.RawMessage(`{"id": "nonexistent-workflow", "input": {}}`)
-	_, err := handler.HandleCommand("resume_workflow", params)
+	_, err := handler.HandleCommand("resume_workflow", params, "test")
 	if err == nil {
 		t.Error("expected error for nonexistent workflow")
 	}
@@ -5123,7 +5129,7 @@ func TestCommandHandler_HandleGetSwarms_WithSwarms(t *testing.T) {
 	server.AddSwarm("swarm-1", sw1)
 	server.AddSwarm("swarm-2", sw2)
 
-	result, err := handler.HandleCommand("get_swarms", nil)
+	result, err := handler.HandleCommand("get_swarms", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5176,7 +5182,7 @@ func TestCommandHandler_HandleCreateSwarm_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("create_swarm", tt.params)
+			_, err := handler.HandleCommand("create_swarm", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5198,7 +5204,7 @@ func TestCommandHandler_HandleStartSwarm_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("start_swarm", tt.params)
+			_, err := handler.HandleCommand("start_swarm", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5209,7 +5215,7 @@ func TestCommandHandler_HandleStartSwarm_Validation(t *testing.T) {
 func TestCommandHandler_HandleStartSwarm_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("start_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	_, err := handler.HandleCommand("start_swarm", json.RawMessage(`{"id": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -5229,7 +5235,7 @@ func TestCommandHandler_HandleStopSwarm_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("stop_swarm", tt.params)
+			_, err := handler.HandleCommand("stop_swarm", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5240,7 +5246,7 @@ func TestCommandHandler_HandleStopSwarm_Validation(t *testing.T) {
 func TestCommandHandler_HandleStopSwarm_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("stop_swarm", json.RawMessage(`{"id": "nonexistent"}`))
+	_, err := handler.HandleCommand("stop_swarm", json.RawMessage(`{"id": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -5260,7 +5266,7 @@ func TestCommandHandler_HandleGetSwarmTasks_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("get_swarm_tasks", tt.params)
+			_, err := handler.HandleCommand("get_swarm_tasks", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5271,7 +5277,7 @@ func TestCommandHandler_HandleGetSwarmTasks_Validation(t *testing.T) {
 func TestCommandHandler_HandleGetSwarmTasks_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("get_swarm_tasks", json.RawMessage(`{"swarmId": "nonexistent"}`))
+	_, err := handler.HandleCommand("get_swarm_tasks", json.RawMessage(`{"swarmId": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -5295,7 +5301,7 @@ func TestCommandHandler_HandleSubmitTask_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("submit_task", tt.params)
+			_, err := handler.HandleCommand("submit_task", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5306,7 +5312,7 @@ func TestCommandHandler_HandleSubmitTask_Validation(t *testing.T) {
 func TestCommandHandler_HandleSubmitTask_SwarmNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("submit_task", json.RawMessage(`{"swarmId": "nonexistent", "title": "test task"}`))
+	_, err := handler.HandleCommand("submit_task", json.RawMessage(`{"swarmId": "nonexistent", "title": "test task"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent swarm")
 	}
@@ -5320,7 +5326,7 @@ func TestCommandHandler_HandleSubmitTask_WithPriority(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"swarmId": "swarm-priority", "title": "High Priority Task", "description": "test", "priority": "high"}`)
-	result, err := handler.HandleCommand("submit_task", params)
+	result, err := handler.HandleCommand("submit_task", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5340,7 +5346,7 @@ func TestCommandHandler_HandleGetTeams_NilTeamManager(t *testing.T) {
 	server := &WebSocketServer{teamManager: nil}
 	handler := NewCommandHandler(server)
 
-	result, err := handler.HandleCommand("get_teams", nil)
+	result, err := handler.HandleCommand("get_teams", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5358,16 +5364,16 @@ func TestCommandHandler_HandleGetTeams_WithTeams(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	// Create teams via the handler
-	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Alpha", "ownerId": "owner-1"}`))
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Alpha", "ownerId": "owner-1"}`), "test")
 	if err != nil {
 		t.Fatalf("failed to create team 1: %v", err)
 	}
-	_, err = handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Beta", "ownerId": "owner-2"}`))
+	_, err = handler.HandleCommand("create_team", json.RawMessage(`{"name": "Team Beta", "ownerId": "owner-2"}`), "test")
 	if err != nil {
 		t.Fatalf("failed to create team 2: %v", err)
 	}
 
-	result, err := handler.HandleCommand("get_teams", nil)
+	result, err := handler.HandleCommand("get_teams", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5419,7 +5425,7 @@ func TestCommandHandler_HandleCreateTeam_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("create_team", tt.params)
+			_, err := handler.HandleCommand("create_team", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5431,7 +5437,7 @@ func TestCommandHandler_HandleCreateTeam_NilTeamManager(t *testing.T) {
 	server := &WebSocketServer{teamManager: nil}
 	handler := NewCommandHandler(server)
 
-	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test", "ownerId": "owner-1"}`))
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test", "ownerId": "owner-1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nil teamManager")
 	}
@@ -5452,7 +5458,7 @@ func TestCommandHandler_HandleDeleteTeam_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("delete_team", tt.params)
+			_, err := handler.HandleCommand("delete_team", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5464,7 +5470,7 @@ func TestCommandHandler_HandleDeleteTeam_NilTeamManager(t *testing.T) {
 	server := &WebSocketServer{teamManager: nil}
 	handler := NewCommandHandler(server)
 
-	_, err := handler.HandleCommand("delete_team", json.RawMessage(`{"id": "team-1"}`))
+	_, err := handler.HandleCommand("delete_team", json.RawMessage(`{"id": "team-1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nil teamManager")
 	}
@@ -5489,7 +5495,7 @@ func TestCommandHandler_HandleAddAgentToTeam_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("add_agent_to_team", tt.params)
+			_, err := handler.HandleCommand("add_agent_to_team", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5500,7 +5506,7 @@ func TestCommandHandler_HandleAddAgentToTeam_Validation(t *testing.T) {
 func TestCommandHandler_HandleAddAgentToTeam_TeamNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("add_agent_to_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`))
+	_, err := handler.HandleCommand("add_agent_to_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent team")
 	}
@@ -5510,7 +5516,7 @@ func TestCommandHandler_HandleAddAgentToTeam_AgentNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
 	// Create team first
-	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test Team", "ownerId": "owner-1"}`))
+	_, err := handler.HandleCommand("create_team", json.RawMessage(`{"name": "Test Team", "ownerId": "owner-1"}`), "test")
 	if err != nil {
 		t.Fatalf("failed to create team: %v", err)
 	}
@@ -5523,7 +5529,7 @@ func TestCommandHandler_HandleAddAgentToTeam_AgentNotFound(t *testing.T) {
 	}
 	teamID := teams[0].ID
 
-	_, err = handler.HandleCommand("add_agent_to_team", json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "nonexistent"}`, teamID)))
+	_, err = handler.HandleCommand("add_agent_to_team", json.RawMessage(fmt.Sprintf(`{"teamId": "%s", "agentId": "nonexistent"}`, teamID)), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent agent")
 	}
@@ -5548,7 +5554,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("remove_agent_from_team", tt.params)
+			_, err := handler.HandleCommand("remove_agent_from_team", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5559,7 +5565,7 @@ func TestCommandHandler_HandleRemoveAgentFromTeam_Validation(t *testing.T) {
 func TestCommandHandler_HandleRemoveAgentFromTeam_TeamNotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("remove_agent_from_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`))
+	_, err := handler.HandleCommand("remove_agent_from_team", json.RawMessage(`{"teamId": "nonexistent", "agentId": "agent-1"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent team")
 	}
@@ -5581,7 +5587,7 @@ func TestCommandHandler_HandleStartMCPServer_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("start_mcp_server", tt.params)
+			_, err := handler.HandleCommand("start_mcp_server", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5592,7 +5598,7 @@ func TestCommandHandler_HandleStartMCPServer_Validation(t *testing.T) {
 func TestCommandHandler_HandleStartMCPServer_NotFound(t *testing.T) {
 	handler, _ := newTestHandler()
 
-	_, err := handler.HandleCommand("start_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`))
+	_, err := handler.HandleCommand("start_mcp_server", json.RawMessage(`{"serverId": "nonexistent"}`), "test")
 	if err == nil {
 		t.Error("expected error for nonexistent server")
 	}
@@ -5617,7 +5623,7 @@ func TestCommandHandler_HandleGetEmergenceData_WithSwarms(t *testing.T) {
 
 	server.AddSwarm("emergence-swarm", sw)
 
-	result, err := handler.HandleCommand("get_emergence_data", nil)
+	result, err := handler.HandleCommand("get_emergence_data", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5659,7 +5665,7 @@ func TestCommandHandler_HandleGetSwarm_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("get_swarm", tt.params)
+			_, err := handler.HandleCommand("get_swarm", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5681,7 +5687,7 @@ func TestCommandHandler_HandleDeleteSwarm_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler()
-			_, err := handler.HandleCommand("delete_swarm", tt.params)
+			_, err := handler.HandleCommand("delete_swarm", tt.params, "test")
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -5697,7 +5703,7 @@ func TestCommandHandler_HandleDeleteSwarm_Success(t *testing.T) {
 	server.AddSwarm(cfg.ID, sw)
 
 	params := json.RawMessage(`{"id": "delete-swarm"}`)
-	result, err := handler.HandleCommand("delete_swarm", params)
+	result, err := handler.HandleCommand("delete_swarm", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5738,7 +5744,7 @@ func TestCommandHandler_HandleGetTeams_WithConnManager(t *testing.T) {
 		t.Fatalf("failed to add member: %v", err)
 	}
 
-	result, err := handler.HandleCommand("get_teams", nil)
+	result, err := handler.HandleCommand("get_teams", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5770,7 +5776,7 @@ func TestCommandHandler_HandleGetTeams_EmptyConnManager(t *testing.T) {
 		t.Fatalf("failed to create team: %v", err)
 	}
 
-	result, err := handler.HandleCommand("get_teams", nil)
+	result, err := handler.HandleCommand("get_teams", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5803,7 +5809,7 @@ func TestCommandHandler_HandleWriteFile_SymlinkTraversal(t *testing.T) {
 			"path":    "escape/../../etc/passwd_test",
 			"content": "test",
 		})
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Error("expected error for symlink traversal")
 		}
@@ -5821,7 +5827,7 @@ func TestCommandHandler_HandleWriteFile_ContentTooLarge(t *testing.T) {
 		"path":    "test.txt",
 		"content": largeContent,
 	})
-	_, err := handler.HandleCommand("write_file", params)
+	_, err := handler.HandleCommand("write_file", params, "test")
 	if err == nil {
 		t.Error("expected error for content too large")
 	}
@@ -5837,7 +5843,7 @@ func TestCommandHandler_HandleWriteFile_NestedDir(t *testing.T) {
 		"path":    "sub/dir/deep/file.txt",
 		"content": "nested content",
 	})
-	result, err := handler.HandleCommand("write_file", params)
+	result, err := handler.HandleCommand("write_file", params, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5864,7 +5870,7 @@ func TestCommandHandler_HandleGetAgents_WithRegisteredAgent(t *testing.T) {
 	ag := agent.NewAgent("test-agent-1", agent.AgentTypeCoder)
 	server.registry.Register(ag)
 
-	result, err := handler.HandleCommand("get_agents", nil)
+	result, err := handler.HandleCommand("get_agents", nil, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5887,7 +5893,7 @@ func TestCommandHandler_HandleExportWorkflow_Success(t *testing.T) {
 	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Step 1", Type: "agent"})
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("export_workflow", params)
+	result, err := handler.HandleCommand("export_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("export workflow: %v", err)
 	}
@@ -5913,14 +5919,14 @@ func TestCommandHandler_HandleImportWorkflow_Success(t *testing.T) {
 	wf := orch.CreateWorkflow("original", swarm.ModeSequential)
 	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "Step 1", Type: "agent"})
 
-	exportResult, err := handler.HandleCommand("export_workflow", json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID)))
+	exportResult, err := handler.HandleCommand("export_workflow", json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID)), "test")
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	data := exportResult.(map[string]any)["data"].(string)
 
 	params := json.RawMessage(fmt.Sprintf(`{"name": "imported", "data": %s}`, string(data)))
-	importResult, err := handler.HandleCommand("import_workflow", params)
+	importResult, err := handler.HandleCommand("import_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("import workflow: %v", err)
 	}
@@ -5942,7 +5948,7 @@ func TestCommandHandler_HandleImportWorkflow_SizeLimit(t *testing.T) {
 	// Create payload larger than 1MB limit
 	largeData := strings.Repeat("x", 2<<20) // 2MB
 	params := json.RawMessage(fmt.Sprintf(`{"name": "big", "data": %q}`, largeData))
-	_, err := handler.HandleCommand("import_workflow", params)
+	_, err := handler.HandleCommand("import_workflow", params, "test")
 	if err == nil {
 		t.Fatal("expected error for oversized import payload")
 	}
@@ -5959,7 +5965,7 @@ func TestCommandHandler_HandleValidateWorkflow_Success(t *testing.T) {
 	wf.AddEdge(&swarm.WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("validate_workflow", params)
+	result, err := handler.HandleCommand("validate_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("validate workflow: %v", err)
 	}
@@ -5981,7 +5987,7 @@ func TestCommandHandler_HandleValidateWorkflow_Invalid(t *testing.T) {
 	wf.AddNode(&swarm.WorkflowNode{ID: "n1", Name: "B", Type: "agent"})
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("validate_workflow", params)
+	result, err := handler.HandleCommand("validate_workflow", params, "test")
 	if err != nil {
 		t.Fatalf("validate workflow: %v", err)
 	}
@@ -6003,7 +6009,7 @@ func TestCommandHandler_HandleGetWorkflowStatus_Success(t *testing.T) {
 	wf.AddEdge(&swarm.WorkflowEdge{ID: "e1", From: "n1", To: "n2"})
 
 	params := json.RawMessage(fmt.Sprintf(`{"id": "%s"}`, wf.ID))
-	result, err := handler.HandleCommand("get_workflow_status", params)
+	result, err := handler.HandleCommand("get_workflow_status", params, "test")
 	if err != nil {
 		t.Fatalf("get workflow status: %v", err)
 	}
@@ -6038,7 +6044,7 @@ func TestCommandHandler_HandleGetWorkflowStatus_NotFound(t *testing.T) {
 	server.SetOrchestrator(orch)
 
 	params := json.RawMessage(`{"id": "nonexistent"}`)
-	_, err := handler.HandleCommand("get_workflow_status", params)
+	_, err := handler.HandleCommand("get_workflow_status", params, "test")
 	if err == nil {
 		t.Fatal("expected error for nonexistent workflow")
 	}
@@ -6060,7 +6066,7 @@ func TestCommandHandler_HandleSearchFiles_Success(t *testing.T) {
 
 	t.Run("search by name", func(t *testing.T) {
 		params := json.RawMessage(`{"query": ".go"}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6085,7 +6091,7 @@ func TestCommandHandler_HandleSearchFiles_Success(t *testing.T) {
 
 	t.Run("case insensitive search", func(t *testing.T) {
 		params := json.RawMessage(`{"query": "README"}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6102,7 +6108,7 @@ func TestCommandHandler_HandleSearchFiles_Success(t *testing.T) {
 
 	t.Run("limit results", func(t *testing.T) {
 		params := json.RawMessage(`{"query": "", "limit": 1}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6116,7 +6122,7 @@ func TestCommandHandler_HandleSearchFiles_Success(t *testing.T) {
 
 	t.Run("subdirectory files found", func(t *testing.T) {
 		params := json.RawMessage(`{"query": "app.ts"}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6141,7 +6147,7 @@ func TestCommandHandler_HandleSearchFiles_EdgeCases(t *testing.T) {
 		handlerNoWS, serverNoWS := newTestHandler()
 		serverNoWS.workspacePath = ""
 		params := json.RawMessage(`{"query": "test"}`)
-		_, err := handlerNoWS.HandleCommand("search_files", params)
+		_, err := handlerNoWS.HandleCommand("search_files", params, "test")
 		if err == nil {
 			t.Fatal("expected error for workspace not configured")
 		}
@@ -6157,7 +6163,7 @@ func TestCommandHandler_HandleSearchFiles_EdgeCases(t *testing.T) {
 	t.Run("no matches", func(t *testing.T) {
 		os.WriteFile(filepath.Join(tmpDir, "existing.txt"), []byte("data"), 0644)
 		params := json.RawMessage(`{"query": "nonexistent_file_xyz"}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6174,7 +6180,7 @@ func TestCommandHandler_HandleSearchFiles_EdgeCases(t *testing.T) {
 		os.WriteFile(filepath.Join(tmpDir, "visible.txt"), []byte("visible"), 0644)
 
 		params := json.RawMessage(`{"query": ".txt"}`)
-		result, err := handler.HandleCommand("search_files", params)
+		result, err := handler.HandleCommand("search_files", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

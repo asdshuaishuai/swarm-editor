@@ -28,7 +28,7 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 
 	t.Run("read file successfully", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "test.txt"})
-		result, err := handler.HandleCommand("read_file", params)
+		result, err := handler.HandleCommand("read_file", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -45,7 +45,7 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 		nestedFile := filepath.Join(subDir, "nested.go")
 		os.WriteFile(nestedFile, []byte("package sub"), 0644)
 		params, _ := json.Marshal(map[string]string{"path": "sub/nested.go"})
-		result, err := handler.HandleCommand("read_file", params)
+		result, err := handler.HandleCommand("read_file", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -57,7 +57,7 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 
 	t.Run("reject path traversal", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "../../etc/passwd"})
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Error("expected error for path traversal attempt")
 		}
@@ -65,7 +65,7 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 
 	t.Run("reject non-existent file", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "nonexistent.txt"})
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Error("expected error for non-existent file")
 		}
@@ -73,7 +73,7 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 
 	t.Run("reject directory", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "sub"})
-		_, err := handler.HandleCommand("read_file", params)
+		_, err := handler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Error("expected error when path is a directory")
 		}
@@ -83,14 +83,14 @@ func TestCommandHandler_ReadFile(t *testing.T) {
 		emptyServer := &WebSocketServer{workspacePath: ""}
 		emptyHandler := NewCommandHandler(emptyServer)
 		params, _ := json.Marshal(map[string]string{"path": "test.txt"})
-		_, err := emptyHandler.HandleCommand("read_file", params)
+		_, err := emptyHandler.HandleCommand("read_file", params, "test")
 		if err == nil {
 			t.Error("expected error when workspace not configured")
 		}
 	})
 
 	t.Run("reject invalid JSON", func(t *testing.T) {
-		_, err := handler.HandleCommand("read_file", []byte("invalid"))
+		_, err := handler.HandleCommand("read_file", []byte("invalid"), "test")
 		if err == nil {
 			t.Error("expected error for invalid JSON")
 		}
@@ -108,7 +108,7 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "newfile.txt",
 			"content": "hello from test",
 		})
-		result, err := handler.HandleCommand("write_file", params)
+		result, err := handler.HandleCommand("write_file", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -135,7 +135,7 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "subdir/deep.txt",
 			"content": "nested content",
 		})
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -154,13 +154,13 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "overwrite.txt",
 			"content": "first",
 		})
-		handler.HandleCommand("write_file", params)
+		handler.HandleCommand("write_file", params, "test")
 
 		params, _ = json.Marshal(map[string]string{
 			"path":    "overwrite.txt",
 			"content": "second",
 		})
-		handler.HandleCommand("write_file", params)
+		handler.HandleCommand("write_file", params, "test")
 
 		content, err := os.ReadFile(filepath.Join(tmpDir, "overwrite.txt"))
 		if err != nil {
@@ -176,7 +176,7 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "../../etc/evil.txt",
 			"content": "malicious",
 		})
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Error("expected error for path traversal attempt")
 		}
@@ -192,7 +192,7 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "",
 			"content": "data",
 		})
-		_, err := handler.HandleCommand("write_file", params)
+		_, err := handler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Error("expected error for empty path")
 		}
@@ -205,7 +205,7 @@ func TestCommandHandler_WriteFile(t *testing.T) {
 			"path":    "test.txt",
 			"content": "data",
 		})
-		_, err := emptyHandler.HandleCommand("write_file", params)
+		_, err := emptyHandler.HandleCommand("write_file", params, "test")
 		if err == nil {
 			t.Error("expected error when workspace not configured")
 		}
@@ -225,7 +225,7 @@ func TestCommandHandler_ListDir(t *testing.T) {
 
 	t.Run("list root directory", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "."})
-		result, err := handler.HandleCommand("list_dir", params)
+		result, err := handler.HandleCommand("list_dir", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -258,7 +258,7 @@ func TestCommandHandler_ListDir(t *testing.T) {
 
 	t.Run("list subdirectory", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "src"})
-		result, err := handler.HandleCommand("list_dir", params)
+		result, err := handler.HandleCommand("list_dir", params, "test")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -273,7 +273,7 @@ func TestCommandHandler_ListDir(t *testing.T) {
 
 	t.Run("reject non-existent directory", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "nonexistent"})
-		_, err := handler.HandleCommand("list_dir", params)
+		_, err := handler.HandleCommand("list_dir", params, "test")
 		if err == nil {
 			t.Error("expected error for non-existent directory")
 		}
@@ -281,7 +281,7 @@ func TestCommandHandler_ListDir(t *testing.T) {
 
 	t.Run("reject path traversal", func(t *testing.T) {
 		params, _ := json.Marshal(map[string]string{"path": "../../etc"})
-		_, err := handler.HandleCommand("list_dir", params)
+		_, err := handler.HandleCommand("list_dir", params, "test")
 		if err == nil {
 			t.Error("expected error for path traversal attempt")
 		}

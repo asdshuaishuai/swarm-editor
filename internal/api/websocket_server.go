@@ -299,6 +299,8 @@ type TaskInfo struct {
 	AssignedTo  []string      `json:"assignedTo,omitempty"`
 	Results     []*ResultInfo `json:"results,omitempty"`
 	CreatedAt   string        `json:"createdAt"`
+	StartedAt   *string       `json:"startedAt,omitempty"`
+	CompletedAt *string       `json:"completedAt,omitempty"`
 }
 
 // ResultInfo represents task result information for UI
@@ -1245,8 +1247,7 @@ func (c *Client) handleMessage(data []byte) {
 	}
 
 	handler := c.server.Handler()
-	handler.clientID = c.ID
-	result, err := handler.HandleCommand(req.Method, req.Params)
+	result, err := handler.HandleCommand(req.Method, req.Params, c.ID)
 	if err != nil {
 		// Log error for debugging
 		wsLog.Warn("Command error", "method", req.Method, "error", err)

@@ -28,8 +28,7 @@ const (
 
 // CommandHandler handles WebSocket commands from UI
 type CommandHandler struct {
-	server   *WebSocketServer
-	clientID string // Set by handleMessage before each command
+	server *WebSocketServer
 }
 
 // NewCommandHandler creates a new command handler
@@ -37,14 +36,27 @@ func NewCommandHandler(server *WebSocketServer) *CommandHandler {
 	return &CommandHandler{server: server}
 }
 
-// HandleCommand handles a command from UI
-func (h *CommandHandler) HandleCommand(method string, params json.RawMessage) (any, error) {
+// context key for clientID
+type contextKey string
+
+const clientIDKey contextKey = "clientID"
+
+// ClientIDFromContext extracts the WebSocket clientID from context.
+func ClientIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(clientIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// HandleCommand handles a command from UI. clientID identifies the requesting WebSocket client.
+func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, clientID string) (any, error) {
 	// Derive timeout from server context so in-flight commands are cancelled on shutdown
 	parentCtx := h.server.Context()
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithValue(parentCtx, clientIDKey, clientID), 30*time.Second)
 	defer cancel()
 
 	switch method {

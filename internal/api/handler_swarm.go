@@ -199,12 +199,34 @@ func (h *CommandHandler) handleGetSwarmTasks(ctx context.Context, params json.Ra
 		return nil, errNotFound("swarm not found")
 	}
 
-	stats := sw.GetStats()
-	return map[string]any{
-		"pending":   stats.PendingTasks,
-		"running":   stats.ExecutingAgents,
-		"completed": stats.CompletedTasks,
-	}, nil
+	tasks := sw.GetAllTasks()
+	result := make([]TaskInfo, 0, len(tasks))
+	for _, t := range tasks {
+		assignedTo := make([]string, 0, len(t.AssignedTo))
+		for _, id := range t.AssignedTo {
+			assignedTo = append(assignedTo, string(id))
+		}
+		info := TaskInfo{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      string(t.State),
+			Priority:    0,
+			AssignedTo:  assignedTo,
+			CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+		}
+		if !t.StartedAt.IsZero() {
+			ts := t.StartedAt.Format(time.RFC3339)
+			info.StartedAt = &ts
+		}
+		if !t.CompletedAt.IsZero() {
+			ts := t.CompletedAt.Format(time.RFC3339)
+			info.CompletedAt = &ts
+		}
+		result = append(result, info)
+	}
+
+	return result, nil
 }
 
 func (h *CommandHandler) handleGetSwarm(ctx context.Context, params json.RawMessage) (any, error) {
@@ -442,17 +464,16 @@ func (h *CommandHandler) handleGetConsensus(ctx context.Context, params json.Raw
 		return nil, safeUnmarshalError(err)
 	}
 
-	// Return consensus data from all swarms or specific swarm
 	swarms := h.server.ListSwarms()
 
 	type ConsensusInfo struct {
-		TaskID          string  `json:"taskId"`
-		Algorithm       string  `json:"algorithm"`
-		ApprovalRate    float64 `json:"approvalRate"`
-		TotalVotes      int     `json:"totalVotes"`
-		ApprovedVotes   int     `json:"approvedVotes"`
-		Completed       bool    `json:"completed"`
-		Agreed          bool    `json:"agreed"`
+		TaskID        string  `json:"taskId"`
+		Algorithm     string  `json:"algorithm"`
+		ApprovalRate  float64 `json:"approvalRate"`
+		TotalVotes    int     `json:"totalVotes"`
+		ApprovedVotes int     `json:"approvedVotes"`
+		Completed     bool    `json:"completed"`
+		Agreed        bool    `json:"agreed"`
 	}
 
 	results := make([]ConsensusInfo, 0)
@@ -461,18 +482,29 @@ func (h *CommandHandler) handleGetConsensus(ctx context.Context, params json.Raw
 		if req.SwarmID != "" && id != req.SwarmID {
 			continue
 		}
-		// Get tasks that have consensus results
-		stats := sw.GetStats()
-		if stats.CompletedTasks > 0 {
-			// Simulate consensus info from completed tasks
+		// Derive consensus from task results.
+		// Full ConsensusEngine integration (with per-agent votes and weighted
+		// approval) requires wiring the engine into the Swarm lifecycle — tracked
+		// as a follow-up. For now, task success/failure drives approval.
+		tasks := sw.GetAllTasks()
+		for _, task := range tasks {
+			if task.GetState() != swarm.TaskStateCompleted || task.Result == nil {
+				continue
+			}
+			// A task with no error is considered approved by the executing agent
+			approved := task.Result.Error == ""
+			approvalRate := 0.0
+			if approved {
+				approvalRate = 1.0
+			}
 			results = append(results, ConsensusInfo{
-				TaskID:        id + "-consensus",
+				TaskID:        task.ID,
 				Algorithm:     "queen_bee",
-				ApprovalRate:  0.85,
-				TotalVotes:    3,
-				ApprovedVotes: 2,
+				ApprovalRate:  approvalRate,
+				TotalVotes:    1,
+				ApprovedVotes: func() int { if approved { return 1 }; return 0 }(),
 				Completed:     true,
-				Agreed:        true,
+				Agreed:        approved,
 			})
 		}
 	}

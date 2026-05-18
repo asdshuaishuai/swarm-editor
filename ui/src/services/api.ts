@@ -107,6 +107,8 @@ export interface TaskInfo {
   priority: number
   assignedTo?: string[]
   createdAt: string
+  startedAt?: string
+  completedAt?: string
 }
 
 export interface TeamInfo {
@@ -413,7 +415,7 @@ export const swarmApi = {
     return getClient().invoke<SwarmTaskResult>('execute_task', { swarmId: _swarmId, taskId })
   },
 
-  async getSwarmTasks(swarmId: string): Promise<Record<string, number>> {
+  async getSwarmTasks(swarmId: string): Promise<TaskInfo[]> {
     return getClient().invoke('get_swarm_tasks', { swarmId })
   },
 

@@ -52,8 +52,9 @@ func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.Ra
 		mode = acp.ModeDefault
 	}
 
-	// Check session limit BEFORE creating the ACP session to avoid
-	// leaking a session when the limit is already reached
+	// Check session limit with atomic reservation to prevent TOCTOU race.
+	// Reserve a slot under the lock, create the ACP session outside the lock,
+	// then register. If ACP creation fails, release the slot.
 	h.server.mu.Lock()
 	if h.server.sessionToAgent == nil {
 		h.server.sessionToAgent = make(map[string]string)
@@ -64,22 +65,30 @@ func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.Ra
 	}
 	h.server.mu.Unlock()
 
-	// Create session via ACP
+	// Create session via ACP (outside lock — may block on network)
 	session, err := conn.CreateSession(ctx, mode)
 	if err != nil {
 		return nil, safeError("failed to create session", err)
 	}
 
+	// Re-check and register under lock to close the race window
 	h.server.mu.Lock()
+	if len(h.server.sessionToAgent) >= maxSessions {
+		// Another goroutine filled the slots while we were creating the session.
+		// Close the orphaned ACP session and reject.
+		h.server.mu.Unlock()
+		conn.CloseSession(ctx, session.ID)
+		return nil, errLimitExceeded(fmt.Sprintf("maximum number of sessions (%d) reached", maxSessions))
+	}
 	h.server.sessionToAgent[string(session.ID)] = req.AgentID
-	if h.clientID != "" {
+	if clientID := ClientIDFromContext(ctx); clientID != "" {
 		if h.server.clientSessions == nil {
 			h.server.clientSessions = make(map[string]map[string]struct{})
 		}
-		if h.server.clientSessions[h.clientID] == nil {
-			h.server.clientSessions[h.clientID] = make(map[string]struct{})
+		if h.server.clientSessions[clientID] == nil {
+			h.server.clientSessions[clientID] = make(map[string]struct{})
 		}
-		h.server.clientSessions[h.clientID][string(session.ID)] = struct{}{}
+		h.server.clientSessions[clientID][string(session.ID)] = struct{}{}
 	}
 	h.server.mu.Unlock()
 
@@ -241,20 +250,25 @@ func (h *CommandHandler) handleSaveCustomInstructions(ctx context.Context, param
 
 func (h *CommandHandler) handleGetSessions(ctx context.Context, params json.RawMessage) (any, error) {
 	h.server.mu.RLock()
-	sessionToAgent := h.server.sessionToAgent
+	// Copy the map to avoid concurrent iteration while other goroutines modify it
+	snapshot := make(map[string]string, len(h.server.sessionToAgent))
+	for k, v := range h.server.sessionToAgent {
+		snapshot[k] = v
+	}
 	h.server.mu.RUnlock()
 
-	if sessionToAgent == nil {
+	if len(snapshot) == 0 {
 		return []SessionInfo{}, nil
 	}
 
-	result := make([]SessionInfo, 0, len(sessionToAgent))
-	for sessionID, agentID := range sessionToAgent {
+	now := time.Now().Format(time.RFC3339)
+	result := make([]SessionInfo, 0, len(snapshot))
+	for sessionID, agentID := range snapshot {
 		result = append(result, SessionInfo{
 			ID:        sessionID,
 			AgentID:   agentID,
-			CreatedAt: time.Now().Format(time.RFC3339),
-			UpdatedAt: time.Now().Format(time.RFC3339),
+			CreatedAt: now,
+			UpdatedAt: now,
 		})
 	}
 

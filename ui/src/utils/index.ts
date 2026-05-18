@@ -252,3 +252,15 @@ export const logger = {
     console.error(`[${tag}]`, ...args)
   },
 }
+
+/**
+ * Convert a file path to a file:// URI matching backend's lsp.FileURI() format.
+ * Normalizes backslashes to forward slashes and ensures triple-slash for absolute paths.
+ */
+export function toFileUri(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/')
+  if (normalized.startsWith('/')) {
+    return `file://${normalized}`
+  }
+  return `file:///${normalized}`
+}
