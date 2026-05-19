@@ -227,6 +227,17 @@ export function selectBestAgent(
   return scores[0].agentId
 }
 
+const priorityToNum: Record<string, number> = {
+  low: 3,
+  medium: 5,
+  high: 7,
+  critical: 10,
+}
+
+function getPriorityNum(p: string): number {
+  return priorityToNum[p] ?? 5
+}
+
 /**
  * Adjust task priority dynamically
  */
@@ -234,10 +245,10 @@ export function adjustTaskPriority(
   task: CoordinationTask,
   currentTime: number = Date.now()
 ): PriorityAdjustment {
-  const originalPriority = task.priority
+  const originalPriority = getPriorityNum(task.priority)
   let adjustedPriority = originalPriority
   let reason: PriorityAdjustment['reason'] = 'load_balancing'
-  
+
   if (!schedulingConfig.dynamicPriority) {
     return {
       taskId: task.id,
@@ -247,19 +258,19 @@ export function adjustTaskPriority(
       timestamp: new Date(currentTime).toISOString(),
     }
   }
-  
+
   // Calculate wait time
   const createdAt = task.createdAt ? new Date(task.createdAt).getTime() : currentTime
   const waitTime = currentTime - createdAt
   taskWaitTimes.set(task.id, waitTime)
-  
+
   // Check for starvation prevention
   if (waitTime > schedulingConfig.starvationThreshold) {
     // Boost priority for tasks waiting too long
     const boostFactor = 1 + (waitTime - schedulingConfig.starvationThreshold) / 60000
     adjustedPriority = Math.min(10, originalPriority * boostFactor)
     reason = 'starvation_prevention'
-    
+
     schedulingStats.starvationPreventions++
     logger.info('Scheduling', `Starvation prevention for task ${task.id}: ${originalPriority} -> ${adjustedPriority}`)
   } else {
@@ -269,7 +280,7 @@ export function adjustTaskPriority(
     adjustedPriority = originalPriority * Math.pow(decayFactor, timeSinceCreation / 60) // decay per minute
     adjustedPriority = Math.max(1, Math.round(adjustedPriority))
   }
-  
+
   const adjustment: PriorityAdjustment = {
     taskId: task.id,
     originalPriority,
@@ -277,14 +288,14 @@ export function adjustTaskPriority(
     reason,
     timestamp: new Date(currentTime).toISOString(),
   }
-  
+
   priorityAdjustments.push(adjustment)
-  
+
   // Keep only recent adjustments
   if (priorityAdjustments.length > 100) {
     priorityAdjustments.shift()
   }
-  
+
   return adjustment
 }
 

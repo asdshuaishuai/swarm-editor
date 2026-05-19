@@ -76,6 +76,9 @@ type Swarm struct {
 	// Handoff manager for agent handoffs
 	handoffManager *HandoffManager
 
+	// Consensus engine for Queen Bee voting on task results
+	consensusEngine *ConsensusEngine
+
 	// Result validator for post-execution guardrails (Semantic Kernel pattern)
 	resultValidator *ResultValidator
 
@@ -114,6 +117,13 @@ func NewSwarm(config SwarmConfig) *Swarm {
 	// Initialize handoff manager
 	s.handoffManager = NewHandoffManager(s.registry)
 
+	// Initialize consensus engine (Queen Bee model)
+	s.consensusEngine = NewConsensusEngine(ConsensusConfig{
+		DefaultAlgorithm: ConsensusQueenBee,
+		DefaultTimeout:   30 * time.Second,
+		MinAgreement:     0.51,
+	}, s.registry)
+
 	// Initialize result validator with default guardrails
 	s.resultValidator = NewResultValidator()
 
@@ -149,6 +159,13 @@ func (s *Swarm) RemoveAgent(id acp.AgentID) {
 		orchestratorLog.Warn("Failed to unregister agent", "agent_id", id, "error", err)
 	}
 	s.buildTopology()
+}
+
+// GetCoordinator returns the coordinator agent.
+func (s *Swarm) GetCoordinator() *agent.Agent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.coordinator
 }
 
 // SetCoordinator sets the coordinator agent
@@ -283,6 +300,11 @@ func (s *Swarm) GetAgents() []*agent.Agent {
 	return result
 }
 
+// ConsensusEngine returns the swarm's consensus engine for querying vote data.
+func (s *Swarm) ConsensusEngine() *ConsensusEngine {
+	return s.consensusEngine
+}
+
 // GetTask returns a task by ID
 func (s *Swarm) GetTask(taskID string) *Task {
 	s.mu.RLock()
@@ -314,6 +336,14 @@ func (s *Swarm) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.State = SwarmStateActive
 
+	// Start consensus engine
+	if s.consensusEngine != nil {
+		if err := s.consensusEngine.Start(ctx); err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("failed to start consensus engine: %w", err)
+		}
+	}
+
 	// Start all agents
 	for _, a := range s.agents {
 		a.SetState(agent.StateIdle)
@@ -338,6 +368,11 @@ func (s *Swarm) Stop() error {
 	// Close handoff manager to release its goroutines
 	if s.handoffManager != nil {
 		s.handoffManager.Close()
+	}
+
+	// Stop consensus engine
+	if s.consensusEngine != nil {
+		s.consensusEngine.Stop()
 	}
 
 	// Stop all agents
@@ -548,6 +583,13 @@ func (s *Swarm) executeOnAgents(ctx context.Context, task *Task, agents []*agent
 	return s.executeOnAgentsWithPrompt(ctx, task, agents, result, task.Prompt)
 }
 
+// AgentExecResult tracks per-agent execution results
+type AgentExecResult struct {
+	AgentID string `json:"agentId"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // executeOnAgentsWithPrompt executes a task using a specific prompt (used for error recovery)
 func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agents []*agent.Agent, result *TaskResult, prompt acp.Prompt) error {
 	if len(agents) == 0 {
@@ -562,9 +604,9 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(agents))
 
-	// Collect outputs for termination policy check (thread-safe)
-	var outputMu sync.Mutex
-	var outputs []string
+	// Collect per-agent results (thread-safe)
+	var resultMu sync.Mutex
+	agentResults := make(map[string]*AgentExecResult)
 
 	for _, a := range agents {
 		wg.Add(1)
@@ -574,6 +616,7 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 			defer func() {
 				if r := recover(); r != nil {
 					orchestratorLog.Error("executeOnAgentsWithPrompt goroutine panic", "agent_id", ag.ID, "panic", r)
+					errCh <- fmt.Errorf("agent %s panicked", ag.ID)
 				}
 			}()
 
@@ -591,17 +634,26 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 			// Broadcast turn_end delimiter (OpenAI Swarm pattern)
 			s.broadcastTurnEnd(ag.ID, task.ID, err == nil)
 
+			agentRes := &AgentExecResult{AgentID: string(ag.ID)}
+
 			if err != nil {
+				agentRes.Error = err.Error()
 				errCh <- fmt.Errorf("agent %s: %w", ag.ID, err)
-				return
+			} else if execResult != nil && execResult.Output != "" {
+				agentRes.Content = execResult.Output
+
+				resultMu.Lock()
+				// Also set the primary result fields if this is the first agent
+				if result.AgentID == "" {
+					result.AgentID = string(ag.ID)
+					result.Content = execResult.Output
+				}
+				resultMu.Unlock()
 			}
 
-			// Collect output for termination policy
-			if execResult != nil && execResult.Output != "" {
-				outputMu.Lock()
-				outputs = append(outputs, execResult.Output)
-				outputMu.Unlock()
-			}
+			resultMu.Lock()
+			agentResults[string(ag.ID)] = agentRes
+			resultMu.Unlock()
 		}(a)
 	}
 
@@ -614,14 +666,26 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 		errors = append(errors, err)
 	}
 
+	// Store per-agent results in the task result
+	resultMu.Lock()
+	result.AgentResults = agentResults
+	resultMu.Unlock()
+
 	// Return combined error if any
 	if len(errors) > 0 {
 		return fmt.Errorf("execution failed: %d error(s)", len(errors))
 	}
 
-	// Check termination policy (AutoGen composable termination pattern)
-	// Combines MaxTurns, Timeout, NoProgress conditions with AND/OR logic
-	combinedOutput := strings.Join(outputs, "\n")
+	// Check termination policy
+	// Build combined output from all agent results
+	var allOutputs []string
+	for _, ar := range agentResults {
+		if ar.Content != "" {
+			allOutputs = append(allOutputs, ar.Content)
+		}
+	}
+	combinedOutput := strings.Join(allOutputs, "\n")
+
 	if s.terminationPolicy != nil {
 		termResult := s.terminationPolicy.Check(turns, combinedOutput)
 		if termResult.Terminated {

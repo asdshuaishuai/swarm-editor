@@ -81,6 +81,7 @@ func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.Ra
 		return nil, errLimitExceeded(fmt.Sprintf("maximum number of sessions (%d) reached", maxSessions))
 	}
 	h.server.sessionToAgent[string(session.ID)] = req.AgentID
+	h.server.sessionToMode[string(session.ID)] = req.Mode
 	if clientID := ClientIDFromContext(ctx); clientID != "" {
 		if h.server.clientSessions == nil {
 			h.server.clientSessions = make(map[string]map[string]struct{})
@@ -264,9 +265,11 @@ func (h *CommandHandler) handleGetSessions(ctx context.Context, params json.RawM
 	now := time.Now().Format(time.RFC3339)
 	result := make([]SessionInfo, 0, len(snapshot))
 	for sessionID, agentID := range snapshot {
+		mode := h.server.sessionToMode[sessionID]
 		result = append(result, SessionInfo{
 			ID:        sessionID,
 			AgentID:   agentID,
+			Mode:      mode,
 			CreatedAt: now,
 			UpdatedAt: now,
 		})
@@ -289,14 +292,22 @@ func (h *CommandHandler) handleCloseSession(ctx context.Context, params json.Raw
 		return nil, errValidation("sessionId is required")
 	}
 
-	// Clean up session -> agent mapping
+	// Look up agent before removing mapping
 	h.server.mu.Lock()
+	agentID, hadSession := h.server.sessionToAgent[req.SessionID]
 	delete(h.server.sessionToAgent, req.SessionID)
-	// Also remove from clientSessions tracking
+	delete(h.server.sessionToMode, req.SessionID)
 	for _, sessions := range h.server.clientSessions {
 		delete(sessions, req.SessionID)
 	}
 	h.server.mu.Unlock()
+
+	// Close ACP session on the agent side (best effort)
+	if hadSession && h.server.connManager != nil {
+		if conn, ok := h.server.connManager.GetConnection(agentID); ok {
+			_ = conn.CloseSession(ctx, acp.SessionID(req.SessionID))
+		}
+	}
 
 	return map[string]string{"status": "closed"}, nil
 }

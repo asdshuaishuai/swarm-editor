@@ -295,7 +295,7 @@ type TaskInfo struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Status      string        `json:"status"`
-	Priority    int           `json:"priority"`
+	Priority    string        `json:"priority"`
 	AssignedTo  []string      `json:"assignedTo,omitempty"`
 	Results     []*ResultInfo `json:"results,omitempty"`
 	CreatedAt   string        `json:"createdAt"`
@@ -435,6 +435,7 @@ type WebSocketServer struct {
 
 	// Sessions
 	sessionToAgent  map[string]string            // sessionID -> agentID mapping
+	sessionToMode   map[string]string            // sessionID -> mode mapping
 	clientSessions  map[string]map[string]struct{} // clientID -> set of sessionIDs
 
 	mu     sync.RWMutex
@@ -522,6 +523,7 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		terminalMgr:      terminalMgr,
 		scanner:          agentScanner,
 		clientSessions:   make(map[string]map[string]struct{}),
+		sessionToMode:    make(map[string]string),
 		authToken:        cfg.AuthToken,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,

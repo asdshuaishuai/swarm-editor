@@ -104,7 +104,7 @@ export interface TaskInfo {
   title: string
   description: string
   status: string
-  priority: number
+  priority: string
   assignedTo?: string[]
   createdAt: string
   startedAt?: string

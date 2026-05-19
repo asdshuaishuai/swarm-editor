@@ -337,7 +337,7 @@ describe('Interface Compliance', () => {
         title: 'Coordination Task',
         description: 'A coordination task',
         prompt: 'Do something',
-        priority: 1,
+        priority: 'medium',
         assignedTo: [],
         status: 'pending',
         progress: 0,

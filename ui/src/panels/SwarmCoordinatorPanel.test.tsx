@@ -195,7 +195,7 @@ describe('SwarmCoordinatorPanel', () => {
         title: 'Task Without Selection',
         description: 'Test task',
         prompt: 'Test prompt',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -226,7 +226,7 @@ describe('SwarmCoordinatorPanel', () => {
         title: 'Task To Pause',
         description: 'Test task',
         prompt: 'Test prompt',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -257,7 +257,7 @@ describe('SwarmCoordinatorPanel', () => {
         title: 'Task To Cancel',
         description: 'Test task',
         prompt: 'Test prompt',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -321,7 +321,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
       title: 'Running Task',
       description: 'A task that is running',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'running',
       progress: 0.3,
       assignedTo: [],
@@ -343,7 +343,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
       title: 'Near Complete Task',
       description: 'A task near completion',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'running',
       progress: 0.95, // 95%
       assignedTo: [],
@@ -371,7 +371,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
       title: 'Pending Task',
       description: 'A pending task',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'pending',
       progress: 0,
       assignedTo: [],
@@ -399,7 +399,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
       title: 'Complete Progress Task',
       description: 'A task with 100% progress but still running',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'running',
       progress: 1, // Already at 100%
       assignedTo: [],
@@ -427,7 +427,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.2,
         assignedTo: [],
@@ -439,7 +439,7 @@ describe('SwarmCoordinatorPanel task progress', () => {
         title: 'Task Two',
         description: 'Second task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -480,7 +480,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
       title: 'Executable Task',
       description: 'A task to execute',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'pending',
       progress: 0,
       assignedTo: [],
@@ -511,7 +511,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
       title: 'Running Task',
       description: 'A running task',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'running',
       progress: 0.3,
       assignedTo: [],
@@ -537,7 +537,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
       title: 'Cancel Task',
       description: 'A task to cancel',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'running',
       progress: 0.5,
       assignedTo: [],
@@ -566,7 +566,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
       title: 'State Task',
       description: 'A task for state testing',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'pending',
       progress: 0,
       assignedTo: [],
@@ -597,7 +597,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
         title: 'Target Task',
         description: 'Task to modify',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -609,7 +609,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
         title: 'Other Task',
         description: 'Should not change',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -641,7 +641,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
         title: 'Task A',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -653,7 +653,7 @@ describe('SwarmCoordinatorPanel task execution', () => {
         title: 'Task B',
         description: 'Second task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -711,17 +711,17 @@ describe('SwarmCoordinatorPanel form fields', () => {
   it('updates priority field', () => {
     render(<SwarmCoordinatorPanel />)
     fireEvent.click(screen.getByText('New Task'))
-    const priorityInput = screen.getByRole('spinbutton')
-    fireEvent.change(priorityInput, { target: { value: '8' } })
-    expect(priorityInput).toHaveValue(8)
+    const prioritySelect = screen.getByLabelText('Priority')
+    fireEvent.change(prioritySelect, { target: { value: 'high' } })
+    expect(prioritySelect).toHaveValue('high')
   })
 
   it('changes required role selection', () => {
     render(<SwarmCoordinatorPanel />)
     fireEvent.click(screen.getByText('New Task'))
-    const roleSelects = screen.getAllByRole('combobox')
-    fireEvent.change(roleSelects[0], { target: { value: 'coder' } })
-    expect(roleSelects[0]).toHaveValue('coder')
+    const roleSelect = screen.getByLabelText('Required Role')
+    fireEvent.change(roleSelect, { target: { value: 'coder' } })
+    expect(roleSelect).toHaveValue('coder')
   })
 
   it('shows task details with all fields', async () => {
@@ -786,28 +786,33 @@ describe('SwarmCoordinatorPanel form fields', () => {
     expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
   })
 
-  it('sorts tasks by priority', async () => {
+  it('creates tasks with different priorities', async () => {
+    // Return unique IDs for each task submission
+    let callCount = 0
+    vi.mocked(api.swarm.submitTask).mockImplementation(() => {
+      callCount++
+      return Promise.resolve(`task-${callCount}`)
+    })
     render(<SwarmCoordinatorPanel />)
-    // Create first task with priority 5
+    // Create first task with medium priority
     fireEvent.click(screen.getByText('New Task'))
     fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Medium Priority Task' } })
     fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test' } })
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('Priority'), { target: { value: 'medium' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
     // Wait for first task to be created
     await vi.advanceTimersByTimeAsync(100)
-    // Create second task with priority 10
+    // Create second task with critical priority
     fireEvent.click(screen.getByText('New Task'))
-    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'High Priority Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Critical Priority Task' } })
     fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test' } })
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText('Priority'), { target: { value: 'critical' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
     // Wait for second task to be created
     await vi.advanceTimersByTimeAsync(100)
-    // High priority task should appear first (sorted by priority desc)
-    const tasks = screen.getAllByText(/Priority Task/)
-    expect(tasks[0]).toHaveTextContent('High Priority Task')
-    expect(tasks[1]).toHaveTextContent('Medium Priority Task')
+    // Both tasks should be visible
+    expect(screen.getByText('Medium Priority Task')).toBeInTheDocument()
+    expect(screen.getByText('Critical Priority Task')).toBeInTheDocument()
   })
 
   it('shows task with description', async () => {
@@ -831,7 +836,7 @@ describe('TaskCard component', () => {
     title: 'Test Task',
     description: 'Test description',
     prompt: 'Test prompt',
-    priority: 5,
+    priority: 'medium',
     status: 'pending',
     progress: 0,
     assignedTo: [],
@@ -894,7 +899,7 @@ describe('TaskDetails component', () => {
     title: 'Detail Task',
     description: 'Detail description',
     prompt: 'Detail prompt',
-    priority: 7,
+    priority: 'medium',
     status: 'completed',
     progress: 1,
     assignedTo: ['agent-a'],
@@ -1035,7 +1040,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
       title: 'Task To Execute',
       description: 'Test task',
       prompt: 'Test prompt',
-      priority: 5,
+      priority: 'medium',
       status: 'pending',
       progress: 0,
       assignedTo: [],
@@ -1065,7 +1070,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Selected Task',
         description: 'This task is selected',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1077,7 +1082,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Other Task',
         description: 'This task is not selected',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1120,7 +1125,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Running Task One',
         description: 'First running task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -1132,7 +1137,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Running Task Two',
         description: 'Second running task',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1165,7 +1170,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Cancel Running One',
         description: 'First task to cancel',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -1177,7 +1182,7 @@ describe('SwarmCoordinatorPanel error handling', () => {
         title: 'Cancel Running Two',
         description: 'Second task to cancel',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1250,7 +1255,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Task To Start',
         description: 'This task will be started',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1262,7 +1267,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Other Task',
         description: 'This is a different task',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1336,7 +1341,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1348,7 +1353,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Task Two',
         description: 'Second task',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1394,7 +1399,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Running Task',
         description: 'This task is running',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1406,7 +1411,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Other Task',
         description: 'Different task',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1451,7 +1456,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Running Task',
         description: 'This task is running',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1500,7 +1505,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Selected Task',
         description: 'This task is selected',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1512,7 +1517,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Other Task',
         description: 'This task is NOT selected',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1560,7 +1565,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Selected Running',
         description: 'This task is selected and running',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1572,7 +1577,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Other Running',
         description: 'This task is running but NOT selected',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -1614,7 +1619,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Selected Running',
         description: 'This task is selected and running',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'running',
         progress: 0.5,
         assignedTo: [],
@@ -1626,7 +1631,7 @@ describe('SwarmCoordinatorPanel async race conditions', () => {
         title: 'Other Running',
         description: 'This task is running but NOT selected',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'running',
         progress: 0.3,
         assignedTo: [],
@@ -1679,7 +1684,7 @@ describe('handleStartTask error handling', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1716,7 +1721,7 @@ describe('handleStartTask error handling', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1728,7 +1733,7 @@ describe('handleStartTask error handling', () => {
         title: 'Task Two',
         description: 'Second task',
         prompt: 'Test',
-        priority: 3,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1813,7 +1818,7 @@ describe('handleStartTask without active swarm', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -1843,7 +1848,7 @@ describe('testSelectedTaskId invalid ID', () => {
         title: 'Task One',
         description: 'First task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         progress: 0,
         assignedTo: [],

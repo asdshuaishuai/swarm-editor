@@ -43,15 +43,16 @@ func (s TaskStatus) IsInterrupted() bool {
 
 // TaskResult represents the result of a task execution
 type TaskResult struct {
-	TaskID       string        `json:"taskId"`
-	AgentID      string        `json:"agentId,omitempty"`
-	Content      string        `json:"content,omitempty"`
-	FilesChanged []string      `json:"filesChanged,omitempty"`
-	Artifacts    []Artifact    `json:"artifacts,omitempty"`
-	Error        string        `json:"error,omitempty"`
-	StartedAt    time.Time     `json:"startedAt"`
-	CompletedAt  time.Time     `json:"completedAt"`
-	Duration     time.Duration `json:"duration"`
+	TaskID       string                       `json:"taskId"`
+	AgentID      string                       `json:"agentId,omitempty"`
+	Content      string                       `json:"content,omitempty"`
+	FilesChanged []string                     `json:"filesChanged,omitempty"`
+	Artifacts    []Artifact                   `json:"artifacts,omitempty"`
+	AgentResults map[string]*AgentExecResult  `json:"agentResults,omitempty"`
+	Error        string                       `json:"error,omitempty"`
+	StartedAt    time.Time                    `json:"startedAt"`
+	CompletedAt  time.Time                    `json:"completedAt"`
+	Duration     time.Duration                `json:"duration"`
 }
 
 // Artifact represents a task artifact

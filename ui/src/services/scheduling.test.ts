@@ -139,7 +139,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -159,7 +159,7 @@ describe('scheduling service', () => {
         title: 'Static Task',
         description: 'A task with static priority',
         prompt: 'Test',
-        priority: 7,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -167,7 +167,7 @@ describe('scheduling service', () => {
         createdAt: new Date(Date.now() - 100000).toISOString(),
       }
       const adjustment = adjustTaskPriority(task)
-      expect(adjustment.adjustedPriority).toBe(7)
+      expect(adjustment.adjustedPriority).toBe(5)
       expect(adjustment.reason).toBe('load_balancing')
     })
 
@@ -177,7 +177,7 @@ describe('scheduling service', () => {
         title: 'Old Task',
         description: 'An old task',
         prompt: 'Test',
-        priority: 10,
+        priority: 'critical',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -196,7 +196,7 @@ describe('scheduling service', () => {
         title: 'Starving Task',
         description: 'A starving task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -212,9 +212,9 @@ describe('scheduling service', () => {
     it('sorts tasks by priority', () => {
       const now = new Date().toISOString()
       const tasks: CoordinationTask[] = [
-        { id: 'task-1', title: 'Low', description: 'Low priority task', prompt: 'Test', priority: 1, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
-        { id: 'task-2', title: 'High', description: 'High priority task', prompt: 'Test', priority: 10, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
-        { id: 'task-3', title: 'Medium', description: 'Medium priority task', prompt: 'Test', priority: 5, status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
+        { id: 'task-1', title: 'Low', description: 'Low priority task', prompt: 'Test', priority: 'medium', status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
+        { id: 'task-2', title: 'High', description: 'High priority task', prompt: 'Test', priority: 'critical', status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
+        { id: 'task-3', title: 'Medium', description: 'Medium priority task', prompt: 'Test', priority: 'medium', status: 'pending', assignedTo: [], progress: 0, results: {}, createdAt: now },
       ]
       const sorted = sortTasksByPriority(tasks)
       expect(sorted[0].id).toBe('task-2') // Highest priority first
@@ -262,7 +262,7 @@ describe('scheduling service', () => {
         title: 'Starving Task',
         description: 'A starving task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -307,7 +307,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -328,7 +328,7 @@ describe('scheduling service', () => {
           title: `Task ${i}`,
           description: 'A test task',
           prompt: 'Test',
-          priority: i,
+          priority: i === 0 ? 'low' : i === 1 ? 'medium' : 'high',
           status: 'pending',
           assignedTo: [],
           progress: 0,
@@ -349,7 +349,7 @@ describe('scheduling service', () => {
           title: `Task ${i}`,
           description: 'A test task',
           prompt: 'Test',
-          priority: i % 10,
+          priority: i % 3 === 0 ? 'low' : i % 3 === 1 ? 'medium' : 'high',
           status: 'pending',
           assignedTo: [],
           progress: 0,
@@ -377,7 +377,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -401,7 +401,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -423,7 +423,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -442,7 +442,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -463,7 +463,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,
@@ -483,7 +483,7 @@ describe('scheduling service', () => {
         title: 'Test Task',
         description: 'A test task',
         prompt: 'Test',
-        priority: 5,
+        priority: 'medium',
         status: 'pending',
         assignedTo: [],
         progress: 0,

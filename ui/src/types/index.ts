@@ -345,7 +345,7 @@ export interface CoordinationTask {
   title: string
   description: string
   prompt: string
-  priority: number
+  priority: string
   subtasks?: CoordinationTask[]
   isSubtask?: boolean
   assignedTo: string[]

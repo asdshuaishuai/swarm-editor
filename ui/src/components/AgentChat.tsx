@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { MarkdownContent } from './MarkdownContent'
 
 export interface ChatMessage {
   id: string
@@ -108,7 +109,11 @@ export function AgentChat({ messages, primaryAgentId, onSendMessage, onSwitchAge
                   `}
                   style={msg.role !== 'user' && !msg.isPrimary ? { background: 'var(--bg-elevated)' } : undefined}
                 >
-                  {msg.content}
+                  {msg.role === 'agent' ? (
+                    <MarkdownContent content={msg.content} />
+                  ) : (
+                    msg.content
+                  )}
                 </div>
 
                 {/* 用户消息时间 */}

@@ -54,11 +54,17 @@ export default function SwarmCoordinatorPanel({
     return null
   })
   const [newTaskModal, setNewTaskModal] = useState(false)
-  const [newTask, setNewTask] = useState({
+  const [newTask, setNewTask] = useState<{
+    title: string
+    description: string
+    prompt: string
+    priority: string
+    requiredRole: string
+  }>({
     title: '',
     description: '',
     prompt: '',
-    priority: 5,
+    priority: 'medium',
     requiredRole: '',
   })
 
@@ -133,21 +139,14 @@ export default function SwarmCoordinatorPanel({
     }
 
     try {
-      // Map numeric priority to backend enum
-      const priorityMap: Record<number, string> = {
-        1: 'low', 2: 'low', 3: 'low',
-        4: 'medium', 5: 'medium', 6: 'medium',
-        7: 'high', 8: 'high', 9: 'high',
-        10: 'critical',
-      }
-      const priorityStr = priorityMap[newTask.priority] || 'medium'
+      const priority = newTask.priority || 'medium'
 
       // 提交任务到后端
       const taskId = await api.swarm.submitTask({
         swarmId: activeSwarm.id,
         title: newTask.title,
         description: newTask.description,
-        priority: priorityStr,
+        priority,
       })
 
       // Check if component is still mounted before updating state
@@ -158,7 +157,7 @@ export default function SwarmCoordinatorPanel({
         title: newTask.title,
         description: newTask.description,
         prompt: newTask.prompt,
-        priority: newTask.priority,
+        priority: priority,
         status: 'pending',
         progress: 0,
         assignedTo: [],
@@ -175,7 +174,7 @@ export default function SwarmCoordinatorPanel({
         title: '',
         description: '',
         prompt: '',
-        priority: 5,
+        priority: 'medium',
         requiredRole: '',
       })
     } catch (err) {
@@ -311,17 +310,11 @@ export default function SwarmCoordinatorPanel({
     }
   }, [testCancelTaskId, requestCancelTask])
 
-  const priorityColors = {
-    1: 'text-text-tertiary',
-    2: 'text-text-tertiary',
-    3: 'text-info',
-    4: 'text-warning',
-    5: 'text-warning',
-    6: 'text-warning',
-    7: 'text-error',
-    8: 'text-error',
-    9: 'text-error',
-    10: 'text-error font-bold',
+  const priorityColors: Record<string, string> = {
+    low: 'text-text-tertiary',
+    medium: 'text-warning',
+    high: 'text-error',
+    critical: 'text-error font-bold',
   }
 
   return (
@@ -419,7 +412,7 @@ export default function SwarmCoordinatorPanel({
                     task={task}
                     isSelected={selectedTask?.id === task.id}
                     statusColor={statusColors[task.status]}
-                    priorityColor={priorityColors[task.priority as keyof typeof priorityColors]}
+                    priorityColor={priorityColors[task.priority] || priorityColors.medium}
                     onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                   />
                 ))}
@@ -504,14 +497,17 @@ export default function SwarmCoordinatorPanel({
                   <label className="block text-sm text-text-secondary mb-1.5 font-medium">
                     Priority (1-10)
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
+                  <select
                     value={newTask.priority}
-                    onChange={(e) => setNewTask({ ...newTask, priority: parseInt(e.target.value) || 5 })}
+                    onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
                     className="w-full input-mac"
-                  />
+                    aria-label="Priority"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-text-secondary mb-1.5 font-medium">
@@ -521,6 +517,7 @@ export default function SwarmCoordinatorPanel({
                     value={newTask.requiredRole}
                     onChange={(e) => setNewTask({ ...newTask, requiredRole: e.target.value })}
                     className="w-full input-mac"
+                    aria-label="Required Role"
                   >
                     <option value="">Any</option>
                     <option value="coder">Coder</option>
@@ -625,8 +622,8 @@ export function TaskCard({
           </p>
         </div>
         <div className="flex items-center">
-          <span className={`text-xs font-mono ${priorityColor}`}>
-            P{task.priority}
+          <span className={`text-xs font-mono capitalize ${priorityColor}`}>
+            {task.priority}
           </span>
         </div>
       </div>
@@ -711,7 +708,7 @@ export function TaskDetails({
 
         <div className="bg-glass/50 rounded-mac p-3">
           <label className="text-xs text-text-tertiary uppercase tracking-wider">Priority</label>
-          <p className="text-sm text-text-primary mt-1">{task.priority}/10</p>
+          <p className="text-sm text-text-primary mt-1 capitalize">{task.priority}</p>
         </div>
 
         <div>

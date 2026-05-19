@@ -176,7 +176,7 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      "pending",
-		Priority:    0, // Default priority
+		Priority:    string(priority),
 		CreatedAt:   time.Now().Format(time.RFC3339),
 	}, nil
 }
@@ -211,7 +211,7 @@ func (h *CommandHandler) handleGetSwarmTasks(ctx context.Context, params json.Ra
 			Title:       t.Title,
 			Description: t.Description,
 			Status:      string(t.State),
-			Priority:    0,
+			Priority:    string(t.Priority),
 			AssignedTo:  assignedTo,
 			CreatedAt:   t.CreatedAt.Format(time.RFC3339),
 		}
@@ -249,6 +249,10 @@ func (h *CommandHandler) handleGetSwarm(ctx context.Context, params json.RawMess
 	}
 
 	stats := s.GetStats()
+	coordinatorID := ""
+	if coord := s.GetCoordinator(); coord != nil {
+		coordinatorID = string(coord.ID)
+	}
 	return map[string]any{
 		"id":            s.ID,
 		"name":          s.Name,
@@ -257,7 +261,7 @@ func (h *CommandHandler) handleGetSwarm(ctx context.Context, params json.RawMess
 		"status":        stats.State,
 		"agentCount":    stats.AgentCount,
 		"taskCount":     stats.PendingTasks + stats.CompletedTasks,
-		"coordinatorId": "",
+		"coordinatorId": coordinatorID,
 	}, nil
 }
 
@@ -319,14 +323,19 @@ func (h *CommandHandler) handleExecuteTask(ctx context.Context, params json.RawM
 		"taskId": req.TaskID,
 		"status": "completed",
 		"output": result.Content,
-		"agentResults": map[string]any{
-			result.AgentID: map[string]any{
-				"agentId":    result.AgentID,
-				"content":    result.Content,
-				"success":    true,
-				"durationMs": result.Duration.Milliseconds(),
-			},
-		},
+		"agentResults": func() map[string]any {
+			m := make(map[string]any, len(result.AgentResults))
+			for id, ar := range result.AgentResults {
+				m[id] = map[string]any{
+					"agentId":    ar.AgentID,
+					"content":    ar.Content,
+					"error":      ar.Error,
+					"success":    ar.Error == "",
+					"durationMs": result.Duration.Milliseconds(),
+				}
+			}
+			return m
+		}(),
 	}, nil
 }
 
@@ -482,16 +491,50 @@ func (h *CommandHandler) handleGetConsensus(ctx context.Context, params json.Raw
 		if req.SwarmID != "" && id != req.SwarmID {
 			continue
 		}
-		// Derive consensus from task results.
-		// Full ConsensusEngine integration (with per-agent votes and weighted
-		// approval) requires wiring the engine into the Swarm lifecycle — tracked
-		// as a follow-up. For now, task success/failure drives approval.
+
+		// Query the ConsensusEngine for real evaluation data
+		engine := sw.ConsensusEngine()
+		activeTasks := engine.GetActiveTasks()
+
+		for _, active := range activeTasks {
+			if active.Result == nil {
+				continue
+			}
+			totalVotes := len(active.Evaluations)
+			approvedVotes := 0
+			for _, eval := range active.Evaluations {
+				if eval.Approved {
+					approvedVotes++
+				}
+			}
+			results = append(results, ConsensusInfo{
+				TaskID:        active.Task.ID,
+				Algorithm:     string(active.Algorithm),
+				ApprovalRate:  active.Result.ApprovalRate,
+				TotalVotes:    totalVotes,
+				ApprovedVotes: approvedVotes,
+				Completed:     active.Completed,
+				Agreed:        active.Result.Status == "agreed",
+			})
+		}
+
+		// Also include completed tasks that went through consensus
 		tasks := sw.GetAllTasks()
 		for _, task := range tasks {
 			if task.GetState() != swarm.TaskStateCompleted || task.Result == nil {
 				continue
 			}
-			// A task with no error is considered approved by the executing agent
+			// Skip if already reported from consensus engine
+			found := false
+			for _, r := range results {
+				if r.TaskID == task.ID {
+					found = true
+					break
+				}
+			}
+			if found {
+				continue
+			}
 			approved := task.Result.Error == ""
 			approvalRate := 0.0
 			if approved {
