@@ -642,6 +642,10 @@ func (c *AgentConnection) CreateSession(ctx context.Context, mode SessionMode) (
 	client := c.client
 	c.mu.RUnlock()
 
+	if client == nil {
+		return nil, fmt.Errorf("agent has no ACP client")
+	}
+
 	result, err := client.SessionNew(ctx, &SessionNewParams{
 		Mode: mode,
 	})
@@ -715,6 +719,10 @@ func (c *AgentConnection) SendPrompt(ctx context.Context, sessionID SessionID, p
 	session, hasSession := c.sessions[sessionID]
 	c.mu.RUnlock()
 
+	if client == nil {
+		return nil, fmt.Errorf("agent has no ACP client")
+	}
+
 	// Start content capture for this prompt turn
 	if hasSession {
 		session.StartContentCapture()
@@ -761,6 +769,10 @@ func (c *AgentConnection) CancelPrompt(ctx context.Context, sessionID SessionID)
 	}
 	client := c.client
 	c.mu.RUnlock()
+
+	if client == nil {
+		return fmt.Errorf("agent has no ACP client")
+	}
 
 	return client.SessionCancel(ctx, sessionID)
 }

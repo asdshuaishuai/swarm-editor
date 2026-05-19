@@ -159,6 +159,26 @@ var KnownAgents = []KnownAgent{
 		ModelEnvVar:  "",
 		Capabilities: []string{"code", "complete", "chat"},
 	},
+	{
+		Name:         "cline",
+		Executables:  []string{"cline"},
+		ConfigFiles:  []string{"cline.json"},
+		ConfigPaths:  []string{"~/.cline", "~/.config/cline"},
+		Provider:     "cline",
+		EnvPrefix:    "CLINE",
+		ModelEnvVar:  "CLINE_MODEL",
+		Capabilities: []string{"code", "edit", "test", "debug", "mcp"},
+	},
+	{
+		Name:         "soloncode",
+		Executables:  []string{"soloncode"},
+		ConfigFiles:  []string{"soloncode.json"},
+		ConfigPaths:  []string{"~/.soloncode"},
+		Provider:     "deepseek",
+		EnvPrefix:    "SOLONCODE",
+		ModelEnvVar:  "SOLONCODE_MODEL",
+		Capabilities: []string{"code", "edit", "chat", "debug"},
+	},
 }
 
 // Scanner scans for installed agent CLIs
@@ -214,6 +234,22 @@ func getPaths() []string {
 	for _, p := range commonPaths {
 		if !containsPath(paths, p) {
 			paths = append(paths, p)
+		}
+	}
+
+	// Add agent-specific bin directories
+	homeDir, _ := os.UserHomeDir()
+	if homeDir != "" {
+		agentBins := []string{
+			filepath.Join(homeDir, ".soloncode", "bin"),
+			filepath.Join(homeDir, ".local", "bin"),
+			filepath.Join(homeDir, "bin"),
+			filepath.Join(homeDir, ".claude", "bin"),
+		}
+		for _, p := range agentBins {
+			if !containsPath(paths, p) {
+				paths = append(paths, p)
+			}
 		}
 	}
 
