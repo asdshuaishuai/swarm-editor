@@ -84,6 +84,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 	case "test_agent":
 		return h.handleTestAgent(ctx, params)
 
+	// A2A protocol
+	case "get_agent_cards":
+		return h.handleGetAgentCards(ctx, params)
+	case "find_agents_by_capability":
+		return h.handleFindAgentsByCapability(ctx, params)
+	case "a2a_status":
+		return h.handleA2AStatus(ctx, params)
+	case "a2a_message_log":
+		return h.handleA2AMessageLog(ctx, params)
+
 	// Session management
 	case "create_session":
 		return h.handleCreateSession(ctx, params)

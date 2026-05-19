@@ -454,6 +454,9 @@ type Router struct {
 	// Message queue for async processing
 	queue chan *Message
 
+	// Message audit log
+	messageLog *MessageLog
+
 	// Configuration
 	config RouterConfig
 
@@ -500,11 +503,12 @@ func NewRouter(config RouterConfig) *Router {
 	}
 
 	return &Router{
-		agents:   make(map[string]*AgentEndpoint),
-		groups:   make(map[string][]string),
-		handlers: make(map[MessageType][]MessageHandler),
-		queue:    make(chan *Message, config.QueueSize),
-		config:   config,
+		agents:     make(map[string]*AgentEndpoint),
+		groups:     make(map[string][]string),
+		handlers:   make(map[MessageType][]MessageHandler),
+		queue:      make(chan *Message, config.QueueSize),
+		messageLog: NewMessageLog(1000),
+		config:     config,
 	}
 }
 
@@ -619,6 +623,9 @@ func (r *Router) Send(msg *Message) error {
 		return fmt.Errorf("message expired")
 	}
 
+	// Audit log
+	r.messageLog.Append(msg)
+
 	ctx := r.getContext()
 
 	// Check if broadcast
@@ -654,6 +661,11 @@ func (r *Router) getContext() context.Context {
 		return r.ctx
 	}
 	return context.Background()
+}
+
+// MessageLog returns the message audit log for querying recent messages.
+func (r *Router) MessageLog() *MessageLog {
+	return r.messageLog
 }
 
 // sendWithRetry sends a message with retry logic, respecting context cancellation.
@@ -764,6 +776,9 @@ func (r *Router) multicast(ctx context.Context, msg *Message) error {
 
 // Enqueue adds a message to the processing queue
 func (r *Router) Enqueue(msg *Message) error {
+	// Audit log
+	r.messageLog.Append(msg)
+
 	select {
 	case r.queue <- msg:
 		return nil

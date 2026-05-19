@@ -3,11 +3,13 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 	"github.com/swarm-editor/swarm-editor/internal/log"
@@ -87,6 +89,9 @@ type Swarm struct {
 
 	// Event broadcaster for real-time streaming to UI
 	broadcaster EventBroadcaster
+
+	// A2A protocol router for inter-agent messaging (optional, nil if not configured)
+	a2aRouter *a2a.Router
 }
 
 // SwarmConfig configures a swarm
@@ -146,6 +151,13 @@ func (s *Swarm) AddAgent(a *agent.Agent) {
 		orchestratorLog.Warn("Failed to register agent", "agent_id", a.ID, "error", err)
 	}
 
+	// Register agent with A2A router for inter-agent messaging
+	if s.a2aRouter != nil {
+		s.a2aRouter.RegisterAgent(string(a.ID), func(msg *a2a.Message) error {
+			return s.deliverA2AMessage(a, msg)
+		}, capabilitiesToStrings(a.Capabilities))
+	}
+
 	// Update topology edges
 	s.buildTopology()
 }
@@ -158,7 +170,83 @@ func (s *Swarm) RemoveAgent(id acp.AgentID) {
 	if err := s.registry.Unregister(id); err != nil {
 		orchestratorLog.Warn("Failed to unregister agent", "agent_id", id, "error", err)
 	}
+
+	// Unregister from A2A router
+	if s.a2aRouter != nil {
+		s.a2aRouter.UnregisterAgent(string(id))
+	}
+
 	s.buildTopology()
+}
+
+// SetA2ARouter sets the A2A protocol router for inter-agent messaging
+func (s *Swarm) SetA2ARouter(router *a2a.Router) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.a2aRouter = router
+
+	// Pass A2A router to handoff manager for inter-agent handoff messaging
+	if s.handoffManager != nil {
+		s.handoffManager.SetA2ARouter(router)
+	}
+
+	// Re-register all existing agents with the new router
+	if router != nil {
+		for id, a := range s.agents {
+			agent := a
+			router.RegisterAgent(string(id), func(msg *a2a.Message) error {
+				return s.deliverA2AMessage(agent, msg)
+			}, capabilitiesToStrings(a.Capabilities))
+		}
+	}
+}
+
+// capabilitiesToStrings converts AgentCapabilities to a string slice for A2A registration
+func capabilitiesToStrings(caps acp.AgentCapabilities) []string {
+	var result []string
+	if caps.LoadSession {
+		result = append(result, "load_session")
+	}
+	if caps.PairProgramming {
+		result = append(result, "pair_programming")
+	}
+	if caps.TeamCollaboration {
+		result = append(result, "team_collaboration")
+	}
+	if caps.PromptCapabilities.Image {
+		result = append(result, "image")
+	}
+	if caps.PromptCapabilities.Audio {
+		result = append(result, "audio")
+	}
+	if caps.PromptCapabilities.EmbeddedContext {
+		result = append(result, "embedded_context")
+	}
+	if caps.MCP.HTTP || caps.MCP.SSE {
+		result = append(result, "mcp")
+	}
+	if caps.SwarmMode != nil {
+		result = append(result, "swarm")
+	}
+	return result
+}
+
+// deliverA2AMessage delivers an A2A message to an agent via its ACP connection
+func (s *Swarm) deliverA2AMessage(a *agent.Agent, msg *a2a.Message) error {
+	// Convert A2A message to a text prompt that the agent can understand
+	payloadStr := string(msg.Payload)
+	if payloadStr == "" {
+		payloadStr = msg.Subject
+	}
+	content := fmt.Sprintf("[A2A Message from %s]\nType: %s\nSubject: %s\nPayload: %s",
+		msg.From, msg.Type, msg.Subject, payloadStr)
+
+	prompt := acp.Prompt{
+		{Type: "text", Text: content},
+	}
+
+	_, err := a.Execute(context.Background(), prompt)
+	return err
 }
 
 // GetCoordinator returns the coordinator agent.
@@ -623,6 +711,9 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 			// Broadcast turn_start delimiter (OpenAI Swarm pattern)
 			s.broadcastTurnStart(ag.ID, task.ID)
 
+			// Notify via A2A: TaskRequest before execution
+			s.notifyA2ATaskRequest(ag, task)
+
 			ag.SetState(agent.StateExecuting)
 
 			// Execute task with the provided prompt
@@ -639,8 +730,13 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 			if err != nil {
 				agentRes.Error = err.Error()
 				errCh <- fmt.Errorf("agent %s: %w", ag.ID, err)
+
+				// Notify via A2A: TaskFailed
+				s.notifyA2ATaskFailed(ag, task, err)
 			} else if execResult != nil && execResult.Output != "" {
 				agentRes.Content = execResult.Output
+				// Notify via A2A: TaskComplete
+				s.notifyA2ATaskComplete(ag, task, execResult.Output)
 
 				resultMu.Lock()
 				// Also set the primary result fields if this is the first agent
@@ -700,6 +796,59 @@ func (s *Swarm) executeOnAgentsWithPrompt(ctx context.Context, task *Task, agent
 	}
 
 	return nil
+}
+
+// notifyA2ATaskRequest sends a TaskRequest notification via A2A before execution
+func (s *Swarm) notifyA2ATaskRequest(ag *agent.Agent, task *Task) {
+	if s.a2aRouter == nil {
+		return
+	}
+	msg := a2a.NewMessage(a2a.MessageTypeTaskRequest, "swarm:"+s.ID, string(ag.ID)).
+		WithPayload(&a2a.TaskRequestPayload{
+			TaskID:      task.ID,
+			Title:       task.Title,
+			Description: task.Description,
+			Priority:    1,
+		}).
+		WithCorrelation(task.ID)
+	if err := s.a2aRouter.Enqueue(msg); err != nil {
+		orchestratorLog.Debug("A2A TaskRequest enqueue failed", "task_id", task.ID, "error", err)
+	}
+}
+
+// notifyA2ATaskFailed sends a TaskFailed notification via A2A after execution failure
+func (s *Swarm) notifyA2ATaskFailed(ag *agent.Agent, task *Task, execErr error) {
+	if s.a2aRouter == nil {
+		return
+	}
+	msg := a2a.NewMessage(a2a.MessageTypeTaskFailed, string(ag.ID), "swarm:"+s.ID).
+		WithPayload(&a2a.TaskFailedPayload{
+			TaskID:    task.ID,
+			Error:     execErr.Error(),
+			Retryable: true,
+		}).
+		WithCorrelation(task.ID)
+	if err := s.a2aRouter.Enqueue(msg); err != nil {
+		orchestratorLog.Debug("A2A TaskFailed enqueue failed", "task_id", task.ID, "error", err)
+	}
+}
+
+// notifyA2ATaskComplete sends a TaskComplete notification via A2A after successful execution
+func (s *Swarm) notifyA2ATaskComplete(ag *agent.Agent, task *Task, content string) {
+	if s.a2aRouter == nil {
+		return
+	}
+	resultJSON, _ := json.Marshal(content)
+	msg := a2a.NewMessage(a2a.MessageTypeTaskComplete, string(ag.ID), "swarm:"+s.ID).
+		WithPayload(&a2a.TaskCompletePayload{
+			TaskID:   task.ID,
+			Result:   resultJSON,
+			Duration: time.Since(task.CreatedAt),
+		}).
+		WithCorrelation(task.ID)
+	if err := s.a2aRouter.Enqueue(msg); err != nil {
+		orchestratorLog.Debug("A2A TaskComplete enqueue failed", "task_id", task.ID, "error", err)
+	}
 }
 
 // AssignTaskToWorker assigns a task to the best available worker (Queen Bee model)

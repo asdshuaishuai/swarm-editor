@@ -594,6 +594,53 @@ export const monitoringApi = {
   },
 }
 
+// A2A Protocol API
+export interface A2ALogEntry {
+  id: string
+  type: string
+  from: string
+  to: string
+  group?: string
+  payload?: unknown
+  timestamp: string
+}
+
+export interface A2AStatus {
+  routerAvailable: boolean
+  coordAvailable: boolean
+  cardRegistrySize: number
+  messageLogSize?: number
+  messageLogStats?: { totalEntries: number; capacity: number; byType: Record<string, number> }
+}
+
+export interface AgentCard {
+  name: string
+  description?: string
+  version?: string
+  capabilities: { streaming?: boolean; mcp?: boolean; fileTransfer?: boolean }
+  skills?: Array<{ id: string; name: string; description?: string; tags?: string[] }>
+  tags?: string[]
+  metadata?: Record<string, unknown>
+}
+
+const a2aApi = {
+  async getStatus(): Promise<A2AStatus> {
+    return getClient().invoke<A2AStatus>('a2a_status')
+  },
+
+  async getMessageLog(limit = 100): Promise<A2ALogEntry[]> {
+    return getClient().invoke<A2ALogEntry[]>('a2a_message_log', { limit })
+  },
+
+  async getAgentCards(): Promise<AgentCard[]> {
+    return getClient().invoke<AgentCard[]>('get_agent_cards')
+  },
+
+  async findAgentsByCapability(params: { capability?: string; skill?: string; tag?: string }): Promise<AgentCard[]> {
+    return getClient().invoke<AgentCard[]>('find_agents_by_capability', params)
+  },
+}
+
 // File System API
 export const fsApi = {
   async listDir(path: string): Promise<FileEntry[]> {
@@ -1287,6 +1334,7 @@ export const api = {
   mcp: mcpApi,
   backend: backendApi,
   monitoring: monitoringApi,
+  a2a: a2aApi,
   workflows: workflowApi,
   automations: automationApi,
   artifacts: artifactApi,

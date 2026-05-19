@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 	"github.com/swarm-editor/swarm-editor/internal/log"
@@ -421,6 +422,11 @@ type WebSocketServer struct {
 	// Agent scanning
 	scanner *agent.Scanner
 
+	// A2A protocol
+	a2aRouter      *a2a.Router
+	a2aCoordinator *a2a.Coordinator
+	a2aCardRegistry *a2a.AgentCardRegistry
+
 	// Emergence
 	emergenceService *EmergenceService // Real-time emergence dashboard data
 
@@ -509,6 +515,24 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 	// Initialize agent scanner for CLI discovery
 	agentScanner := agent.NewScanner()
 
+	// Initialize A2A protocol components
+	a2aRouter := a2a.NewRouter(a2a.RouterConfig{
+		QueueSize:   1000,
+		SendTimeout: 5 * time.Second,
+		RetryCount:  3,
+		RetryDelay:  100 * time.Millisecond,
+	})
+	a2aCoordinator := a2a.NewCoordinator(a2a.CoordinatorConfig{
+		MaxConcurrent:      10,
+		TaskTimeout:        30 * time.Minute,
+		NegotiationTimeout: 30 * time.Second,
+		PheromoneDecay:     0.1,
+		Strategy:           a2a.StrategyCollaborative,
+		MaxCompletedTasks:  1000,
+		MaxPheromones:      500,
+	}, a2aRouter)
+	a2aCardRegistry := a2a.NewAgentCardRegistry()
+
 	s := &WebSocketServer{
 		addr:             cfg.Addr,
 		registry:         cfg.Registry,
@@ -522,6 +546,9 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		lspManager:       lspManager,
 		terminalMgr:      terminalMgr,
 		scanner:          agentScanner,
+		a2aRouter:        a2aRouter,
+		a2aCoordinator:   a2aCoordinator,
+		a2aCardRegistry:  a2aCardRegistry,
 		clientSessions:   make(map[string]map[string]struct{}),
 		sessionToMode:    make(map[string]string),
 		authToken:        cfg.AuthToken,
@@ -557,6 +584,14 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.mu.Unlock()
+
+	// Start A2A protocol components
+	if err := s.a2aRouter.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start A2A router: %w", err)
+	}
+	if err := s.a2aCoordinator.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start A2A coordinator: %w", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
@@ -603,6 +638,7 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 	// Connect team manager to hub for event broadcasting
 	if s.teamManager != nil {
 		s.teamManager.SetBroadcaster(s.hub)
+		s.teamManager.SetA2ARouter(s.a2aRouter)
 	}
 
 	wsLog.Info("Server starting", "addr", s.addr)
@@ -628,6 +664,10 @@ func (s *WebSocketServer) Stop() {
 
 	// Phase 3: Wait for in-flight handlers to complete
 	s.wg.Wait()
+
+	// Phase 3.5: Stop A2A components
+	s.a2aCoordinator.Stop()
+	s.a2aRouter.Stop()
 
 	// Phase 4: Close all connections
 	s.hub.Stop()
@@ -671,6 +711,21 @@ func (s *WebSocketServer) Scanner() *agent.Scanner {
 	return s.scanner
 }
 
+// A2ARouter returns the A2A protocol router
+func (s *WebSocketServer) A2ARouter() *a2a.Router {
+	return s.a2aRouter
+}
+
+// A2ACoordinator returns the A2A protocol coordinator
+func (s *WebSocketServer) A2ACoordinator() *a2a.Coordinator {
+	return s.a2aCoordinator
+}
+
+// A2ACardRegistry returns the A2A agent card registry
+func (s *WebSocketServer) A2ACardRegistry() *a2a.AgentCardRegistry {
+	return s.a2aCardRegistry
+}
+
 // TeamManager returns the team manager
 func (s *WebSocketServer) TeamManager() *team.Manager {
 	return s.teamManager
@@ -705,6 +760,8 @@ func (s *WebSocketServer) AddSwarm(id string, sw *swarm.Swarm) {
 	s.swarms[id] = sw
 	// Wire handoff broadcaster for real-time event streaming (OpenAI Swarm pattern)
 	sw.SetHandoffBroadcaster(s.hub)
+	// Wire A2A router for inter-agent messaging
+	sw.SetA2ARouter(s.a2aRouter)
 }
 
 // RemoveSwarm removes a swarm

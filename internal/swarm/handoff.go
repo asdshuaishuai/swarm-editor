@@ -4,12 +4,14 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 	"github.com/swarm-editor/swarm-editor/internal/log"
@@ -122,6 +124,9 @@ type HandoffManager struct {
 	// Configuration
 	maxPendingHandoffs int
 	handoffTimeout     time.Duration
+
+	// A2A Router for inter-agent handoff messaging
+	a2aRouter *a2a.Router
 
 	// Event broadcasting for UI streaming (OpenAI Swarm handoff streaming pattern)
 	broadcaster EventBroadcaster
@@ -238,6 +243,15 @@ func (hm *HandoffManager) RequestHandoff(ctx context.Context, fromAgent, toAgent
 		onRequested(req)
 	}
 
+	// Send A2A handoff request to target agent
+	hm.sendA2AHandoff(a2a.MessageTypeHandoffRequest, fromAgent, toAgent, &a2a.HandoffRequestPayload{
+		RequestID: req.ID,
+		TaskID:    taskID,
+		Reason:    reason,
+		Context:   toA2AHandoffContext(context),
+		Timeout:   hm.handoffTimeout,
+	})
+
 	// Send handoff request to target agent (via ACP or internal)
 	// In a real implementation, this would use ACP messaging
 	hm.wg.Add(1)
@@ -281,6 +295,13 @@ func (hm *HandoffManager) AcceptHandoff(ctx context.Context, requestID, summary 
 		onAccepted(req)
 	}
 
+	// Send A2A handoff accept to source agent
+	hm.sendA2AHandoff(a2a.MessageTypeHandoffAccept, req.ToAgent, req.FromAgent, &a2a.HandoffAcceptPayload{
+		RequestID: requestID,
+		AgentID:   req.ToAgent,
+		Summary:   summary,
+	})
+
 	return nil
 }
 
@@ -308,6 +329,12 @@ func (hm *HandoffManager) RejectHandoff(ctx context.Context, requestID, reason s
 	if onAfter != nil {
 		onAfter(ctx, req, false)
 	}
+
+	// Send A2A handoff reject to source agent
+	hm.sendA2AHandoff(a2a.MessageTypeHandoffReject, req.ToAgent, req.FromAgent, &a2a.HandoffRejectPayload{
+		RequestID: requestID,
+		Reason:    reason,
+	})
 
 	return nil
 }
@@ -372,6 +399,11 @@ func (hm *HandoffManager) CompleteHandoff(ctx context.Context, requestID string)
 	if onAfter != nil {
 		onAfter(ctx, req, true)
 	}
+
+	// Send A2A handoff complete notification
+	hm.sendA2AHandoff(a2a.MessageTypeHandoffComplete, req.ToAgent, req.FromAgent, &a2a.HandoffCompletePayload{
+		RequestID: requestID,
+	})
 
 	return nil
 }
@@ -614,6 +646,76 @@ func (hm *HandoffManager) GetHandoffTimeout() time.Duration {
 	hm.mu.RLock()
 	defer hm.mu.RUnlock()
 	return hm.handoffTimeout
+}
+
+// SetA2ARouter sets the A2A router for inter-agent handoff messaging.
+// When set, handoff state transitions are broadcast via A2A messages,
+// enabling agents to communicate handoff requests/responses across the network.
+func (hm *HandoffManager) SetA2ARouter(router *a2a.Router) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	hm.a2aRouter = router
+}
+
+// sendA2AHandoff sends an A2A handoff message if the router is available.
+// This is fire-and-forget: errors are logged but don't block the handoff flow.
+func (hm *HandoffManager) sendA2AHandoff(msgType a2a.MessageType, fromAgent, toAgent string, payload any) {
+	hm.mu.RLock()
+	router := hm.a2aRouter
+	hm.mu.RUnlock()
+
+	if router == nil {
+		return
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		handoffLog.Debug("A2A handoff payload marshal failed", "type", msgType, "error", err)
+		return
+	}
+
+	msg := a2a.NewMessage(msgType, fromAgent, toAgent).
+		WithPayload(json.RawMessage(payloadJSON))
+
+	if err := router.Enqueue(msg); err != nil {
+		handoffLog.Debug("A2A handoff enqueue failed", "type", msgType, "error", err)
+	}
+}
+
+// toA2AHandoffContext converts a swarm HandoffContext to an A2A HandoffContextData.
+func toA2AHandoffContext(ctx *HandoffContext) a2a.HandoffContextData {
+	if ctx == nil {
+		return a2a.HandoffContextData{}
+	}
+	result := a2a.HandoffContextData{
+		CurrentState: ctx.CurrentState,
+		Instructions: ctx.Instructions,
+	}
+	if ctx.FilesModified != nil {
+		result.FilesModified = make([]string, len(ctx.FilesModified))
+		copy(result.FilesModified, ctx.FilesModified)
+	}
+	if ctx.NextSteps != nil {
+		result.NextSteps = make([]string, len(ctx.NextSteps))
+		copy(result.NextSteps, ctx.NextSteps)
+	}
+	if ctx.Metadata != nil {
+		result.Metadata = maps.Clone(ctx.Metadata)
+	}
+	// Convert ContentBlocks to []map[string]any for A2A transport
+	if ctx.ConversationHistory != nil {
+		result.ConversationHistory = make([]map[string]any, 0, len(ctx.ConversationHistory))
+		for _, block := range ctx.ConversationHistory {
+			m := map[string]any{
+				"type": block.Type,
+			}
+			if block.Text != "" {
+				m["text"] = block.Text
+			}
+			result.ConversationHistory = append(result.ConversationHistory, m)
+		}
+	}
+	return result
 }
 
 // IsTaskDepthBlocked returns true if the task has hit the depth limit and is permanently blocked.

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/swarm-editor/swarm-editor/internal/a2a"
 	"github.com/swarm-editor/swarm-editor/internal/acp"
 	"github.com/swarm-editor/swarm-editor/internal/agent"
 	"github.com/swarm-editor/swarm-editor/internal/log"
@@ -591,6 +592,7 @@ type Manager struct {
 	mu         sync.RWMutex
 	teams      map[string]*Team
 	storageDir string
+	a2aRouter  *a2a.Router
 	// Indexes for quick lookup
 	byUser  map[string][]string // userID -> team IDs
 	byAgent map[string][]string // agentID -> team IDs
@@ -606,6 +608,13 @@ func NewManager() *Manager {
 	configDir := getConfigDir()
 	storageDir := filepath.Join(configDir, "teams")
 	return NewManagerWithDir(storageDir)
+}
+
+// SetA2ARouter sets the A2A router for inter-team agent communication.
+func (m *Manager) SetA2ARouter(router *a2a.Router) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.a2aRouter = router
 }
 
 // NewManagerWithDir creates a new team manager with a custom storage directory
