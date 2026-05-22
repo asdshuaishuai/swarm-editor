@@ -561,6 +561,18 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		},
 	}
 
+	// Security baseline summary at startup
+	if cfg.AuthToken == "" {
+		wsLog.Warn("Security: no auth token configured — WebSocket connections will be unauthenticated")
+	} else {
+		wsLog.Info("Security: auth token configured — WebSocket connections require authentication")
+	}
+	if len(cfg.AllowedOrigins) == 0 {
+		wsLog.Warn("Security: no AllowedOrigins configured — all origins accepted (dev mode)")
+	} else {
+		wsLog.Info("Security: AllowedOrigins configured", "origins", cfg.AllowedOrigins)
+	}
+
 	s.handler = NewCommandHandler(s)
 	s.hub = NewClientHub(s)
 
@@ -874,9 +886,13 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 			token = after
 		}
 
-		// Fallback to URL query parameter
+		// Fallback to URL query parameter (deprecated for production)
 		if token == "" {
 			token = r.URL.Query().Get("token")
+			if token != "" {
+				wsLog.Warn("Auth via query token (deprecated for production — use Authorization header instead)",
+					"remote_addr", r.RemoteAddr)
+			}
 		}
 
 		// Use constant-time comparison to prevent timing attacks

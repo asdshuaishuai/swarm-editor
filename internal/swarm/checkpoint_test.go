@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+// skipIfCannotChmod skips the test if the filesystem doesn't support chmod
+// (e.g., running as root, or on a filesystem that ignores permissions).
+func skipIfCannotChmod(t *testing.T, dir string) {
+	t.Helper()
+	helper := filepath.Join(dir, ".permcheck")
+	if err := os.WriteFile(helper, []byte("x"), 0o600); err != nil {
+		t.Skip("cannot write test file for permission check")
+	}
+	if err := os.Chmod(helper, 0o400); err != nil {
+		t.Skip("cannot chmod test file")
+	}
+	// Try writing after chmod to read-only — if it succeeds, permissions are ignored
+	if err := os.WriteFile(helper, []byte("y"), 0o600); err == nil {
+		t.Skip("filesystem ignores permission changes (likely root or container)")
+	}
+	os.Remove(helper)
+}
+
 func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewCheckpointStore(dir, 5)
@@ -406,12 +424,13 @@ func TestCheckpointStore_DeleteCheckpoint(t *testing.T) {
 }
 
 func TestCheckpointStore_Save_ReadOnlyDir(t *testing.T) {
-	// Test Save when dataDir is read-only: CreateTemp and Rename should fail
 	dir := t.TempDir()
 	store, err := NewCheckpointStore(dir, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	skipIfCannotChmod(t, dir)
 
 	// Make the directory read-only to trigger CreateTemp failure
 	if err := os.Chmod(dir, 0o500); err != nil {
@@ -559,7 +578,6 @@ func TestCheckpointStore_Save_FilePermissions(t *testing.T) {
 }
 
 func TestCheckpointStore_Save_RenameToReadOnlyDir(t *testing.T) {
-	// Test Save where CreateTemp succeeds but Rename fails due to read-only parent
 	dir := t.TempDir()
 	store, err := NewCheckpointStore(dir, 5)
 	if err != nil {
@@ -572,8 +590,8 @@ func TestCheckpointStore_Save_RenameToReadOnlyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Now make the directory read-only so Rename fails on next Save
-	// CreateTemp uses the dir prefix, so it may also fail
+	skipIfCannotChmod(t, dir)
+
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -870,7 +888,8 @@ func TestCheckpointStore_Save_CreateTempFail_NoPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Remove write permission from the directory.
+	skipIfCannotChmod(t, dir)
+
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}

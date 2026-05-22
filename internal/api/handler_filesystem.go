@@ -979,7 +979,7 @@ func (h *CommandHandler) handleMkdir(ctx context.Context, params json.RawMessage
 	return map[string]string{"status": "created"}, nil
 }
 
-func (h *CommandHandler) handleRevealFile(_ context.Context, params json.RawMessage) (any, error) {
+func (h *CommandHandler) handleRevealFile(ctx context.Context, params json.RawMessage) (any, error) {
 	var req struct {
 		Path string `json:"path"`
 	}
@@ -1002,15 +1002,15 @@ func (h *CommandHandler) handleRevealFile(_ context.Context, params json.RawMess
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		// macOS: open -R reveals the file in Finder
-		cmd = exec.Command("open", "-R", path)
+		cmd, err = safeExec(ctx, "open", "-R", path)
 	case "windows":
-		// Windows: explorer /select, reveals the file
-		cmd = exec.Command("explorer", "/select,", path)
+		cmd, err = safeExec(ctx, "explorer", "/select,", path)
 	default:
-		// Linux: xdg-open opens the containing folder
 		dir := filepath.Dir(path)
-		cmd = exec.Command("xdg-open", dir)
+		cmd, err = safeExec(ctx, "xdg-open", dir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reveal command: %w", err)
 	}
 
 	if err := cmd.Run(); err != nil {

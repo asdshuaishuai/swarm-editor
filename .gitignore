@@ -60,3 +60,8 @@ data/
 
 # BadgerDB
 badger/
+
+# Backup files
+*.bak
+*.old
+*.orig

@@ -10,6 +10,22 @@ import (
 	"time"
 )
 
+// skipIfCannotChmod skips the test if the filesystem doesn't support chmod.
+func skipIfCannotChmodDLQ(t *testing.T, dir string) {
+	t.Helper()
+	helper := filepath.Join(dir, ".permcheck")
+	if err := os.WriteFile(helper, []byte("x"), 0o600); err != nil {
+		t.Skip("cannot write test file for permission check")
+	}
+	if err := os.Chmod(helper, 0o400); err != nil {
+		t.Skip("cannot chmod test file")
+	}
+	if err := os.WriteFile(helper, []byte("y"), 0o600); err == nil {
+		t.Skip("filesystem ignores permission changes (likely root or container)")
+	}
+	os.Remove(helper)
+}
+
 func TestDeadLetterQueueAdd(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "dlq_test")
 	if err != nil {
@@ -421,14 +437,14 @@ func TestDeadLetterQueue_Add_NilError(t *testing.T) {
 }
 
 func TestDLQ_Add_ReadOnlyDir(t *testing.T) {
-	// Test Add when dataDir is read-only: CreateTemp should fail
 	dir := t.TempDir()
 	q, err := NewDeadLetterQueue(dir, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Make the directory read-only
+	skipIfCannotChmodDLQ(t, dir)
+
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
