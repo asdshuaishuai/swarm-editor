@@ -97,6 +97,9 @@ export interface SwarmTaskRequest {
   title: string
   description?: string
   priority?: string
+  constraints?: string[]
+  acceptance?: string[]
+  riskTolerance?: 'low' | 'medium' | 'high'
 }
 
 export interface TaskInfo {
@@ -407,6 +410,9 @@ export const swarmApi = {
       title: request.title,
       description: request.description,
       priority: request.priority,
+      constraints: request.constraints,
+      acceptance: request.acceptance,
+      riskTolerance: request.riskTolerance,
     })
     return task.id
   },

@@ -128,10 +128,13 @@ func (h *CommandHandler) handleStopSwarm(ctx context.Context, params json.RawMes
 
 func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMessage) (any, error) {
 	var req struct {
-		SwarmID     string `json:"swarmId"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Priority    string `json:"priority"`
+		SwarmID       string   `json:"swarmId"`
+		Title         string   `json:"title"`
+		Description   string   `json:"description"`
+		Priority      string   `json:"priority"`
+		Constraints   []string `json:"constraints,omitempty"`
+		Acceptance    []string `json:"acceptance,omitempty"`
+		RiskTolerance string   `json:"riskTolerance,omitempty"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, safeUnmarshalError(err)
@@ -158,6 +161,18 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 		priority = swarm.TaskPriority(req.Priority)
 	}
 
+	// Build metadata from new fields
+	metadata := make(map[string]any)
+	if len(req.Constraints) > 0 {
+		metadata["constraints"] = req.Constraints
+	}
+	if len(req.Acceptance) > 0 {
+		metadata["acceptance"] = req.Acceptance
+	}
+	if req.RiskTolerance != "" {
+		metadata["riskTolerance"] = req.RiskTolerance
+	}
+
 	// Create and submit task
 	task := &swarm.Task{
 		ID:          taskID,
@@ -165,6 +180,7 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 		Description: req.Description,
 		Priority:    priority,
 		State:       swarm.TaskStatePending,
+		Metadata:    metadata,
 	}
 
 	if err := sw.SubmitTask(ctx, task); err != nil {

@@ -53,6 +53,7 @@ export default function SwarmCoordinatorPanel({
     }
     return null
   })
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [newTaskModal, setNewTaskModal] = useState(false)
   const [newTask, setNewTask] = useState<{
     title: string
@@ -60,12 +61,18 @@ export default function SwarmCoordinatorPanel({
     prompt: string
     priority: string
     requiredRole: string
+    constraints: string
+    acceptance: string
+    riskTolerance: 'low' | 'medium' | 'high'
   }>({
     title: '',
     description: '',
     prompt: '',
     priority: 'medium',
     requiredRole: '',
+    constraints: '',
+    acceptance: '',
+    riskTolerance: 'medium',
   })
 
   // Memoized task stats for performance
@@ -147,6 +154,9 @@ export default function SwarmCoordinatorPanel({
         title: newTask.title,
         description: newTask.description,
         priority,
+        constraints: newTask.constraints ? newTask.constraints.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        acceptance: newTask.acceptance ? newTask.acceptance.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        riskTolerance: newTask.riskTolerance,
       })
 
       // Check if component is still mounted before updating state
@@ -176,6 +186,9 @@ export default function SwarmCoordinatorPanel({
         prompt: '',
         priority: 'medium',
         requiredRole: '',
+        constraints: '',
+        acceptance: '',
+        riskTolerance: 'medium',
       })
     } catch (err) {
       logger.error('Swarm', 'Failed to submit task:', err)
@@ -411,9 +424,11 @@ export default function SwarmCoordinatorPanel({
                     key={task.id}
                     task={task}
                     isSelected={selectedTask?.id === task.id}
+                    isExpanded={expandedTaskId === task.id}
                     statusColor={statusColors[task.status]}
                     priorityColor={priorityColors[task.priority] || priorityColors.medium}
                     onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                    onToggleExpand={() => setExpandedTaskId(prev => prev === task.id ? null : task.id)}
                   />
                 ))}
             </div>
@@ -444,7 +459,19 @@ export default function SwarmCoordinatorPanel({
                 Submit New Task
               </h3>
               <button
-                onClick={() => setNewTaskModal(false)}
+                onClick={() => {
+                  setNewTaskModal(false)
+                  setNewTask({
+                    title: '',
+                    description: '',
+                    prompt: '',
+                    priority: 'medium',
+                    requiredRole: '',
+                    constraints: '',
+                    acceptance: '',
+                    riskTolerance: 'medium',
+                  })
+                }}
                 className="p-1.5 hover:bg-card-hover rounded-mac transition-colors"
               >
                 <X size={18} className="text-text-secondary" />
@@ -527,11 +554,72 @@ export default function SwarmCoordinatorPanel({
                   </select>
                 </div>
               </div>
+
+              {/* Constraints */}
+              <div>
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
+                  约束条件
+                </label>
+                <input
+                  type="text"
+                  value={newTask.constraints}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, constraints: e.target.value }))}
+                  placeholder="如：不改测试文件, 不动配置"
+                  className="w-full input-mac"
+                />
+              </div>
+
+              {/* Acceptance criteria */}
+              <div>
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
+                  验收标准
+                </label>
+                <input
+                  type="text"
+                  value={newTask.acceptance}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, acceptance: e.target.value }))}
+                  placeholder="如：所有测试通过, 无 lint 错误"
+                  className="w-full input-mac"
+                />
+              </div>
+
+              {/* Risk tolerance */}
+              <div>
+                <label className="block text-sm text-text-secondary mb-1.5 font-medium">
+                  风险偏好
+                </label>
+                <div className="flex gap-2">
+                  {(['low', 'medium', 'high'] as const).map(level => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setNewTask(prev => ({ ...prev, riskTolerance: level }))}
+                      className={`flex-1 py-1.5 text-xs rounded-mac transition-colors ${
+                        newTask.riskTolerance === level ? 'bg-accent/30 text-accent border border-accent/50' : 'bg-glass text-text-secondary border border-glass-border'
+                      }`}
+                    >
+                      {level === 'low' ? '低' : level === 'medium' ? '中' : '高'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-glass-border">
               <button
-                onClick={() => setNewTaskModal(false)}
+                onClick={() => {
+                  setNewTaskModal(false)
+                  setNewTask({
+                    title: '',
+                    description: '',
+                    prompt: '',
+                    priority: 'medium',
+                    requiredRole: '',
+                    constraints: '',
+                    acceptance: '',
+                    riskTolerance: 'medium',
+                  })
+                }}
                 className="btn-secondary"
               >
                 Cancel
@@ -585,19 +673,49 @@ function StatCard({
   )
 }
 
+// getRiskLevel returns a risk level string based on total changed files across all results
+function getRiskLevel(task: CoordinationTask): string {
+  let totalFiles = 0
+  if (task.results) {
+    for (const r of Object.values(task.results)) {
+      totalFiles += r.filesChanged?.length || 0
+    }
+  }
+  if (totalFiles > 10) return 'HIGH'
+  if (totalFiles > 3) return 'MEDIUM'
+  return 'LOW'
+}
+
+// getRiskDotColor returns a CSS class for the risk level color
+function getRiskDotColor(task: CoordinationTask): string {
+  let totalFiles = 0
+  if (task.results) {
+    for (const r of Object.values(task.results)) {
+      totalFiles += r.filesChanged?.length || 0
+    }
+  }
+  if (totalFiles > 10) return 'text-red-400'
+  if (totalFiles > 3) return 'text-yellow-400'
+  return 'text-green-400'
+}
+
 // TaskCard displays a task in the list
 export function TaskCard({
   task,
   isSelected,
+  isExpanded,
   statusColor,
   priorityColor,
   onClick,
+  onToggleExpand,
 }: {
   task: CoordinationTask
   isSelected: boolean
+  isExpanded: boolean
   statusColor: string
   priorityColor: string
   onClick: () => void
+  onToggleExpand: () => void
 }) {
   return (
     <div
@@ -661,6 +779,59 @@ export function TaskCard({
               +{task.assignedTo.length - 3} more
             </span>
           )}
+        </div>
+      )}
+
+      {/* Expand toggle */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onToggleExpand() }}
+        className="mt-2 text-[10px] text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        {isExpanded ? 'Hide details' : 'Show details'}
+      </button>
+
+      {/* Expanded detail section */}
+      {isExpanded && (
+        <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-1">
+          {(() => {
+            const entries = Object.entries(task.results || {})
+            if (entries.length === 0) {
+              return <div className="text-[10px] text-text-tertiary">No results yet</div>
+            }
+            return entries.map(([agentId, result]) => (
+              <div key={agentId} className="space-y-0.5">
+                {/* Agent label */}
+                <div className="text-[10px] text-text-tertiary font-medium">{agentId}</div>
+                {/* Output preview */}
+                {result.content && (
+                  <div className="text-[10px]">
+                    <span className="text-text-tertiary">Output:</span>{' '}
+                    <span className="text-text-secondary">{result.content.slice(0, 200)}</span>
+                  </div>
+                )}
+                {/* Changed files */}
+                {result.filesChanged && result.filesChanged.length > 0 && (
+                  <div className="text-[10px]">
+                    <span className="text-text-tertiary">Changes:</span>{' '}
+                    <span className="text-text-secondary">{result.filesChanged.length} files</span>
+                  </div>
+                )}
+                {/* Duration */}
+                {result.duration > 0 && (
+                  <div className="text-[10px]">
+                    <span className="text-text-tertiary">Duration:</span>{' '}
+                    <span className="text-text-secondary">{result.duration}ms</span>
+                  </div>
+                )}
+              </div>
+            ))
+          })()}
+          {/* Risk level */}
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="text-text-tertiary">Risk:</span>
+            <span className={getRiskDotColor(task)}>{getRiskLevel(task)}</span>
+          </div>
         </div>
       )}
     </div>

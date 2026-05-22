@@ -850,9 +850,11 @@ describe('TaskCard component', () => {
       <TaskCard
         task={runningTask}
         isSelected={false}
+        isExpanded={false}
         statusColor="bg-accent animate-pulse"
         priorityColor="text-warning"
         onClick={() => {}}
+        onToggleExpand={() => {}}
       />
     )
     expect(screen.getByText('Progress')).toBeInTheDocument()
@@ -865,9 +867,11 @@ describe('TaskCard component', () => {
       <TaskCard
         task={taskWithAgents}
         isSelected={false}
+        isExpanded={false}
         statusColor="bg-info"
         priorityColor="text-warning"
         onClick={() => {}}
+        onToggleExpand={() => {}}
       />
     )
     expect(screen.getByText('agent-1')).toBeInTheDocument()
@@ -884,9 +888,11 @@ describe('TaskCard component', () => {
       <TaskCard
         task={taskWithManyAgents}
         isSelected={false}
+        isExpanded={false}
         statusColor="bg-info"
         priorityColor="text-warning"
         onClick={() => {}}
+        onToggleExpand={() => {}}
       />
     )
     expect(screen.getByText('+2 more')).toBeInTheDocument()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -16,10 +17,8 @@ func safeExec(ctx context.Context, name string, args ...string) (*exec.Cmd, erro
 	if strings.ContainsAny(name, `/\`) {
 		return nil, fmt.Errorf("command name must not contain path separators: %s", name)
 	}
-	for _, arg := range args {
-		if arg == "" {
-			return nil, fmt.Errorf("command arguments must not be empty")
-		}
+	if slices.Contains(args, "") {
+		return nil, fmt.Errorf("command arguments must not be empty")
 	}
 	return exec.CommandContext(ctx, name, args...), nil
 }

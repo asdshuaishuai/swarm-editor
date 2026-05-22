@@ -42,6 +42,21 @@ interface SupervisorStatsData {
   throughput: number
 }
 
+function calculateRiskLevel(agents: AgentInfo[], tasks: TaskItem[]): {
+  level: 'low' | 'medium' | 'high'
+  alerts: string[]
+} {
+  const alerts: string[] = []
+  const errorAgents = agents.filter(a => (a.state || a.status) === 'error').length
+  const failedTasks = tasks.filter(t => t.status === 'failed').length
+
+  if (errorAgents > agents.length / 2) alerts.push(`${errorAgents} agents unhealthy`)
+  if (failedTasks > 0) alerts.push(`${failedTasks} tasks failed`)
+
+  const level = alerts.length >= 2 ? 'high' : alerts.length >= 1 ? 'medium' : 'low'
+  return { level, alerts }
+}
+
 export function SupervisorPanel() {
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [tasks, setTasks] = useState<TaskItem[]>([])
@@ -53,6 +68,7 @@ export function SupervisorPanel() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditStats, setAuditStats] = useState<AuditStats | null>(null)
   const [scheduleRunner, setScheduleRunner] = useState<ScheduleRunnerStatus | null>(null)
+  const [a2aStatus, setA2aStatus] = useState<{ messageLogSize: number } | null>(null)
   const mountedRef = useRef(true)
 
   const { activeHandoff, resolveHandoff } = useHandoffStore()
@@ -124,6 +140,10 @@ export function SupervisorPanel() {
         .slice(0, 10)
 
       setActivities(activityItems)
+
+      // Fetch A2A status
+      const a2aResult = await api.a2a.getStatus().catch(() => null)
+      if (a2aResult && mountedRef.current) setA2aStatus(a2aResult as { messageLogSize: number })
     } catch (error) {
       logger.error('SupervisorPanel', 'Failed to load supervisor data:', error)
       if (!mountedRef.current) return
@@ -210,6 +230,7 @@ export function SupervisorPanel() {
   }
 
   const health = getHealthStatus()
+  const risk = calculateRiskLevel(agents, tasks)
 
   const handleCancelTask = useCallback(async (swarmId: string, taskId: string) => {
     try {
@@ -273,6 +294,58 @@ export function SupervisorPanel() {
       {/* Header */}
       <div className="px-3 py-2 border-b border-[#1f1f21]">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Supervisor</h3>
+      </div>
+
+      {/* Dashboard Summary */}
+      <div className="px-3 py-2 border-b border-[#1f1f21]">
+        <div className="grid grid-cols-2 gap-1.5">
+          {/* Tasks Card */}
+          <div className="bg-slate-800/50 rounded p-2 text-center">
+            <div className="text-sm font-bold text-blue-400">
+              {tasks.filter(t => t.status === 'running').length}/{tasks.filter(t => t.status === 'pending').length}/{tasks.filter(t => t.status === 'completed').length}
+            </div>
+            <div className="text-[10px] text-slate-500">Running/Pending/Done</div>
+          </div>
+          {/* Agents Card */}
+          <div className="bg-slate-800/50 rounded p-2 text-center">
+            <div className="text-sm font-bold text-green-400">
+              {agents.filter(a => (a.state || a.status) === 'running' || (a.state || a.status) === 'executing' || (a.state || a.status) === 'active' || (a.state || a.status) === 'idle').length}/{agents.filter(a => (a.state || a.status) === 'error').length}
+            </div>
+            <div className="text-[10px] text-slate-500">Online/Error</div>
+          </div>
+          {/* Risk Card */}
+          <div className="bg-slate-800/50 rounded p-2 text-center">
+            <div className="flex items-center justify-center gap-1">
+              <span className={`w-2 h-2 rounded-full ${
+                risk.level === 'low' ? 'bg-green-400' :
+                risk.level === 'medium' ? 'bg-yellow-400' :
+                'bg-red-400'
+              }`} />
+              <span className={`text-sm font-bold ${
+                risk.level === 'low' ? 'text-green-400' :
+                risk.level === 'medium' ? 'text-yellow-400' :
+                'text-red-400'
+              }`}>
+                {risk.level.toUpperCase()}
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500">Risk</div>
+          </div>
+          {/* A2A Card */}
+          <div className="bg-slate-800/50 rounded p-2 text-center">
+            <div className="text-sm font-bold text-purple-400">{a2aStatus?.messageLogSize ?? '-'}</div>
+            <div className="text-[10px] text-slate-500">A2A Messages</div>
+          </div>
+        </div>
+        {/* Decision Priority Summary */}
+        {(reviewQueue.length > 0 || risk.alerts.length > 0) && (
+          <div className="mt-1.5 text-[10px] text-yellow-400">
+            需要决策: {[
+              reviewQueue.length > 0 ? `Handoff x${reviewQueue.length}` : null,
+              ...risk.alerts,
+            ].filter(Boolean).join(', ')}
+          </div>
+        )}
       </div>
 
       {/* Sections */}
@@ -384,18 +457,36 @@ export function SupervisorPanel() {
               reviewQueue.map(review => (
                 <div key={review.id} className="p-2 bg-slate-800/50 rounded border border-slate-700">
                   <div className="flex items-start justify-between mb-1">
-                    <span className="text-xs text-white">{review.title}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      review.type === 'handoff' ? 'bg-purple-500/20 text-purple-400' :
-                      review.type === 'permission' ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-red-500/20 text-red-400'
-                    }`}>
-                      {review.type}
-                    </span>
+                    <span className="text-xs text-white flex-1 mr-2">{review.title}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        review.type === 'handoff' ? 'bg-purple-500/20 text-purple-400' :
+                        review.type === 'permission' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {review.type}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        review.type === 'handoff' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {review.type === 'handoff' ? '● MED' : '● HIGH'}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 mb-2">{review.description}</p>
+                  <p className="text-[10px] text-slate-400 mb-1">{review.description}</p>
+                  <p className="text-[10px] text-slate-500 italic mb-2">
+                    {review.type === 'handoff' && '建议：查看上下文后接受或拒绝'}
+                    {review.type === 'permission' && '建议：确认权限范围后批准'}
+                    {review.type === 'conflict' && '建议：手动解决冲突'}
+                  </p>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-slate-500">{review.agent}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500">{review.agent}</span>
+                      {(Date.now() - review.timestamp.getTime()) > 5 * 60 * 1000 && (
+                        <span className="text-[10px] text-yellow-400">{'⏰'} 等待 {formatTimeAgo(review.timestamp)}</span>
+                      )}
+                    </div>
                     <div className="flex gap-1">
                       <button
                         onClick={() => handleReviewAction(review.id, 'reject')}
