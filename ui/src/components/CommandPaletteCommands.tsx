@@ -15,7 +15,8 @@ import { useWorkspaceStore } from '../stores/workspaceStore'
 import { api, gitApi } from '../services'
 import { logger } from '../utils'
 import type { SwarmInfo } from '../services'
-import type { Swarm } from '../types'
+import type { Swarm, Agent } from '../types'
+import type { ToastType } from './Toast'
 
 export interface CommandAction {
 	id: string
@@ -66,12 +67,12 @@ export function useCommandActions(openSymbolMode: () => void, openWorkspaceSymbo
 
 interface CommandDeps {
 	navigate: ReturnType<typeof useNavigate>
-	agents: any[]
-	activeSwarm: any
+	agents: Agent[]
+	activeSwarm: Swarm | null
 	setActiveSwarm: (s: Swarm) => void
 	startAgent: (id: string) => void
 	stopAgent: (id: string) => void
-	addToast: (type: any, title: string, msg?: string) => void
+	addToast: (type: ToastType, title: string, msg?: string) => void
 	openSymbolMode: () => void
 	openWorkspaceSymbolMode: () => void
 }

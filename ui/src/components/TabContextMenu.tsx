@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from '../stores/workspaceStore'
+import type { Toast } from './Toast'
 
 interface TabContextMenuState {
   visible: boolean
@@ -27,7 +28,7 @@ interface TabContextMenuProps {
   onCopyPath: (path: string) => void
   onCopyRelativePath: (path: string) => void
   onDirtyCloseAll: () => void
-  addToast: (type: 'info' | 'success' | 'error', title: string, message: string, options?: any) => void
+  addToast: (type: 'info' | 'success' | 'error', title: string, message: string, options?: Partial<Toast>) => void
 }
 
 export function TabContextMenu({

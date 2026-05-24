@@ -1,9 +1,11 @@
 import { X, Zap } from 'lucide-react'
 
+import type { AgentInfo } from '../services'
+
 interface SwarmInfo {
   id: string
   name: string
-  agents: any[]
+  agents: AgentInfo[]
   topology: string
 }
 

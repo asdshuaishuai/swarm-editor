@@ -43,9 +43,18 @@ function getBadge(kind: number) {
   return KIND_BADGE[kind] ?? { letter: 'S', color: '#8b949e' }
 }
 
+interface LSPSymbol {
+  name?: string
+  kind?: number
+  range?: { start?: { line?: number; character?: number }; end?: { line?: number; character?: number } }
+  selectionRange?: { start?: { line?: number; character?: number } }
+  children?: LSPSymbol[]
+  containerName?: string
+}
+
 // Flatten LSP response into SymbolInfo[]
-function normalizeSymbols(raw: any[]): SymbolInfo[] {
-  return raw.map((s: any) => ({
+function normalizeSymbols(raw: LSPSymbol[]): SymbolInfo[] {
+  return raw.map((s) => ({
     name: s.name || '',
     kind: s.kind ?? 0,
     range: {

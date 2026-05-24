@@ -8,8 +8,8 @@ vi.mock('lucide-react', () => ({
 }))
 
 const swarms = [
-  { id: 's1', name: 'Dev Team', agents: [{ id: 'a1' }, { id: 'a2' }], topology: 'star' },
-  { id: 's2', name: 'Test Team', agents: [{ id: 'a3' }], topology: 'mesh' },
+  { id: 's1', name: 'Dev Team', agents: [{ id: 'a1', name: 'A1', type: 'coder', state: 'idle' }, { id: 'a2', name: 'A2', type: 'coder', state: 'idle' }], topology: 'star' },
+  { id: 's2', name: 'Test Team', agents: [{ id: 'a3', name: 'A3', type: 'reviewer', state: 'idle' }], topology: 'mesh' },
 ]
 
 const defaults = {
