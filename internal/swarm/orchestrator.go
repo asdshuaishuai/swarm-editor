@@ -1234,10 +1234,13 @@ func (s *Swarm) GetQueenInfo() QueenInfo {
 		return s.election.GetCurrent()
 	}
 	// No election configured, return fixed coordinator info
-	return QueenInfo{
-		QueenID: string(s.coordinator.ID),
-		State:   ElectionStable,
+	if s.coordinator != nil {
+		return QueenInfo{
+			QueenID: string(s.coordinator.ID),
+			State:   ElectionStable,
+		}
 	}
+	return QueenInfo{State: ElectionFailed}
 }
 
 // TriggerElection triggers a new queen election using current agent health data.
