@@ -899,3 +899,59 @@ func TestHandleA2AMessageLog_EntryFields(t *testing.T) {
 		t.Errorf("expected Group test-group, got %s", entries[0].Group)
 	}
 }
+
+func TestHandleGetAgents_WithConnManagerConnected(t *testing.T) {
+	handler, server := newTestHandler()
+
+	connMgr := acp.NewConnectionManager(&acp.Config{})
+	server.connManager = connMgr
+
+	result, err := handler.HandleCommand("get_agents", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	agents := result.([]AgentInfo)
+	if len(agents) != 0 {
+		t.Errorf("expected 0 agents with empty conn manager, got %d", len(agents))
+	}
+}
+
+func TestHandleGetAgents_RegistryAndConnManager(t *testing.T) {
+	handler, server := newTestHandler()
+
+	ag := &agent.Agent{
+		ID:   acp.AgentID("reg-agent"),
+		Name: "Registry Agent",
+		Type: agent.AgentTypeCoder,
+	}
+	if err := server.registry.Register(ag); err != nil {
+		t.Fatalf("failed to register agent: %v", err)
+	}
+
+	server.connManager = acp.NewConnectionManager(&acp.Config{})
+
+	result, err := handler.HandleCommand("get_agents", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	agents := result.([]AgentInfo)
+	if len(agents) < 1 {
+		t.Errorf("expected at least 1 agent, got %d", len(agents))
+	}
+
+	found := false
+	for _, a := range agents {
+		if a.ID == "reg-agent" {
+			found = true
+			if a.Name != "Registry Agent" {
+				t.Errorf("expected name 'Registry Agent', got %s", a.Name)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find registry agent in results")
+	}
+}
