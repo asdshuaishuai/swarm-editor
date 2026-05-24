@@ -65,3 +65,8 @@ badger/
 *.bak
 *.old
 *.orig
+# Test binaries
+*.test
+*.out
+api_cover.out
+swarm_cover.out
