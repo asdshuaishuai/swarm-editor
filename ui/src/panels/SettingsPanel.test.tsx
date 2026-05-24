@@ -4,10 +4,21 @@ import userEvent from '@testing-library/user-event'
 import SettingsPanel from './SettingsPanel'
 import * as useSettingsModule from '../hooks/useSettings'
 import * as useThemeModule from '../hooks/useTheme'
+import { instructionsApi } from '../services/api'
 
 // Mock the hooks
 vi.mock('../hooks/useSettings')
 vi.mock('../hooks/useTheme')
+vi.mock('../services/api', () => ({
+  instructionsApi: {
+    get: vi.fn().mockResolvedValue({ content: '', files: [] }),
+    save: vi.fn().mockResolvedValue({ status: 'ok', path: '.swarm-instructions.md' }),
+  },
+}))
+vi.mock('../store/appStore', () => ({
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ addToast: vi.fn() }),
+}))
 
 const mockSettings: useSettingsModule.Settings = {
   theme: 'dark',
@@ -949,6 +960,472 @@ describe('SettingsPanel', () => {
       expect(toggle).toBeTruthy()
       await userEvent.click(toggle!)
       expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('securityAgentSandboxing', false)
+    })
+  })
+
+  describe('Search functionality', () => {
+    it('renders search input', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByPlaceholderText('Search settings...')).toBeInTheDocument()
+    })
+
+    it('filters settings by search query', async () => {
+      render(<SettingsPanel />)
+      const searchInput = screen.getByPlaceholderText('Search settings...')
+      await userEvent.type(searchInput, 'font')
+      // Should show Font Size and Font Family rows but not Theme
+      expect(screen.getByText('Font Size')).toBeInTheDocument()
+      expect(screen.getByText('Font Family')).toBeInTheDocument()
+      expect(screen.queryByText('Auto Save')).not.toBeInTheDocument()
+    })
+
+    it('clears search when clear button is clicked', async () => {
+      render(<SettingsPanel />)
+      const searchInput = screen.getByPlaceholderText('Search settings...')
+      await userEvent.type(searchInput, 'font')
+      expect(screen.getByText('Font Size')).toBeInTheDocument()
+      // Click the clear button (X icon)
+      await userEvent.click(screen.getByLabelText('Clear search'))
+      expect(searchInput).toHaveValue('')
+      // After clearing, general section is shown again
+      expect(screen.getByText('Theme')).toBeInTheDocument()
+    })
+
+    it('shows all matching sections when searching', async () => {
+      render(<SettingsPanel />)
+      const searchInput = screen.getByPlaceholderText('Search settings...')
+      await userEvent.type(searchInput, 'enable')
+      // Multiple sections should show their matching "Enable" rows
+      expect(screen.getByText('Enable MCP')).toBeInTheDocument()
+      expect(screen.getByText('Enable Notifications')).toBeInTheDocument()
+    })
+
+    it('shows no results for non-matching query', async () => {
+      render(<SettingsPanel />)
+      const searchInput = screen.getByPlaceholderText('Search settings...')
+      await userEvent.type(searchInput, 'zzzznonexistent')
+      // No setting rows should be visible (sections render but all rows are hidden)
+      expect(screen.queryByText('Theme')).not.toBeInTheDocument()
+      expect(screen.queryByText('Font Size')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Reset confirmation dialog', () => {
+    it('shows confirmation dialog when reset is clicked', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Reset to Defaults'))
+      await waitFor(() => {
+        expect(screen.getByText('All settings will be restored to their default values. This cannot be undone.')).toBeInTheDocument()
+      })
+    })
+
+    it('cancels reset when cancel is clicked', async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Reset to Defaults'))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+      })
+      await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+      // Dialog should be gone
+      expect(screen.queryByText('All settings will be restored to their default values. This cannot be undone.')).not.toBeInTheDocument()
+      // resetSettings should NOT have been called
+      expect(mockUseSettings.resetSettings).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Theme changes', () => {
+    it('changes theme to system', async () => {
+      render(<SettingsPanel />)
+      const themeSelect = screen.getByRole('combobox')
+      await userEvent.selectOptions(themeSelect, 'system')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('theme', 'system')
+      expect(mockUseTheme.setTheme).toHaveBeenCalledWith('system')
+    })
+  })
+
+  describe('Appearance advanced selects', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Appearance'))
+    })
+
+    it('changes render whitespace selection', async () => {
+      const whitespaceLabel = screen.getByText('Render Whitespace')
+      const select = whitespaceLabel.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'all')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('renderWhitespace', 'all')
+    })
+
+    it('changes cursor blinking selection', async () => {
+      const cursorLabel = screen.getByText('Cursor Blinking')
+      const select = cursorLabel.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'smooth')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('cursorBlinking', 'smooth')
+    })
+
+    it('changes cursor style selection', async () => {
+      const cursorStyleLabel = screen.getByText('Cursor Style')
+      const select = cursorStyleLabel.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'block')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('cursorStyle', 'block')
+    })
+
+    it('changes line numbers to relative', async () => {
+      const lineNumbersLabel = screen.getByText('Line Numbers')
+      const select = lineNumbersLabel.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'relative')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('lineNumbers', 'relative')
+    })
+
+    it('changes line numbers to off', async () => {
+      const lineNumbersLabel = screen.getByText('Line Numbers')
+      const select = lineNumbersLabel.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'off')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('lineNumbers', 'off')
+    })
+
+    it('toggles bracket pair colorization', async () => {
+      const label = screen.getByText('Bracket Pair Colorization')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('bracketPairColorization', false)
+    })
+
+    it('toggles sticky scroll', async () => {
+      const label = screen.getByText('Sticky Scroll')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('stickyScroll', false)
+    })
+
+    it('toggles indent guides', async () => {
+      const label = screen.getByText('Indent Guides')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('indentGuides', false)
+    })
+
+    it('toggles smooth scrolling', async () => {
+      const label = screen.getByText('Smooth Scrolling')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('smoothScrolling', false)
+    })
+
+    it('toggles cursor smooth animation', async () => {
+      const label = screen.getByText('Cursor Smooth Animation')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('cursorSmoothCaretAnimation', true)
+    })
+
+    it('toggles linked editing', async () => {
+      const label = screen.getByText('Linked Editing')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('linkedEditing', false)
+    })
+
+    it('toggles scroll beyond last line', async () => {
+      const label = screen.getByText('Scroll Beyond Last Line')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('scrollBeyondLastLine', true)
+    })
+
+    it('toggles format on paste', async () => {
+      const label = screen.getByText('Format On Paste')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('formatOnPaste', false)
+    })
+
+    it('toggles mouse wheel zoom', async () => {
+      const label = screen.getByText('Mouse Wheel Zoom')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('mouseWheelZoom', true)
+    })
+
+    it('toggles semantic highlighting', async () => {
+      const label = screen.getByText('Semantic Highlighting')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('semanticHighlighting', false)
+    })
+
+    it('toggles inlay hints', async () => {
+      const label = screen.getByText('Inlay Hints')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('inlayHints', false)
+    })
+
+    it('toggles breadcrumbs', async () => {
+      const label = screen.getByText('Breadcrumbs')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('breadcrumbs', false)
+    })
+
+    it('toggles quick suggestions', async () => {
+      const label = screen.getByText('Quick Suggestions')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('quickSuggestions', false)
+    })
+
+    it('toggles suggest on trigger characters', async () => {
+      const label = screen.getByText('Suggest on Trigger Characters')
+      const toggle = label.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('suggestOnTriggerCharacters', false)
+    })
+
+    it('changes accept suggestion on enter selection', async () => {
+      const label = screen.getByText('Accept Suggestion on Enter')
+      const select = label.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'on')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('acceptSuggestionOnEnter', 'on')
+    })
+
+    it('changes tab completion selection', async () => {
+      const label = screen.getByText('Tab Completion')
+      const select = label.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'onlySnippets')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('tabCompletion', 'onlySnippets')
+    })
+
+    it('changes word-based suggestions selection', async () => {
+      const label = screen.getByText('Word-Based Suggestions')
+      const select = label.closest('div')?.querySelector('select')
+      expect(select).toBeTruthy()
+      await userEvent.selectOptions(select!, 'allDocuments')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('wordBasedSuggestions', 'allDocuments')
+    })
+  })
+
+  describe('Swarm settings additional options', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('Swarm'))
+    })
+
+    it('changes topology to tree', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[0], 'tree')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmDefaultTopology', 'tree')
+    })
+
+    it('changes topology to ring', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[0], 'ring')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmDefaultTopology', 'ring')
+    })
+
+    it('changes topology to hybrid', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[0], 'hybrid')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmDefaultTopology', 'hybrid')
+    })
+
+    it('changes strategy to pipeline', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[1], 'pipeline')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmDefaultStrategy', 'pipeline')
+    })
+
+    it('changes strategy to mapreduce', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[1], 'mapreduce')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmDefaultStrategy', 'mapreduce')
+    })
+
+    it('changes consensus algorithm to supermajority', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[2], 'supermajority')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmConsensusAlgorithm', 'supermajority')
+    })
+
+    it('changes consensus algorithm to unanimity', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[2], 'unanimity')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmConsensusAlgorithm', 'unanimity')
+    })
+
+    it('changes consensus algorithm to weighted', async () => {
+      const selects = screen.getAllByRole('combobox')
+      await userEvent.selectOptions(selects[2], 'weighted')
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('swarmConsensusAlgorithm', 'weighted')
+    })
+  })
+
+  describe('Custom Instructions section', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      // Click the sidebar button for Custom Instructions
+      const sidebarButtons = screen.getAllByText('Custom Instructions')
+      await userEvent.click(sidebarButtons[0])
+    })
+
+    it('shows Custom Instructions section heading', () => {
+      // The section heading is an h3 element
+      const headings = screen.getAllByText('Custom Instructions')
+      expect(headings.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('shows the textarea for editing instructions', () => {
+      expect(screen.getByPlaceholderText(/Enter custom instructions/)).toBeInTheDocument()
+    })
+
+    it('shows the save instructions button', () => {
+      expect(screen.getByText('Save Instructions')).toBeInTheDocument()
+    })
+
+    it('shows the saved-to path info', () => {
+      expect(screen.getByText('.swarm-instructions.md')).toBeInTheDocument()
+    })
+
+    it('types in the instructions textarea', async () => {
+      const textarea = screen.getByPlaceholderText(/Enter custom instructions/)
+      await userEvent.type(textarea, 'Always use TypeScript strict mode')
+      expect(textarea).toHaveValue('Always use TypeScript strict mode')
+    })
+
+    it('saves instructions when save button is clicked', async () => {
+      const textarea = screen.getByPlaceholderText(/Enter custom instructions/)
+      await userEvent.type(textarea, 'Test instructions')
+      await userEvent.click(screen.getByText('Save Instructions'))
+      expect(instructionsApi.save).toHaveBeenCalledWith('Test instructions')
+    })
+
+    it('shows detected instruction files when loaded', async () => {
+      vi.mocked(instructionsApi.get).mockResolvedValueOnce({
+        content: '',
+        files: ['.cursorrules', 'AGENTS.md'],
+      })
+      render(<SettingsPanel />)
+      const sidebarButtons = screen.getAllByText('Custom Instructions')
+      await userEvent.click(sidebarButtons[0])
+      await waitFor(() => {
+        expect(screen.getByText('.cursorrules')).toBeInTheDocument()
+        expect(screen.getByText('AGENTS.md')).toBeInTheDocument()
+      })
+    })
+
+    it('shows Saving... text while saving', async () => {
+      vi.mocked(instructionsApi.save).mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(() => resolve({ status: 'ok', path: '' }), 5000))
+      )
+      const textarea = screen.getByPlaceholderText(/Enter custom instructions/)
+      await userEvent.type(textarea, 'Test')
+      await userEvent.click(screen.getByText('Save Instructions'))
+      await waitFor(() => {
+        expect(screen.getByText('Saving...')).toBeInTheDocument()
+      })
+    })
+
+    it('loads instructions on mount', () => {
+      expect(instructionsApi.get).toHaveBeenCalled()
+    })
+
+    it('handles load instructions error gracefully', async () => {
+      vi.mocked(instructionsApi.get).mockRejectedValueOnce(new Error('Workspace not found'))
+      // Should not throw — the component catches the error
+      render(<SettingsPanel />)
+      const sidebarButtons = screen.getAllByText('Custom Instructions')
+      await userEvent.click(sidebarButtons[0])
+      // Component should still render without crashing
+      const headings = screen.getAllByText('Custom Instructions')
+      expect(headings.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('handles save instructions error gracefully', async () => {
+      vi.mocked(instructionsApi.save).mockRejectedValueOnce(new Error('Save failed'))
+      const textarea = screen.getByPlaceholderText(/Enter custom instructions/)
+      await userEvent.type(textarea, 'Test error')
+      await userEvent.click(screen.getByText('Save Instructions'))
+      // Component should still render — error is caught and logged
+      await waitFor(() => {
+        expect(screen.getByText('Save Instructions')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('About section details', () => {
+    beforeEach(async () => {
+      render(<SettingsPanel />)
+      await userEvent.click(screen.getByText('About'))
+    })
+
+    it('shows MIT license', () => {
+      expect(screen.getByText('Licensed under MIT')).toBeInTheDocument()
+    })
+
+    it('shows GitHub link', () => {
+      expect(screen.getByText('GitHub Repository')).toBeInTheDocument()
+    })
+
+    it('shows technology stack info', () => {
+      expect(screen.getByText(/Built with Go, React, TypeScript, and WebSocket/)).toBeInTheDocument()
+    })
+
+    it('shows multi-agent description', () => {
+      expect(screen.getByText(/multi-agent collaborative development environment/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Sidebar navigation highlights', () => {
+    it('highlights the active section', () => {
+      render(<SettingsPanel />)
+      const generalButton = screen.getByText('General').closest('button')
+      expect(generalButton?.className).toContain('bg-accent-muted')
+    })
+
+    it('updates highlight when navigating', async () => {
+      render(<SettingsPanel />)
+      const appearanceButton = screen.getByText('Appearance').closest('button')
+      await userEvent.click(screen.getByText('Appearance'))
+      expect(appearanceButton?.className).toContain('bg-accent-muted')
+    })
+  })
+
+  describe('Settings section sidebar', () => {
+    it('renders Custom Instructions in sidebar', () => {
+      render(<SettingsPanel />)
+      expect(screen.getByText('Custom Instructions')).toBeInTheDocument()
+    })
+  })
+
+  describe('General auto save toggle', () => {
+    it('toggles auto save', async () => {
+      render(<SettingsPanel />)
+      const autoSaveLabel = screen.getByText('Auto Save')
+      const toggle = autoSaveLabel.closest('div')?.querySelector('button[role="switch"]')
+      expect(toggle).toBeTruthy()
+      await userEvent.click(toggle!)
+      expect(mockUseSettings.updateSetting).toHaveBeenCalledWith('autoSave', false)
     })
   })
 })
