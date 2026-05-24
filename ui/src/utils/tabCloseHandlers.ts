@@ -1,4 +1,5 @@
 import { showCloseToast, autoSaveDirtyFiles } from './tabCloseActions'
+import type { Toast } from '../components/Toast'
 
 interface TabCloseHandlerOptions {
   openFiles: string[]
@@ -13,7 +14,7 @@ interface TabCloseHandlerOptions {
   closeSaved: () => void
   clearDirty: (path: string) => void
   fetchGitStatus: () => void
-  addToast: (type: 'info' | 'error', title: string, message?: string, options?: any) => void
+  addToast: (type: 'info' | 'error', title: string, message?: string, options?: Partial<Toast>) => void
   setDirtyClosePath: (path: string | null) => void
 }
 

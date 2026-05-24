@@ -198,7 +198,7 @@ function panelCommands(): CommandAction[] {
 		{ id: 'accessibility-help', label: 'Accessibility Help', description: 'Show keyboard shortcuts reference', icon: <Keyboard size={18} />, action: evt('open-accessibility-help'), category: 'navigation', shortcut: 'Alt+F1' },
 		{ id: 'open-diff', label: 'Open Diff', description: 'Open diff view for the current file (HEAD vs Working Tree)', icon: <GitCompare size={18} />, action: evt('open-diff'), category: 'navigation' },
 		{ id: 'toggle-full-screen', label: 'Toggle Full Screen', description: document.fullscreenElement ? 'Exit full screen mode' : 'Enter full screen mode', icon: document.fullscreenElement ? <Minimize size={18} /> : <Maximize size={18} />, action: () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen() }, category: 'view', shortcut: 'F11' },
-		{ id: 'close-window', label: 'Close Window', description: 'Close the current window', icon: <XCircle size={18} />, action: () => { window.close(); useAppStore.getState().addToast('info' as any, 'Close Window', 'Use browser controls to close this tab') }, category: 'navigation', shortcut: 'Ctrl+Shift+W' },
+		{ id: 'close-window', label: 'Close Window', description: 'Close the current window', icon: <XCircle size={18} />, action: () => { window.close(); useAppStore.getState().addToast('info', 'Close Window', 'Use browser controls to close this tab') }, category: 'navigation', shortcut: 'Ctrl+Shift+W' },
 	]
 }
 
@@ -275,7 +275,7 @@ function editingCommands(): CommandAction[] {
 }
 
 function gitCommands(): CommandAction[] {
-	const addToast = (type: string, title: string, msg: string) => useAppStore.getState().addToast(type as any, title, msg)
+	const addToast = (type: ToastType, title: string, msg: string) => useAppStore.getState().addToast(type, title, msg)
 	return [
 		{ id: 'git-push', label: 'Git: Push', description: 'Push current branch to remote', icon: <Upload size={18} />, action: async () => { try { const branch = await gitApi.getBranch(); const result = await gitApi.push('origin', branch); addToast('success', 'Pushed', result.output.slice(0, 80)) } catch (err) { addToast('error', 'Push failed', err instanceof Error ? err.message : 'Unknown') } }, category: 'settings' },
 		{ id: 'git-pull', label: 'Git: Pull', description: 'Pull from remote', icon: <Download size={18} />, action: async () => { try { const branch = await gitApi.getBranch(); const result = await gitApi.pull('origin', branch); addToast('success', 'Pulled', result.output.slice(0, 80)); window.dispatchEvent(new CustomEvent('refresh-git-status')) } catch (err) { addToast('error', 'Pull failed', err instanceof Error ? err.message : 'Unknown') } }, category: 'settings' },

@@ -1,5 +1,6 @@
 import { api } from '../services'
 import { logger } from '.'
+import type { Toast } from '../components/Toast'
 
 interface ExecuteWithAgentOptions {
   currentFile: string
@@ -9,7 +10,7 @@ interface ExecuteWithAgentOptions {
   swarms: Array<{ id: string; name: string }>
   mountedRef: React.MutableRefObject<boolean>
   setLoading: (loading: boolean) => void
-  addToast: (type: 'info' | 'success' | 'error', title: string, message?: string, options?: any) => string
+  addToast: (type: 'info' | 'success' | 'error', title: string, message?: string, options?: Partial<Toast>) => string
   onDone: () => void
 }
 

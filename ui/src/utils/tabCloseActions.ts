@@ -1,10 +1,11 @@
 import { api } from '../services'
 import { useWorkspaceStore } from '../stores/workspaceStore'
+import type { Toast } from '../components/Toast'
 
 interface CloseToastOptions {
   count: number
   label: string
-  addToast: (type: 'info' | 'error', title: string, message?: string, options?: any) => void
+  addToast: (type: 'info' | 'error', title: string, message?: string, options?: Partial<Toast>) => void
 }
 
 export function showCloseToast(options: CloseToastOptions) {
