@@ -231,7 +231,7 @@ cd ui && npm run dev
 | 熔断器/DLQ | ✅ | ❌ | ❌ | ❌ |
 | 检查点恢复 | ✅ | ❌ | ❌ | ❌ |
 
-## 已完成功能 (R77a1)
+## 已完成功能 (Rb81e)
 
 ### 设计文档 7 大模块全覆盖
 
@@ -286,8 +286,8 @@ cd ui && npm run dev
 - [x] 文件监听 (fsnotify + 外部变更广播)
 
 ### 测试覆盖
-- [x] 1808 个 UI 测试 (全部通过)
-- [x] Go 后端 320+ 测试 (swarm 86.2%, session 92.4%, testutil 72.4%, acp logbuffer 100%)
+- [x] 1839 个 UI 测试 (全部通过)
+- [x] Go 后端 330+ 测试 (api 78.3%, swarm 86.2%, session 92.4%, testutil 72.4%, acp logbuffer 100%)
 - [x] 连续 1800+ 次五关验证通过 (go build + staticcheck + go vet + tsc + vitest)
 
 ### 待改进
