@@ -2,6 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -171,5 +174,52 @@ func TestWorkflowHandler_GetWorkflow_MissingID(t *testing.T) {
 	_, err := handler.HandleCommand("get_workflow", json.RawMessage(`{}`), "test")
 	if err == nil {
 		t.Error("expected error for missing id")
+	}
+}
+
+func TestLoadCustomInstructions_Empty(t *testing.T) {
+	s := &WebSocketServer{workspacePath: ""}
+	h := NewCommandHandler(s)
+	if result := h.loadCustomInstructions(); result != "" {
+		t.Errorf("expected empty for no workspace, got %q", result)
+	}
+}
+
+func TestLoadCustomInstructions_NoFiles(t *testing.T) {
+	s := &WebSocketServer{workspacePath: t.TempDir()}
+	h := NewCommandHandler(s)
+	if result := h.loadCustomInstructions(); result != "" {
+		t.Errorf("expected empty for dir with no instruction files, got %q", result)
+	}
+}
+
+func TestLoadCustomInstructions_WithFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("custom instructions here"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := &WebSocketServer{workspacePath: dir}
+	h := NewCommandHandler(s)
+	result := h.loadCustomInstructions()
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+	if !strings.Contains(result, "custom instructions here") {
+		t.Error("expected content in result")
+	}
+	if !strings.Contains(result, "AGENTS.md") {
+		t.Error("expected filename in result")
+	}
+}
+
+func TestLoadCustomInstructions_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("   \n\n  "), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := &WebSocketServer{workspacePath: dir}
+	h := NewCommandHandler(s)
+	if result := h.loadCustomInstructions(); result != "" {
+		t.Errorf("expected empty for whitespace-only file, got %q", result)
 	}
 }
