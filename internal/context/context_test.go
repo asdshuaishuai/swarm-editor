@@ -188,3 +188,230 @@ func writeFile(t *testing.T, path string, data []byte) error {
 	t.Helper()
 	return os.WriteFile(path, data, 0644)
 }
+
+func TestContextManager_GetContext_WithIndexer(t *testing.T) {
+	dir := t.TempDir()
+	goFile := dir + "/main.go"
+	content := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {}\nfunc Helper() {}\n")
+	if err := writeFile(t, goFile, content); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	idx := NewIndexer(IndexConfig{RootDir: dir, EnableSymbolExtraction: true})
+	cm := NewContextManager(idx)
+
+	if err := idx.Index(context.Background()); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	t.Run("with file paths", func(t *testing.T) {
+		ctx, err := cm.GetContext(context.Background(), ContextRequest{
+			FilePaths: []string{"main.go"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ctx.ProjectRoot != dir {
+			t.Errorf("expected project root %s, got %s", dir, ctx.ProjectRoot)
+		}
+		if ctx.TotalFiles != 1 {
+			t.Errorf("expected 1 total file, got %d", ctx.TotalFiles)
+		}
+		if len(ctx.Files) != 1 {
+			t.Errorf("expected 1 file, got %d", len(ctx.Files))
+		}
+	})
+
+	t.Run("with symbol names", func(t *testing.T) {
+		ctx, err := cm.GetContext(context.Background(), ContextRequest{
+			SymbolNames: []string{"main"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ctx.Files) == 0 {
+			t.Error("expected files for symbol 'main'")
+		}
+		if len(ctx.Symbols) == 0 {
+			t.Error("expected symbols for 'main'")
+		}
+	})
+
+	t.Run("with search query", func(t *testing.T) {
+		ctx, err := cm.GetContext(context.Background(), ContextRequest{
+			SearchQuery: "main",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ctx.SearchResults) == 0 {
+			t.Error("expected search results")
+		}
+	})
+
+	t.Run("with max files limit", func(t *testing.T) {
+		ctx, err := cm.GetContext(context.Background(), ContextRequest{
+			FilePaths:   []string{"main.go"},
+			SymbolNames: []string{"main"},
+			MaxFiles:    1,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ctx.Files) > 1 {
+			t.Errorf("expected at most 1 file, got %d", len(ctx.Files))
+		}
+	})
+
+	t.Run("with include recent", func(t *testing.T) {
+		cm.RecordAccess("main.go")
+		ctx, err := cm.GetContext(context.Background(), ContextRequest{
+			IncludeRecent: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ctx.RecentFiles) == 0 {
+			t.Error("expected recent files")
+		}
+	})
+}
+
+func TestContextManager_FormatForPrompt(t *testing.T) {
+	cm := NewContextManager(nil)
+	ctx := &AgentContext{
+		ProjectRoot:  "/test",
+		TotalFiles:   5,
+		TotalSymbols: 10,
+		Files: []*FileInfo{
+			{
+				Path:     "main.go",
+				FileType: "go",
+				Size:     100,
+				Symbols: []Symbol{
+					{Name: "main", Kind: "function", Exported: false},
+					{Name: "Helper", Kind: "function", Exported: true},
+				},
+			},
+		},
+		RecentFiles: []string{"main.go"},
+	}
+
+	result := cm.FormatForPrompt(ctx)
+	if result == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !contains(result, "# Codebase Context") {
+		t.Error("expected header in prompt")
+	}
+	if !contains(result, "/test") {
+		t.Error("expected project root in prompt")
+	}
+	if !contains(result, "main.go") {
+		t.Error("expected file path in prompt")
+	}
+	if !contains(result, "main") {
+		t.Error("expected symbol name in prompt")
+	}
+	if !contains(result, "(exported)") {
+		t.Error("expected exported annotation in prompt")
+	}
+}
+
+func TestContextManager_FormatForPrompt_Empty(t *testing.T) {
+	cm := NewContextManager(nil)
+	ctx := &AgentContext{}
+	result := cm.FormatForPrompt(ctx)
+	if result == "" {
+		t.Error("expected non-empty prompt even for empty context")
+	}
+}
+
+func TestContextManager_EstimateTokens(t *testing.T) {
+	cm := NewContextManager(nil)
+	ctx := &AgentContext{
+		Files: []*FileInfo{
+			{Path: "a.go", Symbols: make([]Symbol, 5), Imports: []string{"fmt", "os"}},
+		},
+		SearchResults: []*FileInfo{
+			{Path: "b.go"},
+		},
+		RecentFiles: []string{"a.go", "b.go"},
+	}
+	tokens := cm.estimateTokens(ctx)
+	if tokens <= 0 {
+		t.Errorf("expected positive token estimate, got %d", tokens)
+	}
+}
+
+func TestContextManager_ListFilesByType_WithIndexer(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(t, dir+"/main.go", []byte("package main")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(t, dir+"/app.ts", []byte("const x = 1")); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := NewIndexer(IndexConfig{RootDir: dir, EnableSymbolExtraction: true})
+	cm := NewContextManager(idx)
+	if err := idx.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	goFiles := cm.ListFilesByType(FileTypeGo)
+	if len(goFiles) != 1 {
+		t.Errorf("expected 1 Go file, got %d", len(goFiles))
+	}
+
+	tsFiles := cm.ListFilesByType(FileTypeTS)
+	if len(tsFiles) != 1 {
+		t.Errorf("expected 1 TS file, got %d", len(tsFiles))
+	}
+}
+
+func TestContextManager_RefreshIndex_WithIndexer(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(t, dir+"/main.go", []byte("package main")); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := NewIndexer(IndexConfig{RootDir: dir})
+	cm := NewContextManager(idx)
+
+	err := cm.RefreshIndex(context.Background())
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestContextManager_Search_WithIndexer(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeFile(t, dir+"/main.go", []byte("package main\nfunc myFunc() {}")); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := NewIndexer(IndexConfig{RootDir: dir, EnableSymbolExtraction: true})
+	cm := NewContextManager(idx)
+	if err := idx.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	results := cm.Search("myFunc", 10)
+	if len(results) == 0 {
+		t.Error("expected search results for 'myFunc'")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

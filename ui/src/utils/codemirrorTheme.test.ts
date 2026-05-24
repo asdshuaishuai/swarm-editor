@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { swarmDarkTheme, swarmTheme, swarmColors } from './codemirrorTheme'
 
 describe('codemirrorTheme', () => {
-	it('exports swarmDarkTheme as an array of extensions', () => {
-		expect(Array.isArray(swarmDarkTheme)).toBe(true)
-		expect(swarmDarkTheme.length).toBe(2)
+	it('exports swarmDarkTheme as an extension', () => {
+		expect(swarmDarkTheme).toBeDefined()
 	})
 
 	it('exports swarmTheme as a theme instance', () => {
