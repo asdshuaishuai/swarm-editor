@@ -344,6 +344,26 @@ func (m *ConnectionManager) establishConnection(conn *AgentConnection) {
 	}
 	conn.mu.Unlock()
 
+	// Pipe stderr into log ring buffer (Design Doc Section 2)
+	if conn.logs != nil {
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				n, readErr := stderr.Read(buf)
+				if n > 0 {
+					for _, line := range strings.Split(string(buf[:n]), "\n") {
+						if line != "" {
+							conn.AppendLog(line, "stderr")
+						}
+					}
+				}
+				if readErr != nil {
+					return
+				}
+			}
+		}()
+	}
+
 	// Create transport and client
 	transport := NewStdioTransport(stdout, stdin)
 	client := NewClient(transport)
