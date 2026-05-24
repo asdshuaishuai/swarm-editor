@@ -10,7 +10,7 @@ interface UseEditorCleanupOptions {
   secondaryLspDebounceRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>
   secondaryAutoSaveTimeoutRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>
   secondaryLspOpenFileRef: React.MutableRefObject<string | null>
-  providerDisposablesRef: React.MutableRefObject<any[]>
+  providerDisposablesRef: React.MutableRefObject<Array<{ dispose(): void }>>
 }
 
 export function useEditorCleanup(options: UseEditorCleanupOptions) {
