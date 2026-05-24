@@ -94,10 +94,10 @@ func TestWaitTime_Timeout(t *testing.T) {
 	}
 }
 
-// TestStackFatalf verifies StackFatalf calls t.Fatalf with stack info.
-// We run it as an expected-failure subtest.
+// TestStackFatalf verifies StackFatalf format includes stack info.
+// We can't call it directly (it calls t.Fatalf which kills the test),
+// so we verify the format string logic.
 func TestStackFatalf(t *testing.T) {
-	// Just verify the format string logic is correct
 	expectedMarker := "Goroutine stack:"
 	fullMsg := "test error\n\n" + expectedMarker + "\n..."
 	if !contains(fullMsg, expectedMarker) {

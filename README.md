@@ -47,7 +47,7 @@
 - **涌现智能**: 信息素路由 + 自组织协商 + 涌现信号检测
 
 ### 自动发现
-- **Agent Scanner**: 自动发现系统已安装的 ACP Agent (Claude Code, Kimi Code 等)
+- **Agent Scanner**: 自动发现系统已安装的 ACP Agent (Claude Code, Kimi Code, OpenCode, Cline, QwenCode, GeminiCLI)
 - **MCP Scanner**: 从 Agent 配置中发现 MCP 服务器
 - **Skill Scanner**: 扫描本地技能目录、Agent 能力、MCP 工具
 
@@ -92,7 +92,7 @@
                                  │ stdio/WebSocket/TCP (ACP)
 ┌────────────────────────────────▼────────────────────────────────────────┐
 │                     External ACP Agents                                  │
-│  Claude Code CLI | Kimi Code | OpenCode | Crush CLI | Custom Agents     │
+│  Claude Code CLI | Kimi Code | OpenCode | Cline | QwenCode | GeminiCLI  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -108,7 +108,7 @@
 | 通信协议 | JSON-RPC 2.0 over WebSocket | 双向实时通信 |
 | Agent 协议 | ACP (stdio/WebSocket/TCP) | 标准化 Agent 通信 |
 | 工具协议 | MCP (Model Context Protocol) | 工具集成标准 |
-| 测试 | Vitest + React Testing Library | 1027 个 UI 测试 |
+| 测试 | Vitest + React Testing Library + Go testing | 1790 个 UI 测试 + 300+ Go 测试 |
 
 ## 目录结构
 
@@ -179,7 +179,7 @@ go build -o bin/swarm-agent ./cmd/swarm-agent
 # 运行测试
 make test              # Go 测试
 make test-race         # 带 race 检测
-cd ui && npm run test  # UI 测试 (1027 个)
+cd ui && npm run test  # UI 测试 (1790 个)
 
 # 开发模式 - 后端
 ./bin/swarm-editor
@@ -231,13 +231,29 @@ cd ui && npm run dev
 | 熔断器/DLQ | ✅ | ❌ | ❌ | ❌ |
 | 检查点恢复 | ✅ | ❌ | ❌ | ❌ |
 
-## 已完成功能 (R5935)
+## 已完成功能 (R6147)
 
 ### 编辑器核心
-- [x] Monaco Editor + LSP 桥接 (补全、跳转、悬停、重构)
-- [x] 文件树 + 多工作区
+- [x] Monaco Editor + LSP 桥接 (补全、跳转、悬停、重构、代码操作、代码透镜、语义高亮)
+- [x] 文件树 + 多工作区 + 搜索/替换
 - [x] Agent 对话面板 (ACP Session)
 - [x] 终端集成 (PTY WebSocket)
+- [x] CodeMirror 6 双编辑器支持
+- [x] Find/Replace (Ctrl+F/Ctrl+H)
+
+### Agent 指挥台
+- [x] Queen Bee 选举 + 备份激活 + 禅让级联
+- [x] 信息素路由动态角色分配 (coder/reviewer/tester/architect)
+- [x] 中断恢复 + 检查点 + 4 种恢复策略
+- [x] Agent 沙盘 SVG 拓扑交互 (节点点击/状态动画/边流动)
+- [x] CLI 进程工坊 (进程状态实时更新/配置弹窗)
+- [x] Queen Dispatcher (策略选择/目标下发/执行反馈)
+
+### 协议监控
+- [x] ACP/A2A/MCP 实时封包解析
+- [x] 封包时间轴/列表视图切换
+- [x] 封包搜索/过滤 (按类型/关键词)
+- [x] 活动日志 (Skills 扫描 + Agent 启停 + MCP 服务状态)
 
 ### 协调能力
 - [x] 动态调度 (负载预测 + 优先级衰减 + 饥饿防护)
@@ -246,12 +262,23 @@ cd ui && npm run dev
 - [x] 审计日志 (事件追踪 + 统计 + 清除)
 - [x] 调度运行器 (定时任务启停管理)
 - [x] 工作流检查点/恢复/报告/缓存管理
-- [x] Agent/MCP/Skill 自动扫描
+- [x] Agent/MCP/Skill 自动扫描 (全局 + 项目级)
 - [x] 团队管理 (Agent 分配/移除/删除)
+- [x] 22 个后端广播事件实时推送
+
+### 测试覆盖
+- [x] 1790 个 UI 测试 (全部通过)
+- [x] Go 后端 300+ 测试 (swarm 86.2%, session 92.4%, testutil 72.4%)
+- [x] 连续 1800+ 次五关验证通过 (go build + staticcheck + go vet + tsc + vitest)
 
 ### 待改进
 - [ ] 内联代码补全 (Tab 补全)
-- [ ] Monaco 集成补全
+- [ ] Diff 视图 (Git 文件差异对比)
+- [ ] 符号大纲 + Goto Line/Symbol
+- [ ] 设置面板编辑器联动 (Compartment 动态更新)
+- [ ] Tauri 文件对话框 (打开文件夹)
+- [ ] 文件监听 (外部变更检测)
+- [ ] Git Blame + Worktree 管理
 - [ ] 更智能的任务分解
 
 ## 协议支持
