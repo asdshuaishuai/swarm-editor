@@ -204,4 +204,75 @@ describe('applySettingsToView', () => {
     expect(mockReconfigure).not.toHaveBeenCalled()
     expect(view.dispatch).not.toHaveBeenCalled()
   })
+
+  it('handles compartment.get throwing', () => {
+    mockGet.mockImplementation(() => { throw new Error('nope') })
+    const view = createMockView()
+    const result = applySettingsToView(view as any, defaultEditorSettings)
+    expect(result).toBe(false)
+    expect(view.dispatch).not.toHaveBeenCalled()
+  })
+
+  it('handles mixed: some compartments ok, some throw', () => {
+    let callCount = 0
+    mockGet.mockImplementation(() => {
+      callCount++
+      if (callCount === 2) throw new Error('bad')
+      return 'mocked'
+    })
+    const view = createMockView()
+    const result = applySettingsToView(view as any, defaultEditorSettings)
+    expect(result).toBe(true)
+    // 3 of 4 compartments succeed
+    const call = view.dispatch.mock.calls[0][0]
+    expect(call.effects).toHaveLength(3)
+  })
+
+  it('handles all compartments throwing', () => {
+    mockGet.mockImplementation(() => { throw new Error('all fail') })
+    const view = createMockView()
+    const result = applySettingsToView(view as any, defaultEditorSettings)
+    expect(result).toBe(false)
+    expect(view.dispatch).not.toHaveBeenCalled()
+  })
+
+  it('applies lineNumbers=on (default)', () => {
+    const view = createMockView()
+    const settings: EditorSettings = { ...defaultEditorSettings, lineNumbers: 'on' }
+    applySettingsToView(view as any, settings)
+    expect(mockReconfigure).toHaveBeenCalledTimes(4)
+  })
+
+  it('applies all different cursorBlinking values', () => {
+    for (const mode of ['smooth', 'phase', 'expand', 'solid'] as const) {
+      vi.clearAllMocks()
+      mockGet.mockReturnValue('mocked')
+      const view = createMockView()
+      const settings: EditorSettings = { ...defaultEditorSettings, cursorBlinking: mode }
+      applySettingsToView(view as any, settings)
+      expect(mockReconfigure).toHaveBeenCalled()
+    }
+  })
+
+  it('applies custom tabSize values', () => {
+    for (const size of [2, 4, 8]) {
+      vi.clearAllMocks()
+      mockGet.mockReturnValue('mocked')
+      const view = createMockView()
+      const settings: EditorSettings = { ...defaultEditorSettings, tabSize: size }
+      applySettingsToView(view as any, settings)
+      expect(mockReconfigure).toHaveBeenCalled()
+    }
+  })
+
+  it('applies different renderWhitespace values', () => {
+    for (const mode of ['none', 'boundary', 'selection', 'trailing', 'all'] as const) {
+      vi.clearAllMocks()
+      mockGet.mockReturnValue('mocked')
+      const view = createMockView()
+      const settings: EditorSettings = { ...defaultEditorSettings, renderWhitespace: mode }
+      applySettingsToView(view as any, settings)
+      expect(mockReconfigure).toHaveBeenCalled()
+    }
+  })
 })
