@@ -1989,3 +1989,72 @@ func TestProcessMetricsJSON(t *testing.T) {
 		t.Errorf("expected rssBytes in JSON, got %s", string(data))
 	}
 }
+
+func TestAgentConnection_RecentLogs_NilBuffer(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "test-logs",
+		sessions: make(map[SessionID]*AgentSession),
+	}
+	entries := conn.RecentLogs(10)
+	if entries != nil {
+		t.Errorf("expected nil from nil buffer, got %v", entries)
+	}
+}
+
+func TestAgentConnection_AppendLog_RecentLogs(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "test-logs",
+		sessions: make(map[SessionID]*AgentSession),
+		logs:     NewLogRingBuffer(100),
+	}
+
+	conn.AppendLog("hello stderr", "stderr")
+	conn.AppendLog("hello stdout", "stdout")
+	conn.AppendLog("another line", "stderr")
+
+	entries := conn.RecentLogs(10)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+	if entries[0].Line != "hello stderr" {
+		t.Errorf("expected 'hello stderr', got %s", entries[0].Line)
+	}
+	if entries[0].Stream != "stderr" {
+		t.Errorf("expected stderr, got %s", entries[0].Stream)
+	}
+	if entries[1].Line != "hello stdout" {
+		t.Errorf("expected 'hello stdout', got %s", entries[1].Line)
+	}
+}
+
+func TestAgentConnection_RecentLogs_LimitedCount(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "test-logs",
+		sessions: make(map[SessionID]*AgentSession),
+		logs:     NewLogRingBuffer(100),
+	}
+
+	for i := range 10 {
+		conn.AppendLog(string(rune('A'+i)), "stdout")
+	}
+
+	entries := conn.RecentLogs(3)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+	if entries[0].Line != "H" {
+		t.Errorf("expected H, got %s", entries[0].Line)
+	}
+	if entries[2].Line != "J" {
+		t.Errorf("expected J, got %s", entries[2].Line)
+	}
+}
+
+func TestAgentConnection_AppendLog_NilBuffer(t *testing.T) {
+	conn := &AgentConnection{
+		ID:       "test-logs",
+		sessions: make(map[SessionID]*AgentSession),
+	}
+	// Should not panic
+	conn.AppendLog("test", "stdout")
+}

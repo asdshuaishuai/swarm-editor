@@ -746,11 +746,12 @@ func TestEmergenceHandlersContentType(t *testing.T) {
 
 func newTestServer() *WebSocketServer {
 	return &WebSocketServer{
-		registry:    agent.NewRegistry(),
-		connManager: nil,
-		swarms:      make(map[string]*swarm.Swarm),
-		teamManager: team.NewManagerWithDir(""),
-		mcpClients:  make(map[string]*mcp.Client),
+		registry:     agent.NewRegistry(),
+		connManager:  nil,
+		swarms:       make(map[string]*swarm.Swarm),
+		teamManager:  team.NewManagerWithDir(""),
+		mcpClients:   make(map[string]*mcp.Client),
+		shadowBuffer: NewShadowBuffer(),
 	}
 }
 
