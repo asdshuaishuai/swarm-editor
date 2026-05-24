@@ -51,6 +51,15 @@ export interface LogEntry {
   timestamp: string
 }
 
+export interface PendingPatch {
+  id: string
+  agentId: string
+  path: string
+  oldContent: string
+  newContent: string
+  createdAt: string
+}
+
 export interface FileEntry {
   name: string
   path: string
@@ -332,6 +341,22 @@ export const agentApi = {
 
   async getAgentLogs(agentId: string, count = 100): Promise<LogEntry[]> {
     return getClient().invoke<LogEntry[]>('get_agent_logs', { agentId, count })
+  },
+
+  async stagePatch(agentId: string, path: string, oldContent: string, newContent: string): Promise<{ id: string; agentId: string; path: string; createdAt: string }> {
+    return getClient().invoke('stage_patch', { agentId, path, oldContent, newContent })
+  },
+
+  async listPatches(agentId?: string): Promise<PendingPatch[]> {
+    return getClient().invoke<PendingPatch[]>('list_patches', { agentId: agentId ?? '' })
+  },
+
+  async commitPatch(id: string): Promise<{ id: string; status: string }> {
+    return getClient().invoke('commit_patch', { id })
+  },
+
+  async rejectPatch(id: string): Promise<{ id: string; status: string }> {
+    return getClient().invoke('reject_patch', { id })
   },
 }
 
