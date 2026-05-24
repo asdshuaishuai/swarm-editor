@@ -12,9 +12,14 @@ export interface CompletionItem {
   insertText?: string
 }
 
+export interface LSPRange {
+  start: { line: number; character: number }
+  end: { line: number; character: number }
+}
+
 export interface HoverResult {
-  contents: any
-  range?: any
+  contents: Array<{ language?: string; value: string } | string> | { kind: string; value: string }
+  range?: LSPRange
 }
 
 export interface Location {
@@ -29,7 +34,7 @@ export interface LSPStatus {
   servers: Array<{
     server: string
     initialized: boolean
-    capabilities?: any
+    capabilities?: Record<string, unknown>
   }>
   rootDir: string
 }
@@ -48,7 +53,89 @@ export interface Diagnostic {
     message: string
   }>
   tags?: number[]
-  data?: any
+  data?: unknown
+}
+
+export interface DocumentSymbol {
+  name: string
+  kind: number
+  range: LSPRange
+  selectionRange: LSPRange
+  detail?: string
+  tags?: number[]
+  children?: DocumentSymbol[]
+}
+
+export interface DocumentHighlight {
+  range: LSPRange
+  kind?: number
+}
+
+export interface InlayHint {
+  position: { line: number; character: number }
+  label: string | Array<{ value: string; tooltip?: string; location?: Location; command?: { title: string; command: string } }>
+  kind?: number
+  paddingLeft?: boolean
+  paddingRight?: boolean
+  tooltip?: string | { kind: string; value: string }
+  textEdits?: TextEdit[]
+  data?: unknown
+}
+
+export interface FoldingRange {
+  startLine: number
+  endLine: number
+  startCharacter?: number
+  endCharacter?: number
+  kind?: string
+  collapsedText?: string
+}
+
+export interface WorkspaceSymbol {
+  name: string
+  kind: number
+  location: Location | { uri: string }
+  containerName?: string
+  data?: unknown
+}
+
+export interface CodeAction {
+  title: string
+  kind?: string
+  diagnostics?: Diagnostic[]
+  edit?: WorkspaceEdit
+  command?: { title: string; command: string; arguments?: unknown[] }
+  isPreferred?: boolean
+  data?: unknown
+}
+
+export interface TextEdit {
+  range: LSPRange
+  newText: string
+}
+
+export interface WorkspaceEdit {
+  changes?: Record<string, TextEdit[]>
+  documentChanges?: Array<{ textDocument: { uri: string; version: number }; edits: TextEdit[] }>
+}
+
+export interface SignatureHelp {
+  signatures: Array<{
+    label: string
+    documentation?: string | { kind: string; value: string }
+    parameters?: Array<{
+      label: string | [number, number]
+      documentation?: string | { kind: string; value: string }
+    }>
+    activeParameter?: number
+  }>
+  activeSignature?: number
+  activeParameter?: number
+}
+
+export interface SelectionRange {
+  range: LSPRange
+  parent?: SelectionRange
 }
 
 export const lspApi = {
@@ -152,14 +239,14 @@ export const lspApi = {
     line: number,
     column: number,
     uri?: string
-  ): Promise<any> {
+  ): Promise<SignatureHelp> {
     return getClient().invoke('lsp_signature_help', { file, line, column, uri })
   },
 
   async documentSymbols(
     file: string,
     uri?: string
-  ): Promise<{ symbols: any[] }> {
+  ): Promise<{ symbols: DocumentSymbol[] }> {
     return getClient().invoke('lsp_document_symbols', { file, uri })
   },
 
@@ -168,7 +255,7 @@ export const lspApi = {
     line: number,
     column: number,
     uri?: string
-  ): Promise<{ highlights: any[] }> {
+  ): Promise<{ highlights: DocumentHighlight[] }> {
     return getClient().invoke('lsp_document_highlight', { file, line, column, uri })
   },
 
@@ -177,20 +264,20 @@ export const lspApi = {
     startLine: number,
     endLine: number,
     uri?: string
-  ): Promise<{ hints: any[] }> {
+  ): Promise<{ hints: InlayHint[] }> {
     return getClient().invoke('lsp_inlay_hints', { file, startLine, endLine, uri })
   },
 
   async foldingRanges(
     file: string,
     uri?: string
-  ): Promise<{ ranges: any[] }> {
+  ): Promise<{ ranges: FoldingRange[] }> {
     return getClient().invoke('lsp_folding_ranges', { file, uri })
   },
 
   async workspaceSymbols(
     query: string
-  ): Promise<{ symbols: any[] }> {
+  ): Promise<{ symbols: WorkspaceSymbol[] }> {
     return getClient().invoke('lsp_workspace_symbols', { query })
   },
 
@@ -199,7 +286,7 @@ export const lspApi = {
     line: number,
     column: number,
     uri?: string
-  ): Promise<{ actions: any[] }> {
+  ): Promise<{ actions: CodeAction[] }> {
     return getClient().invoke('lsp_code_actions', { file, line, column, uri })
   },
 
@@ -209,7 +296,7 @@ export const lspApi = {
     column: number,
     newName: string,
     uri?: string
-  ): Promise<{ edit: any }> {
+  ): Promise<{ edit: WorkspaceEdit }> {
     return getClient().invoke('lsp_rename', { file, line, column, newName, uri })
   },
 
@@ -218,7 +305,7 @@ export const lspApi = {
     uri?: string,
     tabSize?: number,
     insertSpaces?: boolean
-  ): Promise<{ edit: any }> {
+  ): Promise<{ edit: WorkspaceEdit }> {
     return getClient().invoke('lsp_formatting', { file, uri, tabSize, insertSpaces })
   },
 
@@ -231,7 +318,7 @@ export const lspApi = {
     uri?: string,
     tabSize?: number,
     insertSpaces?: boolean
-  ): Promise<{ edit: any }> {
+  ): Promise<{ edit: WorkspaceEdit }> {
     return getClient().invoke('lsp_range_formatting', { file, uri, startLine, startCol, endLine, endCol, tabSize, insertSpaces })
   },
 
@@ -243,7 +330,7 @@ export const lspApi = {
     uri?: string,
     tabSize?: number,
     insertSpaces?: boolean
-  ): Promise<{ edit: any }> {
+  ): Promise<{ edit: WorkspaceEdit }> {
     return getClient().invoke('lsp_on_type_formatting', { file, uri, line, column, triggerChar, tabSize, insertSpaces })
   },
 
@@ -251,7 +338,7 @@ export const lspApi = {
     file: string,
     positions: Array<{ line: number; character: number }>,
     uri?: string
-  ): Promise<{ ranges: any[] }> {
+  ): Promise<{ ranges: SelectionRange[] }> {
     return getClient().invoke('lsp_selection_range', { file, positions, uri })
   },
 
@@ -282,7 +369,7 @@ export const lspApi = {
   async documentLinks(
     file: string,
     uri?: string
-  ): Promise<{ links: Array<{ range: any; target?: string; tooltip?: string }> }> {
+  ): Promise<{ links: Array<{ range: LSPRange; target?: string; tooltip?: string }> }> {
     return getClient().invoke('lsp_document_links', { file, uri })
   },
 
@@ -357,7 +444,7 @@ export interface CallHierarchyItem {
     start: { line: number; character: number }
     end: { line: number; character: number }
   }
-  data?: any
+  data?: unknown
 }
 
 export interface CallHierarchyIncomingCall {
@@ -384,9 +471,9 @@ export interface CodeLens {
   command?: {
     title: string
     command: string
-    arguments?: any[]
+    arguments?: unknown[]
   }
-  data?: any
+  data?: unknown
 }
 
 export interface TypeHierarchyItem {
@@ -403,5 +490,5 @@ export interface TypeHierarchyItem {
     start: { line: number; character: number }
     end: { line: number; character: number }
   }
-  data?: any
+  data?: unknown
 }

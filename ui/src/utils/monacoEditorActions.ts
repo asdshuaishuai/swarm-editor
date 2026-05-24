@@ -1,8 +1,47 @@
+interface EditorSelection {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
+  isEmpty(): boolean
+}
+
+interface EditorPosition {
+  lineNumber: number
+  column: number
+}
+
+interface EditorModel {
+  getValueInRange(range: EditorSelection): string
+  getLineContent(line: number): string
+  getLineCount(): number
+}
+
+interface EditorAction {
+  run(): void
+}
+
+interface EditorInstance {
+  getModel(): EditorModel | null
+  getSelections(): EditorSelection[] | null
+  pushUndoStop(): void
+  executeEdits(source: string, edits: Array<{ range: EditorSelection | { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string }>): void
+  getPosition(): EditorPosition | null
+  setPosition(pos: { lineNumber: number; column: number }): void
+  setScrollTop(scrollTop: number): void
+  getScrollHeight(): number
+  revealLineInCenter(line: number): void
+  focus(): void
+  getAction(id: string): EditorAction | null
+  trigger(source: string, handlerId: string, payload: unknown): void
+  _contributions?: Record<string, { getState(): { matchCase: boolean; wholeWord: boolean; regex: boolean; change(opts: Record<string, boolean>, b: boolean): void } }>
+}
+
 /**
  * Execute a VS Code-style editor action on a Monaco editor instance.
  * Handles both built-in Monaco actions and custom implementations.
  */
-export function executeEditorAction(editor: any, actionId: string) {
+export function executeEditorAction(editor: EditorInstance, actionId: string) {
   // Custom implementations for actions not available in Monaco standalone
   switch (actionId) {
     case 'editor.action.sortLinesAscending':

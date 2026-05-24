@@ -4,8 +4,7 @@ import { getWebSocketClient, WebSocketClient } from './websocket'
 import type { AgentConfig } from '../types'
 
 // Tauri native invoke (available when withGlobalTauri is enabled)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const window: Window & { __TAURI__?: any }
+declare const window: Window & { __TAURI__?: { core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } } }
 
 // Helper to invoke Tauri commands via the global __TAURI__ object
 async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {

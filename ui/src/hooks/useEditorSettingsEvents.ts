@@ -17,7 +17,7 @@ interface Settings {
 
 interface UseEditorSettingsEventsOptions {
   settings: Settings
-  updateSetting: (key: string, value: any) => void
+  updateSetting: (key: string, value: boolean | number | string) => void
 }
 
 /**

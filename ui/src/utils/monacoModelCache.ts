@@ -1,9 +1,24 @@
+interface TextModel {
+  uri: string
+  content: string
+  disposed?: boolean
+  dispose(): void
+}
+
+interface MonacoAPI {
+  Uri: { file(path: string): { toString(): string } }
+  editor: {
+    getModel(uri: { toString(): string }): TextModel | null
+    createModel(content: string, language: string, uri: { toString(): string }): TextModel
+  }
+}
+
 interface GetOrCreateModelOptions {
   path: string
   content: string
   lang: string
-  monaco: any
-  modelCache: Map<string, any>
+  monaco: MonacoAPI
+  modelCache: Map<string, TextModel>
 }
 
 export function getOrCreateModel(options: GetOrCreateModelOptions) {

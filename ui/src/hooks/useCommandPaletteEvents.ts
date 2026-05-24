@@ -12,7 +12,7 @@ interface UseCommandPaletteEventsOptions {
   setActivityView: React.Dispatch<React.SetStateAction<string>>
   setActivePane: (pane: string) => void
   handleSave: () => void
-  addToast: (type: 'info' | 'success' | 'error' | 'warning', title: string, message?: string, opts?: any) => void
+  addToast: (type: 'info' | 'success' | 'error' | 'warning', title: string, message?: string, opts?: Record<string, unknown>) => void
 }
 
 /**
