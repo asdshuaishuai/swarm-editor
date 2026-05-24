@@ -5,7 +5,7 @@ interface UseCommandPaletteEventsOptions {
   currentFile: string | null
   showFileTree: boolean
   splitDirection: string
-  editorRef: React.MutableRefObject<any>
+  editorRef: React.MutableRefObject<{ getAction(id: string): { run(): void } | null; revealLineInCenter(line: number): void; setPosition(pos: { lineNumber: number; column: number }): void; focus(): void } | null>
   toggleSplit: () => void
   handleCloseSplit: () => void
   setShowFileTree: React.Dispatch<React.SetStateAction<boolean>>

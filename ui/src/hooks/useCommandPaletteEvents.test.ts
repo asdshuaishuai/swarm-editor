@@ -23,7 +23,7 @@ describe('useCommandPaletteEvents', () => {
     currentFile: '/src/app.ts' as string | null,
     showFileTree: true,
     splitDirection: 'horizontal' as string,
-    editorRef: { current: null } as any,
+    editorRef: { current: null },
     toggleSplit: mockToggleSplit,
     handleCloseSplit: mockHandleCloseSplit,
     setShowFileTree: mockSetShowFileTree,
