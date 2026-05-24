@@ -108,7 +108,7 @@
 | 通信协议 | JSON-RPC 2.0 over WebSocket | 双向实时通信 |
 | Agent 协议 | ACP (stdio/WebSocket/TCP) | 标准化 Agent 通信 |
 | 工具协议 | MCP (Model Context Protocol) | 工具集成标准 |
-| 测试 | Vitest + React Testing Library + Go testing | 1790 个 UI 测试 + 300+ Go 测试 |
+| 测试 | Vitest + React Testing Library + Go testing | 1808 个 UI 测试 + 320+ Go 测试 |
 
 ## 目录结构
 
@@ -179,7 +179,7 @@ go build -o bin/swarm-agent ./cmd/swarm-agent
 # 运行测试
 make test              # Go 测试
 make test-race         # 带 race 检测
-cd ui && npm run test  # UI 测试 (1790 个)
+cd ui && npm run test  # UI 测试 (1808 个)
 
 # 开发模式 - 后端
 ./bin/swarm-editor
@@ -231,7 +231,19 @@ cd ui && npm run dev
 | 熔断器/DLQ | ✅ | ❌ | ❌ | ❌ |
 | 检查点恢复 | ✅ | ❌ | ❌ | ❌ |
 
-## 已完成功能 (R6147)
+## 已完成功能 (R77a1)
+
+### 设计文档 7 大模块全覆盖
+
+| 设计文档章节 | 模块 | 状态 |
+|-------------|------|------|
+| Section 1: 进程生命周期 | ProcessMetrics (PID/CPU/RSS) | ✅ |
+| Section 2: 日志环缓冲 | LogRingBuffer (5000行/stderr采集) | ✅ |
+| Section 3: Git 状态标签 | FileEvent.GitStatus + fsnotify 文件监听 | ✅ |
+| Section 4: MCP 工具协议 | MCP 发现/启动/停止/工具调用 | ✅ |
+| Section 5: ACP/A2A 双协议 | ACP stdio + A2A 对等传输 | ✅ |
+| Section 6: HITL 特权拦截 | StateBlocked stdin 锁 + Block/Unblock | ✅ |
+| Section 7: 代码变更双缓冲 | ShadowBuffer 暂存 + Diff 对比 + Commit/Reject | ✅ |
 
 ### 编辑器核心
 - [x] Monaco Editor + LSP 桥接 (补全、跳转、悬停、重构、代码操作、代码透镜、语义高亮)
@@ -266,9 +278,16 @@ cd ui && npm run dev
 - [x] 团队管理 (Agent 分配/移除/删除)
 - [x] 22 个后端广播事件实时推送
 
+### 可观测性
+- [x] 进程资源监控 (PID/CPU/RSS per agent)
+- [x] Agent 日志环缓冲 (5000行 stderr/stdout 采集)
+- [x] 代码变更影子缓冲 (stage/commit/reject + unified diff)
+- [x] HITL stdin 锁 (BLOCKED 状态拒绝新 Prompt)
+- [x] 文件监听 (fsnotify + 外部变更广播)
+
 ### 测试覆盖
-- [x] 1790 个 UI 测试 (全部通过)
-- [x] Go 后端 300+ 测试 (swarm 86.2%, session 92.4%, testutil 72.4%)
+- [x] 1808 个 UI 测试 (全部通过)
+- [x] Go 后端 320+ 测试 (swarm 86.2%, session 92.4%, testutil 72.4%, acp logbuffer 100%)
 - [x] 连续 1800+ 次五关验证通过 (go build + staticcheck + go vet + tsc + vitest)
 
 ### 待改进
@@ -277,9 +296,9 @@ cd ui && npm run dev
 - [ ] 符号大纲 + Goto Line/Symbol
 - [ ] 设置面板编辑器联动 (Compartment 动态更新)
 - [ ] Tauri 文件对话框 (打开文件夹)
-- [ ] 文件监听 (外部变更检测)
 - [ ] Git Blame + Worktree 管理
-- [ ] 更智能的任务分解
+- [ ] AST 增量 Diff (代码变更双缓冲增强)
+- [ ] 自动 Lint/编译校验反馈循环
 
 ## 协议支持
 
