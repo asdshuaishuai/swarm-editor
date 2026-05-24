@@ -41,6 +41,7 @@ const (
 	StateExecuting AgentState = "executing"
 	StateWaiting   AgentState = "waiting"
 	StateError     AgentState = "error"
+	StateBlocked   AgentState = "blocked" // HITL: awaiting human approval
 )
 
 // StateBroadcaster broadcasts agent state changes to WebSocket clients.
@@ -200,6 +201,23 @@ func (a *Agent) GetState() AgentState {
 	return a.State
 }
 
+// Block transitions the agent to blocked state (HITL stdin lock).
+// The agent cannot accept new prompts until Unblock is called.
+func (a *Agent) Block() {
+	a.SetState(StateBlocked)
+}
+
+// Unblock transitions the agent back to idle from blocked state.
+func (a *Agent) Unblock() {
+	a.mu.RLock()
+	if a.State != StateBlocked {
+		a.mu.RUnlock()
+		return
+	}
+	a.mu.RUnlock()
+	a.SetState(StateIdle)
+}
+
 // UpdateContext updates the agent's context
 func (a *Agent) UpdateContext(fn func(*AgentContext)) {
 	if fn == nil {
@@ -259,6 +277,14 @@ func (a *Agent) SendUpdate(update *acp.Update) {
 
 // Execute executes a prompt by delegating to an external ACP agent
 func (a *Agent) Execute(ctx context.Context, prompt acp.Prompt) (*ExecutionResult, error) {
+	// HITL stdin lock: reject new prompts while blocked on human approval
+	a.mu.RLock()
+	state := a.State
+	a.mu.RUnlock()
+	if state == StateBlocked {
+		return nil, fmt.Errorf("agent %s is blocked awaiting human approval", a.ID)
+	}
+
 	a.SetState(StateThinking)
 	defer a.SetState(StateIdle)
 

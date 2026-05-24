@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1091,5 +1092,46 @@ func TestAgent_Execute_ServerError(t *testing.T) {
 	_, err = agent.Execute(context.Background(), acp.Prompt{{Type: "text", Text: "test"}})
 	if err == nil {
 		t.Error("expected error when server SessionPrompt fails")
+	}
+}
+
+func TestAgent_BlockUnblock(t *testing.T) {
+	a := NewAgent("test-block", AgentTypeCoder)
+
+	if a.GetState() != StateIdle {
+		t.Fatalf("expected idle, got %s", a.GetState())
+	}
+
+	a.Block()
+	if a.GetState() != StateBlocked {
+		t.Fatalf("expected blocked, got %s", a.GetState())
+	}
+
+	a.Unblock()
+	if a.GetState() != StateIdle {
+		t.Fatalf("expected idle after unblock, got %s", a.GetState())
+	}
+}
+
+func TestAgent_Unblock_NonBlocked(t *testing.T) {
+	a := NewAgent("test-unblock", AgentTypeCoder)
+
+	// Unblock on idle should be no-op
+	a.Unblock()
+	if a.GetState() != StateIdle {
+		t.Fatalf("expected idle, got %s", a.GetState())
+	}
+}
+
+func TestAgent_Execute_Blocked(t *testing.T) {
+	a := NewAgent("test-exec-block", AgentTypeCoder)
+	a.Block()
+
+	_, err := a.Execute(context.Background(), acp.Prompt{{Type: "text", Text: "test"}})
+	if err == nil {
+		t.Fatal("expected error when executing on blocked agent")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("expected blocked error, got: %v", err)
 	}
 }
