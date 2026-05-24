@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -58,6 +59,25 @@ func newTestManager(t *testing.T, serverName string) *Manager {
 	m.mu.Lock()
 	m.clients[serverName] = c
 	m.mu.Unlock()
+
+	// Register the publishDiagnostics handler (same as StartServer does).
+	c.OnNotification("textDocument/publishDiagnostics", func(params json.RawMessage) {
+		var pubParams PublishDiagnosticsParams
+		if err := json.Unmarshal(params, &pubParams); err != nil {
+			return
+		}
+		m.mu.Lock()
+		if _, closed := m.closedDocs[pubParams.URI]; closed {
+			m.mu.Unlock()
+			return
+		}
+		m.diagnostics[pubParams.URI] = pubParams.Diagnostics
+		handler := m.diagHandler
+		m.mu.Unlock()
+		if handler != nil {
+			handler(pubParams.URI, pubParams.Diagnostics)
+		}
+	})
 
 	return m
 }
@@ -206,7 +226,6 @@ func TestManager_StopServer_NotRunning(t *testing.T) {
 }
 
 func TestManager_StopServer_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 
 	if err := m.StopServer("gopls"); err != nil {
@@ -299,7 +318,6 @@ func TestManager_Hover_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Hover_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -329,7 +347,6 @@ func TestManager_Definition_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Definition_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -355,7 +372,6 @@ func TestManager_Implementation_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Implementation_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -381,7 +397,6 @@ func TestManager_TypeDefinition_UnknownFile(t *testing.T) {
 }
 
 func TestManager_TypeDefinition_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -407,7 +422,6 @@ func TestManager_References_UnknownFile(t *testing.T) {
 }
 
 func TestManager_References_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -433,7 +447,6 @@ func TestManager_SignatureHelp_UnknownFile(t *testing.T) {
 }
 
 func TestManager_SignatureHelp_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -459,7 +472,6 @@ func TestManager_DocumentSymbols_UnknownFile(t *testing.T) {
 }
 
 func TestManager_DocumentSymbols_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -485,7 +497,6 @@ func TestManager_CodeActions_UnknownFile(t *testing.T) {
 }
 
 func TestManager_CodeActions_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -511,7 +522,6 @@ func TestManager_Rename_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Rename_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -537,7 +547,6 @@ func TestManager_Formatting_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Formatting_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -563,7 +572,6 @@ func TestManager_RangeFormatting_UnknownFile(t *testing.T) {
 }
 
 func TestManager_RangeFormatting_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -589,7 +597,6 @@ func TestManager_SelectionRanges_UnknownFile(t *testing.T) {
 }
 
 func TestManager_SelectionRanges_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -616,7 +623,6 @@ func TestManager_OnTypeFormatting_UnknownFile(t *testing.T) {
 }
 
 func TestManager_OnTypeFormatting_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -642,7 +648,6 @@ func TestManager_DocumentHighlight_UnknownFile(t *testing.T) {
 }
 
 func TestManager_DocumentHighlight_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -668,7 +673,6 @@ func TestManager_InlayHints_UnknownFile(t *testing.T) {
 }
 
 func TestManager_InlayHints_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -694,7 +698,6 @@ func TestManager_FoldingRanges_UnknownFile(t *testing.T) {
 }
 
 func TestManager_FoldingRanges_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -720,7 +723,6 @@ func TestManager_Completion_UnknownFile(t *testing.T) {
 }
 
 func TestManager_Completion_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -771,7 +773,6 @@ func TestManager_SemanticTokens_UnknownFile(t *testing.T) {
 }
 
 func TestManager_SemanticTokens_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -821,7 +822,6 @@ func TestManager_DocumentLinks_UnknownFile(t *testing.T) {
 }
 
 func TestManager_DocumentLinks_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -847,7 +847,6 @@ func TestManager_CodeLenses_UnknownFile(t *testing.T) {
 }
 
 func TestManager_CodeLenses_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -873,7 +872,6 @@ func TestManager_PrepareCallHierarchy_UnknownFile(t *testing.T) {
 }
 
 func TestManager_PrepareCallHierarchy_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -896,7 +894,6 @@ func TestManager_CallHierarchyIncomingCalls_UnknownFile(t *testing.T) {
 }
 
 func TestManager_CallHierarchyIncomingCalls_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -920,7 +917,6 @@ func TestManager_CallHierarchyOutgoingCalls_UnknownFile(t *testing.T) {
 }
 
 func TestManager_CallHierarchyOutgoingCalls_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -947,7 +943,6 @@ func TestManager_PrepareTypeHierarchy_UnknownFile(t *testing.T) {
 }
 
 func TestManager_PrepareTypeHierarchy_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -981,7 +976,6 @@ func TestManager_TypeHierarchySubtypes_UnknownFile(t *testing.T) {
 }
 
 func TestManager_TypeHierarchySupertypes_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -994,7 +988,6 @@ func TestManager_TypeHierarchySupertypes_InjectedClient(t *testing.T) {
 }
 
 func TestManager_TypeHierarchySubtypes_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -1217,7 +1210,6 @@ func TestManager_SupportsIncrementalSync_NoClient(t *testing.T) {
 }
 
 func TestManager_SupportsIncrementalSync_InjectedClient(t *testing.T) {
-	t.Skip("requires real LSP connection")
 	m := newTestManager(t, "gopls")
 	defer m.Close()
 
@@ -1447,5 +1439,482 @@ func TestManager_ResolveWorkspacePath_CurrentDir(t *testing.T) {
 	// so it may return a parent directory, not cwd itself.
 	if path == "" {
 		t.Error("ResolveWorkspacePath should not return empty string")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// StartServer additional coverage
+// ---------------------------------------------------------------------------
+
+func TestManager_StartServer_UnknownLanguage(t *testing.T) {
+	m := NewManager("/tmp", NewScanner())
+	defer m.Close()
+
+	err := m.StartServer(context.Background(), "cobol")
+	if err == nil {
+		t.Error("expected error for unknown language")
+	}
+	if !strings.Contains(err.Error(), "no LSP server configured") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestManager_StartServer_LanguageByID(t *testing.T) {
+	m := NewManager("/tmp", NewScanner())
+	defer m.Close()
+
+	// "go" is the language ID for .go files. StartServer should resolve it
+	// through the languageIDs reverse lookup. Whether it succeeds or fails
+	// depends on whether gopls is installed; just verify no panic.
+	_ = m.StartServer(context.Background(), "go")
+}
+
+func TestManager_StartServer_AlreadyInitialized(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	// The client is already initialized; StartServer should return nil.
+	err := m.StartServer(context.Background(), "go")
+	if err != nil {
+		t.Errorf("StartServer on already-initialized client: %v", err)
+	}
+}
+
+func TestManager_StartServer_NotInstalled(t *testing.T) {
+	m := NewManager("/tmp", NewScanner())
+	defer m.Close()
+
+	err := m.StartServer(context.Background(), "python")
+	if err == nil {
+		t.Error("expected error when pyright not installed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetClient additional coverage
+// ---------------------------------------------------------------------------
+
+func TestManager_GetClient_UninitializedClient(t *testing.T) {
+	m := NewManager("/tmp", NewScanner())
+	defer m.Close()
+
+	// Inject an uninitialized client for gopls.
+	c := NewClient()
+	c.mu.Lock()
+	c.initialized = false
+	c.serverName = "gopls"
+	c.closed = true // prevent Close from sending shutdown
+	c.mu.Unlock()
+
+	m.mu.Lock()
+	m.clients["gopls"] = c
+	m.mu.Unlock()
+
+	// GetClient should try to StartServer. Whether it succeeds depends on
+	// whether gopls is installed. Just verify no panic.
+	_, _ = m.GetClient(context.Background(), "main.go")
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics notification handler (publishDiagnostics)
+// ---------------------------------------------------------------------------
+
+func TestManager_DiagnosticsNotification_StoresDiagnostics(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	uri := "file:///tmp/test_diag.go"
+
+	// Simulate a publishDiagnostics notification being received by the client.
+	// We'll call the notification handler directly.
+	m.mu.RLock()
+	client := m.clients["gopls"]
+	m.mu.RUnlock()
+
+	diagParams := PublishDiagnosticsParams{
+		URI: uri,
+		Diagnostics: []Diagnostic{
+			{Message: "unused import", Severity: SeverityWarning},
+			{Message: "syntax error", Severity: SeverityError},
+		},
+	}
+	params, _ := json.Marshal(diagParams)
+
+	// Get the registered handler and call it.
+	client.mu.Lock()
+	handler := client.handlers["textDocument/publishDiagnostics"]
+	client.mu.Unlock()
+
+	if handler == nil {
+		t.Fatal("publishDiagnostics handler not registered")
+	}
+
+	handler(params)
+
+	diags := m.GetDiagnostics(uri)
+	if len(diags) != 2 {
+		t.Fatalf("expected 2 diagnostics, got %d", len(diags))
+	}
+	if diags[0].Message != "unused import" {
+		t.Errorf("diag[0] message = %q, want 'unused import'", diags[0].Message)
+	}
+	if diags[1].Message != "syntax error" {
+		t.Errorf("diag[1] message = %q, want 'syntax error'", diags[1].Message)
+	}
+}
+
+func TestManager_DiagnosticsNotification_SuppressesClosedDoc(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	uri := "file:///tmp/closed_doc.go"
+
+	// Mark the document as closed.
+	m.mu.Lock()
+	m.closedDocs[uri] = struct{}{}
+	m.mu.Unlock()
+
+	// Send a publishDiagnostics notification for the closed document.
+	m.mu.RLock()
+	client := m.clients["gopls"]
+	m.mu.RUnlock()
+
+	diagParams := PublishDiagnosticsParams{
+		URI: uri,
+		Diagnostics: []Diagnostic{
+			{Message: "stale diagnostic", Severity: SeverityError},
+		},
+	}
+	params, _ := json.Marshal(diagParams)
+
+	client.mu.Lock()
+	handler := client.handlers["textDocument/publishDiagnostics"]
+	client.mu.Unlock()
+
+	handler(params)
+
+	// Diagnostics should be suppressed for closed docs.
+	diags := m.GetDiagnostics(uri)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for closed doc, got %d", len(diags))
+	}
+}
+
+func TestManager_DiagnosticsNotification_InvalidJSON(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	m.mu.RLock()
+	client := m.clients["gopls"]
+	m.mu.RUnlock()
+
+	client.mu.Lock()
+	handler := client.handlers["textDocument/publishDiagnostics"]
+	client.mu.Unlock()
+
+	// Invalid JSON should not panic.
+	handler([]byte("not valid json"))
+
+	// Verify no diagnostics were stored.
+	all := m.GetAllDiagnostics()
+	if len(all) != 0 {
+		t.Errorf("expected 0 diagnostics after invalid JSON, got %d URIs", len(all))
+	}
+}
+
+func TestManager_DiagnosticsNotification_WithCallback(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	var receivedURI string
+	var receivedDiags []Diagnostic
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	m.OnDiagnostics(func(uri string, diags []Diagnostic) {
+		receivedURI = uri
+		receivedDiags = diags
+		wg.Done()
+	})
+
+	uri := "file:///tmp/callback_test.go"
+
+	m.mu.RLock()
+	client := m.clients["gopls"]
+	m.mu.RUnlock()
+
+	diagParams := PublishDiagnosticsParams{
+		URI: uri,
+		Diagnostics: []Diagnostic{
+			{Message: "test callback", Severity: SeverityHint},
+		},
+	}
+	params, _ := json.Marshal(diagParams)
+
+	client.mu.Lock()
+	handler := client.handlers["textDocument/publishDiagnostics"]
+	client.mu.Unlock()
+
+	handler(params)
+	wg.Wait()
+
+	if receivedURI != uri {
+		t.Errorf("callback uri = %q, want %q", receivedURI, uri)
+	}
+	if len(receivedDiags) != 1 || receivedDiags[0].Message != "test callback" {
+		t.Errorf("callback diags = %v, want one diag with 'test callback'", receivedDiags)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DidOpen / DidChange / DidClose / DidSave with injected client
+// ---------------------------------------------------------------------------
+
+func TestManager_DidOpen_WithClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	uri := "file:///tmp/test_didopen.go"
+	m.DidOpen(context.Background(), uri, "/tmp/test_didopen.go", "package main\n")
+
+	m.mu.RLock()
+	doc, ok := m.openDocs[uri]
+	m.mu.RUnlock()
+
+	if !ok {
+		t.Fatal("openDocs should have entry after DidOpen")
+	}
+	if doc.language != "go" {
+		t.Errorf("language = %q, want 'go'", doc.language)
+	}
+}
+
+func TestManager_DidChange_WithClient_NoOpenDoc(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	// DidChange without prior DidOpen -- should not panic,
+	// just increment version.
+	filename := "/tmp/no_open.go"
+	m.DidChange(filename, "new content")
+
+	uri := toFileURI(filename)
+	m.mu.RLock()
+	v := m.docVersion[uri]
+	m.mu.RUnlock()
+
+	if v != 1 {
+		t.Errorf("docVersion = %d, want 1", v)
+	}
+}
+
+func TestManager_DidClose_WithClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	filename := "/tmp/test_close.go"
+	uri := toFileURI(filename)
+
+	// Add some state to clean up.
+	m.mu.Lock()
+	m.diagnostics[uri] = []Diagnostic{{Message: "err"}}
+	m.openDocs[uri] = openDocInfo{uri: uri, language: "go", content: "x", filename: filename}
+	m.mu.Unlock()
+
+	m.DidClose(filename)
+
+	m.mu.RLock()
+	_, hasDiag := m.diagnostics[uri]
+	_, hasOpen := m.openDocs[uri]
+	_, hasClosed := m.closedDocs[uri]
+	v := m.docVersion[uri]
+	m.mu.RUnlock()
+
+	if hasDiag {
+		t.Error("diagnostics should be cleared after DidClose")
+	}
+	if hasOpen {
+		t.Error("openDocs should be cleared after DidClose")
+	}
+	if !hasClosed {
+		t.Error("closedDocs should have entry after DidClose")
+	}
+	if v != 0 {
+		t.Errorf("docVersion should be cleared, got %d", v)
+	}
+}
+
+func TestManager_DidSave_WithClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	text := "package main\n"
+	// Should not panic.
+	m.DidSave("/tmp/test_save.go", &text)
+	m.DidSave("/tmp/test_save.go", nil)
+}
+
+func TestManager_DidChangeIncremental_NoClient(t *testing.T) {
+	m := NewManager("/tmp", NewScanner())
+	defer m.Close()
+
+	// No client for gopls -- should return early without panic.
+	m.DidChangeIncremental("main.go", []TextDocumentContentChangeEvent{
+		{Text: "change"},
+	})
+}
+
+func TestManager_SupportsIncrementalSync_WithInjectedClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	// Injected client has supportsIncremental=false by default.
+	if m.SupportsIncrementalSync("main.go") {
+		t.Error("should not support incremental sync by default")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FileURI helper
+// ---------------------------------------------------------------------------
+
+func TestFileURI_WorkspaceRelative(t *testing.T) {
+	got := FileURI("/workspace", "src/main.go")
+	want := "file:///workspace/src/main.go"
+	if got != want {
+		t.Errorf("FileURI(/workspace, src/main.go) = %q, want %q", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetServerName / GetLanguageID edge cases
+// ---------------------------------------------------------------------------
+
+func TestGetServerName_Known(t *testing.T) {
+	tests := []struct {
+		filename string
+		server   string
+	}{
+		{"main.go", "gopls"},
+		{"lib.rs", "rust-analyzer"},
+		{"app.py", "pyright"},
+		{"index.ts", "typescript-language-server"},
+		{"Component.tsx", "typescript-language-server"},
+		{"app.js", "typescript-language-server"},
+		{"App.jsx", "typescript-language-server"},
+		{"Main.java", "jdtls"},
+		{"main.c", "clangd"},
+		{"main.cpp", "clangd"},
+		{"main.cc", "clangd"},
+		{"main.cxx", "clangd"},
+		{"header.h", "clangd"},
+		{"header.hpp", "clangd"},
+		{"Program.cs", "omnisharp"},
+		{"Script.csx", "omnisharp"},
+		{"app.mbr", "moon"},
+	}
+	for _, tt := range tests {
+		got := GetServerName(tt.filename)
+		if got != tt.server {
+			t.Errorf("GetServerName(%q) = %q, want %q", tt.filename, got, tt.server)
+		}
+	}
+}
+
+func TestGetServerName_Unknown(t *testing.T) {
+	got := GetServerName("readme.md")
+	if got != "" {
+		t.Errorf("GetServerName(readme.md) = %q, want empty", got)
+	}
+}
+
+func TestGetLanguageID_Known(t *testing.T) {
+	tests := []struct {
+		filename string
+		lang     string
+	}{
+		{"main.go", "go"},
+		{"lib.rs", "rust"},
+		{"app.py", "python"},
+		{"index.ts", "typescript"},
+		{"Component.tsx", "typescriptreact"},
+		{"app.js", "javascript"},
+		{"App.jsx", "javascriptreact"},
+		{"Main.java", "java"},
+		{"main.c", "c"},
+		{"main.cpp", "cpp"},
+		{"Program.cs", "csharp"},
+		{"app.mbr", "moonbit"},
+	}
+	for _, tt := range tests {
+		got := GetLanguageID(tt.filename)
+		if got != tt.lang {
+			t.Errorf("GetLanguageID(%q) = %q, want %q", tt.filename, got, tt.lang)
+		}
+	}
+}
+
+func TestGetLanguageID_Unknown(t *testing.T) {
+	got := GetLanguageID("data.csv")
+	if got != "" {
+		t.Errorf("GetLanguageID(data.csv) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SemanticTokensRange with injected client
+// ---------------------------------------------------------------------------
+
+func TestManager_SemanticTokensRange_InjectedClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := m.SemanticTokensRange(ctx, "file:///tmp/main.go", "main.go", 0, 0, 10, 50)
+	_ = err
+}
+
+// ---------------------------------------------------------------------------
+// GetSemanticTokensLegend with injected client
+// ---------------------------------------------------------------------------
+
+func TestManager_GetSemanticTokensLegend_WithClient(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	// Injected client has no semanticTokensLegend set, so should return nil.
+	legend := m.GetSemanticTokensLegend("main.go")
+	if legend != nil {
+		t.Error("expected nil legend for client without semantic tokens support")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DidOpen clears closedDocs
+// ---------------------------------------------------------------------------
+
+func TestManager_DidOpen_ClearsClosedDocs(t *testing.T) {
+	m := newTestManager(t, "gopls")
+	defer m.Close()
+
+	uri := "file:///tmp/reopen.go"
+	filename := "/tmp/reopen.go"
+
+	// Simulate a previous close.
+	m.mu.Lock()
+	m.closedDocs[uri] = struct{}{}
+	m.mu.Unlock()
+
+	// Re-opening should clear the closedDocs entry.
+	m.DidOpen(context.Background(), uri, filename, "package main")
+
+	m.mu.RLock()
+	_, closed := m.closedDocs[uri]
+	m.mu.RUnlock()
+
+	if closed {
+		t.Error("closedDocs should be cleared after DidOpen")
 	}
 }
