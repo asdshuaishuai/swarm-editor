@@ -45,6 +45,12 @@ export interface SkillInfo {
   tags?: string[]
 }
 
+export interface LogEntry {
+  line: string
+  stream: 'stdout' | 'stderr'
+  timestamp: string
+}
+
 export interface FileEntry {
   name: string
   path: string
@@ -322,6 +328,10 @@ export const agentApi = {
 
   async getConfigPath(): Promise<string> {
     return getClient().invoke<string>('get_config_path')
+  },
+
+  async getAgentLogs(agentId: string, count = 100): Promise<LogEntry[]> {
+    return getClient().invoke<LogEntry[]>('get_agent_logs', { agentId, count })
   },
 }
 
