@@ -11,10 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/log"
 )
+
+var auditSeq atomic.Uint64
 
 var auditLog = log.With("component", "Audit")
 
@@ -44,13 +47,19 @@ type Event struct {
 	Error        string         `json:"error,omitempty"`
 }
 
+// EventBroadcaster streams audit events to UI clients.
+type EventBroadcaster interface {
+	Broadcast(eventType string, payload any)
+}
+
 // Logger provides thread-safe audit logging with file persistence.
 type Logger struct {
-	mu       sync.RWMutex
-	events   []Event
-	maxSize  int    // max events in memory before rotation
-	filePath string // path to audit log file
-	enabled  bool
+	mu          sync.RWMutex
+	events      []Event
+	maxSize     int    // max events in memory before rotation
+	filePath    string // path to audit log file
+	enabled     bool
+	broadcaster EventBroadcaster
 }
 
 // NewLogger creates a new audit logger.
@@ -80,6 +89,13 @@ func (l *Logger) Enable(enabled bool) {
 	l.mu.Lock()
 	l.enabled = enabled
 	l.mu.Unlock()
+}
+
+// SetBroadcaster wires the event broadcaster for real-time audit streaming.
+func (l *Logger) SetBroadcaster(b EventBroadcaster) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.broadcaster = b
 }
 
 // IsEnabled returns whether audit logging is enabled.
@@ -127,6 +143,25 @@ func (l *Logger) Log(eventType, actor, action, resourceType, resourceID string, 
 	if l.filePath != "" {
 		l.appendToFile(redactEvent(event))
 	}
+
+	// Broadcast to UI clients for real-time monitoring
+	if bc := l.broadcaster; bc != nil {
+		eventID := fmt.Sprintf("audit_%d_%d", event.Timestamp.UnixMilli(), auditSeq.Add(1))
+		bc.Broadcast("audit_event", map[string]any{
+			"id":           eventID,
+			"timestamp":    event.Timestamp.Format(time.RFC3339),
+			"eventType":    event.EventType,
+			"actor":        event.Actor,
+			"action":       event.Action,
+			"resourceType": event.ResourceType,
+			"resourceId":   event.ResourceID,
+			"details":      event.Details,
+			"success":      event.Success,
+		})
+		bc.Broadcast("audit_stats_changed", map[string]any{
+			"totalEvents": len(l.events),
+		})
+	}
 }
 
 // LogWithMetadata records an audit event with IP and User-Agent.
@@ -166,6 +201,24 @@ func (l *Logger) LogWithMetadata(eventType, actor, action, resourceType, resourc
 
 	if l.filePath != "" {
 		l.appendToFile(redactEvent(event))
+	}
+
+	if bc := l.broadcaster; bc != nil {
+		eventID := fmt.Sprintf("audit_%d_%d", event.Timestamp.UnixMilli(), auditSeq.Add(1))
+		bc.Broadcast("audit_event", map[string]any{
+			"id":           eventID,
+			"timestamp":    event.Timestamp.Format(time.RFC3339),
+			"eventType":    event.EventType,
+			"actor":        event.Actor,
+			"action":       event.Action,
+			"resourceType": event.ResourceType,
+			"resourceId":   event.ResourceID,
+			"details":      event.Details,
+			"success":      event.Success,
+		})
+		bc.Broadcast("audit_stats_changed", map[string]any{
+			"totalEvents": len(l.events),
+		})
 	}
 }
 

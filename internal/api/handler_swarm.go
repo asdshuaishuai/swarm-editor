@@ -25,6 +25,16 @@ func (h *CommandHandler) handleGetSwarms(ctx context.Context, params json.RawMes
 			Status:     stats.State,
 			AgentCount: stats.AgentCount,
 			TaskCount:  stats.PendingTasks + stats.CompletedTasks,
+			Stats: &SwarmStatsInfo{
+				AgentCount:      stats.AgentCount,
+				IdleAgents:      stats.IdleAgents,
+				ExecutingAgents: stats.ExecutingAgents,
+				PendingTasks:    stats.PendingTasks,
+				CompletedTasks:  stats.CompletedTasks,
+				Topology:        stats.Topology,
+				Strategy:        stats.Strategy,
+				State:           stats.State,
+			},
 		})
 	}
 
@@ -43,6 +53,16 @@ func (h *CommandHandler) handleCreateSwarm(ctx context.Context, params json.RawM
 	}
 	if len(req.Name) > maxNameLen {
 		return nil, errValidation(fmt.Sprintf("name exceeds %d characters", maxNameLen))
+	}
+	switch req.Topology {
+	case "star", "mesh", "tree", "ring", "hybrid", "":
+	default:
+		return nil, errValidation("invalid topology: " + req.Topology)
+	}
+	switch req.Strategy {
+	case "round_robin", "least_loaded", "priority", "capability", "":
+	default:
+		return nil, errValidation("invalid strategy: " + req.Strategy)
 	}
 
 	cfg := swarm.SwarmConfig{
@@ -72,7 +92,7 @@ func (h *CommandHandler) handleCreateSwarm(ctx context.Context, params json.RawM
 		Name:       cfg.Name,
 		Topology:   req.Topology,
 		Strategy:   req.Strategy,
-		Status:     "created",
+		Status:     StatusCreated,
 		AgentCount: len(req.AgentIDs),
 	}, nil
 }
@@ -99,7 +119,14 @@ func (h *CommandHandler) handleStartSwarm(ctx context.Context, params json.RawMe
 		return nil, safeError("failed to start swarm", err)
 	}
 
-	return map[string]string{"status": "started"}, nil
+	if hub := h.server.Hub(); hub != nil {
+		hub.Broadcast("swarm_status_change", map[string]any{
+			"swarmId": req.ID,
+			"status":  StatusRunning,
+		})
+	}
+
+	return map[string]string{"status": StatusStarted}, nil
 }
 
 func (h *CommandHandler) handleStopSwarm(ctx context.Context, params json.RawMessage) (any, error) {
@@ -123,7 +150,15 @@ func (h *CommandHandler) handleStopSwarm(ctx context.Context, params json.RawMes
 	if err := sw.Stop(); err != nil {
 		return nil, safeError("failed to stop swarm", err)
 	}
-	return map[string]string{"status": "stopped"}, nil
+
+	if hub := h.server.Hub(); hub != nil {
+		hub.Broadcast("swarm_status_change", map[string]any{
+			"swarmId": req.ID,
+			"status":  StatusStopped,
+		})
+	}
+
+	return map[string]string{"status": StatusStopped}, nil
 }
 
 func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMessage) (any, error) {
@@ -141,6 +176,14 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 	}
 
 	// Validate input lengths
+	req.SwarmID = strings.TrimSpace(req.SwarmID)
+	if req.SwarmID == "" {
+		return nil, errValidation("swarmId is required")
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		return nil, errValidation("title is required")
+	}
 	if len(req.Title) > maxTitleLen {
 		return nil, errValidation(fmt.Sprintf("title exceeds %d characters", maxTitleLen))
 	}
@@ -157,8 +200,17 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 
 	// Default priority
 	priority := swarm.PriorityMedium
-	if req.Priority != "" {
-		priority = swarm.TaskPriority(req.Priority)
+	switch req.Priority {
+	case "high":
+		priority = swarm.PriorityHigh
+	case "medium", "":
+		priority = swarm.PriorityMedium
+	case "low":
+		priority = swarm.PriorityLow
+	case "critical":
+		priority = swarm.PriorityCritical
+	default:
+		return nil, errValidation("invalid priority: " + req.Priority)
 	}
 
 	// Build metadata from new fields
@@ -191,7 +243,7 @@ func (h *CommandHandler) handleSubmitTask(ctx context.Context, params json.RawMe
 		ID:          taskID,
 		Title:       req.Title,
 		Description: req.Description,
-		Status:      "pending",
+		Status:      StatusPending,
 		Priority:    string(priority),
 		CreatedAt:   time.Now().Format(time.RFC3339),
 	}, nil
@@ -278,6 +330,16 @@ func (h *CommandHandler) handleGetSwarm(ctx context.Context, params json.RawMess
 		"agentCount":    stats.AgentCount,
 		"taskCount":     stats.PendingTasks + stats.CompletedTasks,
 		"coordinatorId": coordinatorID,
+		"stats": map[string]any{
+			"agentCount":      stats.AgentCount,
+			"idleAgents":      stats.IdleAgents,
+			"executingAgents": stats.ExecutingAgents,
+			"pendingTasks":    stats.PendingTasks,
+			"completedTasks":  stats.CompletedTasks,
+			"topology":        stats.Topology,
+			"strategy":        stats.Strategy,
+			"state":           stats.State,
+		},
 	}, nil
 }
 
@@ -300,7 +362,7 @@ func (h *CommandHandler) handleDeleteSwarm(ctx context.Context, params json.RawM
 	}
 	h.server.RemoveSwarm(req.ID)
 
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
+	return map[string]string{"id": req.ID, "status": StatusDeleted}, nil
 }
 
 func (h *CommandHandler) handleExecuteTask(ctx context.Context, params json.RawMessage) (any, error) {
@@ -337,7 +399,7 @@ func (h *CommandHandler) handleExecuteTask(ctx context.Context, params json.RawM
 
 	return map[string]any{
 		"taskId": req.TaskID,
-		"status": "completed",
+		"status": StatusCompleted,
 		"output": result.Content,
 		"agentResults": func() map[string]any {
 			m := make(map[string]any, len(result.AgentResults))
@@ -398,7 +460,7 @@ func (h *CommandHandler) handleCancelTask(ctx context.Context, params json.RawMe
 
 	return map[string]any{
 		"taskId": req.TaskID,
-		"status": "cancelled",
+		"status": StatusCancelled,
 	}, nil
 }
 

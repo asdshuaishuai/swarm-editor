@@ -85,7 +85,7 @@ export default function SettingsPanel() {
       setInstructionsContent(result.content)
       setInstructionsFiles(result.files || [])
     } catch {
-      // Workspace may not exist yet
+      logger.debug('SettingsPanel', 'Workspace may not exist yet')
     }
     setInstructionsLoaded(true)
   }, [])

@@ -553,6 +553,7 @@ export function CommandPalette() {
       setSymbolsLoading(false)
     }).catch(() => {
       if (!cancelled) { setDocSymbols([]); setSymbolsLoading(false) }
+      logger.debug('CommandPalette', 'document symbols failed')
     })
     return () => { cancelled = true }
   }, [isSymbolMode, currentFile])
@@ -601,6 +602,7 @@ export function CommandPalette() {
       setWorkspaceSymbolsLoading(false)
     }).catch(() => {
       if (!cancelled) { setWorkspaceSymbols([]); setWorkspaceSymbolsLoading(false) }
+      logger.debug('CommandPalette', 'workspace symbols failed')
     })
     return () => { cancelled = true }
   }, [isWorkspaceSymbolMode, query])

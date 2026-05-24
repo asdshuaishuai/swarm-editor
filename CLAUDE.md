@@ -45,11 +45,12 @@ go build -o bin/swarm-agent ./cmd/swarm-agent
 # 运行单个测试
 go test -v -run TestName ./internal/swarm/...
 
-# UI 前端
-cd ui && npm run dev    # 开发服务器
-cd ui && npm run test   # 运行 UI 测试
+# UI 前端 (Tauri 桌面客户端)
+cd ui && npx tauri dev          # 开发运行 (Tauri 桌面窗口 + Go 后端 + Vite 热重载)
+cd ui && npx tauri build        # 构建桌面安装包 (.app/.exe/.deb)
+cd ui && npm run test           # 运行 UI 测试
 cd ui && npm run test:coverage  # UI 测试覆盖率
-cd ui && npm run build  # 生产构建
+# 注意: npm run dev 仅是 Vite HTTP 服务，仅供 Tauri devUrl 内部使用，不要直接用于开发验证
 ```
 
 ## 架构

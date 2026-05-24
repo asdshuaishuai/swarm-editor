@@ -646,6 +646,7 @@ describe('SwarmCard component', () => {
         onSelect={() => {}}
         onStart={() => {}}
         onStop={() => {}}
+        onDelete={() => {}}
       />
     )
 
@@ -662,6 +663,7 @@ describe('SwarmCard component', () => {
         onSelect={() => {}}
         onStart={() => {}}
         onStop={() => {}}
+        onDelete={() => {}}
       />
     )
 
@@ -679,6 +681,7 @@ describe('SwarmCard component', () => {
         onSelect={handleSelect}
         onStart={() => {}}
         onStop={() => {}}
+        onDelete={() => {}}
       />
     )
 
@@ -696,6 +699,7 @@ describe('SwarmCard component', () => {
         onSelect={() => {}}
         onStart={handleStart}
         onStop={() => {}}
+        onDelete={() => {}}
       />
     )
 
@@ -714,6 +718,7 @@ describe('SwarmCard component', () => {
         onSelect={() => {}}
         onStart={() => {}}
         onStop={handleStop}
+        onDelete={() => {}}
       />
     )
 
@@ -721,6 +726,24 @@ describe('SwarmCard component', () => {
     const stopBtn = screen.getByTitle('Stop Swarm')
     fireEvent.click(stopBtn)
     expect(handleStop).toHaveBeenCalled()
+  })
+
+  it('calls onDelete when delete button clicked', () => {
+    const handleDelete = vi.fn()
+    render(
+      <SwarmCard
+        swarm={mockSwarm}
+        isActive={false}
+        onSelect={() => {}}
+        onStart={() => {}}
+        onStop={() => {}}
+        onDelete={handleDelete}
+      />
+    )
+
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    fireEvent.click(deleteBtn)
+    expect(handleDelete).toHaveBeenCalled()
   })
 })
 
@@ -925,6 +948,9 @@ describe('SwarmPanel successful operations', () => {
         executingAgents: 0,
         pendingTasks: 0,
         completedTasks: 0,
+        topology: '',
+        strategy: '',
+        state: '',
       },
       createdAt: new Date().toISOString(),
     })
@@ -977,6 +1003,9 @@ describe('SwarmPanel successful operations', () => {
         executingAgents: 0,
         pendingTasks: 0,
         completedTasks: 0,
+        topology: '',
+        strategy: '',
+        state: '',
       },
       createdAt: new Date().toISOString(),
     })
@@ -1035,6 +1064,9 @@ describe('SwarmPanel successful operations', () => {
         executingAgents: 0,
         pendingTasks: 0,
         completedTasks: 0,
+        topology: '',
+        strategy: '',
+        state: '',
       },
       createdAt: new Date().toISOString(),
     })
@@ -1102,6 +1134,9 @@ describe('SwarmPanel successful operations', () => {
           executingAgents: 1,
           pendingTasks: 0,
           completedTasks: 5,
+          topology: '',
+          strategy: '',
+          state: '',
         },
         createdAt: new Date().toISOString(),
       },

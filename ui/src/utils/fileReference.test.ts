@@ -3,6 +3,8 @@ import {
   parseFileReferences,
   extractFilePaths,
   stripFileReferences,
+  formatFileReferences,
+  processFileReferences,
   isCursorInFileReference,
   getFileCompletions,
   getLanguageFromExtension,
@@ -271,5 +273,52 @@ describe('expandGlob', () => {
   it('should return empty array for no matches', () => {
     const result = expandGlob('**/*.xyz', files)
     expect(result).toHaveLength(0)
+  })
+})
+
+describe('formatFileReferences', () => {
+  it('replaces reference with formatted code block', () => {
+    const text = 'Look at @File app.ts'
+    const refs = parseFileReferences(text)
+    const contents = new Map([['app.ts', 'console.log("hello")']])
+    const result = formatFileReferences(text, refs, contents)
+    expect(result).toContain('```typescript:app.ts')
+    expect(result).toContain('console.log("hello")')
+    expect(result).not.toContain('@File')
+  })
+
+  it('removes reference if content not available', () => {
+    const text = 'See @File missing.ts here'
+    const refs = parseFileReferences(text)
+    const result = formatFileReferences(text, refs, new Map())
+    expect(result).not.toContain('@File')
+    expect(result).toContain('here')
+  })
+
+  it('handles multiple references', () => {
+    const text = '@File a.ts and @File b.ts'
+    const refs = parseFileReferences(text)
+    const contents = new Map([['a.ts', 'codeA'], ['b.ts', 'codeB']])
+    const result = formatFileReferences(text, refs, contents)
+    expect(result).toContain('codeA')
+    expect(result).toContain('codeB')
+  })
+})
+
+describe('processFileReferences', () => {
+  it('returns full context with references', () => {
+    const text = 'Check @File app.ts'
+    const contents = new Map([['app.ts', 'code']])
+    const ctx = processFileReferences(text, contents)
+    expect(ctx.hasReferences).toBe(true)
+    expect(ctx.filePaths).toEqual(['app.ts'])
+    expect(ctx.formattedPrompt).toContain('```typescript:app.ts')
+  })
+
+  it('returns no references context', () => {
+    const ctx = processFileReferences('no refs', new Map())
+    expect(ctx.hasReferences).toBe(false)
+    expect(ctx.filePaths).toEqual([])
+    expect(ctx.formattedPrompt).toBe('no refs')
   })
 })

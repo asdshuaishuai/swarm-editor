@@ -63,7 +63,7 @@ export default function AgentScannerPanel() {
         endpoint: agent.command || '',
         capabilities: agent.capabilities || [],
         lastSeen: agent.lastActive || new Date().toISOString(),
-        status: agent.status === 'running' ? 'available' : 'unreachable',
+        status: agent.status && agent.status !== 'error' ? 'available' : 'unreachable',
       }))
       setDiscoveredAgents(discovered)
       setLastScan(new Date())
@@ -126,7 +126,7 @@ export default function AgentScannerPanel() {
         endpoint: a.command || '',
         capabilities: a.capabilities || [],
         lastSeen: a.lastActive || new Date().toISOString(),
-        status: a.status === 'running' ? 'available' : 'unreachable',
+        status: a.status && a.status !== 'error' ? 'available' : 'unreachable',
       })))
       setDiscoveredMCP(mcp)
       setDiscoveredSkills(skills)
@@ -317,11 +317,11 @@ export default function AgentScannerPanel() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mb-3">
-                      {agent.capabilities.slice(0, 4).map((cap) => (
+                      {(agent.capabilities || []).slice(0, 4).map((cap) => (
                         <span key={`${agent.id}-${cap}`} className="px-2 py-0.5 bg-glass/50 rounded-mac text-xs text-text-secondary">{cap}</span>
                       ))}
-                      {agent.capabilities.length > 4 && (
-                        <span className="px-2 py-0.5 bg-glass/50 rounded-mac text-xs text-text-tertiary">+{agent.capabilities.length - 4} more</span>
+                      {(agent.capabilities || []).length > 4 && (
+                        <span className="px-2 py-0.5 bg-glass/50 rounded-mac text-xs text-text-tertiary">+{(agent.capabilities || []).length - 4} more</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">

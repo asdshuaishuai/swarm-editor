@@ -4,6 +4,7 @@ import {
   Layers, Hexagon, Braces, Zap, Search, ChevronsDownUp
 } from 'lucide-react'
 import { lspApi } from '../services/lspApi'
+import { logger } from '../utils'
 
 // LSP SymbolKind enum (subset we care about)
 const SymbolKind = {
@@ -243,6 +244,7 @@ export function OutlinePanel({ filePath, onSymbolClick }: OutlinePanelProps) {
         })
         setExpandedSymbols(firstLevelIds)
       } catch {
+        logger.debug('OutlinePanel', 'Failed to load symbols')
         setError('Failed to load symbols')
         setSymbols([])
       } finally {

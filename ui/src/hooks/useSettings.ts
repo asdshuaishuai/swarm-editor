@@ -226,6 +226,8 @@ export function saveSettings(settings: Settings): void {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+      // Notify other hooks (e.g. useEditorSettings) that settings changed
+      window.dispatchEvent(new CustomEvent('swarm-editor-settings-changed'))
     } catch {
       logger.warn('Settings', 'Failed to save settings to localStorage')
     }

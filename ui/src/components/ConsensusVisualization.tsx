@@ -68,7 +68,7 @@ export default function ConsensusVisualization({
     return () => clearInterval(interval)
   }, [currentRound])
 
-  const getAlgorithmLabel = (algo: ConsensusRound['algorithm']) => {
+  const getAlgorithmLabel = (algo: ConsensusRound['algorithm']): string => {
     switch (algo) {
       case 'simple_majority':
         return 'Simple Majority (>50%)'
@@ -82,6 +82,8 @@ export default function ConsensusVisualization({
         return 'Byzantine Fault Tolerance'
       case 'queen_bee':
         return 'Queen Bee Model'
+      default:
+        return algo
     }
   }
 

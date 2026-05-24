@@ -4633,7 +4633,11 @@ func TestExportImportWorkflow_RoundTrip(t *testing.T) {
 
 	// Verify it's valid JSON by checking it starts with "{"
 	if len(data) == 0 || data[0] != '{' {
-		t.Fatalf("export data is not valid JSON: %s", string(data[:min(100, len(data))]))
+		limit := 100
+		if len(data) < limit {
+			limit = len(data)
+		}
+		t.Fatalf("export data is not valid JSON: %s", string(data[:limit]))
 	}
 
 	// Import into a new workflow

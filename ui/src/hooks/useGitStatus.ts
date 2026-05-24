@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { gitApi } from '../services/api'
 import type { GitFileStatus } from '../services'
+import { logger } from '../utils'
 
 interface UseGitStatusOptions {
   workspace: string | null
@@ -23,7 +24,7 @@ export function useGitStatus(options: UseGitStatusOptions) {
         }
         setGitStatusMap(map)
       } catch {
-        // Not a git repo or git unavailable
+        logger.debug('useGitStatus', 'Not a git repo or git unavailable')
       }
     }
 

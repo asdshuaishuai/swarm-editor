@@ -229,6 +229,18 @@ type SwarmInfo struct {
 	Status     string `json:"status"`
 	AgentCount int    `json:"agentCount"`
 	TaskCount  int    `json:"taskCount"`
+	Stats      *SwarmStatsInfo `json:"stats,omitempty"`
+}
+
+type SwarmStatsInfo struct {
+	AgentCount      int    `json:"agentCount"`
+	IdleAgents      int    `json:"idleAgents"`
+	ExecutingAgents int    `json:"executingAgents"`
+	PendingTasks    int    `json:"pendingTasks"`
+	CompletedTasks  int    `json:"completedTasks"`
+	Topology        string `json:"topology"`
+	Strategy        string `json:"strategy"`
+	State           string `json:"state"`
 }
 
 // TeamInfo represents team information for UI
@@ -439,6 +451,9 @@ type WebSocketServer struct {
 	// Schedule
 	scheduleRunner *swarm.ScheduleRunner // Cron-based schedule runner
 
+	// File watcher
+	fileWatcher *FileWatcher
+
 	// Sessions
 	sessionToAgent  map[string]string            // sessionID -> agentID mapping
 	sessionToMode   map[string]string            // sessionID -> mode mapping
@@ -575,6 +590,7 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 
 	s.handler = NewCommandHandler(s)
 	s.hub = NewClientHub(s)
+	s.fileWatcher = NewFileWatcher(s.hub)
 
 	// Wire LSP diagnostics push: when LSP server sends publishDiagnostics,
 	// broadcast immediately to all connected clients (Cursor/Windsurf pattern).
@@ -653,6 +669,28 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 		s.teamManager.SetA2ARouter(s.a2aRouter)
 	}
 
+	// Connect agent registry to hub for state change broadcasting
+	if s.registry != nil {
+		s.registry.SetBroadcaster(s.hub)
+	}
+
+	// Connect A2A router to hub for message broadcasting
+	if s.a2aRouter != nil {
+		s.a2aRouter.SetBroadcaster(s.hub)
+	}
+
+	// Connect MCP clients to hub for tool/status broadcasting
+	for _, mc := range s.mcpClients {
+		mc.SetBroadcaster(s.hub)
+	}
+
+	// Connect audit logger to hub for real-time audit event streaming
+	if s.orchestrator != nil {
+		if al := s.orchestrator.GetAuditLogger(); al != nil {
+			al.SetBroadcaster(s.hub)
+		}
+	}
+
 	wsLog.Info("Server starting", "addr", s.addr)
 	return server.ListenAndServe()
 }
@@ -680,6 +718,11 @@ func (s *WebSocketServer) Stop() {
 	// Phase 3.5: Stop A2A components
 	s.a2aCoordinator.Stop()
 	s.a2aRouter.Stop()
+
+	// Phase 3.6: Stop file watcher
+	if s.fileWatcher != nil {
+		s.fileWatcher.Stop()
+	}
 
 	// Phase 4: Close all connections
 	s.hub.Stop()
@@ -837,6 +880,25 @@ func (s *WebSocketServer) LSPManager() *lsp.Manager {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lspManager
+}
+
+// SetWorkspace sets the workspace path and starts watching the directory for
+// external file changes. The previous watcher is stopped.
+func (s *WebSocketServer) SetWorkspace(path string) {
+	s.mu.Lock()
+	s.workspacePath = path
+	s.mu.Unlock()
+
+	if s.fileWatcher != nil {
+		if err := s.fileWatcher.Watch(path); err != nil {
+			wsLog.Error("Failed to start file watcher", "path", path, "error", err)
+		}
+	}
+}
+
+// FileWatcher returns the file watcher instance.
+func (s *WebSocketServer) FileWatcher() *FileWatcher {
+	return s.fileWatcher
 }
 
 // ListMCPClients returns all MCP clients
@@ -1185,6 +1247,16 @@ func (h *ClientHub) getSwarmStats() []SwarmInfo {
 			Status:     stats.State,
 			AgentCount: stats.AgentCount,
 			TaskCount:  stats.PendingTasks + stats.CompletedTasks,
+			Stats: &SwarmStatsInfo{
+				AgentCount:      stats.AgentCount,
+				IdleAgents:      stats.IdleAgents,
+				ExecutingAgents: stats.ExecutingAgents,
+				PendingTasks:    stats.PendingTasks,
+				CompletedTasks:  stats.CompletedTasks,
+				Topology:        stats.Topology,
+				Strategy:        stats.Strategy,
+				State:           stats.State,
+			},
 		})
 	}
 	return result

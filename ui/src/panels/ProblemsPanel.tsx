@@ -96,7 +96,7 @@ export default function ProblemsPanel({
     // Scroll focused item into view
     const container = listRef.current
     if (!container) return
-    const items = container.querySelectorAll('[role="listitem"]')
+    const items = container.querySelectorAll('[role="option"]')
     if (items[next]) {
       items[next].scrollIntoView({ block: 'nearest' })
     }

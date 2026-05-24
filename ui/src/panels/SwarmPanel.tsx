@@ -10,6 +10,7 @@ import {
   Loader2,
   Zap,
   X,
+  Trash2,
 } from 'lucide-react'
 import { Swarm, TopologyType, TaskStrategy } from '../types'
 import { api } from '../services'
@@ -200,6 +201,30 @@ export default function SwarmPanel() {
     }
   }
 
+  const [deleteSwarmConfirm, setDeleteSwarmConfirm] = useState<{ id: string; name: string } | null>(null)
+
+  const confirmDeleteSwarm = (swarmId: string, swarmName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleteSwarmConfirm({ id: swarmId, name: swarmName })
+  }
+
+  const handleDeleteSwarm = async () => {
+    if (!deleteSwarmConfirm) return
+    const { id } = deleteSwarmConfirm
+    setDeleteSwarmConfirm(null)
+    try {
+      await api.swarm.deleteSwarm(id)
+      if (!mountedRef.current) return
+      await loadSwarms()
+      if (!mountedRef.current) return
+      addToast('success', 'Swarm deleted')
+    } catch (err) {
+      logger.error('Swarm', 'Failed to delete swarm:', err)
+      if (!mountedRef.current) return
+      addToast('error', 'Failed to delete swarm', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
   const toggleAgentSelection = (agentId: string) => {
     setNewSwarm(prev => ({
       ...prev,
@@ -218,6 +243,7 @@ export default function SwarmPanel() {
       onSelect={() => handleSelectSwarm(swarm)}
       onStart={(e) => handleStartSwarm(swarm.id, e)}
       onStop={(e) => confirmStopSwarm(swarm.id, swarm.name, e)}
+      onDelete={(e) => confirmDeleteSwarm(swarm.id, swarm.name, e)}
     />
   ))
 
@@ -436,6 +462,17 @@ export default function SwarmPanel() {
           onCancel={() => setStopSwarmConfirm(null)}
         />
       )}
+
+      {deleteSwarmConfirm && (
+        <ConfirmDialog
+          title="Delete Swarm"
+          message={`Are you sure you want to delete "${deleteSwarmConfirm.name}"? This action cannot be undone.`}
+          confirmLabel="Delete Swarm"
+          variant="danger"
+          onConfirm={handleDeleteSwarm}
+          onCancel={() => setDeleteSwarmConfirm(null)}
+        />
+      )}
     </div>
   )
 }
@@ -446,9 +483,10 @@ interface SwarmCardProps {
   onSelect: () => void
   onStart: (e: React.MouseEvent) => void
   onStop: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void
 }
 
-export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop }: SwarmCardProps) {
+export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop, onDelete }: SwarmCardProps) {
   const statusColors = {
     initializing: 'bg-warning',
     active: 'bg-success',
@@ -527,6 +565,14 @@ export function SwarmCard({ swarm, isActive, onSelect, onStart, onStop }: SwarmC
             <Square size={14} />
           </button>
         )}
+        <button
+          className="p-2 bg-error/5 hover:bg-error/15 rounded-mac text-text-tertiary hover:text-error transition-colors"
+          onClick={onDelete}
+          title="Delete Swarm"
+          aria-label="Delete Swarm"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
     </div>
   )

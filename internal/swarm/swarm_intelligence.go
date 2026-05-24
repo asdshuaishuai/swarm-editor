@@ -380,7 +380,11 @@ func (s *SwarmIntelligenceScheduler) selectByNegotiation(agents []*AgentInfo, ta
 	s.requestBids(negotiation, task)
 
 	// Wait for bids or timeout (cancellable via context)
-	waitDuration := min(100*time.Millisecond, s.config.NegotiationTimeout/2)
+	halfTimeout := s.config.NegotiationTimeout / 2
+	waitDuration := 100 * time.Millisecond
+	if halfTimeout < waitDuration {
+		waitDuration = halfTimeout
+	}
 	// Guard against zero/negative duration which would panic in NewTimer
 	if waitDuration <= 0 {
 		waitDuration = 10 * time.Millisecond

@@ -74,8 +74,13 @@ func (h *CommandHandler) handleCreateWorkflow(ctx context.Context, params json.R
 
 	// Default to sequential mode
 	mode := swarm.ModeSequential
-	if req.Mode != "" {
-		mode = swarm.OrchestrationMode(req.Mode)
+	switch strings.TrimSpace(req.Mode) {
+	case "sequential", "":
+		mode = swarm.ModeSequential
+	case "parallel":
+		mode = swarm.ModeParallel
+	default:
+		return nil, errValidation("invalid mode: " + req.Mode)
 	}
 
 	w := orch.CreateWorkflow(req.Name, mode)
@@ -149,7 +154,7 @@ func (h *CommandHandler) handleDeleteWorkflow(ctx context.Context, params json.R
 	}
 
 	orch.DeleteWorkflow(req.ID)
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
+	return map[string]string{"id": req.ID, "status": StatusDeleted}, nil
 }
 
 func (h *CommandHandler) handleExecuteWorkflow(ctx context.Context, params json.RawMessage) (any, error) {

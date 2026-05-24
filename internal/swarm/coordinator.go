@@ -63,6 +63,9 @@ type Coordinator struct {
 
 	// Checkpoint store for crash recovery (LangGraph-inspired)
 	checkpoint *CheckpointStore
+
+	// Role allocator for dynamic role assignment
+	roleAllocator *RoleAllocator
 }
 
 // CoordinatorConfig configures the coordinator
@@ -154,6 +157,7 @@ func NewCoordinator(config CoordinatorConfig, cm *acp.ConnectionManager) *Coordi
 		resultChan:        make(chan *TaskResult, 100),
 		checkpoint:        nil, // Set via SetCheckpointStore() when needed
 		inputGuardrails:   NewInputGuardrailChain(),
+		roleAllocator:     NewRoleAllocator(),
 	}
 }
 
@@ -188,6 +192,13 @@ func (c *Coordinator) GetInputGuardrails() *InputGuardrailChain {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.inputGuardrails
+}
+
+// GetRoleAllocator returns the role allocator for dynamic role assignment
+func (c *Coordinator) GetRoleAllocator() *RoleAllocator {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.roleAllocator
 }
 
 // AddWorker adds a worker agent connection
@@ -579,6 +590,84 @@ func (c *Coordinator) selectBestWorker(task *CoordinationTask, available []strin
 	return available[0]
 }
 
+// AssignTaskWithRoles assigns a task using dynamic role allocation based on agent health
+func (c *Coordinator) AssignTaskWithRoles(task *CoordinationTask, agentsHealth []AgentHealth) (string, AgentRole, float64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Convert int priority to TaskPriority
+	var priority TaskPriority
+	switch task.Priority {
+	case 3:
+		priority = PriorityCritical
+	case 2:
+		priority = PriorityHigh
+	case 1:
+		priority = PriorityMedium
+	default:
+		priority = PriorityLow
+	}
+
+	// Convert CoordinationTask to Task for role allocator
+	swarmTask := &Task{
+		ID:          task.ID,
+		Title:       task.Title,
+		Description: task.Description,
+		Priority:    priority,
+		State:       TaskStatePending,
+		Metadata:    task.Metadata,
+		CreatedAt:   time.Now(),
+	}
+
+	agentID, role, score, err := c.roleAllocator.AssignRole(swarmTask, agentsHealth)
+	if err != nil {
+		return "", RoleGeneric, 0, err
+	}
+
+	// Update task assignment
+	task.AssignedTo = []string{agentID}
+	task.Status = TaskStatusAssigned
+
+	// Store role in metadata for reference
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]any)
+	}
+	task.Metadata["assignedRole"] = string(role)
+
+	// Update reverse index for O(1) lookup in handleResult
+	c.agentToTask[agentID] = task.ID
+
+	return agentID, role, score, nil
+}
+
+// RecordRoleResult records the result of a role-based task execution
+func (c *Coordinator) RecordRoleResult(agentID string, task *CoordinationTask, success bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.recordRoleResultLocked(agentID, task, success)
+}
+
+// recordRoleResultLocked is the lock-free internal version called when c.mu is already held
+func (c *Coordinator) recordRoleResultLocked(agentID string, task *CoordinationTask, success bool) {
+	// Extract role from metadata
+	var role AgentRole = RoleGeneric
+	if roleStr, ok := task.Metadata["assignedRole"].(string); ok {
+		role = AgentRole(roleStr)
+	}
+
+	c.roleAllocator.RecordResult(agentID, role, success)
+
+	// Release the agent for next assignment
+	c.roleAllocator.ReleaseAgent(agentID)
+}
+
+// GetActiveRoles returns all active role assignments
+func (c *Coordinator) GetActiveRoles() []RoleAssignment {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.roleAllocator.GetAllAssignments()
+}
+
 // executeTask executes a task on assigned workers
 func (c *Coordinator) executeTask(task *CoordinationTask) {
 	defer func() {
@@ -810,8 +899,15 @@ func (c *Coordinator) completeTask(task *CoordinationTask) {
 	task.CompletedAt = time.Now()
 	task.Progress = 1.0
 
-	// Clean up agent-to-task reverse index
+	// Record role results and clean up agent-to-task reverse index
 	for _, agentID := range task.AssignedTo {
+		// Determine success based on result
+		success := true
+		if r, ok := task.Results[agentID]; ok && r.Error != "" {
+			success = false
+		}
+		// Record role result for pheromone trail
+		c.recordRoleResultLocked(agentID, task, success)
 		delete(c.agentToTask, agentID)
 	}
 

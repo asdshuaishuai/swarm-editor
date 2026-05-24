@@ -29,9 +29,16 @@ export function WorkspacePanel() {
         if (cancelled) return
         setAgents(agentList.map(a => ({ id: a.id, name: a.name, status: a.status || a.state || 'unknown' })))
 
-        // TODO: 从后端获取真实的会话数据
-        // 目前设置为空数组，等待后端实现会话 API
-        setSessions([])
+        const sessionList = await api.agent.getSessions()
+        if (cancelled) return
+        setSessions(sessionList.map(s => ({
+          id: s.id,
+          agentName: s.agentId,
+          agentId: s.agentId,
+          lastMessage: `${s.mode} mode`,
+          timestamp: new Date(s.createdAt),
+          messageCount: 0,
+        })))
       } catch (error) {
         if (cancelled) return
         logger.debug('WorkspacePanel', 'Failed to load data:', error)

@@ -709,18 +709,6 @@ func TestSwarmIntelligenceScheduler_RandomFloat(t *testing.T) {
 	}
 }
 
-func TestSwarmIntelligenceScheduler_Min(t *testing.T) {
-	if min(1*time.Second, 2*time.Second) != 1*time.Second {
-		t.Error("min(1s, 2s) should return 1s")
-	}
-	if min(2*time.Second, 1*time.Second) != 1*time.Second {
-		t.Error("min(2s, 1s) should return 1s")
-	}
-	if min(5*time.Second, 5*time.Second) != 5*time.Second {
-		t.Error("min(5s, 5s) should return 5s")
-	}
-}
-
 func TestSwarmIntelligenceScheduler_UnmarshalJSON(t *testing.T) {
 	data := `{"id": "test", "name": "Test"}`
 	var result map[string]interface{}

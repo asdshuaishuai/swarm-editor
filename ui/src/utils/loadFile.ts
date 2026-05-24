@@ -30,7 +30,7 @@ export async function loadFile(options: LoadFileOptions) {
       const updated = [path, ...filtered].slice(0, 10)
       try {
         localStorage.setItem('swarm-editor-recent-files', JSON.stringify(updated))
-      } catch { /* ignore storage quota errors */ }
+      } catch { /* storage quota — non-critical */ }
       return updated
     })
   } catch (err) {

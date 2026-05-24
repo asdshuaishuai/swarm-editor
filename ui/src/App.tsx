@@ -12,13 +12,8 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import StatusBar from './components/StatusBar'
 import { TabSwitcher } from './components/TabSwitcher'
 
-// 懒加载页面组件 - 减少初始 bundle
-const EditorPage = lazy(() => import('./panels/EditorPanel'))
-const SwarmPage = lazy(() => import('./panels/SwarmPanel'))
-const TeamPage = lazy(() => import('./panels/TeamPanel'))
+// Only settings remains as a separate lazy-loaded page
 const SettingsPage = lazy(() => import('./panels/SettingsPanel'))
-const WorkflowPage = lazy(() => import('./panels/WorkflowPanel'))
-const AgentCollaborationPage = lazy(() => import('./panels/AgentCollaborationPanel').then(m => ({ default: m.AgentCollaborationPanel })))
 
 // 加载指示器
 function PageLoader() {
@@ -58,8 +53,6 @@ function App() {
       setOpenInReplaceMode(true)
       setShowSearchPanel(true)
     }
-    // R5132: Ctrl+Shift+T handled by TabSwitcher (capture phase) — removed dead handler here
-    // Ctrl+Shift+N: Removed — conflicts with browser's New Incognito Window
     // Ctrl+Shift+E: Focus file explorer (VS Code standard)
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'E') {
       e.preventDefault()
@@ -95,14 +88,12 @@ function App() {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('show-problems'))
     }
-    // R5132: Ctrl+W handled by TabSwitcher (capture phase) — removed dead handler here
-    // R5132: Ctrl+Tab/Ctrl+Shift+Tab handled by TabSwitcher (capture phase) — removed dead handlers here
     // Alt+Z: Toggle Word Wrap (VS Code standard)
     if (e.altKey && e.key === 'z') {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('toggle-editor-setting', { detail: { setting: 'wordWrap' } }))
     }
-    // Ctrl+J: Toggle Bottom Panel (VS Code standard — was incorrectly bound to joinLines)
+    // Ctrl+J: Toggle Bottom Panel (VS Code standard)
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'j') {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('toggle-bottom-panel'))
@@ -116,7 +107,7 @@ function App() {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('adjust-font-size', { detail: { delta: -1 } }))
     }
-    // Ctrl+0: Reset font size (VS Code standard — works from any focus, not just editor)
+    // Ctrl+0: Reset font size (VS Code standard)
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === '0') {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('adjust-font-size', { detail: { reset: true } }))
@@ -156,7 +147,7 @@ function App() {
     return () => window.removeEventListener('search-in-folder', handleSearchInFolder)
   }, [])
 
-  // R5164: Zen Mode - Toggle distraction-free editing (handled via event, MainLayout reads zenMode directly)
+  // R5164: Zen Mode - Toggle distraction-free editing
   const toggleZenMode = useAppStore(state => state.toggleZenMode)
   useEffect(() => {
     const handleToggleZenMode = () => toggleZenMode()
@@ -164,7 +155,7 @@ function App() {
     return () => window.removeEventListener('toggle-zen-mode', handleToggleZenMode)
   }, [toggleZenMode])
 
-  // R5167: Theme toggle - VS Code pattern
+  // R5167: Theme toggle
   const { toggleTheme } = useTheme()
   useEffect(() => {
     const handleToggleTheme = () => toggleTheme()
@@ -175,19 +166,23 @@ function App() {
   return (
     <>
       <ErrorBoundary>
-        <MainLayout>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<ErrorBoundary><AgentCollaborationPage /></ErrorBoundary>} />
-              <Route path="/editor" element={<ErrorBoundary><EditorPage /></ErrorBoundary>} />
-              <Route path="/swarm" element={<ErrorBoundary><SwarmPage /></ErrorBoundary>} />
-              <Route path="/team" element={<ErrorBoundary><TeamPage /></ErrorBoundary>} />
-              <Route path="/workflow" element={<ErrorBoundary><WorkflowPage /></ErrorBoundary>} />
-              <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </MainLayout>
+        <Routes>
+          {/* Main layout with all tabs — the default view */}
+          <Route path="/" element={<MainLayout />} />
+          <Route path="/editor" element={<MainLayout />} />
+          <Route path="/swarm" element={<MainLayout />} />
+          <Route path="/team" element={<MainLayout />} />
+          <Route path="/workflow" element={<MainLayout />} />
+          {/* Settings remains a standalone page */}
+          <Route path="/settings" element={
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
+                <SettingsPage />
+              </Suspense>
+            </ErrorBoundary>
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </ErrorBoundary>
       <ToastContainer toasts={toasts} onDismiss={removeToast} position="bottom-right" />
       <PermissionDialog />
@@ -197,7 +192,7 @@ function App() {
       <StatusBar />
       <TabSwitcher />
 
-      {/* Handoff Dialog - shown when there's an active handoff request */}
+      {/* Handoff Dialog */}
       {activeHandoff && activeHandoff.status === 'pending' && (
         <HandoffDialog
           request={activeHandoff}

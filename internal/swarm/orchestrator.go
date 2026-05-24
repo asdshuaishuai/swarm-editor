@@ -92,6 +92,16 @@ type Swarm struct {
 
 	// A2A protocol router for inter-agent messaging (optional, nil if not configured)
 	a2aRouter *a2a.Router
+
+	// Interrupt manager for agent failure recovery
+	interruptMgr *InterruptManager
+
+	// Queen election for dynamic coordinator selection
+	election  *QueenElection
+	queenInfo QueenInfo
+
+	// Dynamic role allocator
+	roleAllocator *RoleAllocator
 }
 
 // SwarmConfig configures a swarm
@@ -103,6 +113,9 @@ type SwarmConfig struct {
 	AgentCount  int
 	AgentTypes  []agent.AgentType
 	TaskTimeout time.Duration // Timeout for task execution
+
+	// ElectionConfig configures dynamic queen election (optional, nil means fixed coordinator)
+	ElectionConfig *ElectionConfig
 }
 
 // NewSwarm creates a new swarm with Queen Bee model
@@ -135,6 +148,14 @@ func NewSwarm(config SwarmConfig) *Swarm {
 	// Initialize termination policy with default conditions (AutoGen composite pattern)
 	s.terminationPolicy = NewCompositePolicy(TerminationOR)
 	s.terminationPolicy.Add(NewNoProgressCondition())
+
+	// Initialize interrupt manager for agent failure recovery
+	s.interruptMgr = NewInterruptManager()
+
+	// Initialize queen election if config provided
+	if config.ElectionConfig != nil {
+		s.election = NewQueenElection(*config.ElectionConfig)
+	}
 
 	return s
 }
@@ -486,6 +507,21 @@ func (s *Swarm) SubmitTask(ctx context.Context, task *Task) error {
 
 	task.State = TaskStatePending
 	task.CreatedAt = time.Now()
+
+	// Wire task state change callback to broadcast swarm_task_update events
+	bc := s.broadcaster
+	if bc != nil {
+		swarmID := s.ID
+		task.onStateChange = func(taskID string, oldState, newState TaskState) {
+			bc.Broadcast("swarm_task_update", map[string]any{
+				"swarmId":  swarmID,
+				"taskId":   taskID,
+				"oldState": string(oldState),
+				"newState": string(newState),
+			})
+		}
+	}
+
 	s.tasks[task.ID] = task
 	s.taskQueue = append(s.taskQueue, task)
 
@@ -525,7 +561,16 @@ func (s *Swarm) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error
 
 	s.mu.Lock()
 	task.State = TaskStateRunning
+	task.StartedAt = time.Now()
 	s.mu.Unlock()
+
+	// Set up context timeout (default 5 minutes if not set)
+	taskTimeout := task.Timeout
+	if taskTimeout == 0 {
+		taskTimeout = 5 * time.Minute
+	}
+	execCtx, execCancel := context.WithTimeout(ctx, taskTimeout)
+	defer execCancel()
 
 	// Select agent(s) based on strategy
 	var selectedAgents []*agent.Agent
@@ -550,7 +595,37 @@ func (s *Swarm) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error
 	}
 
 	// Run task execution
-	err := s.executeOnAgents(ctx, task, selectedAgents, result)
+	err := s.executeOnAgents(execCtx, task, selectedAgents, result)
+
+	// Handle timeout and errors with interrupt manager
+	if err != nil && s.interruptMgr != nil {
+		reason := InterruptCrash
+		if execCtx.Err() == context.DeadlineExceeded {
+			reason = InterruptTimeout
+		} else if execCtx.Err() == context.Canceled {
+			reason = InterruptUserCancel
+		}
+
+		// Create checkpoint for each selected agent
+		for _, ag := range selectedAgents {
+			if result.AgentID == string(ag.ID) || result.AgentID == "" {
+				checkpoint, cpErr := s.interruptMgr.Interrupt(ctx, string(ag.ID), task.ID, reason)
+				if cpErr != nil {
+					orchestratorLog.Warn("Failed to create checkpoint on error", "agent_id", ag.ID, "task_id", task.ID, "error", cpErr)
+					continue
+				}
+				// Save partial result if available
+				if result.Content != "" {
+					checkpoint.PartialResult = result.Content
+				}
+				// Apply default recovery strategy
+				if applyErr := s.interruptMgr.ApplyStrategy(checkpoint.ID, RecoveryRetrySame); applyErr != nil {
+					orchestratorLog.Warn("Failed to apply recovery strategy", "checkpoint_id", checkpoint.ID, "error", applyErr)
+				}
+				break // Only create one checkpoint per task
+			}
+		}
+	}
 
 	// Error recovery: if execution failed and we haven't hit max_turns,
 	// retry with error context appended to the prompt (OpenAI Swarm pattern).
@@ -1135,4 +1210,199 @@ func (s *Swarm) broadcastTurnEnd(agentID acp.AgentID, taskID string, success boo
 // GetHandoffManager returns the handoff manager for direct access
 func (s *Swarm) GetHandoffManager() *HandoffManager {
 	return s.handoffManager
+}
+
+// GetInterruptManager returns the interrupt manager for direct access
+func (s *Swarm) GetInterruptManager() *InterruptManager {
+	return s.interruptMgr
+}
+
+// SetSupervisorForElection sets the supervisor reference for queen election
+func (s *Swarm) SetSupervisorForElection(sup *Supervisor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.election != nil {
+		s.election.SetSupervisor(sup)
+	}
+}
+
+// GetQueenInfo returns the current queen information
+func (s *Swarm) GetQueenInfo() QueenInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.election != nil {
+		return s.election.GetCurrent()
+	}
+	// No election configured, return fixed coordinator info
+	return QueenInfo{
+		QueenID: string(s.coordinator.ID),
+		State:   ElectionStable,
+	}
+}
+
+// TriggerElection triggers a new queen election using current agent health data.
+// The supervisor provides live health scores for all registered agents.
+func (s *Swarm) TriggerElection(ctx context.Context, supervisor *Supervisor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.election == nil {
+		return fmt.Errorf("queen election not configured")
+	}
+
+	// Collect health data from supervisor
+	healthMap := make(map[string]AgentHealth)
+	for _, agent := range s.agents {
+		if health := supervisor.GetHealth(string(agent.ID)); health != nil {
+			healthMap[string(agent.ID)] = *health
+		} else {
+			// Agent has no health data yet, give default healthy score
+			healthMap[string(agent.ID)] = AgentHealth{
+				AgentID:       string(agent.ID),
+				Score:         1.0,
+				LastHeartbeat: time.Now(),
+			}
+		}
+	}
+
+	// Run election
+	queenID, backupID, err := s.election.ElectQueen(healthMap)
+	if err != nil {
+		s.queenInfo = s.election.GetCurrent()
+		return fmt.Errorf("election failed: %w", err)
+	}
+
+	// Update coordinator to the elected queen
+	if ag, ok := s.agents[acp.AgentID(queenID)]; ok {
+		s.coordinator = ag
+		s.queenInfo = s.election.GetCurrent()
+		orchestratorLog.Info("Queen election completed", "queen", queenID, "backup", backupID)
+
+		// Broadcast election event
+		if s.broadcaster != nil {
+			s.broadcaster.Broadcast("queen_elected", map[string]any{
+				"swarmId":   s.ID,
+				"queenId":   queenID,
+				"backupId":  backupID,
+				"timestamp": time.Now(),
+			})
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("elected queen %s not found in swarm", queenID)
+}
+
+// AbdicateQueen causes the current queen to abdicate, promoting the backup
+func (s *Swarm) AbdicateQueen(reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.election == nil {
+		return fmt.Errorf("queen election not configured")
+	}
+
+	// Perform abdication
+	newInfo := s.election.Abdicate(reason)
+	s.queenInfo = newInfo
+
+	// Update coordinator if backup was promoted
+	if newInfo.QueenID != "" {
+		if ag, ok := s.agents[acp.AgentID(newInfo.QueenID)]; ok {
+			s.coordinator = ag
+			orchestratorLog.Info("Queen abdicated, backup promoted", "new_queen", newInfo.QueenID, "reason", reason)
+		}
+	}
+
+	// Broadcast abdication event
+	if s.broadcaster != nil {
+		s.broadcaster.Broadcast("queen_abdicated", map[string]any{
+			"swarmId":   s.ID,
+			"reason":    reason,
+			"timestamp": time.Now(),
+		})
+	}
+
+	return nil
+}
+
+// ForceElection triggers a full re-election when both queen and backup have failed
+func (s *Swarm) ForceElection(ctx context.Context, supervisor *Supervisor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.election == nil {
+		return fmt.Errorf("queen election not configured")
+	}
+
+	// Collect health data from supervisor
+	healthMap := make(map[string]AgentHealth)
+	for _, agent := range s.agents {
+		if health := supervisor.GetHealth(string(agent.ID)); health != nil {
+			healthMap[string(agent.ID)] = *health
+		} else {
+			healthMap[string(agent.ID)] = AgentHealth{
+				AgentID:       string(agent.ID),
+				Score:         1.0,
+				LastHeartbeat: time.Now(),
+			}
+		}
+	}
+
+	// Run forced election
+	queenID, backupID, err := s.election.ForceElection(healthMap)
+	if err != nil {
+		s.queenInfo = s.election.GetCurrent()
+		return fmt.Errorf("forced election failed: %w", err)
+	}
+
+	// Update coordinator to the newly elected queen
+	if ag, ok := s.agents[acp.AgentID(queenID)]; ok {
+		s.coordinator = ag
+		s.queenInfo = s.election.GetCurrent()
+		orchestratorLog.Info("Forced election completed", "queen", queenID, "backup", backupID)
+
+		// Broadcast forced election event
+		if s.broadcaster != nil {
+			s.broadcaster.Broadcast("queen_forced_election", map[string]any{
+				"swarmId":   s.ID,
+				"queenId":   queenID,
+				"backupId":  backupID,
+				"timestamp": time.Now(),
+			})
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("elected queen %s not found in swarm", queenID)
+}
+
+// IsQueen returns true if the given agent is the current queen
+func (s *Swarm) IsQueen(agentID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.election != nil {
+		return s.election.IsQueen(agentID)
+	}
+	return string(s.coordinator.ID) == agentID
+}
+
+// IsBackupQueen returns true if the given agent is the current backup queen
+func (s *Swarm) IsBackupQueen(agentID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.election != nil {
+		return s.election.IsBackup(agentID)
+	}
+	return false
+}
+
+// GetRoleAssignments returns all current dynamic role assignments
+func (s *Swarm) GetRoleAssignments() []RoleAssignment {
+	if s.roleAllocator != nil {
+		return s.roleAllocator.GetAllAssignments()
+	}
+	return nil
 }

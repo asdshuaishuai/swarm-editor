@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import { useSettings } from '../hooks/useSettings'
 import { gitApi } from '../services/api'
+import { logger } from '../utils'
 import { Wifi, WifiOff, Loader2, Zap, Bell, CheckCircle, AlertCircle, AlertTriangle, Info, XCircle, GitBranch, Check } from 'lucide-react'
 import type { ToastType } from './Toast'
 import { onTabFocusModeChange, getTabMovesFocus } from './TabSwitcher'
@@ -180,7 +181,7 @@ export default function StatusBar() {
         const branch = await gitApi.getBranch()
         setGitBranch(branch)
       } catch {
-        // Not a git repo
+        logger.debug('StatusBar', 'Not a git repo or branch fetch failed')
       }
     }
     fetchBranch()

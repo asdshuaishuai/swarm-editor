@@ -4,14 +4,15 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useTerminal } from '../hooks/useTerminal'
+import { logger } from '../utils'
 import '@xterm/xterm/css/xterm.css'
 
-// Catppuccin-inspired theme matching Swarm Editor dark mode
+// Dark theme matching design mockup terminal (#07090e)
 const darkTheme = {
-  background: '#0d1117',
+  background: '#07090e',
   foreground: '#cdd6f4',
   cursor: '#89b4fa',
-  cursorAccent: '#0d1117',
+  cursorAccent: '#07090e',
   selectionBackground: '#45475a80',
   black: '#45475a',
   red: '#f38ba8',
@@ -94,7 +95,7 @@ export default function TerminalPanel({
     })
 
     // Fit after mount
-    try { fitAddon.fit() } catch { /* ignore if container not visible */ }
+    try { fitAddon.fit() } catch (err) { logger.debug('TerminalPanel', 'fit addon failed on mount', err) }
 
     return () => {
       webLinksAddon.dispose()
@@ -130,7 +131,7 @@ export default function TerminalPanel({
   useEffect(() => {
     if (!isCollapsed && fitAddonRef.current) {
       const timer = setTimeout(() => {
-        try { fitAddonRef.current?.fit() } catch { /* ignore */ }
+        try { fitAddonRef.current?.fit() } catch (err) { logger.debug('TerminalPanel', 'fit addon failed on resize', err) }
       }, 50)
       return () => clearTimeout(timer)
     }
@@ -143,7 +144,7 @@ export default function TerminalPanel({
       try {
         const { cols, rows } = xtermRef.current!
         if (cols && rows) resize(cols, rows)
-      } catch { /* ignore */ }
+      } catch (err) { logger.debug('TerminalPanel', 'resize handler failed', err) }
     }
     const disposable = xtermRef.current.onResize(handler)
     return () => { disposable.dispose() }

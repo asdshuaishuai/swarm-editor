@@ -10,6 +10,7 @@ import (
 "regexp"
 "strconv"
 "strings"
+"time"
 )
 
 func (h *CommandHandler) handleGitStatus(ctx context.Context, params json.RawMessage) (any, error) {
@@ -546,6 +547,208 @@ func (h *CommandHandler) handleGitUndoCommit(ctx context.Context, params json.Ra
 	}
 
 	return map[string]any{"output": strings.TrimSpace(string(output))}, nil
+}
+
+func (h *CommandHandler) handleGitBlame(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if req.Path == "" {
+		return nil, errValidation("path is required")
+	}
+	if h.server.workspacePath == "" {
+		return nil, errNotConnected("workspace not configured")
+	}
+
+	relPath := filepath.Clean(req.Path)
+	if _, err := h.safePath(relPath); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "blame", "--porcelain", "--", relPath)
+	cmd.Dir = h.server.workspacePath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git blame failed: %w", err)
+	}
+
+	type BlameLine struct {
+		Line       int    `json:"line"`
+		Commit     string `json:"commit"`
+		Author     string `json:"author"`
+		AuthorMail string `json:"authorMail"`
+		AuthorTime string `json:"authorTime"`
+		Summary    string `json:"summary"`
+	}
+
+	// Parse porcelain output
+	// Each chunk starts with: <sha> <orig_line> <final_line> <line_count>
+	// Followed by header lines like: author ..., author-mail ..., author-time ..., summary ...
+	// Then the actual source line prefixed by a tab
+	var lines []BlameLine
+	current := &BlameLine{}
+	finalLine := 0
+
+	for _, rawLine := range strings.Split(string(output), "\n") {
+		if rawLine == "" {
+			continue
+		}
+
+		// Chunk header: <sha> <orig> <final> <count>
+		if rawLine[0] != '\t' && !strings.HasPrefix(rawLine, " ") && !strings.Contains(rawLine, ": ") {
+			parts := strings.Fields(rawLine)
+			if len(parts) >= 3 {
+				if finalLine > 0 {
+					// Commit previous line
+					current.Line = finalLine
+					lines = append(lines, *current)
+				}
+				commit := parts[0]
+				if len(commit) > 7 {
+					commit = commit[:7]
+				}
+				current = &BlameLine{Commit: commit}
+				finalLine, _ = strconv.Atoi(parts[2])
+			}
+			continue
+		}
+
+		if strings.HasPrefix(rawLine, "author ") {
+			current.Author = strings.TrimPrefix(rawLine, "author ")
+		} else if strings.HasPrefix(rawLine, "author-mail ") {
+			current.AuthorMail = strings.TrimPrefix(rawLine, "author-mail ")
+		} else if strings.HasPrefix(rawLine, "author-time ") {
+			ts := strings.TrimPrefix(rawLine, "author-time ")
+			if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
+				current.AuthorTime = time.Unix(t, 0).Format("2006-01-02")
+			}
+		} else if strings.HasPrefix(rawLine, "summary ") {
+			current.Summary = strings.TrimPrefix(rawLine, "summary ")
+		}
+	}
+	// Commit last line
+	if finalLine > 0 {
+		current.Line = finalLine
+		lines = append(lines, *current)
+	}
+
+	return map[string]any{"lines": lines}, nil
+}
+
+func (h *CommandHandler) handleGitWorktreeList(ctx context.Context, params json.RawMessage) (any, error) {
+	if h.server.workspacePath == "" {
+		return nil, errNotConnected("workspace not configured")
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
+	cmd.Dir = h.server.workspacePath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list failed: %w", err)
+	}
+
+	type WorktreeInfo struct {
+		Path   string `json:"path"`
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+		IsMain bool   `json:"isMain"`
+	}
+
+	var worktrees []WorktreeInfo
+	current := &WorktreeInfo{}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		if line == "" {
+			if current.Path != "" {
+				worktrees = append(worktrees, *current)
+			}
+			current = &WorktreeInfo{}
+			continue
+		}
+
+		if strings.HasPrefix(line, "worktree ") {
+			current.Path = strings.TrimPrefix(line, "worktree ")
+		} else if strings.HasPrefix(line, "HEAD ") {
+			sha := strings.TrimPrefix(line, "HEAD ")
+			if len(sha) > 7 {
+				sha = sha[:7]
+			}
+			current.Commit = sha
+		} else if strings.HasPrefix(line, "branch ") {
+			current.Branch = strings.TrimPrefix(line, "branch ")
+			// refs/heads/ prefix indicates a branch, not detached
+			current.Branch = strings.TrimPrefix(current.Branch, "refs/heads/")
+		} else if line == "bare" {
+			// Skip bare repos
+			continue
+		}
+	}
+	// Last entry (no trailing newline)
+	if current.Path != "" {
+		worktrees = append(worktrees, *current)
+	}
+
+	// Mark the first worktree as main
+	if len(worktrees) > 0 {
+		worktrees[0].IsMain = true
+	}
+
+	return map[string]any{"worktrees": worktrees}, nil
+}
+
+func (h *CommandHandler) handleGitWorktreeAdd(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		Path   string `json:"path"`
+		Branch string `json:"branch"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if req.Path == "" {
+		return nil, errValidation("path is required")
+	}
+	if h.server.workspacePath == "" {
+		return nil, errNotConnected("workspace not configured")
+	}
+
+	args := []string{"worktree", "add", req.Path}
+	if req.Branch != "" {
+		args = append(args, req.Branch)
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = h.server.workspacePath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git worktree add failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	return map[string]any{"path": req.Path, "branch": req.Branch}, nil
+}
+
+func (h *CommandHandler) handleGitWorktreeRemove(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if req.Path == "" {
+		return nil, errValidation("path is required")
+	}
+	if h.server.workspacePath == "" {
+		return nil, errNotConnected("workspace not configured")
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "worktree", "remove", req.Path)
+	cmd.Dir = h.server.workspacePath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git worktree remove failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	return map[string]any{"path": req.Path}, nil
 }
 
 func (h *CommandHandler) handleGitDiffLines(ctx context.Context, params json.RawMessage) (any, error) {

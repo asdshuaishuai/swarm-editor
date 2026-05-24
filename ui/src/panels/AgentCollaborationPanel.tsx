@@ -47,8 +47,8 @@ export function AgentCollaborationPanel({ primaryAgentId, onSwitchAgent }: Agent
     try {
       const [swarms, consensusData, emergence] = await Promise.all([
         api.swarm.getSwarms(),
-        api.swarm.getConsensus().catch(() => null),
-        api.monitoring.getEmergenceData().catch(() => null),
+        api.swarm.getConsensus().catch((e) => { logger.debug('AgentCollaboration', 'getConsensus failed', e); return null }),
+        api.monitoring.getEmergenceData().catch((e) => { logger.debug('AgentCollaboration', 'getEmergenceData failed', e); return null }),
       ])
       if (swarms.length > 0) {
         // Get tasks from first active swarm

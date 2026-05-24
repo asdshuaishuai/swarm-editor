@@ -1,107 +1,126 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { OnMount } from '@monaco-editor/react'
-import type { editor } from 'monaco-editor'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import { useSplitPaneStore } from '../stores/splitPaneStore'
-import { useWindowEvent } from '../hooks/useWindowEvent'
-import { useEditorSettingsEvents } from '../hooks/useEditorSettingsEvents'
-import { useCommandPaletteEvents } from '../hooks/useCommandPaletteEvents'
-import { useDiagnostics } from '../hooks/useDiagnostics'
-import { useGitDiffDecorations } from '../hooks/useGitDiffDecorations'
-import { FileEntry, GitFileStatus } from '../services'
-import BottomPanel from './BottomPanel'
-import ExplorerPanel from './ExplorerPanel'
+import { fsApi, gitBlameApi, type BlameLine } from '../services/api'
+import { logger } from '../utils'
 import { TabBar } from '../components/TabBar'
 import { BreadcrumbsBar } from '../components/BreadcrumbsBar'
 import { WelcomePanel } from '../components/WelcomePanel'
-import { AccessibilityHelpModal } from '../components/AccessibilityHelpModal'
-import { AgentSelectorModal } from '../components/AgentSelectorModal'
 import { DirtyCloseDialog } from '../components/DirtyCloseDialog'
 import { TabContextMenu } from '../components/TabContextMenu'
-import { EditorToolbar } from '../components/EditorToolbar'
-import { EditorBreadcrumbs } from '../components/EditorBreadcrumbs'
-import { SecondaryEditorPane } from '../components/SecondaryEditorPane'
-import { PrimaryEditorPane } from '../components/PrimaryEditorPane'
-import { ActivityBar } from '../components/ActivityBar'
-import DiffEditorPanel from '../components/DiffEditorPanel'
-import SourceControlPanel from '../components/SourceControlPanel'
-import { OutlinePanel } from '../components/OutlinePanel'
-import { gitDiffApi } from '../services/api'
-import { getMonacoTheme } from '../theme/monacoTheme'
-import { LSP_LANG_MAP, buildEditorOptions } from '../utils/monaco'
-import { createEditorMountHandler } from '../utils/monacoEditorMountFactory'
-import { createEditorChangeHandler } from '../utils/monacoEditorChange'
-import { findSymbolPath } from '../utils/monacoSymbols'
-import { navigateProblem as navigateProblemUtil } from '../utils/navigateProblem'
-import { executeWithAgent as executeWithAgentUtil } from '../utils/executeWithAgent'
-import { loadFile as loadFileUtil } from '../utils/loadFile'
-import { useWorkspaceInit } from '../hooks/useWorkspaceInit'
-import { autoSaveDirtyFiles, saveSingleFile } from '../utils/tabCloseActions'
-import { createEditorDragDropHandlers } from '../utils/editorDragDrop'
-import { createTabCloseHandlers } from '../utils/tabCloseHandlers'
-import { useFileWatcher } from '../hooks/useFileWatcher'
-import { useGitStatus } from '../hooks/useGitStatus'
-import { useEditorUIState } from '../hooks/useEditorUIState'
-import { useEditorRefs } from '../hooks/useEditorRefs'
-import { useEditorWindowEvents } from '../hooks/useEditorWindowEvents'
-import { usePaneModelSync } from '../hooks/usePaneModelSync'
-import { useSearchParamNavigation } from '../hooks/useSearchParamNavigation'
-import { useEditorStores } from '../hooks/useEditorStores'
-import { useEditorCallbacks } from '../hooks/useEditorCallbacks'
-import { useEditorCleanup } from '../hooks/useEditorCleanup'
-import { useEditorSaveHandlers } from '../hooks/useEditorSaveHandlers'
+import { CodeMirrorPane, type CodeMirrorPaneRef } from '../components/CodeMirrorPane'
+import { ExternalModPrompt } from '../components/ExternalModPrompt'
+import { BlameSidebar } from '../components/BlameSidebar'
+import DiffView from '../components/DiffView'
 import { useTabContextMenu } from '../hooks/useTabContextMenu'
+import { useEditorSettings } from '../hooks/useEditorSettings'
 
-export default function EditorPanel() {
-  // All store selectors consolidated (app, workspace, splitPane, settings, theme)
-  const {
-    swarms, addToast, updateFileProblems, workspaceProblems,
-    settings, updateSetting, effectiveTheme, cursorPosition,
-    openFiles, currentFile, fileContents, dirtyFiles, pinnedFiles,
-    previewTab, wsLanguage, openFileFromStore, closeFile,
-    closeAllFiles, closeOthers, closeToLeft, closeToRight, closeSaved,
-    reorderFiles, undoCloseFile, togglePin, updateFileContent, clearDirty, setLanguage,
-    splitDirection, activePaneId, setActivePane, toggleSplit, closeSplit, paneFiles, setPaneFile,
-  } = useEditorStores()
+// Diff state — when set, DiffView replaces the normal editor
+interface DiffState {
+  path: string
+  original: string
+  modified: string
+}
 
-  // R5169: Ref for inlayHints setting (avoid stale closure in Monaco provider)
-  const inlayHintsRef = useRef(settings.inlayHints)
-  useEffect(() => { inlayHintsRef.current = settings.inlayHints }, [settings.inlayHints])
+interface EditorPanelProps {
+  embedded?: boolean
+}
 
-  // UI state: sidebar, tabs, drag-drop, context menus, dialogs
-  const {
-    showFileTree, setShowFileTree,
-    activityView, setActivityView,
-    fileTree, setFileTree,
-    workspace, setWorkspace,
-    loading, setLoading,
-    diffView, setDiffView,
-    showAgentSelector, setShowAgentSelector,
-    showAccessibilityHelp, setShowAccessibilityHelp,
-    expandedDirs, setExpandedDirs,
-    dirtyClosePath, setDirtyClosePath,
-    sidebarWidth, setSidebarWidth,
-    isResizingSidebar, setIsResizingSidebar,
-    tabContextMenu, setTabContextMenu,
-    tabContextMenuRef,
-    draggedTab, setDraggedTab,
-    dropTargetPane, setDropTargetPane,
-  } = useEditorUIState()
+export default function EditorPanel(_props?: EditorPanelProps) {
+  // Store selectors
+  const addToast = useAppStore(state => state.addToast)
+  const openFiles = useWorkspaceStore(state => state.openFiles)
+  const currentFile = useWorkspaceStore(state => state.currentFile)
+  const fileContents = useWorkspaceStore(state => state.fileContents)
+  const dirtyFiles = useWorkspaceStore(state => state.dirtyFiles)
+  const pinnedFiles = useWorkspaceStore(state => state.pinnedFiles)
+  const previewTab = useWorkspaceStore(state => state.previewTab)
+  const openFileFromStore = useWorkspaceStore(state => state.openFile)
+  const closeFile = useWorkspaceStore(state => state.closeFile)
+  const closeAllFiles = useWorkspaceStore(state => state.closeAllFiles)
+  const closeOthers = useWorkspaceStore(state => state.closeOthers)
+  const closeToLeft = useWorkspaceStore(state => state.closeToLeft)
+  const closeToRight = useWorkspaceStore(state => state.closeToRight)
+  const closeSaved = useWorkspaceStore(state => state.closeSaved)
+  const reorderFiles = useWorkspaceStore(state => state.reorderFiles)
+  const undoCloseFile = useWorkspaceStore(state => state.undoCloseFile)
+  const togglePin = useWorkspaceStore(state => state.togglePin)
+  const updateFileContent = useWorkspaceStore(state => state.updateFileContent)
+  const clearDirty = useWorkspaceStore(state => state.clearDirty)
+  const workspacePath = useWorkspaceStore(state => state.workspacePath)
+  const setWorkspacePath = useWorkspaceStore(state => state.setWorkspacePath)
+  const externalModifications = useWorkspaceStore(state => state.externalModifications)
+  const clearExternalModification = useWorkspaceStore(state => state.clearExternalModification)
+  const subscribeToFileChanges = useWorkspaceStore(state => state.subscribeToFileChanges)
 
-  // Git status for file tree decorations (VS Code/Cursor pattern)
-  const [gitStatusMap, setGitStatusMap] = useState<Record<string, GitFileStatus>>({})
+  const splitDirection = useSplitPaneStore(s => s.splitDirection)
+  const activePaneId = useSplitPaneStore(s => s.activePaneId)
+  const setActivePane = useSplitPaneStore(s => s.setActivePane)
+  const toggleSplit = useSplitPaneStore(s => s.toggleSplit)
+  const closeSplit = useSplitPaneStore(s => s.closeSplit)
+  const paneFiles = useSplitPaneStore(s => s.paneFiles)
+  const setPaneFile = useSplitPaneStore(s => s.setPaneFile)
 
-  // Document symbols for breadcrumb navigation (VS Code/Cursor pattern)
-  // P1 fix: Separate symbols per pane (was sharing between main/secondary)
-  const [documentSymbols, setDocumentSymbols] = useState<any[]>([])
-  const [secondaryDocumentSymbols, setSecondaryDocumentSymbols] = useState<any[]>([])
+  // Local UI state
+  const [dirtyClosePath, setDirtyClosePath] = useState<string | null>(null)
+  const [tabContextMenu, setTabContextMenu] = useState<{
+    visible: boolean
+    x: number
+    y: number
+    path: string | null
+  }>({ visible: false, x: 0, y: 0, path: null })
+  const tabContextMenuRef = useRef<HTMLDivElement>(null)
+  const [draggedTab, setDraggedTab] = useState<{ paneId: string; path: string } | null>(null)
+  const [dropTargetPane, setDropTargetPane] = useState<string | null>(null)
+  const [diffState, setDiffState] = useState<DiffState | null>(null)
 
-  // Derived: current file content
+  // Git blame state
+  const [blameEnabled, setBlameEnabled] = useState(false)
+  const [blameLines, setBlameLines] = useState<BlameLine[]>([])
+  const blameMountedRef = useRef(true)
+
+  // Editor refs
+  const mainEditorRef = useRef<CodeMirrorPaneRef>(null)
+  const secondaryEditorRef = useRef<CodeMirrorPaneRef>(null)
+  const mountedRef = useRef(true)
+
+  // Editor settings hook — reads from localStorage, applies to CM6 via Compartments
+  const { settings: editorSettings, registerAutoSave } = useEditorSettings()
+
+  // Register auto-save callback so the hook can trigger saves periodically
+  useEffect(() => {
+    registerAutoSave(() => {
+      // Only auto-save if there is a dirty file open
+      const { currentFile: cf, dirtyFiles: df, fileContents: fc } = useWorkspaceStore.getState()
+      if (cf && df.has(cf)) {
+        const content = fc.get(cf)
+        if (content !== undefined) {
+          fsApi.writeFile(cf, content).then(() => {
+            clearDirty(cf)
+          }).catch((err) => {
+            logger.error('Editor', 'Auto-save failed:', err)
+          })
+        }
+      }
+    })
+  }, [registerAutoSave, clearDirty])
+  // Derived state
   const code = currentFile ? (fileContents.get(currentFile) ?? '') : ''
-  const language = currentFile ? wsLanguage : 'plaintext'
+  const secondaryFile = paneFiles.secondary || null
+  const secondaryCode = secondaryFile ? (fileContents.get(secondaryFile) ?? '') : ''
+  // Recent files for welcome panel
+  const [recentFiles] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('swarm-editor-recent-files')
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      logger.debug('Editor', 'Failed to parse recent files from localStorage')
+      return []
+    }
+  })
 
-  // Window title: show current file name (VS Code pattern: "filename — Swarm Editor")
+  // Window title
   useEffect(() => {
     if (currentFile) {
       const fileName = currentFile.split('/').pop() || currentFile
@@ -111,99 +130,122 @@ export default function EditorPanel() {
       document.title = 'Swarm Editor'
     }
   }, [currentFile, dirtyFiles])
-
-  // Split editor: active pane's file
-  const secondaryFile = paneFiles.secondary || null
-  const secondaryCode = secondaryFile ? (fileContents.get(secondaryFile) ?? '') : ''
-  const secondaryLang = secondaryFile
-    ? (() => {
-        const ext = secondaryFile.split('.').pop()?.toLowerCase() || ''
-        return LSP_LANG_MAP[ext] || 'plaintext'
-      })()
-    : 'plaintext'
-
-  // Recent files for welcome panel
-  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem('swarm-editor-recent-files')
-      return stored ? JSON.parse(stored) : []
-    } catch {
-      return []
-    }
-  })
-
-  // All editor refs (main + secondary pane)
-  const {
-    modelCacheRef, editorRef, monacoRef, mountedRef,
-    lspDebounceRef, autoSaveTimeoutRef, lspOpenFileRef,
-    lspIncrementalRef, lspPendingChangesRef, lspInitiatedEditRef,
-    externalReloadRef, providerDisposablesRef, viewStateMapRef,
-    secondaryEditorRef, secondaryLspOpenFileRef, secondaryLspDebounceRef,
-    secondaryLspIncrementalRef, secondaryLspPendingChangesRef,
-    secondaryLspInitiatedEditRef, secondaryAutoSaveTimeoutRef, secondaryDisposablesRef,
-  } = useEditorRefs()
-
-  // Format + close-split callbacks (shared editor actions)
-  const { handleFormat, handleCloseSplit } = useEditorCallbacks({
-    activePaneId, splitDirection, editorRef, secondaryEditorRef,
-    secondaryDisposablesRef, secondaryAutoSaveTimeoutRef, secondaryLspOpenFileRef, closeSplit,
-  })
-
-  // R5080/R5083: Git diff gutter decorations (VS Code/Cursor pattern)
-  useGitDiffDecorations(editorRef, secondaryEditorRef, monacoRef, currentFile, secondaryFile, splitDirection, gitStatusMap)
-
-  // Compute breadcrumb symbols based on cursor position
-  // P1 fix: Use correct symbols based on active pane (was always using main pane symbols)
-  const breadcrumbSymbols = useMemo(() => {
-    const symbols = activePaneId === 'secondary' ? secondaryDocumentSymbols : documentSymbols
-    if (!cursorPosition || !symbols.length) return []
-    return findSymbolPath(symbols, cursorPosition.line, cursorPosition.column)
-  }, [cursorPosition, documentSymbols, secondaryDocumentSymbols, activePaneId])
-
-  // R5093: Navigate between problems (F8/Shift+F8) - VS Code pattern
-  const navigateProblem = useCallback((editorInstance: editor.IStandaloneCodeEditor, curFile: string | null, direction: 1 | -1 = 1) => {
-    navigateProblemUtil({ editorInstance, curFile, direction, workspaceProblems, openFile: openFileFromStore })
-  }, [workspaceProblems, openFileFromStore])
-
-  // Ref to avoid stale closure in addCommand handlers (onMount runs once)
-  const navigateProblemRef = useRef(navigateProblem)
-  navigateProblemRef.current = navigateProblem
-
-  // Open file and scroll to line when URL ?file=&line= params change
-  useSearchParamNavigation({ currentFile, editorRef, openFile: openFileFromStore })
-
-  // Dispose models for closed files
+  // Workspace init + cleanup
   useEffect(() => {
-    const openPaths = new Set(openFiles)
-    // Don't dispose models still in use by secondary pane (split editor)
-    if (secondaryFile) openPaths.add(secondaryFile)
-    for (const [path, model] of modelCacheRef.current) {
-      if (!openPaths.has(path)) {
-        model.dispose()
-        modelCacheRef.current.delete(path)
-        viewStateMapRef.current.delete(path)
+    mountedRef.current = true
+    const load = async () => {
+      try {
+        const ws = await fsApi.getWorkspace()
+        if (!mountedRef.current) return
+        setWorkspacePath(ws)
+      } catch (err) {
+        logger.error('Editor', 'Failed to load workspace:', err)
       }
     }
-  }, [openFiles, secondaryFile])
+    load()
+    return () => { mountedRef.current = false }
+  }, [setWorkspacePath])
 
-  // Tab click handler — switch to already-open file
+  // Subscribe to external file change events
+  useEffect(() => {
+    const unsubscribe = subscribeToFileChanges()
+    return unsubscribe
+  }, [subscribeToFileChanges])
+
+  // Git blame: fetch when enabled or file changes
+  useEffect(() => {
+    blameMountedRef.current = true
+    return () => { blameMountedRef.current = false }
+  }, [])
+
+  useEffect(() => {
+    if (!blameEnabled || !currentFile) {
+      setBlameLines([])
+      return
+    }
+
+    let cancelled = false
+    gitBlameApi.blame(currentFile)
+      .then(lines => {
+        if (!cancelled && blameMountedRef.current) {
+          setBlameLines(lines)
+        }
+      })
+      .catch(err => {
+        logger.debug('Editor', 'Blame fetch failed:', err)
+        if (!cancelled && blameMountedRef.current) {
+          setBlameLines([])
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [blameEnabled, currentFile])
+
+  // Save handler
+  const handleSave = useCallback(async () => {
+    const { activePaneId: paneId, splitDirection: split } = useSplitPaneStore.getState()
+    const isSecondary = paneId === 'secondary' && split !== 'none'
+    const filePath = isSecondary
+      ? useSplitPaneStore.getState().paneFiles.secondary
+      : useWorkspaceStore.getState().currentFile
+    if (!filePath) return
+
+    const contents = useWorkspaceStore.getState().fileContents
+    const content = contents.get(filePath)
+    if (content === undefined) return
+
+    try {
+      await fsApi.writeFile(filePath, content)
+      clearDirty(filePath)
+      addToast('success', 'Saved', filePath.split('/').pop() || filePath)
+    } catch (err) {
+      logger.error('Editor', 'Failed to save file:', err)
+      addToast('error', 'Save failed', err instanceof Error ? err.message : String(err))
+    }
+  }, [clearDirty, addToast])
+
+  // Save file by path (for tab close)
+  const handleSaveFileByPath = useCallback(async (filePath: string) => {
+    const contents = useWorkspaceStore.getState().fileContents
+    const content = contents.get(filePath)
+    if (content === undefined) return
+
+    try {
+      await fsApi.writeFile(filePath, content)
+      clearDirty(filePath)
+    } catch (err) {
+      logger.error('Editor', 'Failed to save file:', err)
+    }
+  }, [clearDirty])
+  // Content change (main pane)
+  const handleMainChange = useCallback((value: string) => {
+    const file = useWorkspaceStore.getState().currentFile
+    if (file) {
+      updateFileContent(file, value)
+    }
+  }, [updateFileContent])
+  // Content change (secondary pane)
+  const handleSecondaryChange = useCallback((value: string) => {
+    const file = useSplitPaneStore.getState().paneFiles.secondary
+    if (file) {
+      updateFileContent(file, value)
+    }
+  }, [updateFileContent])
+  // Tab click
   const handleTabClick = useCallback((path: string) => {
-    // VS Code: clicking a preview tab converts it to permanent
+    // Clicking a preview tab converts it to permanent
     const state = useWorkspaceStore.getState()
     if (state.previewTab === path) {
       useWorkspaceStore.setState({ previewTab: null, mruOrder: [...state.mruOrder, path] })
     }
     if (splitDirection !== 'none' && activePaneId === 'secondary') {
-      // In split mode, open file in the active pane
       setPaneFile('secondary', path)
-      // Also ensure file is in openFiles
       if (!openFiles.includes(path)) openFileFromStore(path, { preview: false })
     } else {
       openFileFromStore(path, { preview: false })
     }
   }, [openFileFromStore, splitDirection, activePaneId, setPaneFile, openFiles])
-
-  // Tab close handler
+  // Tab close
   const handleTabClose = useCallback((path: string) => {
     if (dirtyFiles.has(path)) {
       setDirtyClosePath(path)
@@ -211,300 +253,188 @@ export default function EditorPanel() {
       closeFile(path)
     }
   }, [closeFile, dirtyFiles])
-
   // Welcome panel file click
   const handleWelcomeFileClick = useCallback((path: string) => {
     openFileFromStore(path)
   }, [openFileFromStore])
-
-  // Open diff view for a file (git HEAD vs working tree)
-  const handleOpenDiff = useCallback(async (filePath: string) => {
-    try {
-      const result = await gitDiffApi.getFileDiff(filePath)
-      setDiffView({
-        original: result.original,
-        modified: result.modified,
-        language: wsLanguage || 'plaintext',
-        filePath: result.path,
-      })
-    } catch {
-      // Not a git repo or file has no history — ignore
-    }
-  }, [wsLanguage])
-
-  // Diagnostics management (LSP markers + problems)
-  const {
-    fetchDiagnostics,
-    fetchSecondaryDiagnostics,
-    subscribeToDiagnostics,
-  } = useDiagnostics(monacoRef, editorRef, secondaryEditorRef, lspOpenFileRef, secondaryLspOpenFileRef, updateFileProblems)
-
-  // Subscribe to push-based diagnostics from WebSocket (Cursor/Windsurf pattern)
-  useEffect(() => {
-    return subscribeToDiagnostics()
-  }, [subscribeToDiagnostics])
-
-  // Pane model switching + LSP sync (main and secondary)
-  usePaneModelSync({
-    filePath: currentFile, fileContents, language: wsLanguage,
-    editorRef, monacoRef, modelCacheRef, viewStateMapRef,
-    lspOpenFileRef, lspIncrementalRef,
-    fetchDiagnostics, setSymbols: setDocumentSymbols,
-  })
-  usePaneModelSync({
-    filePath: secondaryFile, fileContents, language: null,
-    editorRef: secondaryEditorRef, monacoRef, modelCacheRef, viewStateMapRef,
-    lspOpenFileRef: secondaryLspOpenFileRef, lspIncrementalRef: secondaryLspIncrementalRef,
-    fetchDiagnostics: fetchSecondaryDiagnostics, setSymbols: setSecondaryDocumentSymbols,
-  })
-
-  // Sync Monaco theme when app theme changes (VS Code pattern — live theme switch)
-  useEffect(() => {
-    if (monacoRef.current) {
-      monacoRef.current.editor.setTheme(getMonacoTheme(effectiveTheme))
-    }
-  }, [effectiveTheme])
-
-  // Track mounted state + cleanup on unmount
-  useEditorCleanup({
-    mountedRef, lspDebounceRef, autoSaveTimeoutRef, lspOpenFileRef,
-    secondaryLspDebounceRef, secondaryAutoSaveTimeoutRef, secondaryLspOpenFileRef,
-    providerDisposablesRef,
-  })
-
-  // Git status polling for file tree decorations (VS Code/Cursor pattern)
-  const fetchGitStatusRef = useGitStatus({ workspace, setGitStatusMap })
-
-  // Listen for external git status refresh requests (CommandPalette git: pull, SourceControlPanel, etc.)
-  useWindowEvent('refresh-git-status', () => { fetchGitStatusRef.current() }, [])
-
-  // P1 UX: File watcher - detect external changes to open files (VS Code/Cursor pattern)
-  useFileWatcher({
-    openFiles, currentFile, secondaryFile, workspace,
-    updateFileContent, clearDirty, externalReloadRef,
-    editorRef, secondaryEditorRef, monacoRef,
-  })
-
-  // P1 UX: Handle editor setting toggle events from CommandPalette
-  useEditorSettingsEvents({ settings, updateSetting: updateSetting as (key: string, value: any) => void })
-
-  // Tab close handlers (extracted to utility)
-  const tabCloseHandlers = useMemo(() => createTabCloseHandlers({
-    openFiles, currentFile, dirtyFiles, pinnedFiles, fileContents,
-    closeAllFiles, closeOthers, closeToLeft, closeToRight, closeSaved,
-    clearDirty, fetchGitStatus: () => fetchGitStatusRef.current(), addToast, setDirtyClosePath,
-  }), [openFiles, currentFile, dirtyFiles, pinnedFiles, fileContents, closeAllFiles, closeOthers, closeToLeft, closeToRight, closeSaved, clearDirty, addToast])
-  const { closeAll: handleCloseAllTabs, closeSavedTabs: handleCloseSavedTabs, closeOtherTabs: handleCloseOtherTabs, closeTabsToLeft: handleCloseToLeft, closeTabsToRight: handleCloseToRight } = tabCloseHandlers
-
-  // Window event handlers (CommandPalette, keyboard shortcuts, LSP reconnect)
-  useEditorWindowEvents({
-    currentFile, dirtyFiles, openFiles, closeFile, togglePin, setDirtyClosePath,
-    handleCloseAllTabs, handleCloseSavedTabs, handleCloseOtherTabs, handleCloseToRight,
-    showFileTree, setShowFileTree, setShowAccessibilityHelp, setExpandedDirs,
-    gitStatusMap, handleOpenDiff,
-    editorRef, modelCacheRef, navigateProblemRef,
-    lspOpenFileRef, secondaryLspOpenFileRef,
-    lspIncrementalRef, secondaryLspIncrementalRef,
-    fetchDiagnostics, fetchSecondaryDiagnostics,
-    fileContents, addToast,
-  })
-
-  useWorkspaceInit({ mountedRef, setLoading, setWorkspace, addToast })
-
-  const loadFile = async (entry: FileEntry) => {
-    loadFileUtil({
-      path: entry.path, splitDirection, mountedRef, setLoading,
-      openFile: openFileFromStore, setPaneFile, setRecentFiles,
-      addToast: (type, title, message) => addToast(type, title, message),
-    })
-  }
-
-  // Save handlers (split-aware save + per-file auto-save)
-  const { handleSave, handleSaveFileByPath } = useEditorSaveHandlers({
-    editorRef, secondaryEditorRef, monacoRef, mountedRef, modelCacheRef,
-    lspOpenFileRef, secondaryLspOpenFileRef,
-    lspDebounceRef, secondaryLspDebounceRef,
-    lspPendingChangesRef, secondaryLspPendingChangesRef,
-    lspInitiatedEditRef, secondaryLspInitiatedEditRef,
-    fetchGitStatusRef, fileContents, updateFileContent, clearDirty,
-    setLoading,
-  })
-
-  // Monaco Editor mount handlers (main + secondary)
-  const handleEditorMount: OnMount = createEditorMountHandler({
-    editorRef, monacoRef, providerDisposablesRef,
-    inlayHintsRef, lspInitiatedEditRef, lspOpenFileRef, lspPendingChangesRef,
-    settings, updateSetting: updateSetting as (key: string, value: any) => void,
-    onSave: handleSave,
-    onAccessibilityHelp: () => setShowAccessibilityHelp(true),
-    onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
-    onNavigateProblem: (direction) => navigateProblemRef.current(editorRef.current!, currentFile, direction),
-    effectiveTheme: effectiveTheme as 'dark' | 'light', isMain: true,
-    setActivePane,
-  })
-
-  // Command palette / keyboard shortcut events
-  useCommandPaletteEvents({
-    currentFile,
-    showFileTree,
-    splitDirection,
-    editorRef,
-    toggleSplit,
-    handleCloseSplit,
-    setShowFileTree,
-    setActivityView: setActivityView as React.Dispatch<React.SetStateAction<string>>,
-    setActivePane,
-    handleSave,
-    addToast,
-  })
-
-  const handleRun = () => {
-    if (!currentFile) return
-    setShowAgentSelector(true)
-  }
-
-  const executeWithAgent = async (swarmId?: string) => {
-    if (!currentFile) return
-    await executeWithAgentUtil({
-      currentFile, code, language, swarmId, swarms,
-      mountedRef, setLoading,
-      addToast: useAppStore.getState().addToast,
-      onDone: () => setShowAgentSelector(false),
-    })
-  }
-
-  const handleEditorChange = createEditorChangeHandler(
-    () => currentFile,
-    {
-      lspInitiatedEditRef,
-      externalReloadRef,
-      lspDebounceRef,
-      lspOpenFileRef,
-      lspPendingChangesRef,
-      lspIncrementalRef,
-      autoSaveTimeoutRef,
-    },
-    {
-      autoSave: settings.autoSave,
-      autoSaveDelay: settings.autoSaveDelay,
-      updateFileContent,
-      saveFileByPath: handleSaveFileByPath,
-      dirtyFiles,
-    },
-  )
-
-  // Secondary pane editor mount (split editor)
-  const handleSecondaryEditorMount: OnMount = createEditorMountHandler({
-    editorRef: secondaryEditorRef, monacoRef, providerDisposablesRef,
-    inlayHintsRef, lspInitiatedEditRef: secondaryLspInitiatedEditRef,
-    lspOpenFileRef: secondaryLspOpenFileRef, lspPendingChangesRef: secondaryLspPendingChangesRef,
-    settings, updateSetting: updateSetting as (key: string, value: any) => void,
-    onSave: handleSave,
-    onAccessibilityHelp: () => setShowAccessibilityHelp(true),
-    onFocusOutline: () => { setShowFileTree(true); setActivityView('outline') },
-    onNavigateProblem: (direction) => navigateProblemRef.current(secondaryEditorRef.current!, secondaryFile, direction),
-    effectiveTheme: effectiveTheme as 'dark' | 'light', isMain: false,
-    secondaryDisposablesRef, secondaryLspInitiatedEditRef, secondaryLspPendingChangesRef, setActivePane,
-  })
-
-  // Secondary pane editor change handler
-  const handleSecondaryEditorChange = createEditorChangeHandler(
-    () => useSplitPaneStore.getState().paneFiles.secondary,
-    {
-      lspInitiatedEditRef: secondaryLspInitiatedEditRef,
-      externalReloadRef,
-      lspDebounceRef: secondaryLspDebounceRef,
-      lspOpenFileRef: secondaryLspOpenFileRef,
-      lspPendingChangesRef: secondaryLspPendingChangesRef,
-      lspIncrementalRef: secondaryLspIncrementalRef,
-      autoSaveTimeoutRef: secondaryAutoSaveTimeoutRef,
-    },
-    {
-      autoSave: settings.autoSave,
-      autoSaveDelay: settings.autoSaveDelay,
-      updateFileContent,
-      saveFileByPath: handleSaveFileByPath,
-      dirtyFiles,
-    },
-  )
-
-  // Tab context menu state + handlers (VS Code/Cursor pattern)
+  // Tab context menu
   const { handleTabContextMenu, closeTabContextMenu, tabMenuKeyDown } = useTabContextMenu({
     tabContextMenu, setTabContextMenu, tabContextMenuRef,
   })
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey
 
-  // Shared Monaco editor options (deduplicated for main + secondary panes)
-  const editorOptions = useMemo(() => buildEditorOptions({
-    fontSize: settings.fontSize,
-    fontFamily: settings.fontFamily,
-    tabSize: settings.tabSize,
-    wordWrap: settings.wordWrap ? 'on' : 'off',
-    lineNumbers: settings.lineNumbers,
-    minimapEnabled: settings.minimap,
-    bracketPairColorization: { enabled: settings.bracketPairColorization },
-    guides: settings.indentGuides
-      ? { bracketPairs: true, indentation: true, highlightActiveBracketPair: true, highlightActiveIndentation: true }
-      : { bracketPairs: false, indentation: false, highlightActiveBracketPair: false, highlightActiveIndentation: false },
-    stickyScroll: { enabled: settings.stickyScroll },
-    renderWhitespace: settings.renderWhitespace,
-    cursorBlinking: settings.cursorBlinking,
-    cursorStyle: settings.cursorStyle,
-    smoothScrolling: settings.smoothScrolling,
-    cursorSmoothCaretAnimation: settings.cursorSmoothCaretAnimation ? 'on' : 'off',
-    linkedEditing: settings.linkedEditing,
-    scrollBeyondLastLine: settings.scrollBeyondLastLine,
-    formatOnPaste: settings.formatOnPaste,
-    mouseWheelZoom: settings.mouseWheelZoom,
-    semanticHighlighting: settings.semanticHighlighting,
-    quickSuggestions: settings.quickSuggestions,
-    acceptSuggestionOnEnter: settings.acceptSuggestionOnEnter,
-    tabCompletion: settings.tabCompletion,
-    wordBasedSuggestions: settings.wordBasedSuggestions,
-    suggestOnTriggerCharacters: settings.suggestOnTriggerCharacters,
-  }), [settings])
-
-  // Navigate active editor to a symbol position (shared by OutlinePanel + EditorBreadcrumbs)
-  const navigateToPosition = useCallback((line: number, column: number) => {
-    const activeEditor = activePaneId === 'secondary' ? secondaryEditorRef.current : editorRef.current
-    if (activeEditor) {
-      activeEditor.revealLineInCenter(line + 1)
-      activeEditor.setPosition({ lineNumber: line + 1, column: column + 1 })
-      activeEditor.focus()
+      if (ctrl && e.key === 's') {
+        e.preventDefault()
+        handleSave()
+      } else if (ctrl && e.key === 'w') {
+        e.preventDefault()
+        const file = useWorkspaceStore.getState().currentFile
+        if (file) handleTabClose(file)
+      } else if (ctrl && e.shiftKey && e.key === 'T') {
+        e.preventDefault()
+        undoCloseFile()
+      } else if (ctrl && e.key === '\\') {
+        e.preventDefault()
+        toggleSplit()
+      }
     }
-  }, [activePaneId])
 
-  // Pane drag/drop handlers (cross-pane tab drag support)
-  const mainDragDrop = useMemo(() => createEditorDragDropHandlers({
-    paneId: 'main', draggedTab, setDropTargetPane, setDraggedTab,
-    setPaneFile, setActivePane,
-    onLoadFile: (path) => loadFile({ path, name: path.split('/').pop() || '', isDirectory: false }),
-  }), [draggedTab, setPaneFile, setActivePane, loadFile])
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleSave, handleTabClose, undoCloseFile, toggleSplit])
 
-  const secondaryDragDrop = useMemo(() => createEditorDragDropHandlers({
-    paneId: 'secondary', draggedTab, setDropTargetPane, setDraggedTab,
-    setPaneFile, setActivePane,
-  }), [draggedTab, setPaneFile, setActivePane])
+  // Clear drag state on dragend
+  useEffect(() => {
+    const handleDragEnd = () => { setDraggedTab(null); setDropTargetPane(null) }
+    window.addEventListener('dragend', handleDragEnd)
+    return () => window.removeEventListener('dragend', handleDragEnd)
+  }, [])
+
+  // Goto Line: listen for 'goto-line-direct' and navigate the active editor
+  useEffect(() => {
+    const handleGotoLine = (e: Event) => {
+      const line = (e as CustomEvent).detail?.line
+      if (!line || !currentFile) return
+      const { activePaneId: paneId, splitDirection: split } = useSplitPaneStore.getState()
+      const ref = (paneId === 'secondary' && split !== 'none')
+        ? secondaryEditorRef
+        : mainEditorRef
+      ref.current?.setCursor(line, 1)
+      ref.current?.scrollToLine(line)
+      ref.current?.focus()
+    }
+    window.addEventListener('goto-line-direct', handleGotoLine)
+    return () => window.removeEventListener('goto-line-direct', handleGotoLine)
+  }, [currentFile])
+
+  // Diff mode: listen for 'editor:show-diff' custom event
+  useEffect(() => {
+    const handleShowDiff = (e: Event) => {
+      const detail = (e as CustomEvent).detail as DiffState | undefined
+      if (detail?.path && detail.original !== undefined && detail.modified !== undefined) {
+        setDiffState(detail)
+      }
+    }
+    window.addEventListener('editor:show-diff', handleShowDiff)
+    return () => window.removeEventListener('editor:show-diff', handleShowDiff)
+  }, [])
+
+  // Close diff view handler
+  const handleCloseDiff = useCallback(() => {
+    setDiffState(null)
+  }, [])
+
+  // Pane focus handlers
+  const handleMainPaneFocus = useCallback(() => {
+    if (activePaneId !== 'main') setActivePane('main')
+  }, [activePaneId, setActivePane])
+
+  const handleSecondaryPaneFocus = useCallback(() => {
+    if (activePaneId !== 'secondary') setActivePane('secondary')
+  }, [activePaneId, setActivePane])
+
+  // Close split
+  const handleCloseSplit = useCallback(() => {
+    closeSplit()
+  }, [closeSplit])
+
+  // Split right
+  const handleSplitRight = useCallback((path: string) => {
+    if (splitDirection === 'none') toggleSplit()
+    setPaneFile('secondary', path)
+    setActivePane('secondary')
+  }, [splitDirection, toggleSplit, setPaneFile, setActivePane])
+
+  // Tab close operations
+  const handleCloseAllTabs = useCallback(() => {
+    const hasDirty = openFiles.some(f => dirtyFiles.has(f))
+    if (hasDirty) {
+      setDirtyClosePath('__close_all__')
+    } else {
+      closeAllFiles()
+    }
+  }, [openFiles, dirtyFiles, closeAllFiles])
+
+  const handleCloseOtherTabs = useCallback(() => {
+    if (!currentFile) return
+    closeOthers(currentFile)
+  }, [currentFile, closeOthers])
+
+  const handleCloseToLeft = useCallback(() => {
+    if (!currentFile) return
+    closeToLeft(currentFile)
+  }, [currentFile, closeToLeft])
+
+  const handleCloseToRight = useCallback(() => {
+    if (!currentFile) return
+    closeToRight(currentFile)
+  }, [currentFile, closeToRight])
+
+  const handleCloseSavedTabs = useCallback(() => {
+    closeSaved()
+  }, [closeSaved])
+
+  // Copy path helpers
+  const workspace = workspacePath
+
+  // Drag/drop for cross-pane tab transfer
+  const handleMainDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    if (draggedTab && draggedTab.paneId !== 'main') {
+      setDropTargetPane('main')
+    }
+  }, [draggedTab])
+
+  const handleMainDragLeave = useCallback(() => {
+    setDropTargetPane(null)
+  }, [])
+
+  const handleMainDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDropTargetPane(null)
+    if (draggedTab && draggedTab.paneId !== 'main') {
+      setPaneFile('main', draggedTab.path)
+      setActivePane('main')
+    }
+    setDraggedTab(null)
+  }, [draggedTab, setPaneFile, setActivePane])
+
+  const handleSecondaryDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    if (draggedTab && draggedTab.paneId !== 'secondary') {
+      setDropTargetPane('secondary')
+    }
+  }, [draggedTab])
+
+  const handleSecondaryDragLeave = useCallback(() => {
+    setDropTargetPane(null)
+  }, [])
+
+  const handleSecondaryDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDropTargetPane(null)
+    if (draggedTab && draggedTab.paneId !== 'secondary') {
+      setPaneFile('secondary', draggedTab.path)
+      setActivePane('secondary')
+    }
+    setDraggedTab(null)
+  }, [draggedTab, setPaneFile, setActivePane])
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <EditorToolbar
-        showFileTree={showFileTree}
-        onToggleFileTree={() => setShowFileTree(!showFileTree)}
-        currentFile={currentFile}
-        workspace={workspace}
-        language={language}
-        onLanguageChange={setLanguage}
-        loading={loading}
-        splitDirection={splitDirection}
-        onToggleSplit={() => toggleSplit()}
-        onFormat={handleFormat}
-        onSave={handleSave}
-        onRun={handleRun}
-        settings={settings}
-        updateSetting={updateSetting as (key: string, value: boolean) => void}
-      />
-
+      {/* Diff mode — replaces normal editor entirely */}
+      {diffState ? (
+        <DiffView
+          original={diffState.original}
+          modified={diffState.modified}
+          filename={diffState.path}
+          onClose={handleCloseDiff}
+        />
+      ) : (
+      <>
       {/* Tab Bar */}
       <TabBar
         openFiles={openFiles}
@@ -523,188 +453,128 @@ export default function EditorPanel() {
         onTabContextMenu={handleTabContextMenu}
         paneId="main"
         onDragStart={(paneId, path) => setDraggedTab({ paneId, path })}
-
       />
 
-      {/* Breadcrumbs — VS Code pattern (R5169: respect breadcrumbs setting) */}
-      {currentFile && settings.breadcrumbs && (
-        <BreadcrumbsBar
-          filePath={currentFile}
-          fileTree={fileTree}
-          onNavigate={(dirPath) => {
-            // Navigate to the directory — open it in file tree and show first file
-            if (!expandedDirs.has(dirPath)) {
-              setExpandedDirs(prev => new Set([...prev, dirPath]))
-            }
-          }}
-          onFileSelect={(path) => {
-            openFileFromStore(path, { preview: false })
-          }}
-        />
+      {/* Breadcrumbs + Blame toggle */}
+      {currentFile && (
+        <div className="flex items-center justify-between">
+          <BreadcrumbsBar
+            filePath={currentFile}
+            onNavigate={(path) => { useWorkspaceStore.getState().toggleDir(path) }}
+            onFileSelect={(path) => openFileFromStore(path, { preview: false })}
+          />
+          <button
+            onClick={() => setBlameEnabled(prev => !prev)}
+            className={`px-2 py-0.5 mr-2 text-xs rounded transition-colors ${
+              blameEnabled
+                ? 'bg-[#58a6ff]/20 text-[#58a6ff] border border-[#58a6ff]/40'
+                : 'text-[#6b7280] hover:text-[#d1d5db] hover:bg-[#21262d]'
+            }`}
+            title={blameEnabled ? 'Hide Blame' : 'Show Blame'}
+          >
+            Blame
+          </button>
+        </div>
+      )}
+
+      {/* External file modification prompt */}
+      {currentFile && externalModifications.has(currentFile) && (
+        <ExternalModPrompt filePath={currentFile} onDismiss={clearExternalModification} />
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar: Explorer or Source Control */}
-        {showFileTree && (
-          <div className="flex flex-shrink-0">
-            <ActivityBar
-              activityView={activityView}
-              onViewChange={setActivityView}
-              gitStatusCount={Object.keys(gitStatusMap).length}
-              errorCount={workspaceProblems.filter(p => p.severity === 'error').length}
-            />
-            {/* Sidebar Content */}
-            <div className="bg-panel-bg/30 border-r border-glass-border overflow-hidden flex flex-col" style={{ width: `${sidebarWidth}px` }}>
-
-            {activityView === 'explorer' ? (
-              <ExplorerPanel
-                workspace={workspace}
-                currentFile={currentFile}
-                gitStatusMap={gitStatusMap}
-                openFiles={openFiles}
-                dirtyFiles={dirtyFiles}
-                onOpenFile={openFileFromStore}
-                onCloseFile={closeFile}
-                onToast={(type, title, message) => addToast(type, title, message)}
-                onRefreshGitStatus={() => fetchGitStatusRef.current()}
-                onRenameFileInStore={(oldPath, newPath) => useWorkspaceStore.getState().renameFileInStore(oldPath, newPath)}
-                onSetPaneFile={setPaneFile}
-                onFileTreeChange={setFileTree}
-                onExpandedDirsChange={setExpandedDirs}
-              />
-            ) : activityView === 'sourceControl' ? (
-              <div className="flex-1 overflow-hidden">
-                <SourceControlPanel
-                  onStatusChange={(files) => {
-                    const map: Record<string, GitFileStatus> = {}
-                    for (const f of files) { map[f.path] = f }
-                    setGitStatusMap(map)
-                  }}
-                  onOpenFile={(path) => openFileFromStore(path, { preview: false })}
-                />
-              </div>
-            ) : activityView === 'outline' ? (
-              <div className="flex-1 overflow-hidden">
-                <OutlinePanel
-                  filePath={currentFile}
-                  onSymbolClick={navigateToPosition}
-                />
-              </div>
-            ) : null}
-            </div>
-          </div>
-        )}
-
-        {/* Sidebar resize handle (VS Code pattern — drag to resize, double-click to reset) */}
-        {showFileTree && (
-          <div
-            className={`w-1 cursor-col-resize transition-colors flex-shrink-0 ${isResizingSidebar ? 'bg-accent/50' : 'hover:bg-accent/30'}`}
-            onMouseDown={(e) => { e.preventDefault(); setIsResizingSidebar(true) }}
-            onDoubleClick={() => setSidebarWidth(208)}
-            title="Drag to resize, double-click to reset"
+      <div className="flex-1 overflow-hidden" data-editor-container>
+        {openFiles.length === 0 ? (
+          <WelcomePanel
+            recentFiles={recentFiles}
+            onFileClick={handleWelcomeFileClick}
           />
-        )}
-
-        {/* Editor and Terminal Container */}
-        <div className="flex-1 flex flex-col overflow-hidden" data-editor-container>
-          {/* Conditional: Welcome or Editor */}
-          {openFiles.length === 0 ? (
-            <WelcomePanel
-              recentFiles={recentFiles}
-              onFileClick={handleWelcomeFileClick}
-            />
-          ) : (
-            <>
-              {/* Breadcrumb Navigation with LSP symbols (VS Code/Cursor pattern) */}
-              {currentFile && (
-                <EditorBreadcrumbs
-                  currentFile={currentFile}
-                  breadcrumbSymbols={breadcrumbSymbols}
-                  gitStatusMap={gitStatusMap}
-                  hasDiffView={!!diffView}
-                  onOpenDiff={handleOpenDiff}
-                  onNavigateToSymbol={(line, column) => {
-                    navigateToPosition(line, column)
-                  }}
-                  onExpandDirectory={(dirPath) => {
-                    setExpandedDirs(prev => {
-                      const next = new Set(prev)
-                      const segs = dirPath.split('/')
-                      for (let i = 0; i < segs.length; i++) next.add(segs.slice(0, i + 1).join('/'))
-                      return next
-                    })
-                  }}
-                  onShowFileTree={() => setShowFileTree(true)}
-                />
-              )}
-          {diffView ? (
-            <div className="flex-1 overflow-hidden">
-              <DiffEditorPanel
-                original={diffView.original}
-                modified={diffView.modified}
-                language={diffView.language}
-                filePath={diffView.filePath}
-                onClose={() => setDiffView(null)}
-              />
-            </div>
-          ) : (
-          <div className={`flex-1 overflow-hidden ${splitDirection === 'horizontal' ? 'flex' : ''}`}>
+        ) : (
+          <div className={`h-full ${splitDirection === 'horizontal' ? 'flex' : ''}`}>
             {/* Main pane */}
-            <PrimaryEditorPane
-              language={language}
-              value={code}
-              onChange={handleEditorChange}
-              onMount={handleEditorMount}
-              options={editorOptions}
-              splitDirection={splitDirection}
-              isDropTarget={dropTargetPane === 'main'}
-              isInactive={splitDirection !== 'none' && activePaneId === 'secondary'}
-              onDragOver={mainDragDrop.onDragOver}
-              onDragLeave={mainDragDrop.onDragLeave}
-              onDrop={mainDragDrop.onDrop}
-            />
+            <div
+              className={`overflow-hidden transition-all flex ${
+                splitDirection === 'horizontal' ? 'flex-1 border-r' : 'w-full h-full'
+              } ${dropTargetPane === 'main' ? 'bg-[#58a6ff]/10' : ''} ${
+                splitDirection !== 'none' && activePaneId === 'secondary' ? 'opacity-75' : ''
+              }`}
+              style={{ borderRightColor: splitDirection === 'horizontal' ? '#30363d' : undefined }}
+              onFocus={handleMainPaneFocus}
+              onDragOver={handleMainDragOver}
+              onDragLeave={handleMainDragLeave}
+              onDrop={handleMainDrop}
+            >
+              {/* Blame gutter sidebar */}
+              {blameEnabled && <BlameSidebar lines={blameLines} />}
+              <div className="flex-1 overflow-hidden">
+                <CodeMirrorPane
+                  ref={mainEditorRef}
+                  value={code}
+                  filename={currentFile || 'untitled'}
+                  onChange={handleMainChange}
+                  onSave={handleSave}
+                  settings={editorSettings}
+                />
+              </div>
+            </div>
+
             {/* Secondary pane (split editor) */}
             {splitDirection === 'horizontal' && (
-              <SecondaryEditorPane
-                filePath={secondaryFile}
-                language={secondaryLang}
-                value={secondaryCode}
-                onChange={handleSecondaryEditorChange}
-                onMount={handleSecondaryEditorMount}
-                options={editorOptions}
-                isDropTarget={dropTargetPane === 'secondary'}
-                isInactive={activePaneId === 'main'}
-                onDragOver={secondaryDragDrop.onDragOver}
-                onDragLeave={secondaryDragDrop.onDragLeave}
-                onDrop={secondaryDragDrop.onDrop}
-                onClose={handleCloseSplit}
-              />
+              <div
+                className={`flex-1 overflow-hidden flex flex-col transition-all ${
+                  dropTargetPane === 'secondary' ? 'bg-[#58a6ff]/10' : ''
+                } ${activePaneId === 'main' ? 'opacity-75' : ''}`}
+                onFocus={handleSecondaryPaneFocus}
+                onDragOver={handleSecondaryDragOver}
+                onDragLeave={handleSecondaryDragLeave}
+                onDrop={handleSecondaryDrop}
+              >
+                {/* Secondary pane header */}
+                <div
+                  className={`flex items-center justify-between px-2 py-0.5 border-b text-xs ${
+                    dropTargetPane === 'secondary'
+                      ? 'bg-[#58a6ff]/20 border-[#58a6ff]'
+                      : ''
+                  }`}
+                  style={{
+                    background: dropTargetPane === 'secondary' ? undefined : '#161b22',
+                    borderBottomColor: dropTargetPane === 'secondary' ? undefined : '#30363d',
+                  }}
+                >
+                  <span className="truncate" style={{ color: dropTargetPane === 'secondary' ? '#58a6ff' : '#d1d5db' }}>
+                    {dropTargetPane === 'secondary'
+                      ? 'Drop to open in this pane'
+                      : secondaryFile ? secondaryFile.split('/').pop() : 'No file open'}
+                  </span>
+                  <button
+                    onClick={handleCloseSplit}
+                    className="p-0.5 hover:bg-[#21262d] rounded transition-colors"
+                    title="Close split"
+                    style={{ color: '#6b7280' }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="6" cy="6" r="5" />
+                      <path d="M4 4l4 4M8 4l-4 4" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <CodeMirrorPane
+                    ref={secondaryEditorRef}
+                    value={secondaryCode}
+                    filename={secondaryFile || 'untitled'}
+                    onChange={handleSecondaryChange}
+                    onSave={handleSave}
+                    settings={editorSettings}
+                  />
+                </div>
+              </div>
             )}
           </div>
-          )}
-            </>
-          )}
-
-          <BottomPanel />
-        </div>
+        )}
       </div>
 
-      {/* R5128: Alt+F1 Accessibility Help Dialog (VS Code P1 pattern) */}
-      {showAccessibilityHelp && (
-        <AccessibilityHelpModal onClose={() => setShowAccessibilityHelp(false)} />
-      )}
-
-      {/* Agent Selector Modal */}
-      {showAgentSelector && (
-        <AgentSelectorModal
-          swarms={swarms}
-          onSelect={executeWithAgent}
-          onClose={() => setShowAgentSelector(false)}
-        />
-      )}
-
-      {/* Tab Context Menu (VS Code/Cursor pattern) */}
+      {/* Tab Context Menu */}
       <TabContextMenu
         tabContextMenu={tabContextMenu}
         tabContextMenuRef={tabContextMenuRef}
@@ -720,11 +590,7 @@ export default function EditorPanel() {
         onCloseSaved={closeSaved}
         onCloseAll={closeAllFiles}
         onTogglePin={togglePin}
-        onSplitRight={(path) => {
-          if (splitDirection === 'none') toggleSplit()
-          setPaneFile('secondary', path)
-          setActivePane('secondary')
-        }}
+        onSplitRight={handleSplitRight}
         onReopenClosed={undoCloseFile}
         onCopyPath={(path) => {
           navigator.clipboard.writeText(path)
@@ -741,7 +607,7 @@ export default function EditorPanel() {
         addToast={addToast}
       />
 
-      {/* Dirty file close confirmation (VS Code/Cursor pattern — Save / Don't Save / Cancel) */}
+      {/* Dirty file close confirmation */}
       <DirtyCloseDialog
         dirtyClosePath={dirtyClosePath}
         openFiles={openFiles}
@@ -757,21 +623,20 @@ export default function EditorPanel() {
         }}
         onSaveAndClose={async (path) => {
           setDirtyClosePath(null)
-          if (path === currentFile) {
-            await handleSave()
-          } else {
-            saveSingleFile({ path, fileContents, clearDirty, addToast })
-            fetchGitStatusRef.current()
-          }
+          await handleSaveFileByPath(path)
           closeFile(path)
         }}
         onSaveAllAndClose={async () => {
           const dirtyPaths = openFiles.filter(f => dirtyFiles.has(f))
-          autoSaveDirtyFiles({ paths: dirtyPaths, fileContents, clearDirty, fetchGitStatus: () => fetchGitStatusRef.current(), addToast })
+          for (const p of dirtyPaths) {
+            await handleSaveFileByPath(p)
+          }
           setDirtyClosePath(null)
           closeAllFiles()
         }}
       />
+      </>
+      )}
     </div>
   )
 }

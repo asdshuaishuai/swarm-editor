@@ -38,12 +38,15 @@ type Supervisor struct {
 	heartbeatConfig HeartbeatConfig
 
 	// Callbacks
-	onAgentStuck     func(agent *agent.Agent, duration time.Duration)
+	onAgentStuck     func(agent *agent.Agent, taskID string, duration time.Duration)
 	onAgentRecovered func(agent *agent.Agent)
 	onHealthDegraded func(agent *agent.Agent, score float64)
 
 	// Event broadcasting for UI streaming
 	broadcaster EventBroadcaster
+
+	// Interrupt manager for agent failure recovery
+	interruptMgr *InterruptManager
 
 	// Lifecycle
 	ctx     context.Context
@@ -125,12 +128,13 @@ func NewSupervisor(config SupervisorConfig, registry *agent.Registry, lifecycle 
 		lifecycle = agent.NewLifecycle(registry)
 	}
 	return &Supervisor{
-		config:       config,
-		registry:     registry,
-		lifecycle:    lifecycle,
-		healthScores: make(map[string]*AgentHealth),
-		alerts:       make([]*SupervisorAlert, 0),
-		stuckAgents:  make(map[string]*StuckAgentInfo),
+		config:        config,
+		registry:      registry,
+		lifecycle:     lifecycle,
+		healthScores:  make(map[string]*AgentHealth),
+		alerts:        make([]*SupervisorAlert, 0),
+		stuckAgents:   make(map[string]*StuckAgentInfo),
+		interruptMgr:  NewInterruptManager(),
 		stuckConfig: StuckDetectionConfig{
 			Enabled:         true,
 			Threshold:       config.StuckThreshold,
@@ -244,7 +248,7 @@ func (s *Supervisor) checkAgents() {
 		switch ev.kind {
 		case "stuck":
 			if onStuck != nil {
-				onStuck(ev.agent, ev.duration)
+				onStuck(ev.agent, ev.taskID, ev.duration)
 			}
 		case "degraded":
 			if onDegraded != nil {
@@ -344,7 +348,23 @@ func (s *Supervisor) collectStuckEvent(ag *agent.Agent, health *AgentHealth) *su
 		// Add alert
 		s.addAlert("stuck", agentID, fmt.Sprintf("Agent stuck for %v", timeSinceHeartbeat), "warning", nil)
 
-		return &supervisorEvent{kind: "stuck", agent: ag, duration: timeSinceHeartbeat}
+		// Create interrupt for stuck agent with timeout reason
+		// Note: taskID is empty since we don't track current task per agent
+		// The caller can associate the interrupt with a task if needed
+		if s.interruptMgr != nil {
+			ctx := context.Background()
+			checkpoint, err := s.interruptMgr.Interrupt(ctx, agentID, "", InterruptTimeout)
+			if err != nil {
+				supervisorLog.Warn("Failed to create interrupt for stuck agent", "agent_id", agentID, "error", err)
+			} else {
+				// Apply default recovery strategy
+				if err := s.interruptMgr.ApplyStrategy(checkpoint.ID, RecoveryRetrySame); err != nil {
+					supervisorLog.Warn("Failed to apply recovery strategy", "checkpoint_id", checkpoint.ID, "error", err)
+				}
+			}
+		}
+
+		return &supervisorEvent{kind: "stuck", agent: ag, taskID: "", duration: timeSinceHeartbeat}
 	}
 	return nil
 }
@@ -513,7 +533,7 @@ func (s *Supervisor) SetAlertsForTest(alerts []*SupervisorAlert) {
 }
 
 // OnAgentStuck registers callback for stuck agents
-func (s *Supervisor) OnAgentStuck(fn func(agent *agent.Agent, duration time.Duration)) {
+func (s *Supervisor) OnAgentStuck(fn func(agent *agent.Agent, taskID string, duration time.Duration)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onAgentStuck = fn
@@ -543,10 +563,11 @@ func (s *Supervisor) SetBroadcaster(broadcaster EventBroadcaster) {
 
 	// Wire callbacks to broadcast events
 	if broadcaster != nil {
-		s.onAgentStuck = func(ag *agent.Agent, duration time.Duration) {
+		s.onAgentStuck = func(ag *agent.Agent, taskID string, duration time.Duration) {
 			broadcaster.Broadcast("agent_stuck", map[string]any{
 				"agentId":   ag.ID,
 				"agentName": ag.Name,
+				"taskId":    taskID,
 				"duration":  duration.String(),
 				"timestamp": time.Now(),
 			})
@@ -613,6 +634,12 @@ type SupervisorStats struct {
 type supervisorEvent struct {
 	kind     string // "stuck", "degraded", or "unrecoverable"
 	agent    *agent.Agent
+	taskID   string
 	duration time.Duration
 	score    float64
+}
+
+// GetInterruptManager returns the interrupt manager
+func (s *Supervisor) GetInterruptManager() *InterruptManager {
+	return s.interruptMgr
 }

@@ -24,6 +24,11 @@ const maxPendingRequests = 100
 
 var ErrTooManyPendingRequests = errors.New("too many pending requests")
 
+// MCPEventBroadcaster streams MCP events to UI clients.
+type MCPEventBroadcaster interface {
+	Broadcast(eventType string, payload any)
+}
+
 // Client represents an MCP client connection
 type Client struct {
 	mu     sync.RWMutex
@@ -54,6 +59,9 @@ type Client struct {
 	// Request management
 	nextID  int64
 	pending map[int64]chan *acp.Message
+
+	// Event broadcaster for UI streaming
+	broadcaster MCPEventBroadcaster
 }
 
 var mcpLog = log.With("component", "MCP")
@@ -302,6 +310,12 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	c.initialized.Store(true)
 	c.connected.Store(true)
+	if bc := c.broadcaster; bc != nil {
+		bc.Broadcast("mcp_server_status", map[string]any{
+			"server": c.name,
+			"status": "connected",
+		})
+	}
 	return nil
 }
 
@@ -361,6 +375,12 @@ func (c *Client) Disconnect() error {
 	// Stop receiving messages
 	c.connected.Store(false)
 	c.initialized.Store(false)
+	if bc := c.broadcaster; bc != nil {
+		bc.Broadcast("mcp_server_status", map[string]any{
+			"server": c.name,
+			"status": "disconnected",
+		})
+	}
 
 	// Cancel process context
 	if c.cancelCtx != nil {
@@ -660,6 +680,15 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 		return nil, ErrToolNotFound
 	}
 
+	// Broadcast tool invocation event
+	if bc := c.broadcaster; bc != nil {
+		bc.Broadcast("mcp_tool_invoked", map[string]any{
+			"server": c.name,
+			"tool":   name,
+			"args":   args,
+		})
+	}
+
 	// Prepare call parameters
 	callParams := struct {
 		Name      string         `json:"name"`
@@ -675,6 +704,13 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	}
 
 	return &result, nil
+}
+
+// SetBroadcaster wires the event broadcaster for MCP events.
+func (c *Client) SetBroadcaster(b MCPEventBroadcaster) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.broadcaster = b
 }
 
 // IsConnected returns the connection status

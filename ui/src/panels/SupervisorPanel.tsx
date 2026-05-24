@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, AgentInfo, TaskInfo } from '../services'
+import { api, events, AgentInfo, TaskInfo } from '../services'
 import { logger } from '../utils'
 import { useHandoffStore } from '../stores/handoffStore'
-import type { AuditEvent, AuditStats, ScheduleRunnerStatus } from '../services/api'
+import type { AuditEvent, AuditStats, ScheduleRunnerStatus, SupervisorStats } from '../services/api'
 
 interface TaskItem {
   id: string
@@ -32,16 +32,6 @@ interface ReviewItem {
   data?: unknown
 }
 
-interface SupervisorStatsData {
-  totalAgents: number
-  healthyAgents: number
-  degradedAgents: number
-  unhealthyAgents: number
-  busyAgents: number
-  avgResponseTime: number
-  throughput: number
-}
-
 function calculateRiskLevel(agents: AgentInfo[], tasks: TaskItem[]): {
   level: 'low' | 'medium' | 'high'
   alerts: string[]
@@ -64,7 +54,7 @@ export function SupervisorPanel() {
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([])
   const [expandedSection, setExpandedSection] = useState<string | null>('tasks')
   const [loading, setLoading] = useState(false)
-  const [supervisorStats, setSupervisorStats] = useState<SupervisorStatsData | null>(null)
+  const [supervisorStats, setSupervisorStats] = useState<SupervisorStats | null>(null)
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditStats, setAuditStats] = useState<AuditStats | null>(null)
   const [scheduleRunner, setScheduleRunner] = useState<ScheduleRunnerStatus | null>(null)
@@ -88,23 +78,23 @@ export function SupervisorPanel() {
       const [agentList, swarms, supStats, auditResult, auditStatsResult, runnerResult] = await Promise.all([
         api.agent.getAgents(),
         api.swarm.getSwarms(),
-        api.monitoring.getSupervisorStats().catch(() => null),
-        api.monitoring.listAuditEvents({ limit: 20 }).catch(() => []),
-        api.monitoring.getAuditStats().catch(() => null),
-        api.monitoring.getScheduleRunnerStatus().catch(() => null),
+        api.monitoring.getSupervisorStats().catch((e) => { logger.debug('SupervisorPanel', 'getSupervisorStats failed', e); return null }),
+        api.monitoring.listAuditEvents({ limit: 20 }).catch((e) => { logger.debug('SupervisorPanel', 'listAuditEvents failed', e); return [] }),
+        api.monitoring.getAuditStats().catch((e) => { logger.debug('SupervisorPanel', 'getAuditStats failed', e); return null }),
+        api.monitoring.getScheduleRunnerStatus().catch((e) => { logger.debug('SupervisorPanel', 'getScheduleRunnerStatus failed', e); return null }),
       ])
       if (!mountedRef.current) return
       setAgents(agentList)
-      if (supStats) setSupervisorStats(supStats as SupervisorStatsData)
+      if (supStats) setSupervisorStats(supStats)
       setAuditEvents(auditResult)
       if (auditStatsResult) setAuditStats(auditStatsResult)
-      if (runnerResult) setScheduleRunner(runnerResult as ScheduleRunnerStatus)
+      if (runnerResult) setScheduleRunner(runnerResult)
 
       const taskItems: TaskItem[] = []
 
       // Fetch real tasks from each swarm
       const taskResults = await Promise.all(
-        swarms.map(swarm => api.swarm.getSwarmTasks(swarm.id).catch(() => [] as TaskInfo[]))
+        swarms.map(swarm => api.swarm.getSwarmTasks(swarm.id).catch((e) => { logger.debug('SupervisorPanel', 'getSwarmTasks failed', e); return [] as TaskInfo[] }))
       )
       swarms.forEach((swarm, i) => {
         const tasks = taskResults[i]
@@ -142,7 +132,7 @@ export function SupervisorPanel() {
       setActivities(activityItems)
 
       // Fetch A2A status
-      const a2aResult = await api.a2a.getStatus().catch(() => null)
+      const a2aResult = await api.a2a.getStatus().catch((e) => { logger.debug('SupervisorPanel', 'a2a.getStatus failed', e); return null })
       if (a2aResult && mountedRef.current) setA2aStatus(a2aResult as { messageLogSize: number })
     } catch (error) {
       logger.error('SupervisorPanel', 'Failed to load supervisor data:', error)
@@ -161,7 +151,28 @@ export function SupervisorPanel() {
 
     // Subscribe to real-time updates
     const interval = setInterval(loadData, 5000)
-    return () => clearInterval(interval)
+
+    // Real-time event subscriptions — refresh on key backend events
+    const unsubScheduleStart = events.subscribe('schedule_execution_started', () => {
+      loadData()
+    })
+    const unsubScheduleDone = events.subscribe('schedule_execution_completed', () => {
+      loadData()
+    })
+    const unsubSwarmTask = events.subscribe('swarm_task_update', () => {
+      loadData()
+    })
+    const unsubAgentStatus = events.subscribe('agent_status_change', () => {
+      loadData()
+    })
+
+    return () => {
+      clearInterval(interval)
+      unsubScheduleStart()
+      unsubScheduleDone()
+      unsubSwarmTask()
+      unsubAgentStatus()
+    }
   }, [loadData])
 
   // Sync handoff to review queue

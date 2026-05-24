@@ -42,6 +42,10 @@ vi.mock('../services', () => ({
       eventHandlers.set('swarm_stats', handler)
       return () => eventHandlers.delete('swarm_stats')
     }),
+    onLSPDiagnosticsUpdate: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
+      eventHandlers.set('lsp_diagnostics_update', handler)
+      return () => eventHandlers.delete('lsp_diagnostics_update')
+    }),
   },
   getWebSocketClient: () => ({
     isConnected: mockIsConnected,
@@ -67,6 +71,7 @@ const mockSetAgents = vi.fn()
 const mockSetActiveSwarm = vi.fn()
 const mockAddPermissionRequest = vi.fn()
 const mockSetConnected = vi.fn()
+const mockUpdateFileProblems = vi.fn()
 
 // Mutable store state shared between useAppStore() and useAppStore.getState()
 let mockStoreState = {
@@ -79,6 +84,7 @@ let mockStoreState = {
   addPermissionRequest: mockAddPermissionRequest,
   connected: false,
   setConnected: mockSetConnected,
+  updateFileProblems: mockUpdateFileProblems,
 }
 
 // Provide getState on the mocked store — accessed as useAppStore.getState() in the hook
@@ -107,6 +113,7 @@ describe('useTauriEvents (WebSocket)', () => {
       addPermissionRequest: mockAddPermissionRequest,
       connected: false,
       setConnected: mockSetConnected,
+      updateFileProblems: mockUpdateFileProblems,
     }
     createMockStore()
   })
@@ -125,6 +132,7 @@ describe('useTauriEvents (WebSocket)', () => {
     expect(eventHandlers.has('agent_message')).toBe(true)
     expect(eventHandlers.has('agent_stats')).toBe(true)
     expect(eventHandlers.has('swarm_stats')).toBe(true)
+    expect(eventHandlers.has('lsp_diagnostics_update')).toBe(true)
   })
 
   it('should update swarm stats on task update event', () => {
@@ -275,11 +283,55 @@ describe('useTauriEvents (WebSocket)', () => {
   it('should cleanup all event handlers on unmount', () => {
     const { unmount } = renderHook(() => useTauriEvents())
 
-    expect(eventHandlers.size).toBe(7)
+    expect(eventHandlers.size).toBe(8)
 
     unmount()
 
     expect(eventHandlers.size).toBe(0)
+  })
+
+  it('should update file problems on LSP diagnostics event', () => {
+    renderHook(() => useTauriEvents())
+
+    const handler = eventHandlers.get('lsp_diagnostics_update')
+    if (handler) {
+      handler({
+        uri: 'file:///home/user/project/main.ts',
+        diagnostics: [
+          {
+            range: { start: { line: 4, character: 10 }, end: { line: 4, character: 15 } },
+            severity: 1,
+            message: "Variable 'x' is not defined",
+            source: 'typescript',
+            code: '2304',
+          },
+          {
+            range: { start: { line: 9, character: 0 }, end: { line: 9, character: 5 } },
+            severity: 2,
+            message: 'Unused variable',
+            source: 'typescript',
+          },
+        ],
+      })
+    }
+
+    expect(mockUpdateFileProblems).toHaveBeenCalledWith(
+      '/home/user/project/main.ts',
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: '/home/user/project/main.ts',
+          line: 5,
+          severity: 'error',
+          message: "Variable 'x' is not defined",
+        }),
+        expect.objectContaining({
+          file: '/home/user/project/main.ts',
+          line: 10,
+          severity: 'warning',
+          message: 'Unused variable',
+        }),
+      ]),
+    )
   })
 })
 

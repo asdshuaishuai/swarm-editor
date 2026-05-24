@@ -1064,6 +1064,22 @@ fn get_config_path() -> String {
     get_agents_config_path().to_string_lossy().to_string()
 }
 
+/// 打开文件夹选择对话框 (native folder picker)
+#[tauri::command]
+async fn open_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder_path = app
+        .dialog()
+        .file()
+        .blocking_pick_folder();
+
+    match folder_path {
+        Some(path) => Ok(Some(path.to_string())),
+        None => Ok(None),
+    }
+}
+
 // ============================================================================
 // 蜂群管理命令
 // ============================================================================
@@ -2013,6 +2029,7 @@ pub fn run() {
     let session_manager = SessionManager::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(ProcessManager::new())
         .manage(SwarmManager::new())
@@ -2068,6 +2085,8 @@ pub fn run() {
             execute_code,
             get_workspace,
             get_config_path,
+            // 文件对话框
+            open_folder,
             // 蜂群管理
             create_swarm,
             get_swarms,

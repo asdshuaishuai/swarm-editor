@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
 import TerminalPanel from './TerminalPanel'
 import ProblemsPanel from './ProblemsPanel'
+import { logger } from '../utils'
 
 export default function BottomPanel() {
   const workspaceProblems = useAppStore(state => state.workspaceProblems)
@@ -9,7 +10,7 @@ export default function BottomPanel() {
   const [bottomTab, setBottomTab] = useState<'terminal' | 'problems' | 'output' | 'debug'>('terminal')
   const [showBottomPanel, setShowBottomPanel] = useState(true)
   const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
-    try { const v = localStorage.getItem('bottomPanelHeight'); return v ? parseInt(v, 10) : 200 } catch { return 200 }
+    try { const v = localStorage.getItem('bottomPanelHeight'); return v ? parseInt(v, 10) : 200 } catch { logger.debug('BottomPanel', 'localStorage read failed'); return 200 }
   })
   const [bottomPanelPreMaxHeight, setBottomPanelPreMaxHeight] = useState(200)
   const [isResizingBottom, setIsResizingBottom] = useState(false)
@@ -19,7 +20,7 @@ export default function BottomPanel() {
     try {
       localStorage.setItem('bottomPanelHeight', String(bottomPanelHeight))
     } catch {
-      // Silently ignore localStorage errors
+      logger.debug('BottomPanel', 'localStorage write failed')
     }
   }, [bottomPanelHeight])
 

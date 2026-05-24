@@ -481,7 +481,7 @@ func TestSupervisorOnAgentStuck(t *testing.T) {
 	var callbackDuration time.Duration
 	var mu sync.Mutex
 
-	sup.OnAgentStuck(func(a *agent.Agent, d time.Duration) {
+	sup.OnAgentStuck(func(a *agent.Agent, taskID string, d time.Duration) {
 		mu.Lock()
 		defer mu.Unlock()
 		callbackCalled = true

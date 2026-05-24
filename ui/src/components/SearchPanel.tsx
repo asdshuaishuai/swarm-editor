@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Search, X, ChevronRight, Loader2, Replace, Check, Clock, Filter } from 'lucide-react'
-import { getFileIcon, getFileIconColor } from '../utils'
+import { getFileIcon, getFileIconColor, logger } from '../utils'
 import { api, ContentSearchResult } from '../services'
 import { useNavigate } from 'react-router-dom'
 
@@ -35,7 +35,7 @@ export function SearchPanel({ isOpen, onClose, initialFolder, initialReplace }: 
     try {
       const stored = localStorage.getItem(SEARCH_HISTORY_KEY)
       return stored ? JSON.parse(stored) : []
-    } catch { return [] }
+    } catch { logger.debug('SearchPanel', 'localStorage parse failed'); return [] }
   })
   const [showHistory, setShowHistory] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
@@ -647,6 +647,7 @@ function highlightMatch(content: string, query: string, caseSensitive: boolean, 
     }
     pattern = new RegExp(patternStr, caseSensitive ? 'g' : 'gi')
   } catch {
+    logger.debug('SearchPanel', 'Invalid regex pattern')
     return content
   }
 

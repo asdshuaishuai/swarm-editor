@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // MCPServerInfo represents discovered MCP server information
@@ -204,4 +205,93 @@ func stringsJoin(strs []string, sep string) string {
 		result += s
 	}
 	return result
+}
+
+// DiscoverProject discovers MCP servers from project-level configs
+func (d *MCPDiscovery) DiscoverProject(workspaceDir string) ([]MCPServerInfo, error) {
+	var servers []MCPServerInfo
+
+	// Project-level config paths
+	projectPaths := []string{
+		filepath.Join(workspaceDir, ".swarm-editor", "mcp.json"),
+		filepath.Join(workspaceDir, ".mcp.json"),
+		filepath.Join(workspaceDir, ".claude", "mcp.json"),
+	}
+
+	for _, p := range projectPaths {
+		if s, err := LoadMCPConfig(p); err == nil && len(s) > 0 {
+			// Tag with project source
+			for i := range s {
+				s[i].Source = "project:" + filepath.Base(filepath.Dir(p))
+			}
+			servers = append(servers, s...)
+		}
+	}
+
+	return servers, nil
+}
+
+// DiscoverGlobal discovers MCP servers from global config paths
+func (d *MCPDiscovery) DiscoverGlobal() ([]MCPServerInfo, error) {
+	var servers []MCPServerInfo
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	// Global config paths
+	globalPaths := []string{
+		filepath.Join(home, ".claude", "mcp.json"),
+		filepath.Join(home, ".config", "claude-code", "mcp.json"),
+		filepath.Join(home, ".config", "cursor", "mcp.json"),
+		filepath.Join(home, ".swarm-editor", "mcp.json"),
+	}
+
+	for _, p := range globalPaths {
+		if s, err := LoadMCPConfig(p); err == nil && len(s) > 0 {
+			// Tag with global source
+			for i := range s {
+				s[i].Source = "global:" + filepath.Base(filepath.Dir(p))
+			}
+			servers = append(servers, s...)
+		}
+	}
+
+	return servers, nil
+}
+
+// DiscoverAllWithScope discovers MCP servers from agents + global + project configs
+func (d *MCPDiscovery) DiscoverAllWithScope(workspaceDir string) ([]MCPServerInfo, error) {
+	var allServers []MCPServerInfo
+	seen := make(map[string]bool)
+
+	addUnique := func(servers []MCPServerInfo) {
+		for _, s := range servers {
+			key := s.Name + ":" + s.Command
+			if !seen[key] {
+				seen[key] = true
+				allServers = append(allServers, s)
+			}
+		}
+	}
+
+	// 1. Agent-based discovery
+	if agentServers, err := d.DiscoverAll(); err == nil {
+		addUnique(agentServers)
+	}
+
+	// 2. Global config files
+	if globalServers, err := d.DiscoverGlobal(); err == nil {
+		addUnique(globalServers)
+	}
+
+	// 3. Project-level config files
+	if workspaceDir != "" {
+		if projectServers, err := d.DiscoverProject(workspaceDir); err == nil {
+			addUnique(projectServers)
+		}
+	}
+
+	return allServers, nil
 }

@@ -110,6 +110,14 @@ func TestScheduleRunnerStatusSnapshot(t *testing.T) {
 	runner := NewScheduleRunner(store, orch, b)
 
 	snapshot := runner.StatusSnapshot()
+	// Frontend-aligned fields
+	if running, ok := snapshot["running"].(bool); !ok || running {
+		t.Errorf("expected running=false, got %v", snapshot["running"])
+	}
+	if count, ok := snapshot["scheduleCount"].(int); !ok || count != 0 {
+		t.Errorf("expected scheduleCount=0, got %v", snapshot["scheduleCount"])
+	}
+	// Operational detail fields
 	if snapshot["status"] != string(ScheduleRunnerStopped) {
 		t.Errorf("expected stopped, got %v", snapshot["status"])
 	}

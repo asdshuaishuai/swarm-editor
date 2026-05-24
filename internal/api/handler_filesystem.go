@@ -12,6 +12,7 @@ import (
 "runtime"
 "slices"
 "strings"
+	"time"
 )
 
 func (h *CommandHandler) handleListDir(ctx context.Context, params json.RawMessage) (any, error) {
@@ -57,15 +58,20 @@ func (h *CommandHandler) handleListDir(ctx context.Context, params json.RawMessa
 
 	// Build file entries
 	var result []FileInfo
-	for _, entry := range entries {
-		// Use cleaned relative path (not raw req.Path) to prevent path traversal in metadata
-		fullPath := filepath.Join(relPath, entry.Name())
-		result = append(result, FileInfo{
-			Name:        entry.Name(),
-			Path:        fullPath,
-			IsDirectory: entry.IsDir(),
-		})
-	}
+		for _, entry := range entries {
+			fullPath := filepath.Join(relPath, entry.Name())
+			info, _ := entry.Info()
+			fi := FileInfo{
+				Name:        entry.Name(),
+				Path:        fullPath,
+				IsDirectory: entry.IsDir(),
+			}
+			if info != nil {
+				fi.Size = info.Size()
+				fi.LastModified = info.ModTime().Format(time.RFC3339)
+			}
+			result = append(result, fi)
+		}
 
 	// Sort: directories first, then alphabetically within each group (VS Code/Cursor pattern)
 	slices.SortFunc(result, func(a, b FileInfo) int {
@@ -735,7 +741,7 @@ func (h *CommandHandler) handleWriteFile(ctx context.Context, params json.RawMes
 		return nil, safeError("failed to rename file", err)
 	}
 
-	return map[string]string{"status": "written"}, nil
+	return map[string]string{"status": StatusWritten}, nil
 }
 
 func (h *CommandHandler) handleDeleteFile(ctx context.Context, params json.RawMessage) (any, error) {
@@ -775,7 +781,7 @@ func (h *CommandHandler) handleDeleteFile(ctx context.Context, params json.RawMe
 		}
 	}
 
-	return map[string]string{"status": "deleted"}, nil
+	return map[string]string{"status": StatusDeleted}, nil
 }
 
 func (h *CommandHandler) handleRenameFile(ctx context.Context, params json.RawMessage) (any, error) {
@@ -861,7 +867,7 @@ func (h *CommandHandler) handleCreateFile(ctx context.Context, params json.RawMe
 	}
 	file.Close()
 
-	return map[string]string{"status": "created"}, nil
+	return map[string]string{"status": StatusCreated}, nil
 }
 
 func (h *CommandHandler) handleCopyFile(ctx context.Context, params json.RawMessage) (any, error) {
@@ -943,7 +949,7 @@ func (h *CommandHandler) handleCopyFile(ctx context.Context, params json.RawMess
 		return nil, safeError("failed to copy file", err)
 	}
 
-	return map[string]string{"status": "copied"}, nil
+	return map[string]string{"status": StatusCopied}, nil
 }
 
 func (h *CommandHandler) handleMkdir(ctx context.Context, params json.RawMessage) (any, error) {
@@ -976,7 +982,7 @@ func (h *CommandHandler) handleMkdir(ctx context.Context, params json.RawMessage
 		return nil, safeError("failed to create directory", err)
 	}
 
-	return map[string]string{"status": "created"}, nil
+	return map[string]string{"status": StatusCreated}, nil
 }
 
 func (h *CommandHandler) handleRevealFile(ctx context.Context, params json.RawMessage) (any, error) {

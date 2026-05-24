@@ -120,7 +120,7 @@ func (h *CommandHandler) handleDeleteTeam(ctx context.Context, params json.RawMe
 
 	tm.DeleteTeam(req.ID)
 
-	return map[string]string{"status": "deleted"}, nil
+	return map[string]string{"status": StatusDeleted}, nil
 }
 
 func (h *CommandHandler) handleAddAgentToTeam(ctx context.Context, params json.RawMessage) (any, error) {
@@ -133,6 +133,8 @@ func (h *CommandHandler) handleAddAgentToTeam(ctx context.Context, params json.R
 	}
 
 	// Input validation
+	req.TeamID = strings.TrimSpace(req.TeamID)
+	req.AgentID = strings.TrimSpace(req.AgentID)
 	if req.TeamID == "" {
 		return nil, errValidation("team id is required")
 	}
@@ -180,6 +182,8 @@ func (h *CommandHandler) handleRemoveAgentFromTeam(ctx context.Context, params j
 	}
 
 	// Input validation
+	req.TeamID = strings.TrimSpace(req.TeamID)
+	req.AgentID = strings.TrimSpace(req.AgentID)
 	if req.TeamID == "" {
 		return nil, errValidation("team id is required")
 	}

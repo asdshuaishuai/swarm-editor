@@ -132,7 +132,7 @@ export default function SwarmCoordinatorPanel({
           )
         }
       } catch {
-        // ignore polling errors
+        logger.debug('SwarmCoordinatorPanel', 'Polling error')
       }
     }, 10000)
 

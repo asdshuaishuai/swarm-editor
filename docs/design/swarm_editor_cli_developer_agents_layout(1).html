@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swarm Editor - CLI Developer Agents & Sandboxed IDE</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts Inter & Fira Code -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Fira Code', 'monospace'],
+          },
+          colors: {
+            editor: {
+              bg: '#0d1117',
+              sidebar: '#161b22',
+              card: '#21262d',
+              border: '#30363d',
+              text: '#c9d1d9',
+              accent: '#58a6ff',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0d1117;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #30363d;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #8b949e;
+    }
+    
+    /* 向量協定線的流動動畫 */
+    .flow-line {
+      stroke-dasharray: 8, 8;
+      animation: dash 35s linear infinite;
+    }
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -1000;
+      }
+    }
+
+    /* 蜂群節點等待授權的呼吸動畫 */
+    .glow-pulse-amber {
+      animation: pulse-amber 2s infinite;
+    }
+    @keyframes pulse-amber {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(240, 136, 62, 0.3);
+        border-color: rgba(240, 136, 62, 1);
+      }
+      50% {
+        box-shadow: 0 0 15px 5px rgba(240, 136, 62, 0.6);
+        border-color: rgba(248, 81, 73, 1);
+      }
+    }
+
+    .glow-pulse-cyan {
+      animation: pulse-cyan 2.5s infinite;
+    }
+    @keyframes pulse-cyan {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(88, 166, 255, 0.2);
+        border-color: rgba(88, 166, 255, 0.8);
+      }
+      50% {
+        box-shadow: 0 0 12px 4px rgba(88, 166, 255, 0.5);
+        border-color: rgba(139, 148, 158, 1);
+      }
+    }
+
+    /* 任務在管道傳輸時的粒子噴射動畫 */
+    .particle-path-1 {
+      offset-path: path('M 50 180 Q 150 100 280 100');
+      animation: fireParticle 3.5s linear infinite;
+    }
+    .particle-path-2 {
+      offset-path: path('M 280 100 Q 400 130 520 200');
+      animation: fireParticle 4s linear infinite;
+    }
+    .particle-path-3 {
+      offset-path: path('M 520 200 L 750 200');
+      animation: fireParticle 3s linear infinite;
+    }
+    .particle-success-flow {
+      offset-path: path('M 520 200 L 750 200');
+      animation: fireParticle 2s linear infinite;
+    }
+
+    @keyframes fireParticle {
+      0% {
+        offset-distance: 0%;
+        opacity: 0;
+      }
+      15% {
+        opacity: 1;
+      }
+      85% {
+        opacity: 1;
+      }
+      100% {
+        offset-distance: 100%;
+        opacity: 0;
+      }
+    }
+  </style>
+</head>
+<body class="bg-editor-bg text-editor-text font-sans h-screen flex flex-col overflow-hidden select-none">
+
+  <!-- ==================== 頂部標題欄 ==================== -->
+  <header class="h-10 bg-[#161b22] border-b border-editor-border flex items-center justify-between px-3 text-xs shrink-0 z-50">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1.5 font-bold text-editor-accent">
+        <i class="fa-solid fa-hive text-sm"></i>
+        <span>Swarm Editor</span>
+        <span class="text-[9px] bg-blue-900/40 text-blue-300 border border-blue-900/50 px-1 py-0.2 rounded font-normal font-sans">ACP/A2A ENGINE v2.5</span>
+      </div>
+      <nav class="hidden md:flex items-center gap-3 text-gray-400">
+        <span class="hover:text-white cursor-pointer transition">檔案 (File)</span>
+        <span class="hover:text-white cursor-pointer transition">工作區 (Workspace)</span>
+        <span class="hover:text-white cursor-pointer transition">蜂群架構 (Swarm Engine)</span>
+        <span class="hover:text-white cursor-pointer transition">MCP 伺服器 (MCP Servers)</span>
+      </nav>
+    </div>
+    <div class="text-gray-500 font-mono text-[10px] hidden sm:block">
+      QUEEN AGENT DEPLOYED // ACTIVE DAEMONS: claude-code@0.2.1, gemini-cli@1.0.0, mcp-gateways@2.5
+    </div>
+    <div class="flex items-center gap-3 text-gray-400 text-sm">
+      <i class="fa-solid fa-heartbeat text-emerald-500 text-[10px]" title="Daemon system is active"></i>
+      <i class="fa-solid fa-code-fork hover:text-white cursor-pointer" title="Git Sync"></i>
+      <i class="fa-solid fa-gear hover:text-white cursor-pointer" title="Config Settings"></i>
+    </div>
+  </header>
+
+  <!-- ==================== 主工作空間 ==================== -->
+  <main class="flex flex-1 overflow-hidden w-full relative">
+
+    <!-- ==================== 左側導航欄：雙核心模組 [檔案與Git] vs [MCP與技能] ==================== -->
+    <aside class="w-80 bg-editor-sidebar border-r border-editor-border flex flex-col shrink-0 overflow-hidden select-none">
+      
+      <!-- 左側欄控制切換標籤 -->
+      <div class="flex bg-[#0f141a] border-b border-editor-border text-[11px] font-semibold shrink-0">
+        <button id="left-tab-explorer-btn" onclick="switchLeftSidebarTab('explorer')" class="flex-1 py-2 border-r border-editor-border text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1.5 transition-all">
+          <i class="fa-regular fa-folder-open text-editor-accent"></i>
+          <span>專案檔案 & Git</span>
+        </button>
+        <button id="left-tab-mcp-btn" onclick="switchLeftSidebarTab('mcp')" class="flex-1 py-2 text-gray-400 hover:text-white flex items-center justify-center gap-1.5 transition-all">
+          <i class="fa-solid fa-plug text-purple-400 animate-pulse"></i>
+          <span>MCP 與技能 (Skills)</span>
+          <span class="bg-purple-900/50 text-purple-300 border border-purple-800/60 text-[9px] px-1 rounded">12</span>
+        </button>
+      </div>
+
+      <!-- ==================== 模組 A：檔案與 Git 樹 ==================== -->
+      <div id="left-sidebar-explorer-panel" class="flex-1 flex flex-col overflow-hidden">
+        <!-- 第一部分：工作目錄樹 -->
+        <div class="flex-1 flex flex-col overflow-y-auto border-b border-editor-border">
+          <div class="p-2 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wider bg-[#0d1117] sticky top-0 z-10">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-tree text-editor-accent"></i> 工作區樹狀圖 (Workspace)</span>
+            <div class="flex gap-1.5">
+              <i class="fa-solid fa-file-circle-plus hover:text-white cursor-pointer" title="新建檔案"></i>
+              <i class="fa-solid fa-folder-plus hover:text-white cursor-pointer" title="新建資料夾"></i>
+            </div>
+          </div>
+          
+          <div class="p-2 text-xs font-mono space-y-1">
+            <div class="flex items-center gap-1.5 py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer text-gray-300">
+              <i class="fa-solid fa-chevron-down text-[10px] text-gray-500"></i>
+              <i class="fa-solid fa-folder text-yellow-600"></i>
+              <span>swarm_developer_workspace</span>
+            </div>
+            
+            <!-- 子資料夾與檔案 -->
+            <div class="pl-4 space-y-1 border-l border-editor-border ml-2">
+              <div class="flex items-center gap-1.5 py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer text-gray-300">
+                <i class="fa-solid fa-chevron-down text-[10px] text-gray-500"></i>
+                <i class="fa-solid fa-folder text-yellow-600"></i>
+                <span>src</span>
+              </div>
+              
+              <div class="pl-4 space-y-1 border-l border-editor-border ml-2">
+                <div onclick="openFile('MainLayout.tsx', 'code')" class="flex items-center justify-between py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer group text-gray-400">
+                  <span class="flex items-center gap-1.5">
+                    <i class="fa-brands fa-react text-cyan-400"></i>
+                    <span>MainLayout.tsx</span>
+                  </span>
+                  <span class="text-[9px] bg-green-950/40 text-green-400 px-1 rounded opacity-80 font-sans font-semibold">Modified</span>
+                </div>
+                <div onclick="openFile('package.json', 'json')" class="flex items-center justify-between py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer group text-gray-400">
+                  <span class="flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-signature text-orange-400"></i>
+                    <span>package.json</span>
+                  </span>
+                </div>
+                <div onclick="openFile('mcp.config.json', 'json')" class="flex items-center justify-between py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer group text-gray-400">
+                  <span class="flex items-center gap-1.5">
+                    <i class="fa-solid fa-plug text-purple-400"></i>
+                    <span>mcp.config.json</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第二部分：Git Worktree 狀態與差異 -->
+        <div class="h-2/5 flex flex-col overflow-y-auto bg-[#11151c]/60">
+          <div class="p-2 flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wider bg-[#0d1117] border-b border-editor-border sticky top-0 z-10">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-code-branch text-purple-400"></i> Git & Worktree 變動</span>
+            <span class="text-[9px] text-purple-400 bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-900/50 font-mono">Worktree 模式</span>
+          </div>
+
+          <div class="p-2 text-xs font-mono space-y-2">
+            <!-- 當前分支狀態 -->
+            <div class="bg-slate-900/80 p-2 rounded border border-editor-border">
+              <div class="flex items-center justify-between text-gray-400 mb-1">
+                <span>作用中 Worktree:</span>
+                <span class="text-white bg-purple-950 px-1.5 rounded text-[10px]">refactor/unified-layout</span>
+              </div>
+              <div class="text-[10px] text-gray-500 flex items-center gap-1">
+                <i class="fa-solid fa-folder-open text-[10px]"></i>
+                <span>/var/folders/swarm/dev-tree/</span>
+              </div>
+            </div>
+
+            <!-- Diff 檔案列表 -->
+            <div class="space-y-1 mt-2">
+              <div class="text-[10px] text-gray-500 uppercase font-bold tracking-wider px-1">本機未提交變更</div>
+              
+              <div onclick="openDiff('MainLayout.tsx')" class="flex items-center justify-between py-1 px-1.5 bg-yellow-950/20 hover:bg-[#21262d] border border-yellow-900/30 rounded cursor-pointer text-gray-300">
+                <span class="flex items-center gap-1.5">
+                  <i class="fa-brands fa-react text-cyan-400"></i>
+                  <span class="truncate max-w-[130px]">MainLayout.tsx</span>
+                </span>
+                <span class="flex items-center gap-1.5 shrink-0">
+                  <span class="text-[9px] text-yellow-400 bg-yellow-950 px-1 rounded border border-yellow-900/50 font-sans font-semibold">檢視差異</span>
+                  <span class="text-[10px] text-yellow-500 font-bold">M</span>
+                </span>
+              </div>
+
+              <div class="flex items-center justify-between py-1 px-1.5 hover:bg-[#21262d] rounded cursor-pointer text-gray-400 opacity-65">
+                <span class="flex items-center gap-1.5">
+                  <i class="fa-brands fa-python text-blue-400"></i>
+                  <span class="truncate">build_tester.py</span>
+                </span>
+                <span class="text-[10px] text-green-500 font-bold">A</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 模組 B：MCP 伺服器與核心技能模組 (預設隱藏) ==================== -->
+      <div id="left-sidebar-mcp-panel" class="flex-1 flex flex-col hidden overflow-y-auto">
+        
+        <!-- MCP Servers 模組 -->
+        <div class="p-3 border-b border-editor-border bg-[#0d1117]/50">
+          <div class="flex items-center justify-between mb-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+            <span class="flex items-center gap-1.5 text-purple-400">
+              <i class="fa-solid fa-network-wired"></i>
+              <span>作用中 MCP 伺服器</span>
+            </span>
+            <button onclick="registerNewMcp()" class="text-xs text-editor-accent hover:underline flex items-center gap-0.5 font-normal">
+              <i class="fa-solid fa-plus"></i> 註冊
+            </button>
+          </div>
+
+          <!-- MCP Server 1: filesystem -->
+          <div class="bg-[#1a1f26] border border-editor-border rounded-lg p-2.5 mb-2.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <strong class="text-xs text-white font-mono">local-filesystem-mcp</strong>
+              </div>
+              <span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-1 py-0.2 rounded font-mono">系統特權</span>
+            </div>
+            <p class="text-[10px] text-gray-400 font-sans leading-normal">
+              提供本地 AST 解析、物理代碼寫入、補全追蹤功能。
+            </p>
+            <div class="border-t border-gray-800 pt-2 flex flex-wrap gap-1">
+              <span onclick="triggerMcpToolCall('filesystem-mcp', 'read_code')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">read_code()</span>
+              <span onclick="triggerMcpToolCall('filesystem-mcp', 'write_code')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">write_code()</span>
+              <span onclick="triggerMcpToolCall('filesystem-mcp', 'grep_symbol')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">grep_symbol()</span>
+            </div>
+          </div>
+
+          <!-- MCP Server 2: brave-search -->
+          <div class="bg-[#1a1f26] border border-editor-border rounded-lg p-2.5 mb-2.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <strong class="text-xs text-white font-mono">brave-search-mcp</strong>
+              </div>
+              <span class="text-[9px] bg-blue-950 text-blue-400 border border-blue-900 px-1 py-0.2 rounded font-mono">外部網路</span>
+            </div>
+            <p class="text-[10px] text-gray-400 font-sans leading-normal">
+              提供即時 API 規格檢索、StackOverflow 錯誤規避與外部技術文檔查閱。
+            </p>
+            <div class="border-t border-gray-800 pt-2 flex flex-wrap gap-1">
+              <span onclick="triggerMcpToolCall('brave-search-mcp', 'google_search')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">google_search()</span>
+              <span onclick="triggerMcpToolCall('brave-search-mcp', 'fetch_webpage')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">fetch_webpage()</span>
+            </div>
+          </div>
+
+          <!-- MCP Server 3: postgresql -->
+          <div class="bg-[#1a1f26] border border-editor-border rounded-lg p-2.5 space-y-2 opacity-70 hover:opacity-100 transition-opacity">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                <strong class="text-xs text-white font-mono">postgresql-schema-mcp</strong>
+              </div>
+              <span class="text-[9px] bg-amber-950/40 text-amber-400 border border-amber-900/30 px-1 py-0.2 rounded font-mono">離線資料</span>
+            </div>
+            <p class="text-[10px] text-gray-400 font-sans leading-normal">
+              讀取本機 schema 以利自動生成與驗證 ORM 對應程式碼。
+            </p>
+            <div class="border-t border-gray-800 pt-2 flex flex-wrap gap-1">
+              <span onclick="triggerMcpToolCall('postgresql-mcp', 'get_db_schema')" class="text-[9px] bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono px-1.5 py-0.5 rounded border border-gray-800 cursor-pointer" title="點擊模擬調用本工具">get_db_schema()</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Skills 核心技能模組 -->
+        <div class="p-3">
+          <div class="flex items-center justify-between mb-2 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+            <span class="flex items-center gap-1.5 text-cyan-400">
+              <i class="fa-solid fa-brain"></i>
+              <span>蜂群可加載技能庫 (Skills)</span>
+            </span>
+            <span class="text-[10px] text-gray-500 font-mono font-normal">已激活: 3/4</span>
+          </div>
+
+          <div class="space-y-2 font-sans">
+            <!-- Skill 1 -->
+            <div class="flex items-center justify-between p-2 bg-[#21262d]/50 border border-editor-border rounded-md hover:bg-[#21262d] transition">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-magnifying-glass-chart text-cyan-400"></i>
+                <div>
+                  <div class="text-xs font-bold text-gray-200">AST 語意分析器 (Semantic AST)</div>
+                  <div class="text-[9px] text-gray-500 font-mono">STATUS: ENABLED // BINARY: ast-v2</div>
+                </div>
+              </div>
+              <input type="checkbox" checked class="accent-editor-accent h-3.5 w-3.5 rounded">
+            </div>
+
+            <!-- Skill 2 -->
+            <div class="flex items-center justify-between p-2 bg-[#21262d]/50 border border-editor-border rounded-md hover:bg-[#21262d] transition">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-vial-virus text-purple-400"></i>
+                <div>
+                  <div class="text-xs font-bold text-gray-200">單元測試自動生成 (Test Generator)</div>
+                  <div class="text-[9px] text-gray-500 font-mono">STATUS: ENABLED // BINARY: jest-gen</div>
+                </div>
+              </div>
+              <input type="checkbox" checked class="accent-editor-accent h-3.5 w-3.5 rounded">
+            </div>
+
+            <!-- Skill 3 -->
+            <div class="flex items-center justify-between p-2 bg-[#21262d]/50 border border-editor-border rounded-md hover:bg-[#21262d] transition">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-shield-halved text-orange-400 animate-pulse"></i>
+                <div>
+                  <div class="text-xs font-bold text-gray-200">安全漏洞沙箱攔截 (Shell Sandbox)</div>
+                  <div class="text-[9px] text-gray-500 font-mono">STATUS: HIGH_ALER // BINARY: sec-gate</div>
+                </div>
+              </div>
+              <input type="checkbox" checked class="accent-editor-accent h-3.5 w-3.5 rounded">
+            </div>
+
+            <!-- Skill 4 -->
+            <div class="flex items-center justify-between p-2 bg-[#21262d]/50 border border-editor-border rounded-md opacity-45 hover:opacity-100 transition-opacity">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-file-invoice-dollar text-gray-400"></i>
+                <div>
+                  <div class="text-xs font-bold text-gray-300">雲端運算代碼預估 (Cost Estimator)</div>
+                  <div class="text-[9px] text-gray-500 font-mono">STATUS: DISABLED // BINARY: billing-v1</div>
+                </div>
+              </div>
+              <input type="checkbox" class="accent-editor-accent h-3.5 w-3.5 rounded">
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </aside>
+
+    <!-- ==================== 中央主面板：雙模沙盤與編輯器 ==================== -->
+    <section class="flex-1 flex flex-col bg-editor-bg overflow-hidden relative min-w-0">
+      
+      <!-- 中央視圖切換標籤 -->
+      <div class="flex bg-[#161b22] border-b border-editor-border text-xs shrink-0 select-none items-center justify-between z-10">
+        <div class="flex">
+          <!-- 沙盤切換鍵 -->
+          <button id="tab-sandbox-btn" onclick="switchCentralTab('sandbox')" class="px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 bg-editor-bg text-white border-t-2 border-t-editor-accent">
+            <i class="fa-solid fa-diagram-project text-editor-accent"></i>
+            <span>蜂王自動調度沙盤 (Queen Orchestration Sandbox)</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          </button>
+          
+          <!-- 編輯器切換鍵 -->
+          <button id="tab-editor-btn" onclick="switchCentralTab('editor')" class="px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 text-gray-400 hover:text-white transition">
+            <i class="fa-solid fa-code"></i>
+            <span>代碼編輯器 & Diff (Monaco Editor)</span>
+            <span id="editor-active-file-label" class="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.2 rounded font-mono">MainLayout.tsx</span>
+          </button>
+        </div>
+        
+        <div class="flex items-center gap-3 px-3">
+          <button onclick="resetPipeline()" class="p-1 text-gray-400 hover:text-emerald-400 transition" title="重置並重啟調度流">
+            <i class="fa-solid fa-arrow-rotate-left"></i>
+          </button>
+          <span class="text-[9px] text-gray-500 font-mono tracking-wider">FLOW STATUS: ONLINE</span>
+        </div>
+      </div>
+
+      <!-- 視圖1：蜂群自動化節點調度沙盤 -->
+      <div id="central-sandbox-panel" class="flex-1 p-6 relative overflow-auto bg-[#0a0d12]">
+        
+        <!-- 架構設計指引浮窗 -->
+        <div class="absolute top-4 left-6 z-10 bg-[#161b22]/95 border border-editor-border p-3 rounded-lg max-w-sm pointer-events-none">
+          <h2 class="text-sm font-bold text-white flex items-center gap-1.5">
+            <i class="fa-solid fa-crown text-amber-400"></i>
+            <span>蜂王全域調度協定 (ACP/A2A)</span>
+          </h2>
+          <p class="text-[11px] text-gray-400 mt-1 leading-relaxed">
+            系統中樞為<b>「蜂王 Agent」</b>。它根據您在右側下達的宏觀目標，透過 <b>ACP</b> 控制子進程並執行 <b>A2A</b> 協商，形成自動變更管道。<br>
+            <span class="text-yellow-500 font-semibold">⚡ 當前管道阻斷於 claude-code，等待您核准執行權。</span>
+          </p>
+        </div>
+
+        <!-- 節點選取提示 -->
+        <div id="selection-banner" class="absolute top-4 right-6 z-10 bg-[#161b22]/90 border border-editor-border py-1.5 px-3 rounded-md text-[11px] text-gray-400 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span>選中調度單元: <strong id="selected-node-name" class="text-white">claude-code (PID: 94812)</strong></span>
+        </div>
+
+        <!-- SVG 動態流星與連線 -->
+        <div class="w-full h-full min-h-[460px] flex items-center justify-center relative">
+          
+          <svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="cyan-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#58a6ff" />
+                <stop offset="100%" stop-color="#3fb950" />
+              </linearGradient>
+              <linearGradient id="amber-coral" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#f0883e" />
+                <stop offset="100%" stop-color="#f85149" />
+              </linearGradient>
+              <filter id="glow-light" x="-10%" y="-10%" width="120%" height="120%">
+                <feGaussianBlur stdDeviation="4" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- 協定流向虛線 -->
+            <!-- Step 1: gemini-cli to claude-code -->
+            <path d="M 50 180 Q 150 100 280 100" stroke="#58a6ff" stroke-width="2.5" fill="none" class="flow-line opacity-50" />
+            <!-- Step 2: claude-code to Validation Gateway -->
+            <path d="M 280 100 Q 400 130 520 200" stroke="#f0883e" stroke-width="3" fill="none" class="flow-line opacity-60" />
+            <!-- Step 3: validation gateway to aider -->
+            <path id="path-final-commit" d="M 520 200 L 750 200" stroke="#3fb950" stroke-dasharray="8 8" stroke-width="2" fill="none" class="flow-line opacity-30" />
+
+            <!-- 流星粒子 -->
+            <circle r="4.5" fill="#58a6ff" class="particle-path-1" filter="url(#glow-light)" />
+            <circle r="5" fill="#f0883e" class="particle-path-2" filter="url(#glow-light)" />
+            <circle r="4" fill="#3fb950" class="particle-path-3" filter="url(#glow-light)" />
+            <circle id="particle-success" r="5" fill="#3fb950" class="particle-success-flow hidden" filter="url(#glow-light)" />
+          </svg>
+
+          <!-- ==================== 蜂群拓撲實體站點 ==================== -->
+          
+          <!-- 起點: 工作區自動解析與重置觸發器 (Workspace Parser) -->
+          <div class="absolute left-6 top-[150px] flex flex-col items-center">
+            <div class="w-14 h-14 bg-slate-900 border-2 border-slate-700 rounded-xl flex items-center justify-center cursor-pointer hover:border-slate-400 hover:scale-105 transition shadow-lg" onclick="selectAgentTool('Workspace Scanner', '本機工作區掃描器：動態監聽本地 .git 樹變動、分析 AST 樹拓撲並為蜂王提供全域檔案指標。')">
+              <i class="fa-solid fa-tree text-2xl text-slate-400"></i>
+            </div>
+            <span class="text-[10px] mt-2 font-mono text-center text-gray-400 bg-slate-950 px-1.5 py-0.5 rounded border border-editor-border">
+              WORKSPACE_SCANNER<br><span class="text-slate-500">掃描完成</span>
+            </span>
+          </div>
+
+          <!-- 站點 1: gemini-cli (多模態藍圖規劃師) -->
+          <div class="absolute left-[220px] top-[40px] flex flex-col items-center">
+            <div class="w-16 h-16 bg-blue-950/30 border-2 border-cyan-500 rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-all shadow-md shadow-cyan-950/50" onclick="selectAgentTool('gemini-cli', 'gemini-cli (v1.0.0): 執行全域程式碼多模態掃描、產出結構化重構 Blueprint 規劃，並透過 A2A 協定將修改範圍推送給 claude-code。')">
+              <i class="fa-solid fa-wand-magic-sparkles text-2xl text-cyan-400"></i>
+            </div>
+            <span class="text-[11px] mt-2 font-mono text-center">
+              <span class="text-white block font-bold">gemini-cli</span>
+              <span class="text-[9px] text-cyan-400 bg-cyan-950/40 px-1.5 py-0.2 rounded border border-cyan-900/40 uppercase">PID: 94801</span>
+            </span>
+          </div>
+
+          <!-- 站點 2: claude-code (指令執行與特權變更端) - 觸發安全攔截 -->
+          <div id="node-claude-container" class="absolute left-[220px] top-[240px] flex flex-col items-center z-20">
+            <!-- 呼吸閃爍黃色光圈 -->
+            <div id="node-claude" class="w-16 h-16 bg-amber-950/40 border-2 border-[#f0883e] rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-all shadow-xl glow-pulse-amber" onclick="toggleHITLPopover()">
+              <i class="fa-solid fa-terminal text-2xl text-[#f0883e]"></i>
+            </div>
+            <span class="text-[11px] mt-2 font-mono text-center">
+              <span class="text-white block font-bold">claude-code</span>
+              <span id="claude-status-badge" class="text-[9px] text-orange-400 font-bold bg-orange-950/50 px-1.5 py-0.5 rounded border border-orange-900/50 uppercase tracking-wider">等候特權核准</span>
+            </span>
+
+            <!-- ==================== 人工特權指令閘口彈窗 ==================== -->
+            <div id="hitl-popup" class="absolute left-[-90px] top-20 w-[350px] bg-[#1a1f26] border-2 border-[#f0883e] rounded-xl shadow-2xl p-4 text-xs font-sans text-gray-300 transition-all duration-300 transform scale-100 origin-top pointer-events-auto">
+              <div class="flex items-center justify-between border-b border-editor-border pb-2 mb-2.5">
+                <span class="font-bold text-orange-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-shield-halved animate-bounce"></i> 敏感指令安全授權閘
+                </span>
+                <span class="text-[9px] text-gray-500 font-mono">PID: 94812</span>
+              </div>
+              <p class="mb-2 text-gray-200 leading-normal">
+                底層 <strong>claude-code</strong> 接收蜂王 A2A 命令後，申請在本機執行系統修改與整合測試指令：
+              </p>
+              
+              <!-- 敏感指令展示框 -->
+              <div class="bg-black/80 border border-editor-border p-2.5 rounded mb-3 font-mono text-[10px] text-gray-300">
+                <div class="text-gray-500"># claude-code 待授權動作</div>
+                <div class="text-emerald-400">$ node ./scripts/apply_layout_patch.js && npm run test:unit</div>
+                <div class="text-gray-500 mt-2">// 寫入影響目標:</div>
+                <div class="text-orange-400">write: src/MainLayout.tsx (+12 行, -10 行)</div>
+              </div>
+
+              <div class="flex gap-2">
+                <button onclick="resolveHITL(true)" class="flex-1 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white py-1.5 rounded font-bold transition flex items-center justify-center gap-1 shadow-md shadow-emerald-950/40">
+                  <i class="fa-solid fa-check"></i>
+                  <span>確認並核准執行</span>
+                </button>
+                <button onclick="resolveHITL(false)" class="flex-1 bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-800 py-1.5 rounded font-bold transition flex items-center justify-center gap-1">
+                  <i class="fa-solid fa-xmark"></i>
+                  <span>拒絕阻斷</span>
+                </button>
+              </div>
+            </div>
+            <!-- ==================== 彈窗結束 ==================== -->
+          </div>
+
+          <!-- 站點 3: 驗證閘口 Validation Engine (整合測試跑卡) -->
+          <div class="absolute right-[220px] top-[140px] flex flex-col items-center">
+            <div id="node-validation" class="w-16 h-16 bg-[#161b22] border-2 border-slate-700 rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-all shadow-lg" onclick="selectAgentTool('Validation Unit', '拜占庭測試驗證引擎：蜂群本機測試套件與編譯器驗證器，在 A2A 進行 Git Commit 歸檔前，確保所有 AST 及邏輯單元 100% 通過。')">
+              <i class="fa-solid fa-square-check text-2xl text-slate-500"></i>
+            </div>
+            <span class="text-[11px] mt-2 font-mono text-center">
+              <span class="text-white block font-bold">VALIDATION_MCP</span>
+              <span id="validation-status-badge" class="text-[9px] text-gray-500 bg-slate-900 px-1 py-0.2 rounded border border-slate-800 uppercase">等待管道串流</span>
+            </span>
+          </div>
+
+          <!-- 站點 4: aider (Git 提交與歸檔) -->
+          <div class="absolute right-[40px] top-[140px] flex flex-col items-center">
+            <div class="w-16 h-16 bg-[#161b22] border-2 border-slate-700 rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-transform" onclick="selectAgentTool('aider', 'aider CLI (v0.32.0): 配備嚴格 Git 版本控制機制的結對開發引擎。在驗證引擎通過後，自動將異動 commit 併入現有 worktree。')">
+              <i class="fa-solid fa-git-alt text-2xl text-gray-600"></i>
+            </div>
+            <span class="text-[11px] mt-2 font-mono text-center">
+              <span class="text-gray-400 block font-bold">aider_git_commit</span>
+              <span class="text-[9px] text-gray-500 font-semibold bg-gray-950 px-1 py-0.2 rounded border border-gray-900 uppercase">佇列尾端閒置</span>
+            </span>
+          </div>
+
+        </div>
+
+        <!-- 底部互動指引 -->
+        <div class="absolute bottom-4 left-6 bg-slate-900/95 border border-editor-border rounded-lg p-2.5 max-w-sm text-[10px] text-gray-400 flex gap-2 items-start">
+          <i class="fa-solid fa-info-circle mt-0.5 shrink-0 text-cyan-400"></i>
+          <div>
+            <strong>自主流轉說明：</strong> 此畫面非機器人聊天。您可以隨時在右側下發「蜂王調度目標」，蜂王會啟動協定。
+          </div>
+        </div>
+      </div>
+
+      <!-- 視圖2：Monaco 物理編輯器與 Diff 核心 (預設隱藏) -->
+      <div id="central-editor-panel" class="flex-1 flex-col hidden overflow-hidden">
+        
+        <!-- 檔案路徑導航工具列 -->
+        <div class="h-9 bg-[#1c2128] border-b border-editor-border flex items-center justify-between px-3 text-xs select-none shrink-0">
+          <div class="flex items-center gap-2 text-gray-400 font-mono">
+            <i class="fa-solid fa-cubes text-cyan-500"></i>
+            <span>swarm_developer_workspace</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-gray-600"></i>
+            <span>src</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-gray-600"></i>
+            <span class="text-gray-300" id="editor-active-filename">MainLayout.tsx</span>
+          </div>
+          <div class="flex items-center gap-3 text-gray-500">
+            <span class="bg-indigo-950/50 text-indigo-400 border border-indigo-900/50 px-2 py-0.5 rounded text-[10px] font-semibold">MCP 工具掛鉤運作中</span>
+            <i class="fa-solid fa-columns hover:text-white cursor-pointer" title="水平分割畫面"></i>
+            <i class="fa-solid fa-play hover:text-green-400 cursor-pointer" title="編譯並模擬執行代碼"></i>
+          </div>
+        </div>
+
+        <!-- Monaco 模擬程式碼編輯區 -->
+        <div class="flex-1 flex overflow-hidden font-mono text-sm leading-relaxed">
+          <div id="editor-container" class="flex-1 bg-editor-bg p-4 overflow-y-auto text-gray-400 selection:bg-blue-900/50 relative">
+            
+            <!-- 標準代碼編輯模式 -->
+            <div id="code-editor-view">
+              <pre class="text-xs text-gray-300"><code class="text-purple-400">import</code> <code class="text-cyan-400">React</code> <code class="text-purple-400">from</code> <code class="text-emerald-400">'react'</code>;
+<code class="text-purple-400">import</code> { <code class="text-yellow-400">LocalAgentCluster</code>, <code class="text-yellow-400">TerminalTab</code> } <code class="text-purple-400">from</code> <code class="text-emerald-400">'./components'</code>;
+
+<code class="text-gray-500">/**
+ * @class MainLayout
+ * Swarm Editor IDE 主要佈局元件架構
+ * 集中管理底部的自動化 CLI 進程控制與沙盤渲染
+ */</code>
+<code class="text-purple-400">export const</code> <code class="text-blue-400">MainLayout</code>: <code class="text-yellow-400">React.FC</code> = () => {
+  <code class="text-purple-400">const</code> [activeTab, setActiveTab] = <code class="text-cyan-400">React.useState</code>(<code class="text-emerald-400">'sandbox'</code>);
+
+  <code class="text-purple-400">return</code> (
+    &lt;<code class="text-blue-400">div</code> <code class="text-yellow-400">className</code>=<code class="text-emerald-400">"swarm-editor h-screen flex flex-col"</code>&gt;
+      &lt;<code class="text-blue-400">div</code> <code class="text-yellow-400">className</code>=<code class="text-emerald-400">"workspace-body flex flex-1 overflow-hidden"</code>&gt;
+        &lt;<code class="text-blue-400">LocalAgentCluster</code> <code class="text-yellow-400">active</code>={activeTab} /&gt;
+        &lt;<code class="text-blue-400">main</code> <code class="text-yellow-400">className</code>=<code class="text-emerald-400">"central-panel flex-1 relative"</code>&gt;
+          {/* 沙盤與 Monaco 雙模切換入口 */}
+        &lt;/<code class="text-blue-400">main</code>&gt;
+      &lt;/<code class="text-blue-400">div</code>&gt;
+      &lt;<code class="text-blue-400">TerminalTab</code> /&gt;
+    &lt;/<code class="text-blue-400">div</code>&gt;
+  );
+};
+</pre>
+            </div>
+
+            <!-- Git Diff 物理對比視圖 -->
+            <div id="diff-editor-view" class="hidden text-xs">
+              <div class="grid grid-cols-2 gap-4 h-full">
+                <!-- 原始代碼 -->
+                <div class="border-r border-editor-border pr-2">
+                  <div class="text-gray-500 border-b border-editor-border pb-1 mb-2 font-bold select-none uppercase text-[10px]">CURRENT LOCAL GIT (HEAD)</div>
+                  <pre class="space-y-1">
+<span class="text-gray-600">export const MainLayout: React.FC = () => {</span>
+<span class="text-gray-600">  return (</span>
+<span class="bg-red-950/40 text-red-400 w-full block py-0.5">-   &lt;div className="layout-body-standard"&gt;</span>
+<span class="bg-red-950/40 text-red-400 w-full block py-0.5">-     &lt;Sidebar /&gt;</span>
+<span class="bg-red-950/40 text-red-400 w-full block py-0.5">-     &lt;InteractiveChat /&gt;</span>
+<span class="bg-red-950/40 text-red-400 w-full block py-0.5">-   &lt;/div&gt;</span>
+<span class="text-gray-600">  );</span>
+<span class="text-gray-600">};</span></pre>
+                </div>
+                <!-- claude-code A2A 寫入覆蓋後代碼 -->
+                <div>
+                  <div class="text-gray-500 border-b border-editor-border pb-1 mb-2 font-bold select-none uppercase text-[10px]">PROPOSED PATCH BY CLAUDE-CODE (PID: 94812)</div>
+                  <pre class="space-y-1">
+<span class="text-gray-600">export const MainLayout: React.FC = () => {</span>
+<span class="text-gray-600">  return (</span>
+<span class="bg-green-950/40 text-green-400 w-full block py-0.5">+   &lt;div className="swarm-ide-rearchitect flex h-screen"&gt;</span>
+<span class="bg-green-950/40 text-green-400 w-full block py-0.5">+     &lt;UnifiedLocalSidebar /&gt;</span>
+<span class="bg-green-950/40 text-green-400 w-full block py-0.5">+     &lt;CentralDualViewCanvas default="sandbox" /&gt;</span>
+<span class="bg-green-950/40 text-green-400 w-full block py-0.5">+   &lt;/div&gt;</span>
+<span class="text-gray-600">  );</span>
+<span class="text-gray-600">};</span></pre>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==================== 右側面板：蜂王協定調度與活動日誌 (QUEEN DISPATCHER) ==================== -->
+    <aside class="w-80 bg-editor-sidebar border-l border-editor-border flex flex-col shrink-0 overflow-hidden relative">
+      
+      <!-- 控制台頂部切換標籤 -->
+      <div class="flex bg-[#0f141a] border-b border-editor-border text-[11px] font-semibold shrink-0">
+        <button id="right-tab-protocol-btn" onclick="switchRightPanelTab('protocol')" class="flex-1 py-2.5 border-r border-editor-border text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1">
+          <i class="fa-solid fa-network-wired text-amber-500 animate-pulse"></i>
+          <span>📡 協定封包</span>
+        </button>
+        <button id="right-tab-activity-btn" onclick="switchRightPanelTab('activity')" class="flex-1 py-2.5 text-gray-400 hover:text-white flex items-center justify-center gap-1">
+          <i class="fa-solid fa-list-check text-cyan-400"></i>
+          <span>📝 活動日誌</span>
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        </button>
+      </div>
+
+      <!-- ==================== 欄位 A: ACP/A2A 協定封包即時串流 (原面板) ==================== -->
+      <div id="cli-logs-container" class="flex-1 p-3 overflow-y-auto space-y-3 text-[11px] font-mono text-gray-400">
+        
+        <div id="active-cli-context-label" class="text-[10px] text-gray-500 font-mono text-center tracking-wider py-1 border-y border-dashed border-gray-800 uppercase">
+          [ 蜂王 ACP & A2A 協定封包監視器 ]
+        </div>
+
+        <!-- 協定流 1：初始下發目標 -->
+        <div class="space-y-1">
+          <div class="flex items-center gap-1.5 text-[10px] text-amber-400 font-semibold">
+            <i class="fa-solid fa-crown"></i>
+            <span>QUEEN_SUPERVISOR</span>
+            <span class="text-gray-600">系統初始</span>
+          </div>
+          <div class="bg-slate-950 p-2 rounded border border-amber-950/30 text-gray-300 font-mono leading-normal text-[10px]">
+            <span class="text-purple-400">{"type": "ACP_ORCHESTRATE"}</span><br>
+            &gt; 目標: 重構 MainLayout 取消側邊 drawer<br>
+            &gt; 策略: 快速迭代 (Fast_Iteration)<br>
+            &gt; 發布協作依賴鏈: [gemini-cli -> claude-code]
+          </div>
+        </div>
+
+        <!-- 協定流 2：子 Agent A2A 數據傳輸 -->
+        <div class="space-y-1">
+          <div class="flex items-center gap-1.5 text-[10px] text-cyan-400">
+            <i class="fa-solid fa-arrow-right-arrow-left"></i>
+            <span>A2A_PROTOCOL (gemini ➔ claude)</span>
+            <span class="text-gray-600">18:01:02</span>
+          </div>
+          <div class="bg-slate-950 p-2 rounded border border-cyan-950/30 text-gray-300 font-mono leading-normal text-[10px]">
+            <span class="text-cyan-400">{"sender": "gemini-cli", "receiver": "claude-code"}</span><br>
+            &gt; 動作: APPLY_BLUEPRINT<br>
+            &gt; 變更檔案指標: src/MainLayout.tsx<br>
+            &gt; 核心 Patch 長度: 24 行
+          </div>
+        </div>
+
+        <!-- 協定流 3：特權安全掛起 -->
+        <div class="space-y-1">
+          <div class="flex items-center gap-1.5 text-[10px] text-[#f0883e]">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span>ACP_PRIVILEGE_GATE</span>
+            <span class="text-gray-600">18:02:15</span>
+          </div>
+          <div id="claude-stdout-block" class="bg-[#0c0f14] p-2 rounded border border-amber-950/40 text-gray-300 font-mono leading-normal text-[10px] space-y-1">
+            <div class="text-yellow-500 font-semibold">&gt; [警告] 偵測到 claude-code 請求寫入物理檔案與執行 Bash。</div>
+            <div class="text-gray-400">&gt; 蜂王暫停分支流程，將授權閘推播至人類主面板。</div>
+            <div class="text-orange-400 font-semibold">&gt; 狀態: 等候人類點擊沙盤 'claude-code' 節點授權。</div>
+          </div>
+        </div>
+
+        <!-- 動態追加協定數據流 -->
+        <div id="dynamic-cli-event-log" class="text-[10px] text-slate-500">
+          * 蜂群協定通訊保持長連接中...
+        </div>
+
+      </div>
+
+      <!-- ==================== 欄位 B: 新增動態活動日誌 (Live Activity Log) ==================== -->
+      <div id="right-panel-activity-view" class="flex-1 p-3 overflow-y-auto hidden space-y-3 font-sans">
+        
+        <div class="text-[10px] text-gray-500 font-mono text-center tracking-wider py-1 border-y border-dashed border-gray-800 uppercase">
+          [ 蜂群運作活動審計流 (Audit) ]
+        </div>
+
+        <!-- 活動日誌流 -->
+        <div id="activity-log-stream" class="space-y-2 text-xs">
+          
+          <!-- 日誌 1 -->
+          <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-cyan-400 font-semibold font-mono">[GOAL_INIT]</span>
+              <span class="text-[9px] text-gray-500 font-mono">18:00:01</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              蜂王 Agent 接管全域控制。已成功解析目標：<strong>重構 MainLayout 取消側邊 drawer</strong>。
+            </p>
+          </div>
+
+          <!-- 日誌 2 -->
+          <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-purple-400 font-semibold font-mono">[MCP_CALL]</span>
+              <span class="text-[9px] text-gray-500 font-mono">18:00:15</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              <code>gemini-cli</code> 調用 <code>filesystem-mcp</code> :: <span class="text-purple-400 font-mono">read_code()</span> 讀取 <code>src/MainLayout.tsx</code> 的代碼抽象語法樹 (AST)。
+            </p>
+          </div>
+
+          <!-- 日誌 3 -->
+          <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-emerald-400 font-semibold font-mono">[BLUEPRINT]</span>
+              <span class="text-[9px] text-gray-500 font-mono">18:01:00</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              <code>gemini-cli</code> 利用 <strong>AST 語意分析器</strong> 技能產出代碼變更 Blueprint，並透過 A2A 協定推播至 <code>claude-code</code>。
+            </p>
+          </div>
+
+          <!-- 日誌 4 -->
+          <div id="log-gate-pending" class="p-2 bg-amber-950/20 border border-amber-900/40 rounded-lg space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-amber-400 font-semibold font-mono">[SECURITY_GATE]</span>
+              <span class="text-[9px] text-gray-500 font-mono">18:02:15</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              <code>claude-code</code> 嘗試執行系統特權測試與寫入動作。<strong>安全漏洞沙箱攔截技能</strong>觸發，進入 Pending 狀態。
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- ==================== 蜂王全局目標下發器 ==================== -->
+      <div class="p-2.5 border-t border-editor-border bg-[#161b22] shrink-0 font-sans text-xs flex flex-col gap-2">
+        
+        <!-- 策略選擇下拉清單 -->
+        <div class="flex items-center justify-between text-[10px] text-gray-500 font-mono">
+          <span class="flex items-center gap-1"><i class="fa-solid fa-gears"></i> 蜂王策略:</span>
+          <select id="queen-strategy" class="bg-[#0d1117] border border-editor-border text-[10px] text-gray-300 rounded focus:outline-none px-1.5 py-0.5">
+            <option value="fast">快速迭代 (Fast Loop)</option>
+            <option value="strict" selected>嚴格驗證 (Strict Testing)</option>
+            <option value="dry">乾跑測試 (Dry Run Only)</option>
+          </select>
+        </div>
+
+        <!-- 全域目標输入框 -->
+        <div class="flex items-center gap-1 bg-[#0d1117] rounded-md p-1.5 border border-editor-border">
+          <span class="text-amber-500 text-[11px] font-bold"><i class="fa-solid fa-crown"></i></span>
+          <input id="prompt-cli-input" type="text" placeholder="下發全域調度目標至蜂王 (如：重構主佈局)..." class="bg-transparent focus:outline-none text-[11px] flex-1 text-gray-300 px-1 font-mono">
+          <button onclick="injectCliCommand()" class="w-6 h-6 bg-editor-accent text-white rounded flex items-center justify-center hover:bg-blue-600 transition" title="下發目標">
+            <i class="fa-solid fa-paper-plane text-[9px]"></i>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ==================== 底部系統面板：收納式本機 CLI 進程工坊 ==================== -->
+  <footer class="h-64 bg-editor-sidebar border-t border-editor-border flex flex-col shrink-0 overflow-hidden relative select-none">
+    
+    <!-- 底部面板標籤控制 -->
+    <div class="flex bg-[#161b22] border-b border-editor-border text-xs shrink-0 justify-between items-center">
+      <div class="flex">
+        <!-- Tab 1: 物理進程工坊 (已將原側邊欄整合收納於此) -->
+        <button id="tab-cliagents-btn" onclick="switchBottomTab('cliagents')" class="px-4 py-2 border-r border-editor-border font-semibold text-white bg-editor-bg border-t-2 border-t-editor-accent flex items-center gap-2">
+          <i class="fa-solid fa-microchip text-editor-accent"></i>
+          <span>🛠️ 本地 CLI 進程工坊 (Local CLI Tools)</span>
+          <span class="text-[10px] bg-blue-950 text-blue-300 border border-blue-900 px-1.5 py-0.2 rounded font-mono font-normal">Active進程: 4</span>
+        </button>
+
+        <!-- Tab 2: 系統終端 -->
+        <button id="tab-terminal-btn" onclick="switchBottomTab('terminal')" class="px-4 py-2 border-r border-editor-border font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+          <i class="fa-solid fa-terminal"></i>
+          <span>💻 交互終端 (System Bash)</span>
+        </button>
+
+        <!-- Tab 3: 編譯器診斷 -->
+        <button id="tab-problems-btn" onclick="switchBottomTab('problems')" class="px-4 py-2 border-r border-editor-border font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+          <i class="fa-solid fa-circle-exclamation text-yellow-500"></i>
+          <span>📋 檢查診斷 (Linter)</span>
+          <span class="w-4 h-4 rounded-full bg-red-950/50 text-red-400 border border-red-900 text-[10px] flex items-center justify-center font-bold">0</span>
+        </button>
+
+        <!-- Tab 4: 守護進程稽核紀錄 -->
+        <button id="tab-daemonlogs-btn" onclick="switchBottomTab('daemonlogs')" class="px-4 py-2 border-r border-editor-border font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5">
+          <i class="fa-solid fa-list-check"></i>
+          <span>📡 守護進程審計 (Daemon Log)</span>
+        </button>
+      </div>
+      <div class="px-3 text-gray-500 text-[10px] font-mono">
+        DAEMON PROTOCOL: ACP_V1_BRIDGE
+      </div>
+    </div>
+
+    <!-- Tab 1 內容區：本機進程列表 -->
+    <div id="panel-cliagents" class="flex-1 p-3 overflow-y-auto">
+      <table class="w-full text-left text-xs font-mono text-gray-300">
+        <thead>
+          <tr class="text-gray-500 uppercase text-[10px] border-b border-editor-border pb-2">
+            <th class="py-2 pl-2">工具/進程 ID (CLI BINARY)</th>
+            <th class="py-2">核心職能 (ROLE)</th>
+            <th class="py-2">版本 (VERSION)</th>
+            <th class="py-2">PID / 記憶體 (RESOURCES)</th>
+            <th class="py-2">目前執行之 CLI 指令 (RUNNING COMMAND)</th>
+            <th class="py-2 text-right pr-2">控制 (OPERATIONS)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          
+          <!-- 進程 1: gemini-cli -->
+          <tr class="hover:bg-[#21262d] transition-colors cursor-pointer" onclick="selectAgentTool('gemini-cli', '規劃師進程')">
+            <td class="py-2.5 pl-2 font-bold text-cyan-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-500"></span> gemini-cli
+            </td>
+            <td>Codebase Indexer / Planner</td>
+            <td class="text-gray-400">v1.0.0 (binary-amd64)</td>
+            <td class="text-slate-400 font-semibold">PID: 94801 / 28MB</td>
+            <td><code class="text-slate-500 bg-slate-950 px-1 rounded">gemini scanner --ast-diff MainLayout.tsx</code></td>
+            <td class="text-right pr-2">
+              <button onclick="alert('載入配置：gemini-cli 本地環境變數')" class="px-2 py-0.5 bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-300 rounded text-[10px]">
+                <i class="fa-solid fa-sliders"></i> 配置
+              </button>
+            </td>
+          </tr>
+
+          <!-- 進程 2: claude-code -->
+          <tr class="hover:bg-[#21262d] transition-colors cursor-pointer" onclick="toggleHITLPopover()">
+            <td class="py-2.5 pl-2 font-bold text-orange-400 flex items-center gap-1.5">
+              <span id="claude-table-status-dot" class="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span> <span id="claude-table-id">claude-code</span>
+            </td>
+            <td>Refactorer / Shell Executor</td>
+            <td class="text-gray-400">v0.2.1 (NodeJS wrapper)</td>
+            <td class="text-orange-400 font-semibold">PID: 94812 / 142MB</td>
+            <td class="text-orange-500 font-semibold">被安全閘阻斷：等候特權核准執行</td>
+            <td class="text-right pr-2">
+              <button onclick="toggleHITLPopover()" class="px-2 py-0.5 bg-orange-950/40 text-orange-400 border border-orange-900/60 hover:bg-orange-900/50 rounded text-[10px]">
+                <i class="fa-solid fa-lock-open"></i> 核准執行
+              </button>
+            </td>
+          </tr>
+
+          <!-- 進程 3: validation-mcp-engine -->
+          <tr class="hover:bg-[#21262d] transition-colors cursor-pointer" onclick="selectAgentTool('Validation Engine', '測試跑卡')">
+            <td class="py-2.5 pl-2 font-bold text-purple-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-purple-500 opacity-40"></span> mcp-validation
+            </td>
+            <td>Test Suite validation runner</td>
+            <td class="text-gray-400">v1.0.1 (mcp-protocol)</td>
+            <td class="text-slate-500">PID: 94825 / 12MB</td>
+            <td><code class="text-slate-500 bg-slate-950 px-1 rounded">awaiting stream...</code></td>
+            <td class="text-right pr-2">
+              <button class="px-2 py-0.5 bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-300 rounded text-[10px]">
+                <i class="fa-solid fa-sliders"></i> 配置
+              </button>
+            </td>
+          </tr>
+
+          <!-- 進程 4: aider -->
+          <tr class="hover:bg-[#21262d] transition-colors cursor-pointer" onclick="selectAgentTool('aider', 'Git Commit 進程')">
+            <td class="py-2.5 pl-2 font-bold text-green-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-green-500 opacity-40"></span> aider
+            </td>
+            <td>Git controller & pair-coder</td>
+            <td class="text-gray-400">v0.32.0 (python-pip)</td>
+            <td class="text-slate-500">PID: 94833 / 41MB</td>
+            <td><code class="text-slate-500 bg-slate-950 px-1 rounded">idle (sleeping)</code></td>
+            <td class="text-right pr-2">
+              <button class="px-2 py-0.5 bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-300 rounded text-[10px]">
+                <i class="fa-solid fa-sliders"></i> 配置
+              </button>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Tab 2 內容區：本機集成终端 -->
+    <div id="panel-terminal" class="flex-1 p-3 bg-[#07090e] font-mono text-xs text-gray-300 hidden overflow-y-auto space-y-1">
+      <div class="text-gray-500">[Swarm Host 集成終端系統 v1.2]</div>
+      <div class="text-gray-500">本機可調用 CLI 工具: `claude`, `gemini-agent`, `aider`</div>
+      <div class="flex items-center gap-2">
+        <span class="text-emerald-500">swarm@ide-host:~$</span>
+        <span>ps aux | grep swarm_core</span>
+      </div>
+      <div class="text-gray-400">usr  94801  1.4  0.2  gemini-cli  planner</div>
+      <div class="text-gray-400">usr  94812  2.8  0.8  claude-code  refactor  --hitl-gate=bash</div>
+      <div class="text-amber-500 font-semibold">[SWARM_DAEMON] pid 94812 已掛起。正在等候人類在沙盤節點核准特權。</div>
+      <div class="flex items-center gap-1 text-gray-400">
+        <span class="text-emerald-500">swarm@ide-host:~$</span>
+        <span class="border-r border-white animate-pulse">&nbsp;</span>
+      </div>
+    </div>
+
+    <!-- Tab 3 內容區：Problems 診斷 -->
+    <div id="panel-problems" class="flex-1 p-4 text-xs font-mono text-gray-500 hidden overflow-y-auto">
+      <div class="flex items-center gap-2 border-b border-editor-border pb-2">
+        <i class="fa-solid fa-circle-check text-emerald-500"></i>
+        <span>本機 AST 編譯無任何衝突、相依性與錯誤。</span>
+      </div>
+    </div>
+
+    <!-- Tab 4 內容區：守護進程審計紀錄 -->
+    <div id="panel-daemonlogs" class="flex-1 p-3 overflow-y-auto font-mono text-[11px] text-slate-400 space-y-1 hidden select-text">
+      <div><span class="text-gray-600">[17:40:02]</span> <span class="text-cyan-400">[DAEMON]</span> 已在本機 localhost:8080 初始化 MCP Bridge 伺服器...</div>
+      <div><span class="text-gray-600">[17:40:05]</span> <span class="text-cyan-400">[DAEMON]</span> 成功註冊 gemini-cli 進程，版本 v1.0.0。</div>
+      <div><span class="text-gray-600">[17:40:12]</span> <span class="text-purple-400">[MCP]</span> 讀取本機 schema，註冊共計 14 項物理工具。</div>
+      <div><span class="text-gray-600">[17:41:00]</span> <span class="text-cyan-500">[EXEC]</span> 蜂王發送 ACP 指令：啟動進程 gemini-cli (PID: 94801) 開始全域掃描。</div>
+      <div><span class="text-gray-600">[17:42:12]</span> <span class="text-yellow-500">[HITL_TRIGGER]</span> 蜂王捕捉 claude-code 實體變更申請，依協定觸發安全攔截。</div>
+    </div>
+
+  </footer>
+
+  <!-- ==================== 底部狀態列 ==================== -->
+  <footer class="h-6 bg-[#161b22] border-t border-editor-border flex items-center justify-between px-3 text-[10px] text-gray-500 shrink-0 font-mono select-none">
+    <div class="flex items-center gap-3">
+      <span class="text-emerald-500 flex items-center gap-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> daemon 守護進程已就緒
+      </span>
+      <span>|</span>
+      <span>蜂王 MCP Schema: <strong class="text-gray-400">14 實體能力運作中</strong></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span>CPU: 4.2%</span>
+      <span>UTF-8</span>
+      <span>作用中 Worktree 分支: refactor/unified-layout</span>
+    </div>
+  </footer>
+
+  <!-- ==================== 交互邏輯指令碼 ==================== -->
+  <script>
+    let activeLeftSidebarTab = 'explorer';
+    let activeRightPanelTab = 'protocol';
+    let activeCentralTab = 'sandbox';
+    let activeBottomTab = 'cliagents';
+    let hitlAuthorized = false;
+
+    // 切換左側邊欄模組 Explorer vs MCP
+    function switchLeftSidebarTab(tab) {
+      activeLeftSidebarTab = tab;
+      const explorerBtn = document.getElementById('left-tab-explorer-btn');
+      const mcpBtn = document.getElementById('left-tab-mcp-btn');
+      const explorerPanel = document.getElementById('left-sidebar-explorer-panel');
+      const mcpPanel = document.getElementById('left-sidebar-mcp-panel');
+
+      if (tab === 'explorer') {
+        explorerBtn.className = "flex-1 py-2 border-r border-editor-border text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1.5 transition-all";
+        mcpBtn.className = "flex-1 py-2 text-gray-400 hover:text-white flex items-center justify-center gap-1.5 transition-all";
+        explorerPanel.classList.remove('hidden');
+        mcpPanel.classList.add('hidden');
+      } else {
+        mcpBtn.className = "flex-1 py-2 text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1.5 transition-all";
+        explorerBtn.className = "flex-1 py-2 border-r border-editor-border text-gray-400 hover:text-white flex items-center justify-center gap-1.5 transition-all";
+        mcpPanel.classList.remove('hidden');
+        explorerPanel.classList.add('hidden');
+      }
+    }
+
+    // 切換右側面板 Protocol vs Activity Log
+    function switchRightPanelTab(tab) {
+      activeRightPanelTab = tab;
+      const protocolBtn = document.getElementById('right-tab-protocol-btn');
+      const activityBtn = document.getElementById('right-tab-activity-btn');
+      const protocolView = document.getElementById('cli-logs-container');
+      const activityView = document.getElementById('right-panel-activity-view');
+
+      if (tab === 'protocol') {
+        protocolBtn.className = "flex-1 py-2.5 border-r border-editor-border text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1";
+        activityBtn.className = "flex-1 py-2.5 text-gray-400 hover:text-white flex items-center justify-center gap-1";
+        protocolView.classList.remove('hidden');
+        activityView.classList.add('hidden');
+      } else {
+        activityBtn.className = "flex-1 py-2.5 text-white bg-editor-sidebar border-t-2 border-t-editor-accent flex items-center justify-center gap-1";
+        protocolBtn.className = "flex-1 py-2.5 border-r border-editor-border text-gray-400 hover:text-white flex items-center justify-center gap-1";
+        activityView.classList.remove('hidden');
+        protocolView.classList.add('hidden');
+      }
+    }
+
+    // 模擬 MCP 工具呼叫注入
+    function triggerMcpToolCall(mcpServer, toolName) {
+      // 切換至協定與活動日誌檢視
+      switchRightPanelTab('protocol');
+      
+      const logContainer = document.getElementById('cli-logs-container');
+      const activityStream = document.getElementById('activity-log-stream');
+      const now = new Date().toLocaleTimeString();
+
+      // 1. 注入協定視圖
+      const mcpFrame = document.createElement('div');
+      mcpFrame.className = 'bg-slate-950 p-2.5 rounded border border-purple-500/30 text-gray-300 font-mono leading-normal text-[10px] space-y-1';
+      mcpFrame.innerHTML = `
+        <div class="text-purple-400 font-bold flex items-center gap-1">
+          <i class="fa-solid fa-plug animate-pulse"></i> MCP_TOOL_INVOKED
+        </div>
+        <div>{"server": "${mcpServer}", "tool": "${toolName}", "status": "calling"}</div>
+        <div class="text-gray-500">&gt; schema 物理驗證正確。工具已在本機環境運行。</div>
+      `;
+      logContainer.appendChild(mcpFrame);
+      logContainer.scrollTop = logContainer.scrollHeight;
+
+      // 2. 注入活動日誌視圖
+      const activityItem = document.createElement('div');
+      activityItem.className = 'p-2 bg-purple-950/20 border border-purple-900/30 rounded-lg space-y-1';
+      activityItem.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] text-purple-400 font-semibold font-mono">[MCP_CALL_TRIGGER]</span>
+          <span class="text-[9px] text-gray-500 font-mono">${now}</span>
+        </div>
+        <p class="text-gray-300 text-[11px] leading-relaxed">
+          人類主管手動發送工具模擬指令。喚醒 <code>${mcpServer}</code> :: <span class="text-purple-400 font-mono">${toolName}()</span> 能力。
+        </p>
+      `;
+      activityStream.appendChild(activityItem);
+      activityStream.scrollTop = activityStream.scrollHeight;
+    }
+
+    // 點擊拓撲節點切換上下文並注入活動日誌
+    function selectAgentTool(name, desc) {
+      document.getElementById('selected-node-name').innerText = name;
+      
+      const logContainer = document.getElementById('cli-logs-container');
+      const activeLabel = document.getElementById('active-cli-context-label');
+      const activityStream = document.getElementById('activity-log-stream');
+      const now = new Date().toLocaleTimeString();
+      
+      if (activeLabel) {
+        activeLabel.innerText = `[ 蜂王與 A2A 端點聯絡指標: ${name} ]`;
+      }
+      
+      // 動態追加 ACP 日誌封包
+      if (logContainer) {
+        const logLine = document.createElement('div');
+        logLine.className = 'border-l-2 border-cyan-500 pl-2 text-[10px] text-slate-500 py-1.5 font-mono';
+        logLine.innerHTML = `
+          <span class="text-cyan-400">{"type": "ACP_QUERY_STATE", "target": "${name}"}</span><br>
+          &gt; 作用: 查詢本地 CLI 進程生命週期與核心 Capability。<br>
+          &gt; 回應: ${desc}
+        `;
+        logContainer.appendChild(logLine);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      // 同步追加活動日誌項
+      if (activityStream) {
+        const activityItem = document.createElement('div');
+        activityItem.className = 'p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1';
+        activityItem.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-cyan-400 font-semibold font-mono">[AUDIT_INSPECT]</span>
+            <span class="text-[9px] text-gray-500 font-mono">${now}</span>
+          </div>
+          <p class="text-gray-300 text-[11px] leading-relaxed">
+            人類主管在沙盤上點擊並查閱了 <strong>${name}</strong> 的物理生命週期狀態與核心依賴指標。
+          </p>
+        `;
+        activityStream.appendChild(activityItem);
+        activityStream.scrollTop = activityStream.scrollHeight;
+      }
+    }
+
+    // 點擊 claude-code 開啟/關閉人工授權
+    function toggleHITLPopover() {
+      if (hitlAuthorized) return; // 已核准則不再重彈
+
+      const popup = document.getElementById('hitl-popup');
+      popup.classList.toggle('scale-0');
+      popup.classList.toggle('scale-100');
+    }
+
+    // 核准/拒絕 實體程式碼寫入動作
+    function resolveHITL(approved) {
+      const popup = document.getElementById('hitl-popup');
+      const claudeNode = document.getElementById('node-claude');
+      const claudeStatus = document.getElementById('claude-status-badge');
+      const validationNode = document.getElementById('node-validation');
+      const validationStatus = document.getElementById('validation-status-badge');
+      const tableStatus = document.getElementById('claude-table-id');
+      const tableStatusDot = document.getElementById('claude-table-status-dot');
+      const stdoutBlock = document.getElementById('claude-stdout-block');
+      const dynamicEventLog = document.getElementById('dynamic-cli-event-log');
+      
+      const activityStream = document.getElementById('activity-log-stream');
+      const logGatePending = document.getElementById('log-gate-pending');
+      const now = new Date().toLocaleTimeString();
+
+      hitlAuthorized = true;
+
+      // 關閉 Popover
+      popup.classList.add('scale-0');
+      popup.classList.remove('scale-100');
+
+      if (approved) {
+        // 1. 轉化沙盤節點顏色為 Completed 狀態
+        claudeNode.classList.remove('glow-pulse-amber', 'border-[#f0883e]');
+        claudeNode.classList.add('border-emerald-500', 'glow-pulse-cyan');
+        
+        claudeStatus.innerText = "執行完成 (已授權)";
+        claudeStatus.className = "text-[9px] text-emerald-400 font-bold bg-green-950/50 px-1.5 py-0.5 rounded border border-green-900/50 uppercase tracking-wider";
+
+        // 2. 流星粒子流向下一站
+        const streamParticle = document.getElementById('particle-success');
+        if (streamParticle) {
+          streamParticle.classList.remove('hidden');
+        }
+
+        // 3. 推進至下一站驗證
+        validationNode.classList.remove('border-slate-700');
+        validationNode.classList.add('border-purple-500', 'glow-pulse-cyan');
+        validationStatus.innerText = "正在執行單元測試";
+        validationStatus.className = "text-[9px] text-purple-400 bg-purple-950/40 px-1.5 py-0.2 rounded border border-purple-900/40 uppercase animate-pulse";
+
+        // 4. 動態追加補全協定日誌：ACP 封包
+        stdoutBlock.innerHTML += `
+          <div class="text-emerald-400 font-semibold">&gt; [ACP_VERIFY_SUCCESS] 人類已授權特權執行。寫入 patch。</div>
+          <div class="text-slate-300">&gt; [A2A] 蜂王發送 A2A 指令予驗證模組: { "trigger": "test:unit", "target": "MainLayout" }</div>
+          <div class="text-purple-400">&gt; 本地整合測試單元 (PID: 94825) 動態監聽啟動...</div>
+        `;
+
+        // 5. 更新底部進程表格狀態
+        tableStatus.innerHTML = "claude-code";
+        tableStatusDot.className = "w-2 h-2 rounded-full bg-emerald-500";
+
+        dynamicEventLog.innerHTML = `<span class="text-emerald-400 font-bold">* 協定流轉成功:</span> 程式碼變更已實體寫入，本地測試單元成功觸發。`;
+
+        // 6. 更新活動日誌
+        if (logGatePending) {
+          logGatePending.className = "p-2 bg-green-950/20 border border-green-900/40 rounded-lg space-y-1";
+          logGatePending.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-emerald-400 font-semibold font-mono">[HITL_PASSED]</span>
+              <span class="text-[9px] text-gray-500 font-mono">${now}</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              人類主管已手動通過敏感指令授權。<strong>claude-code</strong> 成功對物理檔案 <code>src/MainLayout.tsx</code> 套用重構 Patch。
+            </p>
+          `;
+        }
+
+        // 7. 異步追加測試成功活動紀錄
+        setTimeout(() => {
+          const testLog = document.createElement('div');
+          testLog.className = "p-2 bg-purple-950/20 border border-purple-900/30 rounded-lg space-y-1 animate-pulse";
+          testLog.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-purple-400 font-semibold font-mono">[TEST_SUCCESS]</span>
+              <span class="text-[9px] text-gray-500 font-mono">${new Date().toLocaleTimeString()}</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              單元測試與 AST 相依性編譯通過！<code>VALIDATION_MCP</code> 回傳狀態碼：00。
+            </p>
+          `;
+          activityStream.appendChild(testLog);
+          activityStream.scrollTop = activityStream.scrollHeight;
+        }, 1500);
+
+        // 1.2 秒後自動切換至 Monaco 編輯器檢視 Diff 變更
+        setTimeout(() => {
+          openDiff('MainLayout.tsx');
+        }, 1800);
+
+      } else {
+        // 拒絕阻斷
+        claudeNode.classList.remove('glow-pulse-amber', 'border-[#f0883e]');
+        claudeNode.classList.add('border-rose-600');
+        
+        claudeStatus.innerText = "特權已手動阻斷";
+        claudeStatus.className = "text-[9px] text-red-400 font-bold bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-900/50 uppercase tracking-wider";
+
+        stdoutBlock.innerHTML += `
+          <div class="text-rose-500 font-semibold">&gt; [ACP_DENIED] 人類主管手動阻斷了寫入變更。復原緩衝區變更。</div>
+          <div class="text-slate-500">&gt; [A2A] 發送復原通知至 A2A 匯流排。exit code 130</div>
+        `;
+
+        dynamicEventLog.innerHTML = `<span class="text-rose-400 font-bold">* 安全閘阻斷:</span> 變更被安全回滾。claude-code 進程返回 idle 狀態。`;
+
+        // 更新活動日誌為手動拒絕
+        if (logGatePending) {
+          logGatePending.className = "p-2 bg-rose-950/20 border border-rose-900/40 rounded-lg space-y-1";
+          logGatePending.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-rose-400 font-semibold font-mono">[HITL_DENIED]</span>
+              <span class="text-[9px] text-gray-500 font-mono">${now}</span>
+            </div>
+            <p class="text-gray-300 text-[11px] leading-relaxed">
+              人類主管拒絕了敏感指令運行。<code>claude-code</code> 進程已安全終止，物理檔案與 Worktree 保持乾淨無異動。
+            </p>
+          `;
+        }
+      }
+    }
+
+    // 切換沙盤與編輯器 Tabs
+    function switchCentralTab(view) {
+      activeCentralTab = view;
+      const sandboxBtn = document.getElementById('tab-sandbox-btn');
+      const editorBtn = document.getElementById('tab-editor-btn');
+      const sandboxPanel = document.getElementById('central-sandbox-panel');
+      const editorPanel = document.getElementById('central-editor-panel');
+
+      if (view === 'sandbox') {
+        sandboxBtn.className = "px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 bg-editor-bg text-white border-t-2 border-t-editor-accent";
+        editorBtn.className = "px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 text-gray-400 hover:text-white transition";
+        sandboxPanel.classList.remove('hidden');
+        editorPanel.classList.add('hidden');
+      } else {
+        editorBtn.className = "px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 bg-editor-bg text-white border-t-2 border-t-editor-accent";
+        sandboxBtn.className = "px-4 py-2.5 border-r border-editor-border font-semibold flex items-center gap-2 text-gray-400 hover:text-white transition";
+        editorPanel.classList.remove('hidden');
+        editorPanel.classList.add('flex');
+        sandboxPanel.classList.add('hidden');
+      }
+    }
+
+    // Monaco 開啟普通檔案
+    function openFile(name, type) {
+      switchCentralTab('editor');
+      document.getElementById('editor-active-file-label').innerText = name;
+      document.getElementById('editor-active-filename').innerText = name;
+      
+      document.getElementById('code-editor-view').classList.remove('hidden');
+      document.getElementById('diff-editor-view').classList.add('hidden');
+    }
+
+    // Monaco 開啟 Diff 對比
+    function openDiff(name) {
+      switchCentralTab('editor');
+      document.getElementById('editor-active-file-label').innerText = `Diff: ${name}`;
+      document.getElementById('editor-active-filename').innerText = `${name} (差異對比)`;
+
+      document.getElementById('code-editor-view').classList.add('hidden');
+      document.getElementById('diff-editor-view').classList.remove('hidden');
+    }
+
+    // 底部進程工具 Tabs 切換
+    function switchBottomTab(tab) {
+      activeBottomTab = tab;
+      
+      const buttons = {
+        cliagents: document.getElementById('tab-cliagents-btn'),
+        terminal: document.getElementById('tab-terminal-btn'),
+        problems: document.getElementById('tab-problems-btn'),
+        daemonlogs: document.getElementById('tab-daemonlogs-btn')
+      };
+
+      const panels = {
+        cliagents: document.getElementById('panel-cliagents'),
+        terminal: document.getElementById('panel-terminal'),
+        problems: document.getElementById('panel-problems'),
+        daemonlogs: document.getElementById('panel-daemonlogs')
+      };
+
+      Object.keys(buttons).forEach(k => {
+        buttons[k].className = "px-4 py-2 border-r border-editor-border font-semibold text-gray-400 hover:text-white transition flex items-center gap-1.5";
+        panels[k].classList.add('hidden');
+      });
+
+      if (tab === 'cliagents') {
+        buttons[tab].className = "px-4 py-2 border-r border-editor-border font-semibold text-white bg-editor-bg border-t-2 border-t-editor-accent flex items-center gap-2";
+      } else {
+        buttons[tab].className = "px-4 py-2 border-r border-editor-border font-semibold text-white bg-editor-bg border-t-2 border-t-editor-accent flex items-center gap-1.5";
+      }
+      panels[tab].classList.remove('hidden');
+    }
+
+    // 蜂王全域目標下發：動態產生 JSON 協定調度流與活動日誌
+    function injectCliCommand() {
+      const input = document.getElementById('prompt-cli-input');
+      const strategy = document.getElementById('queen-strategy').value;
+      const val = input.value.trim();
+      if (!val) return;
+
+      const logContainer = document.getElementById('cli-logs-container');
+      const activityStream = document.getElementById('activity-log-stream');
+      const now = new Date().toLocaleTimeString();
+
+      // 1. 注入協定流 JSON
+      const frameBlock = document.createElement('div');
+      frameBlock.className = 'bg-slate-950 p-2.5 rounded border border-amber-500/30 text-gray-300 font-mono leading-normal text-[10px] space-y-1.5';
+      frameBlock.innerHTML = `
+        <div class="text-amber-400 font-bold flex items-center gap-1">
+          <i class="fa-solid fa-crown"></i> 蜂王接收全局目標
+        </div>
+        <div class="text-[9px] text-gray-500">{"type": "ACP_GOAL_DISPATCH", "strategy": "${strategy}"}</div>
+        <div class="text-cyan-400">&gt; 目標: "${val}"</div>
+        <div class="text-gray-400">&gt; [1] 蜂王廣播 A2A 解析目標檔案依賴...</div>
+        <div class="text-purple-400">&gt; [2] 喚醒本地 A2A 協定匯流排中樞。</div>
+      `;
+      logContainer.appendChild(frameBlock);
+      logContainer.scrollTop = logContainer.scrollHeight;
+
+      // 2. 注入活動日誌
+      const activityItem = document.createElement('div');
+      activityItem.className = 'p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1';
+      activityItem.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] text-amber-400 font-semibold font-mono">[GOAL_DISPATCHED]</span>
+          <span class="text-[9px] text-gray-500 font-mono">${now}</span>
+        </div>
+        <p class="text-gray-300 text-[11px] leading-relaxed">
+          人類主管向蜂王下發了新重構指令：<strong>"${val}"</strong>。蜂王正在透過 <strong>A2A 協議</strong>進行全域任務拆解...
+        </p>
+      `;
+      activityStream.appendChild(activityItem);
+      activityStream.scrollTop = activityStream.scrollHeight;
+
+      input.value = '';
+    }
+
+    // 模擬添加新 MCP 伺服器
+    function registerNewMcp() {
+      alert("啟動 MCP 註冊引導：請確認本機二進制指令 (Executable) 或 Web-RPC 接口路徑。");
+    }
+
+    // 重置整個協定調度管道狀態
+    function resetPipeline() {
+      const claudeNode = document.getElementById('node-claude');
+      const claudeStatus = document.getElementById('claude-status-badge');
+      const validationNode = document.getElementById('node-validation');
+      const validationStatus = document.getElementById('validation-status-badge');
+      const tableStatus = document.getElementById('claude-table-id');
+      const tableStatusDot = document.getElementById('claude-table-status-dot');
+      const stdoutBlock = document.getElementById('claude-stdout-block');
+      const streamParticle = document.getElementById('particle-success');
+      const dynamicEventLog = document.getElementById('dynamic-cli-event-log');
+
+      const activityStream = document.getElementById('activity-log-stream');
+
+      hitlAuthorized = false;
+
+      // 恢復節點與表格初始狀態
+      claudeNode.className = "w-16 h-16 bg-amber-950/40 border-2 border-[#f0883e] rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-all shadow-xl glow-pulse-amber";
+      claudeStatus.innerText = "等候特權核准";
+      claudeStatus.className = "text-[9px] text-orange-400 font-bold bg-orange-950/50 px-1.5 py-0.5 rounded border border-orange-900/50 uppercase tracking-wider";
+
+      validationNode.className = "w-16 h-16 bg-[#161b22] border-2 border-slate-700 rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-all shadow-lg";
+      validationStatus.innerText = "等待管道串流";
+      validationStatus.className = "text-[9px] text-gray-500 bg-slate-900 px-1 py-0.2 rounded border border-slate-800 uppercase";
+
+      if (streamParticle) {
+        streamParticle.classList.add('hidden');
+      }
+
+      // 重置右側日誌
+      stdoutBlock.innerHTML = `
+        <div class="text-yellow-500 font-semibold">&gt; [警告] 偵測到 claude-code 請求寫入物理檔案與執行 Bash。</div>
+        <div class="text-gray-400">&gt; 蜂王暫停分支流程，將授權閘推播至人類主面板。</div>
+        <div class="text-orange-400 font-semibold">&gt; 狀態: 等候人類點擊沙盤 'claude-code' 節點授權。</div>
+      `;
+
+      tableStatus.innerHTML = "claude-code";
+      tableStatusDot.className = "w-2 h-2 rounded-full bg-orange-500 animate-ping";
+
+      dynamicEventLog.innerHTML = `* 蜂群處於暫停監控狀態...`;
+
+      // 重置活動日誌
+      activityStream.innerHTML = `
+        <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-cyan-400 font-semibold font-mono">[GOAL_INIT]</span>
+            <span class="text-[9px] text-gray-500 font-mono">18:00:01</span>
+          </div>
+          <p class="text-gray-300 text-[11px] leading-relaxed">
+            蜂王 Agent 接管全域控制。已成功解析目標：<strong>重構 MainLayout 取消側邊 drawer</strong>。
+          </p>
+        </div>
+        <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-purple-400 font-semibold font-mono">[MCP_CALL]</span>
+            <span class="text-[9px] text-gray-500 font-mono">18:00:15</span>
+          </div>
+          <p class="text-gray-300 text-[11px] leading-relaxed">
+            <code>gemini-cli</code> 調用 <code>filesystem-mcp</code> :: <span class="text-purple-400 font-mono">read_code()</span> 讀取 <code>src/MainLayout.tsx</code> 的代碼抽象語法樹 (AST)。
+          </p>
+        </div>
+        <div class="p-2 bg-[#21262d]/40 border border-editor-border rounded-lg space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-emerald-400 font-semibold font-mono">[BLUEPRINT]</span>
+            <span class="text-[9px] text-gray-500 font-mono">18:01:00</span>
+          </div>
+          <p class="text-gray-300 text-[11px] leading-relaxed">
+            <code>gemini-cli</code> 利用 <strong>AST 語意分析器</strong> 技能產出代碼變更 Blueprint，並透過 A2A 協定推播至 <code>claude-code</code>。
+          </p>
+        </div>
+        <div id="log-gate-pending" class="p-2 bg-amber-950/20 border border-amber-900/40 rounded-lg space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-amber-400 font-semibold font-mono">[SECURITY_GATE]</span>
+            <span class="text-[9px] text-gray-500 font-mono">18:02:15</span>
+          </div>
+          <p class="text-gray-300 text-[11px] leading-relaxed">
+            <code>claude-code</code> 嘗試執行系統特權測試與寫入動作。<strong>安全漏洞沙箱攔截技能</strong>觸發，進入 Pending 狀態。
+          </p>
+        </div>
+      `;
+    }
+
+    // 頁面加載完成初始化
+    window.onload = function() {
+      selectAgentTool('claude-code', '主要程式碼寫入 CLI 工具進程。負責接收 A2A 修復藍圖並將 Patch 套用至物理系統。');
+    };
+  </script>
+</body>
+</html>

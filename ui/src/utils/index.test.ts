@@ -18,7 +18,13 @@ import {
   isDefined,
   isBrowser,
   logger,
+  toFileUri,
+  getFileIcon,
+  getFileIconColor,
 } from './index'
+import {
+  FileCode2, FileJson, FileTerminal, Image, FileLock, Settings, FileText,
+} from 'lucide-react'
 
 describe('cn', () => {
   it('should merge class names', () => {
@@ -368,5 +374,199 @@ describe('array functions', () => {
   it('chunk should split array into chunks', () => {
     expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
     expect(chunk([1, 2, 3], 3)).toEqual([[1, 2, 3]])
+  })
+})
+
+describe('toFileUri', () => {
+  it('converts absolute Unix path', () => {
+    expect(toFileUri('/home/user/file.ts')).toBe('file:///home/user/file.ts')
+  })
+
+  it('converts relative path with triple slash', () => {
+    expect(toFileUri('src/app.ts')).toBe('file:///src/app.ts')
+  })
+
+  it('normalizes backslashes to forward slashes', () => {
+    expect(toFileUri('C:\\Users\\file.ts')).toBe('file:///C:/Users/file.ts')
+  })
+
+  it('handles root path', () => {
+    expect(toFileUri('/')).toBe('file:///')
+  })
+
+  it('handles empty string', () => {
+    expect(toFileUri('')).toBe('file:///')
+  })
+})
+
+describe('getFileIcon', () => {
+  it('returns FileCode2 for TypeScript', () => {
+    expect(getFileIcon('app.ts')).toBe(FileCode2)
+  })
+
+  it('returns FileCode2 for Go', () => {
+    expect(getFileIcon('main.go')).toBe(FileCode2)
+  })
+
+  it('returns FileCode2 for Python', () => {
+    expect(getFileIcon('script.py')).toBe(FileCode2)
+  })
+
+  it('returns FileCode2 for Rust', () => {
+    expect(getFileIcon('lib.rs')).toBe(FileCode2)
+  })
+
+  it('returns FileJson for JSON', () => {
+    expect(getFileIcon('package.json')).toBe(FileJson)
+  })
+
+  it('returns FileJson for TOML', () => {
+    expect(getFileIcon('Cargo.toml')).toBe(FileJson)
+  })
+
+  it('returns FileTerminal for shell scripts', () => {
+    expect(getFileIcon('run.sh')).toBe(FileTerminal)
+  })
+
+  it('returns FileTerminal for bash scripts', () => {
+    expect(getFileIcon('script.bash')).toBe(FileTerminal)
+  })
+
+  it('returns Image for PNG', () => {
+    expect(getFileIcon('photo.png')).toBe(Image)
+  })
+
+  it('returns Image for SVG', () => {
+    expect(getFileIcon('icon.svg')).toBe(Image)
+  })
+
+  it('returns FileLock for .env files', () => {
+    expect(getFileIcon('.env')).toBe(FileLock)
+  })
+
+  it('returns FileLock for .env.production', () => {
+    expect(getFileIcon('.env.production')).toBe(FileLock)
+  })
+
+  it('returns FileText for .gitignore (dotfile not matched by basename)', () => {
+    expect(getFileIcon('.gitignore')).toBe(FileText)
+  })
+
+  it('returns Settings for YAML', () => {
+    expect(getFileIcon('config.yaml')).toBe(Settings)
+  })
+
+  it('returns Settings for YML', () => {
+    expect(getFileIcon('docker-compose.yml')).toBe(Settings)
+  })
+
+  it('returns FileText for markdown', () => {
+    expect(getFileIcon('README.md')).toBe(FileText)
+  })
+
+  it('returns FileText for unknown extensions', () => {
+    expect(getFileIcon('data.xyz')).toBe(FileText)
+  })
+
+  it('returns FileText for no extension', () => {
+    expect(getFileIcon('Makefile')).toBe(FileText)
+  })
+
+  it('handles paths with directories', () => {
+    expect(getFileIcon('/src/components/App.tsx')).toBe(FileCode2)
+  })
+})
+
+describe('getFileIconColor', () => {
+  it('returns blue-400 for TypeScript', () => {
+    expect(getFileIconColor('app.ts')).toBe('text-blue-400')
+  })
+
+  it('returns blue-400 for TSX', () => {
+    expect(getFileIconColor('App.tsx')).toBe('text-blue-400')
+  })
+
+  it('returns yellow-400 for JavaScript', () => {
+    expect(getFileIconColor('app.js')).toBe('text-yellow-400')
+  })
+
+  it('returns yellow-400 for JSX', () => {
+    expect(getFileIconColor('App.jsx')).toBe('text-yellow-400')
+  })
+
+  it('returns yellow-400 for mjs', () => {
+    expect(getFileIconColor('module.mjs')).toBe('text-yellow-400')
+  })
+
+  it('returns cyan-400 for Go', () => {
+    expect(getFileIconColor('main.go')).toBe('text-cyan-400')
+  })
+
+  it('returns blue-300 for Python', () => {
+    expect(getFileIconColor('script.py')).toBe('text-blue-300')
+  })
+
+  it('returns orange-400 for Rust', () => {
+    expect(getFileIconColor('lib.rs')).toBe('text-orange-400')
+  })
+
+  it('returns blue-500 for C', () => {
+    expect(getFileIconColor('main.c')).toBe('text-blue-500')
+  })
+
+  it('returns blue-400 for C++', () => {
+    expect(getFileIconColor('main.cpp')).toBe('text-blue-400')
+  })
+
+  it('returns red-400 for Java', () => {
+    expect(getFileIconColor('App.java')).toBe('text-red-400')
+  })
+
+  it('returns green-400 for C#', () => {
+    expect(getFileIconColor('Program.cs')).toBe('text-green-400')
+  })
+
+  it('returns orange-500 for HTML', () => {
+    expect(getFileIconColor('index.html')).toBe('text-orange-500')
+  })
+
+  it('returns purple-400 for CSS', () => {
+    expect(getFileIconColor('style.css')).toBe('text-purple-400')
+  })
+
+  it('returns purple-400 for SCSS', () => {
+    expect(getFileIconColor('style.scss')).toBe('text-purple-400')
+  })
+
+  it('returns yellow-300 for JSON', () => {
+    expect(getFileIconColor('package.json')).toBe('text-yellow-300')
+  })
+
+  it('returns red-300 for YAML', () => {
+    expect(getFileIconColor('config.yaml')).toBe('text-red-300')
+  })
+
+  it('returns orange-300 for TOML', () => {
+    expect(getFileIconColor('Cargo.toml')).toBe('text-orange-300')
+  })
+
+  it('returns green-300 for shell', () => {
+    expect(getFileIconColor('run.sh')).toBe('text-green-300')
+  })
+
+  it('returns blue-300 for markdown', () => {
+    expect(getFileIconColor('README.md')).toBe('text-blue-300')
+  })
+
+  it('returns tertiary for unknown', () => {
+    expect(getFileIconColor('file.xyz')).toBe('text-text-tertiary')
+  })
+
+  it('handles uppercase extensions', () => {
+    expect(getFileIconColor('app.TS')).toBe('text-blue-400')
+  })
+
+  it('handles paths with directories', () => {
+    expect(getFileIconColor('/src/components/App.tsx')).toBe('text-blue-400')
   })
 })

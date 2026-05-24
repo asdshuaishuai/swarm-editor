@@ -11,6 +11,9 @@ vi.mock('../services', () => ({
         { id: 'agent-1', name: 'claude-code', status: 'running' },
         { id: 'agent-2', name: 'kimi-code', status: 'idle' },
       ]),
+      getSessions: vi.fn().mockResolvedValue([
+        { id: 's1', agentId: 'claude-code', mode: 'editing', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', messages: [] },
+      ]),
     },
   },
 }))
@@ -71,5 +74,13 @@ describe('WorkspacePanel', () => {
   it('renders settings button in footer', () => {
     renderWithRouter(<WorkspacePanel />)
     expect(screen.getByText('Settings')).toBeInTheDocument()
+  })
+
+  it('loads and displays sessions from backend', async () => {
+    renderWithRouter(<WorkspacePanel />)
+    await waitFor(() => {
+      expect(screen.getByText('claude-code')).toBeInTheDocument()
+      expect(screen.getByText('editing mode')).toBeInTheDocument()
+    })
   })
 })

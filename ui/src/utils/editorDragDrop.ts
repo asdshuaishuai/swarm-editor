@@ -1,4 +1,5 @@
 import React from 'react'
+import { logger } from '.'
 
 interface DragDropHandlers {
   onDragOver: (e: React.DragEvent) => void
@@ -51,7 +52,7 @@ export function createEditorDragDropHandlers(options: CreateDragDropOptions): Dr
             setDraggedTab(null)
             return
           }
-        } catch { /* ignore parse errors */ }
+        } catch { logger.debug('editorDragDrop', 'Failed to parse drag data') }
       }
       if (draggedTab && draggedTab.paneId === otherPane) {
         setPaneFile(paneId, draggedTab.path)

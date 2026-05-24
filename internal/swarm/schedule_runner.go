@@ -160,23 +160,51 @@ func (r *ScheduleRunner) GetQueuedCount() int {
 }
 
 // StatusSnapshot returns a map with the runner's full status for WebSocket responses.
+// Fields align with the frontend ScheduleRunnerStatus interface.
 func (r *ScheduleRunner) StatusSnapshot() map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	running := make([]map[string]any, 0, len(r.runningSchedules))
+	// Build schedule list from store
+	schedules := make([]map[string]any, 0)
+	if r.store != nil {
+		for _, sc := range r.store.ListSchedules() {
+			entry := map[string]any{
+				"id":   sc.ID,
+				"name": sc.Name,
+				"cron": sc.Cron,
+			}
+			if !sc.State.LastRun.IsZero() {
+				entry["lastRun"] = sc.State.LastRun.Format(time.RFC3339)
+			}
+			if !sc.State.NextRun.IsZero() {
+				entry["nextRun"] = sc.State.NextRun.Format(time.RFC3339)
+			}
+			schedules = append(schedules, entry)
+		}
+	}
+
+	var lastRun string
+	for _, re := range r.runningSchedules {
+		if re.StartedAt.Format(time.RFC3339) > lastRun {
+			lastRun = re.StartedAt.Format(time.RFC3339)
+		}
+	}
+
+	// Build running/queued execution lists
+	runningList := make([]map[string]any, 0, len(r.runningSchedules))
 	for sid, re := range r.runningSchedules {
-		running = append(running, map[string]any{
+		runningList = append(runningList, map[string]any{
 			"scheduleId":  sid,
 			"executionId": re.ExecutionID,
 			"startedAt":   re.StartedAt,
 		})
 	}
 
-	queued := make([]map[string]any, 0)
+	queuedList := make([]map[string]any, 0)
 	for sid, q := range r.queuedExecutions {
 		for _, qe := range q {
-			queued = append(queued, map[string]any{
+			queuedList = append(queuedList, map[string]any{
 				"scheduleId": sid,
 				"queuedAt":   qe.QueuedAt,
 			})
@@ -184,11 +212,17 @@ func (r *ScheduleRunner) StatusSnapshot() map[string]any {
 	}
 
 	return map[string]any{
+		// Frontend-aligned fields
+		"running":       r.status == ScheduleRunnerRunning,
+		"scheduleCount": len(schedules),
+		"lastRun":       lastRun,
+		"schedules":     schedules,
+		// Operational detail fields (used by internal tests)
 		"status":           string(r.status),
 		"runningCount":     len(r.runningSchedules),
 		"queuedCount":      r.GetQueuedCount(),
-		"runningSchedules": running,
-		"queuedExecutions": queued,
+		"runningSchedules": runningList,
+		"queuedExecutions": queuedList,
 	}
 }
 

@@ -207,6 +207,22 @@ export function useACPEvents() {
     })
     unsubscribers.current.push(unsubAgentMessage)
 
+    // Subscribe to real-time LSP diagnostics updates
+    const unsubDiagnostics = events.onLSPDiagnosticsUpdate((event) => {
+      const filePath = event.uri.replace(/^file:\/\//, '')
+      const problems = event.diagnostics.map((d, i) => ({
+        id: `${filePath}:${d.range.start.line}:${i}`,
+        file: filePath,
+        line: d.range.start.line + 1,
+        column: d.range.start.character + 1,
+        severity: d.severity === 1 ? 'error' as const : d.severity === 2 ? 'warning' as const : 'info' as const,
+        message: d.message,
+        source: d.source || 'LSP',
+      }))
+      getStore().updateFileProblems(filePath, problems)
+    })
+    unsubscribers.current.push(unsubDiagnostics)
+
     // Handle connection state changes — handlers read current state via getStore()
     client.on('connect', () => {
       logger.info('WebSocket', 'Connected to backend')

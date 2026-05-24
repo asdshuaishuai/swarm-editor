@@ -438,6 +438,11 @@ func generateMessageID() string {
 // Message Router
 // ============================================================================
 
+// EventBroadcaster streams events to UI clients.
+type EventBroadcaster interface {
+	Broadcast(eventType string, payload any)
+}
+
 // Router handles message routing between agents
 type Router struct {
 	mu sync.RWMutex
@@ -459,6 +464,9 @@ type Router struct {
 
 	// Configuration
 	config RouterConfig
+
+	// Event broadcaster for UI streaming
+	broadcaster EventBroadcaster
 
 	// Lifecycle
 	running bool
@@ -616,6 +624,13 @@ func (r *Router) Stop() {
 	r.wg.Wait()
 }
 
+// SetBroadcaster wires the event broadcaster for a2a_message events.
+func (r *Router) SetBroadcaster(b EventBroadcaster) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.broadcaster = b
+}
+
 // Send sends a message to a specific agent
 func (r *Router) Send(msg *Message) error {
 	// Check if expired (no lock needed, Message fields are immutable after creation)
@@ -625,6 +640,24 @@ func (r *Router) Send(msg *Message) error {
 
 	// Audit log
 	r.messageLog.Append(msg)
+
+	// Broadcast to UI clients for real-time monitoring
+	r.mu.RLock()
+	bc := r.broadcaster
+	r.mu.RUnlock()
+	if bc != nil {
+		bc.Broadcast("a2a_message", map[string]any{
+			"id":        msg.ID,
+			"from":      msg.From,
+			"to":        msg.To,
+			"type":      string(msg.Type),
+			"group":     msg.Group,
+			"timestamp": msg.Timestamp.Format(time.RFC3339),
+		})
+		bc.Broadcast("a2a_status_change", map[string]any{
+			"routerAvailable": true,
+		})
+	}
 
 	ctx := r.getContext()
 

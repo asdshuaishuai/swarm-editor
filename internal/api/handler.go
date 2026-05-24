@@ -17,15 +17,6 @@ import (
 
 var apiLog = log.With("component", "API")
 
-// Input validation limits
-const (
-	maxNameLen  = 100
-	maxDescLen  = 500
-	maxTitleLen = 200
-	maxIDLen    = 128
-	maxSessions = 1000
-)
-
 // CommandHandler handles WebSocket commands from UI
 type CommandHandler struct {
 	server *WebSocketServer
@@ -140,6 +131,24 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 	case "resolve_handoff":
 		return h.handleResolveHandoff(ctx, params)
 
+		// Swarm algorithm
+		case "get_queen_status":
+			return h.handleGetQueenStatus(ctx, params)
+		case "trigger_election":
+			return h.handleTriggerElection(ctx, params)
+		case "abdicate_queen":
+			return h.handleAbdicateQueen(ctx, params)
+		case "interrupt_agent":
+			return h.handleInterruptAgent(ctx, params)
+		case "resume_task":
+			return h.handleResumeTask(ctx, params)
+		case "get_checkpoints":
+			return h.handleGetCheckpoints(ctx, params)
+		case "recover_task":
+			return h.handleRecoverTask(ctx, params)
+		case "get_role_assignments":
+			return h.handleGetRoleAssignments(ctx, params)
+
 	// Team management
 	case "get_teams":
 		return h.handleGetTeams(ctx, params)
@@ -183,6 +192,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 	// File system
 	case "get_workspace":
 		return h.handleGetWorkspace(ctx, params)
+	case "set_workspace":
+		return h.handleSetWorkspace(ctx, params)
 	case "list_dir":
 		return h.handleListDir(ctx, params)
 	case "read_file":
@@ -237,6 +248,14 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleGitUndoCommit(ctx, params)
 	case "git_diff_lines":
 		return h.handleGitDiffLines(ctx, params)
+	case "git_blame":
+		return h.handleGitBlame(ctx, params)
+	case "git_worktree_list":
+		return h.handleGitWorktreeList(ctx, params)
+	case "git_worktree_add":
+		return h.handleGitWorktreeAdd(ctx, params)
+	case "git_worktree_remove":
+		return h.handleGitWorktreeRemove(ctx, params)
 	case "replace_content":
 		return h.handleReplaceContent(ctx, params)
 	case "reveal_file":
@@ -359,22 +378,6 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleClearNodeCache(ctx, params)
 	case "clear_all_caches":
 		return h.handleClearAllCaches(ctx, params)
-	case "list_automations":
-		return h.handleListAutomations(ctx, params)
-	case "add_automation":
-		return h.handleAddAutomation(ctx, params)
-	case "remove_automation":
-		return h.handleRemoveAutomation(ctx, params)
-	case "enable_automation":
-		return h.handleEnableAutomation(ctx, params)
-	case "list_artifacts":
-		return h.handleListArtifacts(ctx, params)
-	case "get_artifact":
-		return h.handleGetArtifact(ctx, params)
-	case "create_artifact":
-		return h.handleCreateArtifact(ctx, params)
-	case "delete_artifact":
-		return h.handleDeleteArtifact(ctx, params)
 
 	// Audit Log Commands
 	case "list_audit_events":
@@ -384,17 +387,6 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 	case "clear_audit_log":
 		return h.handleClearAuditLog(ctx, params)
 
-	// Workflow Variables
-	case "list_variables":
-		return h.handleListVariables(ctx, params)
-	case "add_variable":
-		return h.handleAddVariable(ctx, params)
-	case "remove_variable":
-		return h.handleRemoveVariable(ctx, params)
-	case "set_variable_value":
-		return h.handleSetVariableValue(ctx, params)
-	case "resolve_variables":
-		return h.handleResolveVariables(ctx, params)
 
 	// Schedule Runner
 	case "start_schedule_runner":
@@ -857,13 +849,11 @@ func copyFileContents(srcPath, dstPath string, _ os.FileMode) error {
 
 
 
-// ==================== Automation Handlers ====================
 
 
 
 
 
-// ==================== Artifact Handlers (Prefect 3 Artifacts) ====================
 
 
 
@@ -981,18 +971,6 @@ func safeUnmarshalError(err error) error {
 
 // handleClearAuditLog clears the in-memory audit log
 // WARNING: This is a destructive operation. Requires confirm=true parameter.
-
-// ==================== Workflow Variable Handlers ====================
-
-// handleListVariables returns all variables for a workflow
-
-// handleAddVariable adds a variable to a workflow
-
-// handleRemoveVariable removes a variable from a workflow
-
-// handleSetVariableValue sets a variable's value
-
-// handleResolveVariables resolves {{variable.key}} templates in a string
 
 // ==================== Schedule Runner Handlers ====================
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { fsApi } from '../services/api'
+import { fsApi, events } from '../services/api'
 import { logger } from '../utils'
 import { useSplitPaneStore } from './splitPaneStore'
 
@@ -47,6 +47,11 @@ export interface WorkspaceStore {
   togglePin: (path: string) => void
   isPinned: (path: string) => boolean
 
+  // External file changes
+  externalModifications: Set<string>
+  clearExternalModification: (path: string) => void
+  subscribeToFileChanges: () => () => void
+
   // UI state
   language: string
   setLanguage: (lang: string) => void
@@ -67,8 +72,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   mruOrder: [],
   language: 'typescript',
   loading: false,
+  externalModifications: new Set<string>(),
 
-  setWorkspacePath: (path) => set({ workspacePath: path }),
+  setWorkspacePath: (path) => {
+    set({ workspacePath: path })
+    fsApi.setWorkspace(path).catch((err) => {
+      logger.debug('Workspace', 'Failed to sync workspace to backend:', err)
+    })
+  },
 
   loadWorkspace: async () => {
     try {
@@ -106,7 +117,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   openFile: async (path, options?: { preview?: boolean }) => {
-    const { fileContents, openFiles, mruOrder, previewTab, pinnedFiles } = get()
+    const { openFiles, mruOrder } = get()
     const isPreview = options?.preview !== false // Default to preview mode
 
     // Update MRU: move path to end (most recently used) — but NOT for preview tabs
@@ -117,10 +128,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     // Already open — just switch to it and pin it (preview → permanent)
     if (openFiles.includes(path)) {
+      const currentPreviewTab = get().previewTab
       set({
         currentFile: path,
         mruOrder: mruOrder.filter(p => p !== path).concat([path]), // Always add to MRU when switching to existing tab
-        previewTab: isPreview ? path : (previewTab === path ? null : previewTab),
+        previewTab: isPreview ? path : (currentPreviewTab === path ? null : currentPreviewTab),
       })
       return
     }
@@ -128,14 +140,15 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set({ loading: true })
     try {
       const content = await fsApi.readFile(path)
-      const newContents = new Map(fileContents)
+      // Re-read state after await to avoid stale snapshot race
+      const freshState = get()
+      const newContents = new Map(freshState.fileContents)
 
       // VS Code: close previous preview tab before adding new one
-      const state = get()
-      let newOpenFiles = [...state.openFiles]
-      if (state.previewTab && state.previewTab !== path && !pinnedFiles.has(state.previewTab)) {
-        newOpenFiles = newOpenFiles.filter(f => f !== state.previewTab)
-        newContents.delete(state.previewTab)
+      let newOpenFiles = [...freshState.openFiles]
+      if (freshState.previewTab && freshState.previewTab !== path && !freshState.pinnedFiles.has(freshState.previewTab)) {
+        newOpenFiles = newOpenFiles.filter(f => f !== freshState.previewTab)
+        newContents.delete(freshState.previewTab)
       }
 
       newContents.set(path, content)
@@ -606,5 +619,50 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   isPinned: (path) => {
     return get().pinnedFiles.has(path)
+  },
+
+  clearExternalModification: (path) => {
+    const newMods = new Set(get().externalModifications)
+    newMods.delete(path)
+    set({ externalModifications: newMods })
+  },
+
+  subscribeToFileChanges: () => {
+    const cleanups: Array<() => void> = []
+
+    const fileChangeHandler = (payload: unknown) => {
+      const event = payload as { path: string; eventType: string }
+      if (!event?.path) return
+
+      const state = get()
+
+      if (event.eventType === 'workspace_file_changed') {
+        // Only mark as externally modified if the file is currently open
+        if (state.openFiles.includes(event.path)) {
+          // Don't mark if the file is dirty (user has unsaved edits)
+          if (!state.dirtyFiles.has(event.path)) {
+            const newMods = new Set(state.externalModifications)
+            newMods.add(event.path)
+            set({ externalModifications: newMods })
+          }
+        }
+      } else if (event.eventType === 'workspace_file_deleted') {
+        // File deleted externally — refresh file tree
+        get().refreshFileTree()
+      } else if (event.eventType === 'workspace_file_created') {
+        // New file created externally — refresh file tree
+        get().refreshFileTree()
+      }
+    }
+
+    cleanups.push(events.subscribe('workspace_file_changed', fileChangeHandler))
+    cleanups.push(events.subscribe('workspace_file_deleted', fileChangeHandler))
+    cleanups.push(events.subscribe('workspace_file_created', fileChangeHandler))
+
+    return () => {
+      for (const cleanup of cleanups) {
+        cleanup()
+      }
+    }
   },
 }))

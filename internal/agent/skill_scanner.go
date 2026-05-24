@@ -28,6 +28,7 @@ type SkillInfo struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	Source      SkillSource `json:"source"`
+	Scope       string      `json:"scope,omitempty"` // "global" or "project"
 	Path        string      `json:"path,omitempty"`
 	AgentID     string      `json:"agentId,omitempty"`
 	Tags        []string    `json:"tags,omitempty"`
@@ -138,17 +139,67 @@ func (ss *SkillScanner) ScanWithMCPTools(mcpServers []MCPServerInfo, serverTools
 func (ss *SkillScanner) scanFilesystem() ([]SkillInfo, error) {
 	var skills []SkillInfo
 
-	dirs := ss.skillDirs()
-	for _, dir := range dirs {
+	projectDirs, globalDirs := ss.skillDirsScoped()
+
+	// Scan project dirs (highest priority)
+	for _, dir := range projectDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue // Directory may not exist
+			continue
 		}
-
 		for _, entry := range entries {
 			skill := ss.parseSkillEntry(dir, entry)
 			if skill != nil {
+				skill.Scope = "project"
 				skills = append(skills, *skill)
+			}
+		}
+	}
+
+	// Scan global dirs
+	for _, dir := range globalDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			skill := ss.parseSkillEntry(dir, entry)
+			if skill != nil {
+				skill.Scope = "global"
+				skills = append(skills, *skill)
+			}
+		}
+	}
+
+	// Scan global MCP config files for MCP-based skills
+	home := ss.homeDir
+	globalMCPConfigs := []string{
+		filepath.Join(home, ".claude", "mcp.json"),
+		filepath.Join(home, ".config", "claude-code", "mcp.json"),
+		filepath.Join(home, ".swarm-editor", "mcp.json"),
+	}
+	for _, cfgPath := range globalMCPConfigs {
+		if mcpSkills, err := ss.ScanMCPSkillsFromConfig(cfgPath); err == nil {
+			for i := range mcpSkills {
+				mcpSkills[i].Scope = "global"
+			}
+			skills = append(skills, mcpSkills...)
+		}
+	}
+
+	// Scan project-level MCP configs
+	if ss.workspaceDir != "" {
+		projectMCPConfigs := []string{
+			filepath.Join(ss.workspaceDir, ".swarm-editor", "mcp.json"),
+			filepath.Join(ss.workspaceDir, ".mcp.json"),
+			filepath.Join(ss.workspaceDir, ".claude", "mcp.json"),
+		}
+		for _, cfgPath := range projectMCPConfigs {
+			if mcpSkills, err := ss.ScanMCPSkillsFromConfig(cfgPath); err == nil {
+				for i := range mcpSkills {
+					mcpSkills[i].Scope = "project"
+				}
+				skills = append(skills, mcpSkills...)
 			}
 		}
 	}
@@ -156,35 +207,36 @@ func (ss *SkillScanner) scanFilesystem() ([]SkillInfo, error) {
 	return skills, nil
 }
 
-// skillDirs returns known skill directory paths
-func (ss *SkillScanner) skillDirs() []string {
-	var dirs []string
-
+// skillDirsScoped returns project and global skill directory paths separately
+func (ss *SkillScanner) skillDirsScoped() (projectDirs []string, globalDirs []string) {
 	// Project-local skill directories (highest priority)
 	if ss.workspaceDir != "" {
-		dirs = append(dirs,
+		projectDirs = append(projectDirs,
 			filepath.Join(ss.workspaceDir, ".claude", "skills"),
 			filepath.Join(ss.workspaceDir, ".agents", "skills"),
+			filepath.Join(ss.workspaceDir, ".swarm-editor", "skills"),
 		)
 	}
 
 	if runtime.GOOS == "windows" {
 		appData := os.Getenv("APPDATA")
 		if appData != "" {
-			dirs = append(dirs,
+			globalDirs = append(globalDirs,
 				filepath.Join(appData, "claude", "skills"),
 				filepath.Join(appData, "claude-code", "skills"),
 			)
 		}
 	} else {
-		dirs = append(dirs,
+		globalDirs = append(globalDirs,
 			filepath.Join(ss.homeDir, ".claude", "skills"),
 			filepath.Join(ss.homeDir, ".config", "claude-code", "skills"),
 			filepath.Join(ss.homeDir, ".agents", "skills"),
+			filepath.Join(ss.homeDir, ".config", "cursor", "skills"),
+			filepath.Join(ss.homeDir, ".swarm-editor", "skills"),
 		)
 	}
 
-	return dirs
+	return projectDirs, globalDirs
 }
 
 // parseSkillEntry parses a single skill directory entry

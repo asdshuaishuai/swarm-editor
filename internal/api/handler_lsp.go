@@ -450,7 +450,7 @@ func (h *CommandHandler) handleLSPSemanticTokens(ctx context.Context, params jso
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil // LSP not configured, silently ignore
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -483,7 +483,7 @@ func (h *CommandHandler) handleLSPSemanticTokensRange(ctx context.Context, param
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -511,7 +511,7 @@ func (h *CommandHandler) handleLSPSemanticTokensLegend(ctx context.Context, para
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	legend := mgr.GetSemanticTokensLegend(req.File)
@@ -540,7 +540,7 @@ func (h *CommandHandler) handleLSPDocumentLinks(ctx context.Context, params json
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -569,7 +569,7 @@ func (h *CommandHandler) handleLSPCodeLenses(ctx context.Context, params json.Ra
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -603,7 +603,7 @@ func (h *CommandHandler) handlePrepareCallHierarchy(ctx context.Context, params 
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -629,7 +629,7 @@ func (h *CommandHandler) handleCallHierarchyIncomingCalls(ctx context.Context, p
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	item := mapToCallHierarchyItem(req.Item)
@@ -651,7 +651,7 @@ func (h *CommandHandler) handleCallHierarchyOutgoingCalls(ctx context.Context, p
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	item := mapToCallHierarchyItem(req.Item)
@@ -680,7 +680,7 @@ func (h *CommandHandler) handlePrepareTypeHierarchy(ctx context.Context, params 
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -706,7 +706,7 @@ func (h *CommandHandler) handleTypeHierarchySupertypes(ctx context.Context, para
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	item := mapToTypeHierarchyItem(req.Item)
@@ -728,7 +728,7 @@ func (h *CommandHandler) handleTypeHierarchySubtypes(ctx context.Context, params
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	item := mapToTypeHierarchyItem(req.Item)
@@ -974,7 +974,7 @@ func (h *CommandHandler) handleLSPDidOpen(ctx context.Context, params json.RawMe
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil // LSP not configured, silently ignore
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	uri := req.URI
@@ -1000,7 +1000,7 @@ func (h *CommandHandler) handleLSPDidChange(ctx context.Context, params json.Raw
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	mgr.DidChange(req.File, req.Content)
@@ -1028,7 +1028,7 @@ func (h *CommandHandler) handleLSPDidChangeIncremental(ctx context.Context, para
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	changes := make([]lsp.TextDocumentContentChangeEvent, len(req.Changes))
@@ -1062,7 +1062,7 @@ func (h *CommandHandler) handleLSPDidClose(ctx context.Context, params json.RawM
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	mgr.DidClose(req.File)
@@ -1083,7 +1083,7 @@ func (h *CommandHandler) handleLSPDidSave(ctx context.Context, params json.RawMe
 
 	mgr := h.server.LSPManager()
 	if mgr == nil {
-		return nil, nil
+		return nil, errNotConnected("LSP not configured")
 	}
 
 	mgr.DidSave(req.File, req.Text)

@@ -38,6 +38,10 @@ export default {
         glass: 'var(--glass)',
         'glass-border': 'var(--glass-border)',
       },
+      fontFamily: {
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['Fira Code', 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'monospace'],
+      },
       borderRadius: {
         'mac': '8px',
         'mac-lg': '12px',

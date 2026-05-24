@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { FileEntry } from '../services'
+import { logger } from '../utils'
 
 export function useEditorUIState() {
   const [showFileTree, setShowFileTree] = useState(true)
@@ -15,7 +16,7 @@ export function useEditorUIState() {
 
   // Resizable sidebar (VS Code pattern — drag edge to resize, persisted to localStorage)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try { const v = localStorage.getItem('sidebarWidth'); return v ? parseInt(v, 10) : 208 } catch { return 208 }
+    try { const v = localStorage.getItem('sidebarWidth'); return v ? parseInt(v, 10) : 208 } catch { logger.debug('useEditorUIState', 'localStorage read failed'); return 208 }
   })
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
 
@@ -24,7 +25,7 @@ export function useEditorUIState() {
     try {
       localStorage.setItem('sidebarWidth', String(sidebarWidth))
     } catch {
-      // Silently ignore localStorage errors
+      logger.debug('useEditorUIState', 'localStorage write failed')
     }
   }, [sidebarWidth])
 

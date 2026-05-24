@@ -43,6 +43,11 @@ const (
 	StateError     AgentState = "error"
 )
 
+// StateBroadcaster broadcasts agent state changes to WebSocket clients.
+type StateBroadcaster interface {
+	Broadcast(eventType string, payload any)
+}
+
 // Agent represents an AI agent instance
 type Agent struct {
 	mu sync.RWMutex
@@ -59,6 +64,8 @@ type Agent struct {
 
 	created    time.Time
 	lastActive time.Time
+
+	broadcaster StateBroadcaster
 
 	// Three-layer memory system (CrewAI-inspired)
 	// ShortTerm: recent context, bounded, session-scoped
@@ -158,12 +165,32 @@ func (a *Agent) GetSession() *acp.SessionID {
 	return a.session
 }
 
-// SetState updates the agent state
-func (a *Agent) SetState(state AgentState) {
+// SetBroadcaster sets the broadcaster for agent state change events.
+func (a *Agent) SetBroadcaster(b StateBroadcaster) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.broadcaster = b
+}
+
+// SetState updates the agent state and broadcasts the change.
+func (a *Agent) SetState(state AgentState) {
+	a.mu.Lock()
+	prev := a.State
 	a.State = state
 	a.lastActive = time.Now()
+	bc := a.broadcaster
+	id := a.ID
+	name := a.Name
+	a.mu.Unlock()
+
+	if bc != nil && prev != state {
+		bc.Broadcast("agent_status_change", map[string]any{
+			"agentId":   string(id),
+			"agentName": name,
+			"oldState":  string(prev),
+			"newState":  string(state),
+		})
+	}
 }
 
 // GetState returns the current state

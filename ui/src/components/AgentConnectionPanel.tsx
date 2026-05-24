@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services'
 import { AgentInfo } from '../services/api'
 import { getWebSocketClient } from '../services/websocket'
+import { logger } from '../utils'
 
 interface AgentConnectionPanelProps {
   onAgentSelect?: (agentId: string) => void
@@ -17,7 +18,7 @@ export function AgentConnectionPanel({ onAgentSelect }: AgentConnectionPanelProp
       const agentList = await api.agent.getAgents()
       setAgents(agentList)
     } catch (err) {
-      console.error('Failed to fetch agents:', err)
+      logger.error('Failed to fetch agents:', err)
     } finally {
       setLoading(false)
     }
@@ -48,7 +49,7 @@ export function AgentConnectionPanel({ onAgentSelect }: AgentConnectionPanelProp
       await api.agent.startAgent(agentId)
       await fetchAgents()
     } catch (err) {
-      console.error('Failed to connect agent:', err)
+      logger.error('Failed to connect agent:', err)
     } finally {
       setConnecting(null)
     }
@@ -60,7 +61,7 @@ export function AgentConnectionPanel({ onAgentSelect }: AgentConnectionPanelProp
       await api.agent.stopAgent(agentId)
       await fetchAgents()
     } catch (err) {
-      console.error('Failed to disconnect agent:', err)
+      logger.error('Failed to disconnect agent:', err)
     } finally {
       setConnecting(null)
     }

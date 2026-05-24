@@ -10,6 +10,19 @@ vi.mock('../services', () => ({
         { id: 'agent-1', name: 'test-agent', type: 'worker', status: 'idle', command: '', capabilities: [] },
       ]),
     },
+    swarm: {
+      getSwarms: vi.fn().mockResolvedValue([]),
+      getSwarmTasks: vi.fn().mockResolvedValue([]),
+    },
+    monitoring: {
+      getSupervisorStats: vi.fn().mockResolvedValue(null),
+      listAuditEvents: vi.fn().mockResolvedValue([]),
+      getAuditStats: vi.fn().mockResolvedValue(null),
+      getScheduleRunnerStatus: vi.fn().mockResolvedValue(null),
+    },
+  },
+  events: {
+    subscribe: vi.fn().mockReturnValue(() => {}),
   },
 }))
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services'
+import { logger } from '../utils'
 
 interface Session {
   id: string
@@ -34,7 +35,7 @@ export function AgentSessionPanel({ onSessionSelect }: AgentSessionPanelProps) {
       }))
       setSessions(mappedSessions)
     } catch (err) {
-      console.error('Failed to fetch sessions:', err)
+      logger.error('Failed to fetch sessions:', err)
       // Fallback to empty list on error
       setSessions([])
     } finally {

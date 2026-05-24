@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1040,6 +1041,114 @@ func TestCommandHandler_HandleCallMCPTool_NotFound(t *testing.T) {
 	}
 }
 
+func TestCommandHandler_HandleScanMCPServers_NilScanner(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("scan_mcp_servers", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	servers, ok := result.([]MCPServerInfo)
+	if !ok {
+		t.Fatalf("expected []MCPServerInfo, got %T", result)
+	}
+	if len(servers) != 0 {
+		t.Errorf("expected empty list for nil scanner, got %d", len(servers))
+	}
+}
+
+func TestCommandHandler_HandleListMCPTools_Validation(t *testing.T) {
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{"empty serverId", `{"serverId": ""}`},
+		{"missing serverId", `{}`},
+		{"whitespace serverId", `{"serverId": "  "}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler()
+			_, err := handler.HandleCommand("list_mcp_tools", json.RawMessage(tt.params), "test")
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestCommandHandler_HandleListMCPTools_NotFound(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("list_mcp_tools", json.RawMessage(`{"serverId": "nonexistent"}`), "test")
+	if err == nil {
+		t.Error("expected error for nonexistent server")
+	}
+}
+
+func TestCommandHandler_HandleListMCPTools_Success(t *testing.T) {
+	handler, server := newTestHandler()
+
+	client := mcp.NewClient(&mcp.ClientConfig{Name: "test-srv", Command: "echo"})
+	server.AddMCPClient("test-srv", client)
+
+	result, err := handler.HandleCommand("list_mcp_tools", json.RawMessage(`{"serverId": "test-srv"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tools, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatalf("expected []map[string]any, got %T", result)
+	}
+	if tools == nil {
+		t.Error("expected non-nil tools slice")
+	}
+}
+
+func TestCommandHandler_HandleGetMCPServers_WithClients(t *testing.T) {
+	handler, server := newTestHandler()
+
+	client := mcp.NewClient(&mcp.ClientConfig{Name: "my-server", Command: "test-cmd"})
+	server.AddMCPClient("my-server", client)
+
+	result, err := handler.HandleCommand("get_mcp_servers", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	servers, ok := result.([]MCPServerInfo)
+	if !ok {
+		t.Fatalf("expected []MCPServerInfo, got %T", result)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(servers))
+	}
+	if servers[0].ID != "my-server" {
+		t.Errorf("expected ID my-server, got %s", servers[0].ID)
+	}
+	if servers[0].Status != "connected" {
+		t.Errorf("expected status connected, got %s", servers[0].Status)
+	}
+}
+
+func TestCommandHandler_HandleCallMCPTool_TooManyArgs(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	args := make(map[string]any)
+	for i := 0; i < 51; i++ {
+		args[fmt.Sprintf("key%d", i)] = i
+	}
+	params, _ := json.Marshal(map[string]any{"serverId": "x", "toolName": "y", "arguments": args})
+
+	_, err := handler.HandleCommand("call_mcp_tool", params, "test")
+	if err == nil {
+		t.Error("expected error for too many arguments")
+	}
+}
+
 func TestCommandHandler_HandleGetSupervisorStats(t *testing.T) {
 	handler, _ := newTestHandler()
 
@@ -1088,8 +1197,9 @@ func TestCommandHandler_HandleGetEmergenceData_Fallback(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EmergenceData result")
 	}
-	if data.Health.OverallScore == 0 {
-		t.Error("fallback should set default health score")
+	// With no swarms, all health metrics should be zero
+	if data.Health.AgentUtilization != 0 {
+		t.Error("expected 0 utilization with no swarms")
 	}
 }
 
@@ -1670,582 +1780,6 @@ func TestCommandHandler_HandleExecuteWorkflow_NoOrchestrator(t *testing.T) {
 }
 
 // ==================== Automation Handler Tests ====================
-
-func TestCommandHandler_HandleListAutomations_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-	// No orchestrator set
-
-	_, err := handler.HandleCommand("list_automations", nil, "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleListAutomations_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	result, err := handler.HandleCommand("list_automations", nil, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	list, ok := result.([]map[string]any)
-	if !ok {
-		t.Fatalf("expected []map[string]any, got %T", result)
-	}
-	// Empty list is valid
-	if list == nil {
-		t.Error("expected non-nil slice")
-	}
-}
-
-func TestCommandHandler_HandleAddAutomation_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing id", json.RawMessage(`{}`)},
-		{"empty id", json.RawMessage(`{"id": ""}`)},
-		{"whitespace id", json.RawMessage(`{"id": "   "}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("add_automation", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleAddAutomation_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	params := json.RawMessage(`{"id": "test-auto", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	_, err := handler.HandleCommand("add_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleAddAutomation_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"id": "test-auto", "name": "Test Automation", "trigger": {"type": "task_complete"}, "actions": [], "enabled": true}`)
-	result, err := handler.HandleCommand("add_automation", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["id"] != "test-auto" {
-		t.Errorf("id = %v, want 'test-auto'", info["id"])
-	}
-	if info["status"] != "added" {
-		t.Errorf("status = %v, want 'added'", info["status"])
-	}
-}
-
-func TestCommandHandler_HandleAddAutomation_InvalidCooldown(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"id": "test-auto", "cooldown": "invalid"}`)
-	_, err := handler.HandleCommand("add_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for invalid cooldown")
-	}
-}
-
-func TestCommandHandler_HandleRemoveAutomation_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing id", json.RawMessage(`{}`)},
-		{"empty id", json.RawMessage(`{"id": ""}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("remove_automation", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleRemoveAutomation_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Add automation first
-	addParams := json.RawMessage(`{"id": "test-remove", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	handler.HandleCommand("add_automation", addParams, "test")
-
-	params := json.RawMessage(`{"id": "test-remove"}`)
-	result, err := handler.HandleCommand("remove_automation", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["status"] != "removed" {
-		t.Errorf("status = %v, want 'removed'", info["status"])
-	}
-}
-
-func TestCommandHandler_HandleEnableAutomation_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing id", json.RawMessage(`{"enabled": true}`)},
-		{"empty id", json.RawMessage(`{"id": "", "enabled": true}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("enable_automation", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleEnableAutomation_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Add automation first
-	addParams := json.RawMessage(`{"id": "test-enable", "name": "Test", "trigger": {"type": "task_complete"}, "actions": []}`)
-	handler.HandleCommand("add_automation", addParams, "test")
-
-	params := json.RawMessage(`{"id": "test-enable", "enabled": false}`)
-	result, err := handler.HandleCommand("enable_automation", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["status"] != "updated" {
-		t.Errorf("status = %v, want 'updated'", info["status"])
-	}
-}
-
-// ==================== Artifact Handler Tests ====================
-
-func TestCommandHandler_HandleListArtifacts_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	// Returns empty list without error when no orchestrator
-	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test"}`), "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	list, ok := result.([]any)
-	if !ok {
-		t.Fatalf("expected []any, got %T", result)
-	}
-	if len(list) != 0 {
-		t.Errorf("expected empty list, got %d items", len(list))
-	}
-}
-
-func TestCommandHandler_HandleListArtifacts_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	result, err := handler.HandleCommand("list_artifacts", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Can be []*swarm.WorkflowArtifact or []any
-	_ = result
-	// Empty list is valid
-}
-
-func TestCommandHandler_HandleGetArtifact_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"key": "test"}`)},
-		{"missing key", json.RawMessage(`{"workflowId": "test"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test"}`)},
-		{"empty key", json.RawMessage(`{"workflowId": "test", "key": ""}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("get_artifact", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleGetArtifact_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Test with non-existent artifact - should return error
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent"}`)
-	_, err := handler.HandleCommand("get_artifact", params, "test")
-	// This should return an error since artifact doesn't exist
-	if err == nil {
-		t.Error("expected error for non-existent artifact")
-	}
-}
-
-func TestCommandHandler_HandleCreateArtifact_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"key": "test", "data": {}}`)},
-		{"missing key", json.RawMessage(`{"workflowId": "test", "data": {}}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test", "data": {}}`)},
-		{"empty key", json.RawMessage(`{"workflowId": "test", "key": "", "data": {}}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("create_artifact", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleCreateArtifact_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"result": 42}}`)
-	result, err := handler.HandleCommand("create_artifact", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Result can be map[string]any or *swarm.WorkflowArtifact
-	_ = result
-}
-
-func TestCommandHandler_HandleDeleteArtifact_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"key": "test"}`)},
-		{"missing key", json.RawMessage(`{"workflowId": "test"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "test"}`)},
-		{"empty key", json.RawMessage(`{"workflowId": "test", "key": ""}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("delete_artifact", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleDeleteArtifact_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
-	result, err := handler.HandleCommand("delete_artifact", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["status"] != "deleted" {
-		t.Errorf("status = %v, want 'deleted'", info["status"])
-	}
-}
-
-// ==================== Variable Handler Tests ====================
-
-func TestCommandHandler_HandleListVariables_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	_, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleListVariables_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	result, err := handler.HandleCommand("list_variables", json.RawMessage(`{"workflowId": "test-wf"}`), "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Can be []swarm.WorkflowVariable or []any
-	_ = result
-}
-
-func TestCommandHandler_HandleAddVariable_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"key": "TEST", "value": "test"}`)},
-		{"missing key", json.RawMessage(`{"workflowId": "wf", "value": "test"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "TEST", "value": "test"}`)},
-		{"empty key", json.RawMessage(`{"workflowId": "wf", "key": "", "value": "test"}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("add_variable", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleAddVariable_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "TEST_VAR", "name": "Test Var", "value": "test_value"}`)
-	result, err := handler.HandleCommand("add_variable", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["key"] != "TEST_VAR" {
-		t.Errorf("key = %v, want 'TEST_VAR'", info["key"])
-	}
-}
-
-func TestCommandHandler_HandleRemoveVariable_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"variableId": "var-1"}`)},
-		{"missing variableId", json.RawMessage(`{"workflowId": "wf"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "variableId": "var-1"}`)},
-		{"empty variableId", json.RawMessage(`{"workflowId": "wf", "variableId": ""}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("remove_variable", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleRemoveVariable_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Add variable first
-	addResult, _ := handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "REMOVE_VAR", "value": "test"}`), "test")
-	varID := addResult.(map[string]string)["id"]
-
-	params := json.RawMessage(fmt.Sprintf(`{"workflowId": "test-wf", "variableId": "%s"}`, varID))
-	result, err := handler.HandleCommand("remove_variable", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["status"] != "removed" {
-		t.Errorf("status = %v, want 'removed'", info["status"])
-	}
-}
-
-func TestCommandHandler_HandleSetVariableValue_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"key": "TEST", "value": "test"}`)},
-		{"missing key", json.RawMessage(`{"workflowId": "wf", "value": "test"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "key": "TEST", "value": "test"}`)},
-		{"empty key", json.RawMessage(`{"workflowId": "wf", "key": "", "value": "test"}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("set_variable_value", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleSetVariableValue_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Add variable first
-	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "old"}`), "test")
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "SET_VAR", "value": "new_value"}`)
-	result, err := handler.HandleCommand("set_variable_value", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["status"] != "updated" {
-		t.Errorf("status = %v, want 'updated'", info["status"])
-	}
-}
-
-func TestCommandHandler_HandleResolveVariables_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"missing workflowId", json.RawMessage(`{"template": "test"}`)},
-		{"empty workflowId", json.RawMessage(`{"workflowId": "", "template": "test"}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("resolve_variables", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleResolveVariables_Success(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Add variable first
-	handler.HandleCommand("add_variable", json.RawMessage(`{"workflowId": "test-wf", "key": "NAME", "value": "World"}`), "test")
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "template": "Hello {{NAME}}!"}`)
-	result, err := handler.HandleCommand("resolve_variables", params, "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	info, ok := result.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", result)
-	}
-	if info["result"] != "Hello World!" {
-		t.Errorf("result = %v, want 'Hello World!'", info["result"])
-	}
-}
-
-// ==================== Audit Handler Tests ====================
 
 func TestCommandHandler_HandleListAuditEvents_NoOrchestrator(t *testing.T) {
 	handler, _ := newTestHandler()
@@ -4932,177 +4466,6 @@ func TestCommandHandler_HandleAddWorkflowEdge_WorkflowNotFound(t *testing.T) {
 	}
 }
 
-func TestCommandHandler_HandleRemoveAutomation_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	params := json.RawMessage(`{"id": "test-automation"}`)
-	_, err := handler.HandleCommand("remove_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleRemoveAutomation_NotFound(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"id": "nonexistent-automation"}`)
-	_, err := handler.HandleCommand("remove_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for nonexistent automation")
-	}
-	apiErr, ok := err.(*APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", err)
-	}
-	if apiErr.Code != CodeNotFound {
-		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
-	}
-}
-
-func TestCommandHandler_HandleEnableAutomation_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	params := json.RawMessage(`{"id": "test-automation", "enabled": true}`)
-	_, err := handler.HandleCommand("enable_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleEnableAutomation_NotFound(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	params := json.RawMessage(`{"id": "nonexistent-automation", "enabled": true}`)
-	_, err := handler.HandleCommand("enable_automation", params, "test")
-	if err == nil {
-		t.Error("expected error for nonexistent automation")
-	}
-	apiErr, ok := err.(*APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", err)
-	}
-	if apiErr.Code != CodeNotFound {
-		t.Errorf("expected CodeNotFound, got %d", apiErr.Code)
-	}
-}
-
-func TestCommandHandler_HandleListArtifacts_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"empty workflowId", json.RawMessage(`{"workflowId": ""}`)},
-		{"whitespace workflowId", json.RawMessage(`{"workflowId": "   "}`)},
-		{"missing workflowId", json.RawMessage(`{}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("list_artifacts", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleGetArtifact_ById(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Create an artifact first
-	createParams := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key", "data": {"value": 42}}`)
-	handler.HandleCommand("create_artifact", createParams, "test")
-
-	// Get by ID (which is workflowId + key combined internally)
-	params := json.RawMessage(`{"id": "test-wf:test-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params, "test")
-	// May or may not work depending on implementation
-	_ = err
-}
-
-func TestCommandHandler_HandleGetArtifact_NoOrchestrator(t *testing.T) {
-	handler, _ := newTestHandler()
-
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "test-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params, "test")
-	if err == nil {
-		t.Error("expected error for missing orchestrator")
-	}
-}
-
-func TestCommandHandler_HandleGetArtifact_NoStore(t *testing.T) {
-	handler, server := newTestHandler()
-	orch := swarm.NewOrchestrator(nil)
-	server.SetOrchestrator(orch)
-
-	// Test with valid params but no artifact exists
-	params := json.RawMessage(`{"workflowId": "test-wf", "key": "nonexistent-key"}`)
-	_, err := handler.HandleCommand("get_artifact", params, "test")
-	if err == nil {
-		t.Error("expected error for nonexistent artifact")
-	}
-}
-
-func TestCommandHandler_HandleGetArtifact_MissingParams(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"no id or workflowId+key", json.RawMessage(`{}`)},
-		{"only workflowId", json.RawMessage(`{"workflowId": "test"}`)},
-		{"only key", json.RawMessage(`{"key": "test"}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("get_artifact", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestCommandHandler_HandleListVariables_Validation(t *testing.T) {
-	tests := []struct {
-		name   string
-		params json.RawMessage
-	}{
-		{"empty workflowId", json.RawMessage(`{"workflowId": ""}`)},
-		{"whitespace workflowId", json.RawMessage(`{"workflowId": "   "}`)},
-		{"missing workflowId", json.RawMessage(`{}`)},
-		{"invalid json", json.RawMessage(`{invalid}`)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler, server := newTestHandler()
-			orch := swarm.NewOrchestrator(nil)
-			server.SetOrchestrator(orch)
-
-			_, err := handler.HandleCommand("list_variables", tt.params, "test")
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
 func TestCommandHandler_HandleResumeWorkflow_Error(t *testing.T) {
 	handler, server := newTestHandler()
 	orch := swarm.NewOrchestrator(nil)
@@ -5643,9 +5006,13 @@ func TestCommandHandler_HandleGetEmergenceData_WithSwarms(t *testing.T) {
 		t.Error("expected at least one task flow")
 	}
 
-	// Health metrics should be set
-	if data.Health.OverallScore <= 0 {
-		t.Error("expected positive overall health score")
+	// Health metrics should be computed from swarm data
+	// With 2 idle agents and no tasks: utilization=0, overallScore=0
+	if data.Health.AgentUtilization != 0 {
+		t.Errorf("expected 0 utilization for idle swarm, got %f", data.Health.AgentUtilization)
+	}
+	if data.Health.CongestionLevel != 0 {
+		t.Errorf("expected 0 congestion for idle swarm, got %f", data.Health.CongestionLevel)
 	}
 }
 
@@ -6192,4 +5559,729 @@ func TestCommandHandler_HandleSearchFiles_EdgeCases(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCommandHandler_HandleGetSessions_Empty(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_sessions", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	sessions, ok := result.([]SessionInfo)
+	if !ok {
+		t.Fatal("expected []SessionInfo result")
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestCommandHandler_HandleGetSessions_WithSessions(t *testing.T) {
+	handler, server := newTestHandler()
+
+	server.sessionToAgent = map[string]string{
+		"s1": "agent-1",
+		"s2": "agent-2",
+	}
+	server.sessionToMode = map[string]string{
+		"s1": "editing",
+		"s2": "review",
+	}
+
+	result, err := handler.HandleCommand("get_sessions", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	sessions, ok := result.([]SessionInfo)
+	if !ok {
+		t.Fatal("expected []SessionInfo result")
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+
+	byID := map[string]SessionInfo{}
+	for _, s := range sessions {
+		byID[s.ID] = s
+	}
+	if byID["s1"].AgentID != "agent-1" || byID["s1"].Mode != "editing" {
+		t.Errorf("session s1: expected agent-1/editing, got %s/%s", byID["s1"].AgentID, byID["s1"].Mode)
+	}
+	if byID["s2"].AgentID != "agent-2" || byID["s2"].Mode != "review" {
+		t.Errorf("session s2: expected agent-2/review, got %s/%s", byID["s2"].AgentID, byID["s2"].Mode)
+	}
+}
+
+// --- Workspace handler tests ---
+
+func TestCommandHandler_HandleGetWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_workspace", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok {
+		t.Fatal("expected map[string]string")
+	}
+	if _, exists := m["path"]; !exists {
+		t.Error("expected 'path' key in result")
+	}
+}
+
+func TestCommandHandler_HandleSetWorkspace(t *testing.T) {
+	handler, server := newTestHandler()
+
+	result, err := handler.HandleCommand("set_workspace", json.RawMessage(`{"path":"/tmp/test-ws"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok {
+		t.Fatal("expected map[string]string")
+	}
+	if m["path"] != "/tmp/test-ws" {
+		t.Errorf("expected path /tmp/test-ws, got %s", m["path"])
+	}
+	if server.workspacePath != "/tmp/test-ws" {
+		t.Errorf("server workspacePath not updated: %s", server.workspacePath)
+	}
+}
+
+func TestCommandHandler_HandleSetWorkspace_EmptyPath(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("set_workspace", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleSetWorkspace_InvalidJSON(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("set_workspace", json.RawMessage(`invalid`), "test")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// --- Git handler tests ---
+
+func TestCommandHandler_HandleGitStatus_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_status", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitStatus_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	result, err := handler.HandleCommand("git_status", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map")
+	}
+	files, ok := m["files"].([]any)
+	if !ok {
+		t.Fatal("expected files array")
+	}
+	if len(files) != 0 {
+		t.Errorf("expected empty files for non-git dir, got %d", len(files))
+	}
+}
+
+func TestCommandHandler_HandleGitBranch_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_branch", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBranch_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	result, err := handler.HandleCommand("git_branch", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map")
+	}
+	if m["branch"] != "" {
+		t.Errorf("expected empty branch for non-git dir, got %v", m["branch"])
+	}
+}
+
+func TestCommandHandler_HandleGitLog_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_log", json.RawMessage(`{"limit":10}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitDiff_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_diff", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitDiff_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_diff", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitCommit_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_commit", json.RawMessage(`{"message":"test"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitCommit_NoMessage(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_commit", json.RawMessage(`{"message":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty message")
+	}
+}
+
+func TestCommandHandler_HandleGitStage_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_stage", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitPush_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_push", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitPull_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_pull", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBlame_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_blame", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBlame_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_blame", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitWorktreeList_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_worktree_list", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitWorktreeAdd_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_worktree_add", json.RawMessage(`{"path":"/tmp/wt"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitWorktreeAdd_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_worktree_add", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitWorktreeRemove_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_worktree_remove", json.RawMessage(`{"path":"/tmp/wt"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitWorktreeRemove_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_worktree_remove", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitDiffLines_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_diff_lines", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitDiffLines_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_diff_lines", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitStash_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_stash", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitStashPop_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_stash_pop", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitUndoCommit_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_undo_commit", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBranchList_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_branch_list", json.RawMessage(`{}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBranchCreate_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_branch_create", json.RawMessage(`{"name":"feature"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBranchCreate_NoName(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_branch_create", json.RawMessage(`{"name":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestCommandHandler_HandleGitBranchCheckout_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_branch_checkout", json.RawMessage(`{"name":"main"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitBranchCheckout_NoName(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_branch_checkout", json.RawMessage(`{"name":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestCommandHandler_HandleGitDiscard_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_discard", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+func TestCommandHandler_HandleGitDiscard_NoPath(t *testing.T) {
+	dir := t.TempDir()
+	handler, server := newTestHandler()
+	server.SetWorkspace(dir)
+
+	_, err := handler.HandleCommand("git_discard", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleGitUnstage_NoWorkspace(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	_, err := handler.HandleCommand("git_unstage", json.RawMessage(`{"path":"test.go"}`), "test")
+	if err == nil {
+		t.Fatal("expected error for no workspace")
+	}
+}
+
+// ==================== Filesystem Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleMkdir(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+
+	_, err := handler.HandleCommand("mkdir", json.RawMessage(`{"path":"subdir"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "subdir")); os.IsNotExist(err) {
+		t.Error("expected directory to exist")
+	}
+}
+
+func TestCommandHandler_HandleMkdir_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("mkdir", json.RawMessage(`{"path":""}`), "test")
+	if err == nil {
+		t.Error("expected error for empty path")
+	}
+}
+
+func TestCommandHandler_HandleCreateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+
+	_, err := handler.HandleCommand("create_file", json.RawMessage(`{"path":"newfile.txt"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "newfile.txt")); os.IsNotExist(err) {
+		t.Error("expected file to exist")
+	}
+}
+
+func TestCommandHandler_HandleDeleteFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+	os.WriteFile(filepath.Join(tmpDir, "delme.txt"), []byte("x"), 0644)
+
+	_, err := handler.HandleCommand("delete_file", json.RawMessage(`{"path":"delme.txt"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "delme.txt")); !os.IsNotExist(err) {
+		t.Error("expected file to be deleted")
+	}
+}
+
+func TestCommandHandler_HandleRenameFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+	os.WriteFile(filepath.Join(tmpDir, "old.txt"), []byte("data"), 0644)
+
+	_, err := handler.HandleCommand("rename_file", json.RawMessage(`{"oldPath":"old.txt","newPath":"new.txt"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "new.txt")); os.IsNotExist(err) {
+		t.Error("expected new file to exist")
+	}
+}
+
+func TestCommandHandler_HandleCopyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+	os.WriteFile(filepath.Join(tmpDir, "src.txt"), []byte("copy me"), 0644)
+
+	_, err := handler.HandleCommand("copy_file", json.RawMessage(`{"srcPath":"src.txt","dstPath":"dst.txt"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmpDir, "dst.txt"))
+	if err != nil || string(data) != "copy me" {
+		t.Errorf("expected 'copy me', got %q, err=%v", string(data), err)
+	}
+}
+
+func TestCommandHandler_HandleReplaceContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+	os.WriteFile(filepath.Join(tmpDir, "replace.txt"), []byte("hello world"), 0644)
+
+	_, err := handler.HandleCommand("replace_content", json.RawMessage(`{"query":"hello","replacement":"hi","dryRun":true}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ==================== A2A Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleA2AStatus(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("a2a_status", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if _, exists := m["routerAvailable"]; !exists {
+		t.Error("expected 'routerAvailable' key in a2a_status response")
+	}
+}
+
+func TestCommandHandler_HandleA2AMessageLog(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("a2a_message_log", json.RawMessage(`{"limit":50}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+// ==================== Swarm Task Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleAssignTask(t *testing.T) {
+	handler, server := newTestHandler()
+	cfg := swarm.SwarmConfig{ID: "sw1", Name: "test", Topology: "star", Strategy: "round_robin"}
+	sw := swarm.NewSwarm(cfg)
+	server.swarms["sw1"] = sw
+	sw.SubmitTask(context.Background(), &swarm.Task{ID: "t1", Title: "test", State: swarm.TaskStatePending})
+
+	_, err := handler.HandleCommand("assign_task", json.RawMessage(`{"swarmId":"sw1","taskId":"t1","agentId":"agent-1"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCommandHandler_HandleAssignTask_Validation(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("assign_task", json.RawMessage(`{"swarmId":"","taskId":"t1","agentId":"a1"}`), "test")
+	if err == nil {
+		t.Error("expected error for empty swarmId")
+	}
+}
+
+func TestCommandHandler_HandleCancelTask(t *testing.T) {
+	handler, server := newTestHandler()
+	cfg := swarm.SwarmConfig{ID: "sw1", Name: "test", Topology: "star", Strategy: "round_robin"}
+	sw := swarm.NewSwarm(cfg)
+	server.swarms["sw1"] = sw
+	sw.SubmitTask(context.Background(), &swarm.Task{ID: "t1", Title: "test", State: swarm.TaskStatePending})
+
+	_, err := handler.HandleCommand("cancel_task", json.RawMessage(`{"swarmId":"sw1","taskId":"t1"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCommandHandler_HandleGetConsensus(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_consensus", json.RawMessage(`{"swarmId":""}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if _, exists := m["consensus"]; !exists {
+		t.Error("expected 'consensus' key")
+	}
+}
+
+func TestCommandHandler_HandleResolveHandoff(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("resolve_handoff", json.RawMessage(`{"requestId":""}`), "test")
+	if err == nil {
+		t.Error("expected error for empty requestId")
+	}
+}
+
+// ==================== Misc Handler Coverage Tests ====================
+
+func TestCommandHandler_HandleScanSkills(t *testing.T) {
+	handler, _ := newTestHandler()
+	result, err := handler.HandleCommand("scan_skills", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+func TestCommandHandler_HandleSaveCustomInstructions(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+
+	_, err := handler.HandleCommand("save_custom_instructions", json.RawMessage(`{"content":"do stuff"}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCommandHandler_HandleGetCustomInstructions(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+
+	result, err := handler.HandleCommand("get_custom_instructions", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+func TestCommandHandler_HandleExecuteCode(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("execute_code", json.RawMessage(`{"content":"print(1)","language":"python","filePath":"test.py"}`), "test")
+	if err != nil {
+		// Expected: no agent available
+		result, _ := handler.HandleCommand("execute_code", json.RawMessage(`{"content":"print(1)","language":"python","filePath":"test.py"}`), "test")
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map result, got %T", result)
+		}
+		if success, _ := m["success"].(bool); success {
+			t.Error("expected success=false when no agents connected")
+		}
+	}
+}
+
+func TestCommandHandler_HandleListMcpTools(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("list_mcp_tools", json.RawMessage(`{"serverId":""}`), "test")
+	if err == nil {
+		t.Error("expected error for empty serverId")
+	}
+}
+
+func TestCommandHandler_HandleScanMcpServers(t *testing.T) {
+	handler, _ := newTestHandler()
+	result, err := handler.HandleCommand("scan_mcp_servers", nil, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+func TestCommandHandler_HandleSearchContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	handler, server := newTestHandler()
+	server.workspacePath = tmpDir
+	os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("hello world"), 0644)
+
+	result, err := handler.HandleCommand("search_content", json.RawMessage(`{"query":"hello","path":"."}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
+	}
+}
+
+func TestCommandHandler_HandleTestAgent(t *testing.T) {
+	handler, _ := newTestHandler()
+	_, err := handler.HandleCommand("test_agent", json.RawMessage(`{"id":""}`), "test")
+	if err == nil {
+		t.Error("expected error for empty id")
+	}
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { WebSocketClient, getWebSocketClient, initializeWebSocket } from './websocket'
+import { WebSocketClient, getWebSocketClient, initializeWebSocket, WSError, WSErrorCode } from './websocket'
 
 // Mock WebSocket
 class MockWebSocket {
@@ -376,5 +376,58 @@ describe('initializeWebSocket', () => {
     initializeWebSocket('ws://test2:8080/ws')
 
     expect(client1.isConnected()).toBe(false)
+  })
+})
+
+describe('WSError', () => {
+  it('has correct name and message', () => {
+    const err = new WSError(-32601, 'method not found')
+    expect(err.name).toBe('WSError')
+    expect(err.message).toBe('method not found')
+    expect(err.code).toBe(-32601)
+  })
+
+  it('isNotFound returns true for NotFound code', () => {
+    expect(new WSError(WSErrorCode.NotFound, '').isNotFound).toBe(true)
+    expect(new WSError(WSErrorCode.InternalError, '').isNotFound).toBe(false)
+  })
+
+  it('isValidation returns true for Validation code', () => {
+    expect(new WSError(WSErrorCode.Validation, '').isValidation).toBe(true)
+    expect(new WSError(WSErrorCode.NotFound, '').isValidation).toBe(false)
+  })
+
+  it('isNotConnected returns true for NotConnected code', () => {
+    expect(new WSError(WSErrorCode.NotConnected, '').isNotConnected).toBe(true)
+    expect(new WSError(WSErrorCode.NotFound, '').isNotConnected).toBe(false)
+  })
+
+  it('isInternalError returns true for InternalError code', () => {
+    expect(new WSError(WSErrorCode.InternalError, '').isInternalError).toBe(true)
+    expect(new WSError(WSErrorCode.NotFound, '').isInternalError).toBe(false)
+  })
+
+  it('is instance of Error', () => {
+    expect(new WSError(-32601, 'test')).toBeInstanceOf(Error)
+  })
+})
+
+describe('WSErrorCode', () => {
+  it('has all standard JSON-RPC error codes', () => {
+    expect(WSErrorCode.ParseError).toBe(-32700)
+    expect(WSErrorCode.InvalidRequest).toBe(-32600)
+    expect(WSErrorCode.MethodNotFound).toBe(-32601)
+    expect(WSErrorCode.InvalidParams).toBe(-32602)
+    expect(WSErrorCode.InternalError).toBe(-32603)
+  })
+
+  it('has custom application error codes', () => {
+    expect(WSErrorCode.NotFound).toBe(-32001)
+    expect(WSErrorCode.Validation).toBe(-32002)
+    expect(WSErrorCode.Unauthorized).toBe(-32003)
+    expect(WSErrorCode.RateLimited).toBe(-32004)
+    expect(WSErrorCode.Conflict).toBe(-32005)
+    expect(WSErrorCode.NotConnected).toBe(-32006)
+    expect(WSErrorCode.LimitExceeded).toBe(-32007)
   })
 })

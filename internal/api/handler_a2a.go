@@ -49,7 +49,7 @@ func (h *CommandHandler) syncAgentCards() {
 			if conn.Config != nil {
 				name = conn.Config.Name
 			}
-			card := buildAgentCard(conn.ID, name, "external", configAgents[conn.ID])
+			card := buildAgentCard(conn.ID, name, AgentTypeExternal, configAgents[conn.ID])
 			registry.Register(conn.ID, card)
 		}
 	}
@@ -119,9 +119,9 @@ func buildAgentCardFromCLI(cli *agent.AgentCLI, cfg *acp.AgentConfig) *a2a.Agent
 		},
 		DefaultInputModes:  []string{"text/plain"},
 		DefaultOutputModes: []string{"text/plain", "text/markdown"},
-		Tags:               []string{"cli"},
+		Tags:               []string{AgentTypeCLI},
 		Metadata: map[string]any{
-			"agentType": "cli",
+			"agentType": AgentTypeCLI,
 			"path":      cli.Path,
 		},
 	}

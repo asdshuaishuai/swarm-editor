@@ -44,7 +44,7 @@ export function WorktreePanel() {
       try {
         currentBranch = await gitApi.getBranch()
       } catch {
-        // Not a git repo
+        logger.debug('WorktreePanel', 'Not a git repo or branch fetch failed')
       }
 
       // 扫描 agents 配置获取关联的 worktrees
@@ -67,7 +67,7 @@ export function WorktreePanel() {
 
       // 为运行中的 agent 创建 worktree 条目
       agents.forEach(agent => {
-        if (agent.status === 'running' && agent.id !== 'main') {
+        if ((agent.status === 'busy' || agent.status === 'available') && agent.id !== 'main') {
           allWorktrees.push({
             id: agent.id,
             path: `${workspace}/.worktrees/${agent.id}`,
@@ -76,7 +76,7 @@ export function WorktreePanel() {
             isCurrent: false,
             agentId: agent.id,
             agentName: agent.name,
-            status: agent.status === 'running' ? 'busy' : 'available'
+            status: agent.status === 'busy' ? 'busy' : 'available'
           })
         }
       })

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   line-height: 1.4;
   font-weight: 400;
   font-synthesis: none;
@@ -18,10 +18,10 @@
   --primary-dark: #4f46e5;
   --primary-muted: rgba(99, 102, 241, 0.15);
 
-  /* 背景层次 */
-  --bg-base: #0f0f10;        /* 最深背景 */
-  --bg-surface: #1a1a1c;     /* 卡片/面板 */
-  --bg-elevated: #242426;    /* 悬浮/弹窗 */
+  /* 背景层次 — 匹配设计稿 editor 配色 */
+  --bg-base: #0d1117;        /* editor-bg */
+  --bg-surface: #161b22;     /* editor-sidebar */
+  --bg-elevated: #21262d;    /* editor-card */
   --bg-hover: #2a2a2c;       /* 悬停状态 */
 
   /* 文字层次 */
@@ -37,7 +37,7 @@
   --info: #3b82f6;
 
   /* 边框 */
-  --border-default: rgba(255, 255, 255, 0.08);
+  --border-default: #30363d;
   --border-hover: rgba(255, 255, 255, 0.15);
   --border-active: rgba(99, 102, 241, 0.5);
 
@@ -66,23 +66,23 @@ body {
   user-select: none;
 }
 
-/* Scrollbar - 极简风格 */
+/* Scrollbar - 匹配设计稿 editor 风格 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #0d1117;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: #30363d;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: #8b949e;
 }
 
 ::-webkit-scrollbar-corner {
@@ -222,7 +222,7 @@ body {
 
 /* 代码字体 */
 .font-mono {
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+  font-family: 'Fira Code', 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', monospace;
 }
 
 /* ============= 动画 ============= */
@@ -230,6 +230,30 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* Design mockup: glow-pulse-amber for blocked/waiting_auth nodes */
+@keyframes glow-pulse-amber {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(240, 136, 62, 0.3);
+    border-color: rgba(240, 136, 62, 1);
+  }
+  50% {
+    box-shadow: 0 0 15px 5px rgba(240, 136, 62, 0.6);
+    border-color: rgba(248, 81, 73, 1);
+  }
+}
+
+/* Design mockup: glow-pulse-cyan for executing nodes */
+@keyframes glow-pulse-cyan {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(88, 166, 255, 0.2);
+    border-color: rgba(88, 166, 255, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 12px 4px rgba(88, 166, 255, 0.5);
+    border-color: rgba(139, 148, 158, 1);
+  }
 }
 
 @keyframes slideIn {
@@ -248,6 +272,14 @@ body {
 
 .animate-fade-in {
   animation: fadeIn 0.15s ease-out;
+}
+
+/* Design mockup: sandbox node hover scale */
+.sandbox-node {
+  transition: transform 0.15s ease;
+}
+.sandbox-node:hover {
+  transform: scale(1.05);
 }
 
 /* ============= 无障碍 ============= */

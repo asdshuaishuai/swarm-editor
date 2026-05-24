@@ -16,6 +16,7 @@ import {
   LayoutGrid,
 } from 'lucide-react'
 import type { AgentState } from '../types'
+import { logger } from '../utils'
 
 // ==================== Constants ====================
 const GRID_SIZE = 20 // n8n-style snap-to-grid
@@ -1150,6 +1151,7 @@ export function WorkflowEditor({
       const saved = localStorage.getItem('swarm-editor-workflow')
       return saved ? JSON.parse(saved) : null
     } catch {
+      logger.debug('WorkflowEditor', 'Failed to parse saved workflow from localStorage')
       return null
     }
   }, [])
@@ -1181,7 +1183,7 @@ export function WorkflowEditor({
       try {
         localStorage.setItem('swarm-editor-workflow', JSON.stringify({ nodes, edges, viewport }))
       } catch {
-        // localStorage full or unavailable — ignore
+        logger.debug('WorkflowEditor', 'localStorage full or unavailable')
       }
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }

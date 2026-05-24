@@ -106,7 +106,7 @@ function ConsolePanel() {
   useEffect(() => {
     return () => {
       if (sessionRef.current) {
-        api.agent.closeSession(sessionRef.current).catch(() => {})
+        api.agent.closeSession(sessionRef.current).catch(() => logger.debug('BottomTab', 'Failed to close session on unmount'))
       }
     }
   }, [])

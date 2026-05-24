@@ -171,12 +171,9 @@ interface AgentConfigCardProps {
   onTest: () => void
   onDelete: () => void
   status?: 'idle' | 'testing' | 'connected' | 'error'
-  initialStatus?: 'idle' | 'testing' | 'connected' | 'error'
 }
 
-export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status: controlledStatus, initialStatus = 'idle' }: AgentConfigCardProps) {
-  const [localStatus] = useState<'idle' | 'testing' | 'connected' | 'error'>(initialStatus)
-  const status = controlledStatus ?? localStatus
+export function AgentConfigCard({ agent, onEdit, onTest, onDelete, status = 'idle' }: AgentConfigCardProps) {
 
   const statusColors = {
     idle: 'bg-text-tertiary',

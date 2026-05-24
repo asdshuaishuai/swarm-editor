@@ -394,3 +394,12 @@ func (p *Pool) Size() int {
 	defer p.mu.Unlock()
 	return len(p.agents)
 }
+
+// SetBroadcaster sets the state change broadcaster on all agents in the registry.
+func (r *Registry) SetBroadcaster(b StateBroadcaster) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, a := range r.agents {
+		a.SetBroadcaster(b)
+	}
+}

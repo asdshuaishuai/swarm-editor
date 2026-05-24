@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { FileEntry, GitFileStatus } from '../services'
-import { api } from '../services'
+import { api, gitApi } from '../services'
 import { logger, getFileIcon, getFileIconColor } from '../utils'
 import { useMenuKeyboardNav } from '../hooks/useMenuKeyboardNav'
 import {
@@ -43,6 +43,7 @@ export default function ExplorerPanel({
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
   const [fileTreeFilter, setFileTreeFilter] = useState('')
   const [loading, setLoading] = useState(false)
+  const [currentBranch, setCurrentBranch] = useState('main')
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -75,6 +76,10 @@ export default function ExplorerPanel({
     refreshFileTree()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace])
+
+  useEffect(() => {
+    gitApi.getBranch().then(b => setCurrentBranch(b || 'main')).catch(() => logger.debug('Explorer', 'Failed to get git branch'))
+  }, [])
 
   const refreshFileTree = useCallback(async () => {
     if (!workspace) return
@@ -407,12 +412,12 @@ export default function ExplorerPanel({
       const isRenaming = renamingEntry?.path === entry.path
 
       const Icon = entry.isDirectory ? Folder : getIconComponent(entry.name)
-      const iconColor = entry.isDirectory ? 'text-accent' : getIconColor(entry.name)
+      const iconColor = entry.isDirectory ? 'text-yellow-600' : getIconColor(entry.name)
 
       return (
         <div key={entry.path}>
           {isRenaming ? (
-            <div className="flex items-center px-2 py-1.5" style={{ paddingLeft: `${level * 12 + 8}px` }}>
+            <div className="flex items-center px-2 py-1.5" style={{ paddingLeft: `${level * 16 + 8}px` }}>
               <Icon size={14} className={`mr-2 ${iconColor}`} />
               <input
                 type="text"
@@ -424,7 +429,7 @@ export default function ExplorerPanel({
                 }}
                 onBlur={submitRename}
                 autoFocus
-                className="flex-1 bg-surface border border-accent rounded px-1 text-sm text-text-primary outline-none"
+                className="flex-1 rounded px-1 text-xs font-mono outline-none focus:outline-none" style={{ background: '#0d1117', border: '1px solid #58a6ff', color: '#d0d7de' }}
               />
             </div>
           ) : (
@@ -515,10 +520,10 @@ export default function ExplorerPanel({
               }}
               data-active-file={isActive ? 'true' : undefined}
               tabIndex={0}
-              className={`file-tree-entry w-full flex items-center px-2 py-1.5 text-left text-sm transition-all duration-150 rounded-mac ${
-                isActive ? 'bg-accent-muted text-text-primary' : 'text-text-secondary hover:bg-card-hover hover:text-text-primary'
+              className={`file-tree-entry w-full flex items-center py-1 px-1.5 gap-1.5 text-left text-xs font-mono transition-all duration-150 rounded ${
+                isActive ? 'bg-[rgba(88,166,255,0.1)] text-white' : 'hover:bg-[#21262d] hover:text-white'
               }`}
-              style={{ paddingLeft: `${level * 12 + 8}px` }}
+              style={{ color: isActive ? undefined : '#d0d7de', paddingLeft: `${level * 16 + 6}px`, borderLeft: level > 0 ? '1px solid #30363d' : undefined, marginLeft: level > 0 ? '8px' : undefined }}
             >
               {entry.isDirectory && (
                 <span
@@ -530,16 +535,16 @@ export default function ExplorerPanel({
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); toggleDir(entry) } }}
                 >
-                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  {isExpanded ? <ChevronDown size={14} style={{ color: "#6b7280" }} /> : <ChevronRight size={14} style={{ color: "#6b7280" }} />}
                 </span>
               )}
               <Icon size={14} className={`mr-2 ${iconColor}`} />
               <span className="truncate flex-1">{entry.name}</span>
               {!entry.isDirectory && gitStatusMap[entry.path] && (
-                <span className={`text-[10px] font-bold ml-auto px-1 ${
-                  gitStatusMap[entry.path].staged ? 'text-green-400' : 'text-yellow-400'
-                }`} title={gitStatusMap[entry.path].status}>
-                  {gitStatusMap[entry.path].status === '??' ? 'U' : gitStatusMap[entry.path].status}
+                <span className={`text-[9px] font-semibold font-sans ml-auto px-1 rounded ${
+                  gitStatusMap[entry.path].staged ? 'bg-[rgba(5,46,22,0.4)] text-green-400' : 'bg-[rgba(66,32,6,0.2)] text-yellow-400'
+                }`} style={{ opacity: 0.8 }} title={gitStatusMap[entry.path].status}>
+                  {gitStatusMap[entry.path].status === 'M' ? 'Modified' : gitStatusMap[entry.path].status === '??' ? 'Untracked' : gitStatusMap[entry.path].status === 'A' ? 'Added' : gitStatusMap[entry.path].status === 'D' ? 'Deleted' : gitStatusMap[entry.path].status}
                 </span>
               )}
             </button>
@@ -556,23 +561,30 @@ export default function ExplorerPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="panel-header flex items-center justify-between shrink-0">
-        <span>Files</span>
-        <div className="flex items-center gap-0.5">
+      {/* Header — 匹配设计稿: 工作區樹狀圖 */}
+      <div className="p-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider sticky top-0 z-10 shrink-0" style={{ color: '#6b7280', background: '#0d1117' }}>
+        <span className="flex items-center gap-1.5">
+          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#58a6ff' }}>
+            <path d="M12 1l-3.5 5h2.5l-3 5h2.5l-4 7h5v3h2v-3h5l-4-7h2.5l-3-5h2.5z"/>
+          </svg>
+          工作区树状图 (Workspace)
+        </span>
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => { setNewFileDialog({ parentPath: workspace, isFolder: false }); setNewFileName('') }}
-            className="p-0.5 hover:bg-card-hover rounded transition-colors"
-            title="New File"
+            className="p-0.5 rounded transition-colors hover:text-white cursor-pointer"
+            style={{ color: "#6b7280" }}
+            title="新建文件"
           >
-            <FilePlus size={12} className="text-text-tertiary" />
+            <FilePlus size={12} />
           </button>
           <button
             onClick={() => { setNewFileDialog({ parentPath: workspace, isFolder: true }); setNewFileName('') }}
-            className="p-0.5 hover:bg-card-hover rounded transition-colors"
-            title="New Folder"
+            className="p-0.5 rounded transition-colors hover:text-white cursor-pointer"
+            style={{ color: "#6b7280" }}
+            title="新建文件夹"
           >
-            <FolderPlus size={12} className="text-text-tertiary" />
+            <FolderPlus size={12} />
           </button>
           <button
             onClick={() => {
@@ -588,17 +600,19 @@ export default function ExplorerPanel({
               expandAll(fileTree, allPaths)
               setExpandedDirs(new Set(allPaths))
             }}
-            className="p-0.5 hover:bg-card-hover rounded transition-colors"
-            title="Expand All"
+            className="p-0.5 rounded transition-colors hover:text-white cursor-pointer"
+            style={{ color: "#6b7280" }}
+            title="展开全部"
           >
-            <ChevronsUpDown size={12} className="text-text-tertiary" />
+            <ChevronsUpDown size={12} />
           </button>
           <button
             onClick={() => setExpandedDirs(new Set())}
-            className="p-0.5 hover:bg-card-hover rounded transition-colors"
-            title="Collapse All"
+            className="p-0.5 rounded transition-colors hover:text-white cursor-pointer"
+            style={{ color: "#6b7280" }}
+            title="折叠全部"
           >
-            <ChevronsDownUp size={12} className="text-text-tertiary" />
+            <ChevronsDownUp size={12} />
           </button>
         </div>
       </div>
@@ -606,17 +620,17 @@ export default function ExplorerPanel({
       {/* Filter */}
       {fileTree.length > 0 && (
         <div className="px-2 pb-1 shrink-0">
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-surface rounded-mac text-text-tertiary">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px]" style={{ background: '#0d1117', color: '#6b7280' }}>
             <Search size={12} />
             <input
               type="text"
               value={fileTreeFilter}
               onChange={(e) => setFileTreeFilter(e.target.value)}
               placeholder="Filter files..."
-              className="flex-1 bg-transparent text-xs text-text-primary placeholder-text-tertiary outline-none"
+              className="flex-1 bg-transparent text-xs outline-none" style={{ color: '#d0d7de' }}
             />
             {fileTreeFilter && (
-              <button onClick={() => setFileTreeFilter('')} className="hover:text-text-primary" aria-label="Clear filter" title="Clear filter">
+              <button onClick={() => setFileTreeFilter('')} aria-label="Clear filter" title="Clear filter" style={{ color: '#6b7280' }} className="hover:text-white">
                 <X size={12} />
               </button>
             )}
@@ -625,57 +639,124 @@ export default function ExplorerPanel({
       )}
 
       {/* File tree */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5 file-tree-container">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1 file-tree-container">
         {loading && fileTree.length === 0 ? (
-          <div className="text-xs text-text-tertiary p-2">Loading...</div>
+          <div className="text-xs p-2" style={{ color: '#6b7280' }}>Loading...</div>
         ) : (
           renderFileTree(filteredFileTree, 0)
         )}
       </div>
+
+      {/* Git & Worktree 变动 — 匹配设计稿 h-2/5 bg-[#11151c]/60 */}
+      <div className="h-2/5 flex flex-col overflow-y-auto" style={{ background: 'rgba(17,21,28,0.6)', borderTop: '1px solid #30363d' }}>
+          <div className="p-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider sticky top-0 z-10" style={{ color: '#6b7280', background: '#0d1117', borderBottom: '1px solid #30363d' }}>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: '#c084fc' }} strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 3v12M18 9a3 3 0 100 6 3 3 0 000-6M6 21a3 3 0 100-6 3 3 0 000 6M6 15c6 0 8-6 12-6" />
+              </svg>
+              Git & Worktree 变动
+            </span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ color: '#c084fc', background: 'rgba(88,28,135,0.4)', border: '1px solid rgba(88,28,135,0.5)' }}>
+              Worktree 模式
+            </span>
+          </div>
+          <div className="p-2 text-xs font-mono space-y-2 overflow-y-auto" style={{ maxHeight: '40%', minHeight: '80px' }}>
+            {/* Worktree card — 匹配设计稿 bg-slate-900/80 */}
+            <div className="p-2 rounded" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid #30363d' }}>
+              <div className="flex items-center justify-between mb-1" style={{ color: '#9ca3af' }}>
+                <span>作用中 Worktree:</span>
+                <span className="px-1.5 rounded text-[10px] text-white" style={{ background: '#581c87' }}>{currentBranch}</span>
+              </div>
+              <div className="text-[10px] flex items-center gap-1" style={{ color: '#6b7280' }}>
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                </svg>
+                <span className="truncate">{workspace || '/workspace'}</span>
+              </div>
+            </div>
+
+            {/* Diff file list */}
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase font-bold tracking-wider px-1" style={{ color: '#6b7280' }}>本机未提交变更</div>
+              {Object.entries(gitStatusMap).map(([filePath, status]) => {
+                const fileName = filePath.split('/').pop() || filePath
+                const isModified = status.status === 'M'
+                const isAdded = status.status === 'A' || status.status === '??'
+                const FileIcon = getFileIcon(fileName)
+                const fileColor = getFileIconColor(fileName)
+                return (
+                  <div
+                    key={filePath}
+                    className="flex items-center justify-between py-1 px-1.5 rounded cursor-pointer hover:bg-[#21262d] transition"
+                    style={{
+                      background: isModified ? 'rgba(66,32,6,0.2)' : undefined,
+                      border: isModified ? '1px solid rgba(113,63,18,0.3)' : undefined,
+                      color: isAdded ? '#9ca3af' : '#d0d7de',
+                      opacity: isAdded ? 0.65 : 1,
+                    }}
+                    onClick={() => onOpenFile(filePath)}
+                  >
+                    <span className="flex items-center gap-1.5 truncate flex-1 max-w-[130px]">
+                      <FileIcon size={12} className={fileColor} />
+                      <span className="truncate">{fileName}</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {isModified && (
+                        <span className="text-[9px] px-1 rounded font-sans font-semibold" style={{ color: '#fbbf24', background: '#422006', border: '1px solid rgba(113,63,18,0.5)' }}>查看差异</span>
+                      )}
+                      <span className={`text-[10px] font-bold ${isModified ? 'text-yellow-500' : isAdded ? 'text-green-500' : 'text-yellow-400'}`}>
+                        {status.status === '??' ? 'U' : status.status}
+                      </span>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
 
       {/* Context Menu */}
       {contextMenu.visible && contextMenu.entry && (
         <div
           ref={contextMenuRef}
           onKeyDown={fileMenuKeyDown}
-          className="fixed bg-panel-bg border border-glass-border rounded-mac shadow-mac py-1 z-50 min-w-[160px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="fixed rounded-lg shadow-xl py-1 z-50 min-w-[160px]" style={{ background: '#1a1f26', border: '1px solid #30363d', left: contextMenu.x, top: contextMenu.y }}
         >
-          <button onClick={() => { onOpenFile(contextMenu.entry!.path); closeContextMenu() }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <button onClick={() => { onOpenFile(contextMenu.entry!.path); closeContextMenu() }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <FileText size={14} /> Open
           </button>
           {contextMenu.entry.isDirectory && (
-            <button onClick={() => handleNewFile(false)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+            <button onClick={() => handleNewFile(false)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
               <FilePlus size={14} /> New File
             </button>
           )}
           {contextMenu.entry.isDirectory && (
-            <button onClick={() => handleNewFile(true)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+            <button onClick={() => handleNewFile(true)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
               <FolderPlus size={14} /> New Folder
             </button>
           )}
-          <div className="my-1 border-t border-glass-border" />
-          <button onClick={handleCutFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <div className="my-1" style={{ borderTop: '1px solid #30363d' }} />
+          <button onClick={handleCutFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Cut</span>
           </button>
-          <button onClick={handleCopyFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <button onClick={handleCopyFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Copy</span>
           </button>
-          <button onClick={handlePasteFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <button onClick={handlePasteFile} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Paste</span>
           </button>
-          <div className="my-1 border-t border-glass-border" />
-          <button onClick={handleRename} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <div className="my-1" style={{ borderTop: '1px solid #30363d' }} />
+          <button onClick={handleRename} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Rename</span>
           </button>
-          <button onClick={handleDelete} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover text-error flex items-center gap-2">
+          <button onClick={handleDelete} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#f85149' }}>
             <span>Delete</span>
           </button>
-          <div className="my-1 border-t border-glass-border" />
-          <button onClick={handleCopyPath} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <div className="my-1" style={{ borderTop: '1px solid #30363d' }} />
+          <button onClick={handleCopyPath} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Copy Path</span>
           </button>
-          <button onClick={handleCopyRelativePath} className="w-full text-left px-3 py-1.5 text-sm hover:bg-card-hover flex items-center gap-2">
+          <button onClick={handleCopyRelativePath} className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#21262d] flex items-center gap-2" style={{ color: '#d0d7de' }}>
             <span>Copy Relative Path</span>
           </button>
         </div>
@@ -684,8 +765,8 @@ export default function ExplorerPanel({
       {/* New File/Folder Dialog */}
       {newFileDialog && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-panel-bg border border-glass-border rounded-mac-xl p-4 w-96 max-w-md shadow-mac" role="dialog" aria-modal="true">
-            <h3 className="text-lg font-semibold text-text-primary mb-3">
+          <div className="rounded-xl p-4 w-96 max-w-md shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true">
+            <h3 className="text-lg font-semibold mb-3" style={{ color: '#d0d7de' }}>
               {newFileDialog.isFolder ? 'New Folder' : 'New File'}
             </h3>
             <input
@@ -695,13 +776,13 @@ export default function ExplorerPanel({
               onKeyDown={(e) => { if (e.key === 'Enter') submitNewFile() }}
               placeholder={newFileDialog.isFolder ? 'folder-name' : 'file-name.ext'}
               autoFocus
-              className="w-full bg-surface border border-glass-border rounded-mac px-3 py-2 text-sm text-text-primary placeholder-text-tertiary outline-none focus:border-accent mb-4"
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none mb-4" style={{ background: '#0d1117', border: '1px solid #30363d', color: '#d0d7de' }}
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setNewFileDialog(null); setNewFileName('') }} className="px-3 py-1.5 text-sm rounded-mac hover:bg-card-hover text-text-secondary">
+              <button onClick={() => { setNewFileDialog(null); setNewFileName('') }} className="px-3 py-1.5 text-sm rounded hover:bg-[#21262d]" style={{ color: '#9ca3af' }}>
                 Cancel
               </button>
-              <button onClick={submitNewFile} className="px-3 py-1.5 text-sm rounded-mac bg-accent text-white hover:bg-accent/90">
+              <button onClick={submitNewFile} className="px-3 py-1.5 text-sm rounded" style={{ background: '#58a6ff', color: '#fff' }}>
                 Create
               </button>
             </div>
@@ -712,21 +793,21 @@ export default function ExplorerPanel({
       {/* Delete Confirmation */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-panel-bg border border-glass-border rounded-mac-xl p-4 w-96 max-w-md shadow-mac" role="dialog" aria-modal="true">
+          <div className="rounded-xl p-4 w-96 max-w-md shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true">
             <div className="flex items-start gap-3 mb-4">
-              <div className="p-2 rounded-mac shrink-0 bg-warning/20">
-                <span className="text-warning text-lg">!</span>
+              <div className="p-2 rounded shrink-0" style={{ background: 'rgba(234,179,8,0.15)' }}>
+                <span style={{ color: '#eab308' }} className="text-lg">!</span>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-text-primary">Delete {deleteTarget.name}?</h3>
-                <p className="text-sm text-text-secondary mt-1">This action cannot be undone.</p>
+                <h3 className="text-lg font-semibold" style={{ color: '#d0d7de' }}>Delete {deleteTarget.name}?</h3>
+                <p className="text-sm mt-1" style={{ color: '#9ca3af' }}>This action cannot be undone.</p>
               </div>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setDeleteTarget(null)} className="px-3 py-1.5 text-sm rounded-mac hover:bg-card-hover text-text-secondary">
+              <button onClick={() => setDeleteTarget(null)} className="px-3 py-1.5 text-sm rounded hover:bg-[#21262d]" style={{ color: '#9ca3af' }}>
                 Cancel
               </button>
-              <button onClick={confirmDelete} className="px-3 py-1.5 text-sm rounded-mac bg-error text-white hover:bg-error/90">
+              <button onClick={confirmDelete} className="px-3 py-1.5 text-sm rounded" style={{ background: '#f85149', color: '#fff' }}>
                 Delete
               </button>
             </div>

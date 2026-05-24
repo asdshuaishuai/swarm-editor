@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../services/api', () => ({
   fsApi: {
     getWorkspace: vi.fn().mockResolvedValue('/project'),
+    setWorkspace: vi.fn().mockResolvedValue(undefined),
     listDir: vi.fn().mockResolvedValue([
       { name: 'src', path: '/project/src', isDirectory: true },
       { name: 'index.ts', path: '/project/index.ts', isDirectory: false },
@@ -108,6 +109,29 @@ describe('workspaceStore', () => {
       await useWorkspaceStore.getState().openFile('/project/index.ts')
       await useWorkspaceStore.getState().openFile('/project/index.ts')
       expect(useWorkspaceStore.getState().openFiles).toHaveLength(1)
+    })
+
+    it('concurrent openFile calls do not lose content (race condition fix)', async () => {
+      // Open two files concurrently — both should end up in openFiles
+      await Promise.all([
+        useWorkspaceStore.getState().openFile('/project/a.ts', { preview: false }),
+        useWorkspaceStore.getState().openFile('/project/b.ts', { preview: false }),
+      ])
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/b.ts')
+      expect(state.fileContents.get('/project/a.ts')).toBe('file content')
+      expect(state.fileContents.get('/project/b.ts')).toBe('file content')
+    })
+
+    it('replaces preview tab when opening new file', async () => {
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: true })
+      expect(useWorkspaceStore.getState().previewTab).toBe('/project/a.ts')
+      await useWorkspaceStore.getState().openFile('/project/b.ts', { preview: true })
+      const state = useWorkspaceStore.getState()
+      // Preview tab should switch to b, and a should be closed (not pinned)
+      expect(state.previewTab).toBe('/project/b.ts')
+      expect(state.openFiles).toContain('/project/b.ts')
     })
   })
 

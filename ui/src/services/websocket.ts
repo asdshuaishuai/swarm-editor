@@ -180,7 +180,7 @@ class WebSocketClient {
           this.connecting = false
           const err = new Error('WebSocket connection error')
           // Call onError first; if it throws, don't double-reject the Promise
-          try { this.onError?.(err) } catch { /* ignore handler errors */ }
+          try { this.onError?.(err) } catch (handlerErr) { logger.debug('WebSocket', 'onError handler threw', handlerErr) }
           reject(err)
         }
 

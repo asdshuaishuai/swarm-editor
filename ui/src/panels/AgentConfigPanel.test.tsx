@@ -500,7 +500,7 @@ describe('AgentConfigCard', () => {
   })
 
   it('shows spinner when status is testing', () => {
-    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} initialStatus="testing" />)
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} status="testing" />)
     const testButton = screen.getByTitle('Test Connection')
     // Should show spinner (Loader2 with animate-spin class)
     const spinner = testButton.querySelector('.animate-spin')
@@ -508,7 +508,7 @@ describe('AgentConfigCard', () => {
   })
 
   it('shows terminal icon when status is idle', () => {
-    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} initialStatus="idle" />)
+    render(<AgentConfigCard agent={mockAgent} onEdit={mockOnEdit} onTest={mockOnTest} onDelete={mockOnDelete} status="idle" />)
     const testButton = screen.getByTitle('Test Connection')
     // Should show Terminal icon, not spinner
     const spinner = testButton.querySelector('.animate-spin')

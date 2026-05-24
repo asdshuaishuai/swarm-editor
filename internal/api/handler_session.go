@@ -73,6 +73,9 @@ func (h *CommandHandler) handleCreateSession(ctx context.Context, params json.Ra
 
 	// Re-check and register under lock to close the race window
 	h.server.mu.Lock()
+	if h.server.sessionToMode == nil {
+		h.server.sessionToMode = make(map[string]string)
+	}
 	if len(h.server.sessionToAgent) >= maxSessions {
 		// Another goroutine filled the slots while we were creating the session.
 		// Close the orphaned ACP session and reject.
@@ -151,6 +154,13 @@ func (h *CommandHandler) handleSendMessage(ctx context.Context, params json.RawM
 	result, err := conn.SendPrompt(ctx, acp.SessionID(req.SessionID), prompt)
 	if err != nil {
 		return nil, safeError("failed to send message", err)
+	}
+
+	if hub := h.server.Hub(); hub != nil {
+		hub.Broadcast("agent_message", map[string]any{
+			"sessionId": req.SessionID,
+			"content":   result.Content,
+		})
 	}
 
 	return map[string]any{
@@ -251,10 +261,13 @@ func (h *CommandHandler) handleSaveCustomInstructions(ctx context.Context, param
 
 func (h *CommandHandler) handleGetSessions(ctx context.Context, params json.RawMessage) (any, error) {
 	h.server.mu.RLock()
-	// Copy the map to avoid concurrent iteration while other goroutines modify it
-	snapshot := make(map[string]string, len(h.server.sessionToAgent))
+	type sessionEntry struct {
+		agentID string
+		mode    string
+	}
+	snapshot := make(map[string]sessionEntry, len(h.server.sessionToAgent))
 	for k, v := range h.server.sessionToAgent {
-		snapshot[k] = v
+		snapshot[k] = sessionEntry{agentID: v, mode: h.server.sessionToMode[k]}
 	}
 	h.server.mu.RUnlock()
 
@@ -264,12 +277,11 @@ func (h *CommandHandler) handleGetSessions(ctx context.Context, params json.RawM
 
 	now := time.Now().Format(time.RFC3339)
 	result := make([]SessionInfo, 0, len(snapshot))
-	for sessionID, agentID := range snapshot {
-		mode := h.server.sessionToMode[sessionID]
+	for sessionID, entry := range snapshot {
 		result = append(result, SessionInfo{
 			ID:        sessionID,
-			AgentID:   agentID,
-			Mode:      mode,
+			AgentID:   entry.agentID,
+			Mode:      entry.mode,
 			CreatedAt: now,
 			UpdatedAt: now,
 		})

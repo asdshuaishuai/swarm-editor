@@ -469,30 +469,40 @@ func TestGetVersion_Timeout(t *testing.T) {
 }
 
 func TestRefresh(t *testing.T) {
+	// Skip in short mode or CI — Refresh launches real CLI processes that may hang
+	if testing.Short() {
+		t.Skip("skipping Refresh test in short mode")
+	}
+
 	s := NewScanner()
 
 	// Pre-populate
 	s.agents["old-1"] = &AgentCLI{ID: "old-1"}
 
-	// Refresh should clear and rescan
-	agents, err := s.Refresh(context.Background())
+	// Refresh should clear and rescan (with timeout to avoid hanging on system commands)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	agents, err := s.Refresh(ctx)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 
 	// Old agent should be gone (unless actually found on system)
 	if _, ok := s.agents["old-1"]; ok {
-		// Possible if the executable actually exists on this system
 		t.Log("old-1 still present after refresh (executable may exist on system)")
 	}
 
-	_ = agents // May or may not find agents depending on system
+	_ = agents
 }
 
 func TestScan_NoPanic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Scan test in short mode — launches real CLI processes")
+	}
+
 	s := NewScanner()
 
-	// Scan should not panic even if no agents found
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -500,7 +510,7 @@ func TestScan_NoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	_ = agents // May or may not find agents
+	_ = agents
 }
 
 func TestKnownAgents_Registry(t *testing.T) {
@@ -709,6 +719,10 @@ func TestGetPaths_NonEmpty(t *testing.T) {
 }
 
 func TestScanner_ScanIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration scan in short mode — launches real CLI processes")
+	}
+
 	s := NewScanner()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

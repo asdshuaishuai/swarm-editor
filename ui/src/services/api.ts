@@ -1,6 +1,19 @@
 // API client using WebSocket communication
 
 import { getWebSocketClient, WebSocketClient } from './websocket'
+import type { AgentConfig } from '../types'
+
+// Tauri native invoke (available when withGlobalTauri is enabled)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const window: Window & { __TAURI__?: any }
+
+// Helper to invoke Tauri commands via the global __TAURI__ object
+async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!window.__TAURI__) {
+    throw new Error('Tauri runtime not available')
+  }
+  return window.__TAURI__.core.invoke(command, args) as Promise<T>
+}
 
 export * from './scheduling'
 export * from './byzantine'
@@ -20,15 +33,7 @@ export interface AgentInfo {
   pid?: number
 }
 
-export interface AgentConfig {
-  id: string
-  name: string
-  description?: string
-  enabled: boolean
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-}
+export type { AgentConfig } from '../types'
 
 export interface SkillInfo {
   id: string
@@ -44,6 +49,8 @@ export interface FileEntry {
   name: string
   path: string
   isDirectory: boolean
+  size?: number
+  lastModified?: string
   children?: FileEntry[]
 }
 
@@ -71,8 +78,8 @@ export interface SwarmInfo {
   state?: string  // backward compatibility
   agentCount: number
   taskCount: number
-  agents?: string[]  // backward compatibility
-  stats?: SwarmTaskStats  // backward compatibility
+  agents?: string[]
+  stats?: SwarmTaskStats
   createdAt?: string
   coordinatorId?: string
 }
@@ -83,6 +90,9 @@ export interface SwarmTaskStats {
   executingAgents: number
   pendingTasks: number
   completedTasks: number
+  topology: string
+  strategy: string
+  state: string
 }
 
 export interface SwarmCreateRequest {
@@ -109,9 +119,17 @@ export interface TaskInfo {
   status: string
   priority: string
   assignedTo?: string[]
+  results?: TaskResult[]
   createdAt: string
   startedAt?: string
   completedAt?: string
+}
+
+export interface TaskResult {
+  agentId: string
+  content: string
+  success: boolean
+  duration: number
 }
 
 export interface TeamInfo {
@@ -197,6 +215,7 @@ export interface AgentNode {
   name: string
   type: string
   load: number
+  connectivity: number
   x: number
   y: number
 }
@@ -310,67 +329,39 @@ export const agentApi = {
 export const swarmApi = {
   async getSwarms(): Promise<SwarmInfo[]> {
     const swarms = await getClient().invoke<SwarmInfo[]>('get_swarms')
-    // Fetch real task stats for each swarm
-    const enriched = await Promise.all(swarms.map(async s => {
-      try {
-        const taskStats = await getClient().invoke<Record<string, number>>('get_swarm_tasks', { swarmId: s.id })
-        return {
-          ...s,
-          state: s.status,
-          agents: [],
-          stats: {
-            agentCount: s.agentCount,
-            idleAgents: taskStats['idle'] ?? 0,
-            executingAgents: taskStats['running'] ?? 0,
-            pendingTasks: taskStats['pending'] ?? s.taskCount,
-            completedTasks: taskStats['completed'] ?? 0,
-          } as SwarmTaskStats,
-        }
-      } catch {
-        return {
-          ...s,
-          state: s.status,
-          agents: [],
-          stats: {
-            agentCount: s.agentCount,
-            idleAgents: 0,
-            executingAgents: 0,
-            pendingTasks: s.taskCount,
-            completedTasks: 0,
-          } as SwarmTaskStats,
-        }
-      }
+    return swarms.map(s => ({
+      ...s,
+      state: s.status,
+      agents: [],
+      stats: s.stats ?? {
+        agentCount: s.agentCount,
+        idleAgents: 0,
+        executingAgents: 0,
+        pendingTasks: s.taskCount,
+        completedTasks: 0,
+        topology: '',
+        strategy: '',
+        state: '',
+      },
     }))
-    return enriched
   },
 
   async getSwarm(id: string): Promise<SwarmInfo> {
     const swarm = await getClient().invoke<SwarmInfo>('get_swarm', { id })
-    // Fetch real task stats
-    let stats: SwarmTaskStats
-    try {
-      const taskStats = await getClient().invoke<Record<string, number>>('get_swarm_tasks', { swarmId: id })
-      stats = {
-        agentCount: swarm.agentCount,
-        idleAgents: taskStats['idle'] ?? 0,
-        executingAgents: taskStats['running'] ?? 0,
-        pendingTasks: taskStats['pending'] ?? swarm.taskCount,
-        completedTasks: taskStats['completed'] ?? 0,
-      }
-    } catch {
-      stats = {
+    return {
+      ...swarm,
+      state: swarm.status,
+      agents: [],
+      stats: swarm.stats ?? {
         agentCount: swarm.agentCount,
         idleAgents: 0,
         executingAgents: 0,
         pendingTasks: swarm.taskCount,
         completedTasks: 0,
-      }
-    }
-    return {
-      ...swarm,
-      state: swarm.status,
-      agents: [],
-      stats,
+        topology: '',
+        strategy: '',
+        state: '',
+      },
     }
   },
 
@@ -439,6 +430,38 @@ export const swarmApi = {
 
   async resolveHandoff(requestId: string, accepted: boolean, summary?: string, swarmId?: string): Promise<{ requestId: string; accepted: boolean; status: string }> {
     return getClient().invoke('resolve_handoff', { requestId, accepted, summary, swarmId })
+  },
+
+  async getQueenStatus(swarmId: string): Promise<{ swarmId: string; queenId: string; backupId: string; state: string; round: number; electedAt: string; abdication: string }> {
+    return getClient().invoke('get_queen_status', { swarmId })
+  },
+
+  async triggerElection(swarmId: string): Promise<{ swarmId: string; queenId: string; round: number }> {
+    return getClient().invoke('trigger_election', { swarmId })
+  },
+
+  async abdicateQueen(swarmId: string, reason: string): Promise<{ swarmId: string; success: boolean }> {
+    return getClient().invoke('abdicate_queen', { swarmId, reason })
+  },
+
+  async interruptAgent(swarmId: string, agentId: string, taskId: string, reason: string): Promise<{ checkpointId: string; success: boolean }> {
+    return getClient().invoke('interrupt_agent', { swarmId, agentId, taskId, reason })
+  },
+
+  async resumeTask(checkpointId: string, agentId?: string): Promise<{ checkpointId: string; success: boolean }> {
+    return getClient().invoke('resume_task', { checkpointId, agentId })
+  },
+
+  async getCheckpoints(swarmId: string): Promise<Array<{ checkpointId: string; taskId: string; agentId: string; reason: string; strategy: string; partialResult: string; savedAt: string; retryCount: number; recovered: boolean }>> {
+    return getClient().invoke('get_checkpoints', { swarmId })
+  },
+
+  async recoverTask(checkpointId: string, strategy: string): Promise<{ checkpointId: string; success: boolean }> {
+    return getClient().invoke('recover_task', { checkpointId, strategy })
+  },
+
+  async getRoleAssignments(swarmId: string): Promise<Array<{ agentId: string; role: string; taskId: string; assignedAt: string; score: number }>> {
+    return getClient().invoke('get_role_assignments', { swarmId })
   },
 }
 
@@ -562,10 +585,53 @@ export interface ScheduleRunnerStatus {
   running: boolean
   scheduleCount: number
   lastRun?: string
-  nextRun?: string
-  schedules?: Array<{ id: string; name: string; cron: string; lastRun?: string; nextRun?: string }>
+  schedules?: Array<{
+    id: string
+    name: string
+    cron: string
+    lastRun?: string
+    nextRun?: string
+  }>
+  // Operational detail fields from backend StatusSnapshot()
+  status?: string
+  runningCount?: number
+  queuedCount?: number
+  runningSchedules?: Array<{
+    scheduleId: string
+    executionId: string
+    startedAt: string
+  }>
+  queuedExecutions?: Array<{
+    scheduleId: string
+    queuedAt: string
+  }>
 }
 
+export interface ScheduleConfig {
+  id: string
+  name: string
+  workflowId: string
+  cron: string
+  input?: Record<string, unknown>
+  enabled: boolean
+  overlap: boolean
+  overlapPolicy?: 'skip' | 'allow' | 'queue_one'
+  catchUp: boolean
+  catchUpWindow?: number
+  timezone?: string
+  maxRetries?: number
+  retryDelay?: number
+  state: {
+    lastRun: string
+    nextRun: string
+    lastResult: string
+    lastError?: string
+    runCount: number
+    skipCount: number
+    isRunning: boolean
+    queuedRuns: number
+  }
+}
 export const monitoringApi = {
   async getSupervisorStats(): Promise<SupervisorStats> {
     return getClient().invoke<SupervisorStats>('get_supervisor_stats')
@@ -698,6 +764,10 @@ export const fsApi = {
   async getWorkspace(): Promise<string> {
     const result = await getClient().invoke<{ path: string }>('get_workspace')
     return result.path
+  },
+
+  async setWorkspace(path: string): Promise<void> {
+    await getClient().invoke('set_workspace', { path })
   },
 
   // File management operations (P1 feature - Cursor/VS Code pattern)
@@ -841,6 +911,46 @@ export const gitDiffApi = {
   },
 }
 
+// Git Blame API
+export interface BlameLine {
+  line: number
+  commit: string
+  author: string
+  authorMail: string
+  authorTime: string
+  summary: string
+}
+
+// Git Worktree API
+export interface WorktreeInfo {
+  path: string
+  branch: string
+  commit: string
+  isMain: boolean
+}
+
+export const gitBlameApi = {
+  async blame(filePath: string): Promise<BlameLine[]> {
+    const result = await getClient().invoke<{ lines: BlameLine[] }>('git_blame', { path: filePath })
+    return result.lines || []
+  },
+}
+
+export const worktreeApi = {
+  async list(): Promise<WorktreeInfo[]> {
+    const result = await getClient().invoke<{ worktrees: WorktreeInfo[] }>('git_worktree_list')
+    return result.worktrees || []
+  },
+
+  async add(path: string, branch?: string): Promise<{ path: string; branch: string }> {
+    return getClient().invoke<{ path: string; branch: string }>('git_worktree_add', { path, branch: branch || '' })
+  },
+
+  async remove(path: string): Promise<{ path: string }> {
+    return getClient().invoke<{ path: string }>('git_worktree_remove', { path })
+  },
+}
+
 // Execute API
 export const executeApi = {
   async executeCode(
@@ -922,6 +1032,10 @@ export const events = {
     return getClient().subscribe('swarm_stats', handler as (payload: unknown) => void)
   },
 
+  onLSPDiagnosticsUpdate(handler: (payload: { uri: string; diagnostics: Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; severity: number; message: string; source?: string; code?: string }> }) => void): () => void {
+    return getClient().subscribe('lsp_diagnostics_update', handler as (payload: unknown) => void)
+  },
+
   // Workflow streaming events (LangGraph multi-mode streaming pattern)
   onWorkflowNodeStart(handler: (payload: { workflowId: string; nodeId: string; nodeName: string; nodeType: string; agentId: string }) => void): () => void {
     return getClient().subscribe('workflow_node_start', handler as (payload: unknown) => void)
@@ -937,6 +1051,64 @@ export const events = {
 
   onWorkflowStatusChange(handler: (payload: { workflowId: string; status: string; interruptedNodeId?: string; interruptPhase?: string }) => void): () => void {
     return getClient().subscribe('workflow_status_change', handler as (payload: unknown) => void)
+  },
+
+  // Agent lifecycle events (orchestrator)
+  onAgentTurnStart(handler: (payload: { agentId: string; taskId: string; session?: string }) => void): () => void {
+    return getClient().subscribe('agent_turn_start', handler as (payload: unknown) => void)
+  },
+  onAgentTurnEnd(handler: (payload: { agentId: string; taskId: string; duration?: number; success?: boolean }) => void): () => void {
+    return getClient().subscribe('agent_turn_end', handler as (payload: unknown) => void)
+  },
+
+  // Handoff events
+  onHandoffRequested(handler: (payload: { requestId: string; fromAgent: string; toAgent: string; taskId: string; reason?: string }) => void): () => void {
+    return getClient().subscribe('handoff_requested', handler as (payload: unknown) => void)
+  },
+  onHandoffAccepted(handler: (payload: { requestId: string; agentId: string }) => void): () => void {
+    return getClient().subscribe('handoff_accepted', handler as (payload: unknown) => void)
+  },
+  onHandoffRejected(handler: (payload: { requestId: string; agentId: string; reason?: string }) => void): () => void {
+    return getClient().subscribe('handoff_rejected', handler as (payload: unknown) => void)
+  },
+  onHandoffCompleted(handler: (payload: { requestId: string; summary?: string }) => void): () => void {
+    return getClient().subscribe('handoff_completed', handler as (payload: unknown) => void)
+  },
+
+  // Supervisor health events
+  onAgentStuck(handler: (payload: { agentId: string; taskId: string; duration: number }) => void): () => void {
+    return getClient().subscribe('agent_stuck', handler as (payload: unknown) => void)
+  },
+  onAgentRecovered(handler: (payload: { agentId: string; taskId: string }) => void): () => void {
+    return getClient().subscribe('agent_recovered', handler as (payload: unknown) => void)
+  },
+  onAgentHealthDegraded(handler: (payload: { agentId: string; health: string; message?: string }) => void): () => void {
+    return getClient().subscribe('agent_health_degraded', handler as (payload: unknown) => void)
+  },
+  onSupervisorAlert(handler: (payload: { level: string; agentId?: string; message: string }) => void): () => void {
+    return getClient().subscribe('supervisor_alert', handler as (payload: unknown) => void)
+  },
+
+  // Automation & schedule events
+  onAutomationTriggered(handler: (payload: { automationId: string; trigger: string; timestamp: string }) => void): () => void {
+    return getClient().subscribe('automation_triggered', handler as (payload: unknown) => void)
+  },
+  onScheduleExecutionStarted(handler: (payload: { scheduleId: string; task: string }) => void): () => void {
+    return getClient().subscribe('schedule_execution_started', handler as (payload: unknown) => void)
+  },
+  onScheduleExecutionCompleted(handler: (payload: { scheduleId: string; task: string; success: boolean }) => void): () => void {
+    return getClient().subscribe('schedule_execution_completed', handler as (payload: unknown) => void)
+  },
+
+  // Team & workflow events
+  onTeamMessage(handler: (payload: { teamId: string; fromAgent: string; message: string }) => void): () => void {
+    return getClient().subscribe('team_message', handler as (payload: unknown) => void)
+  },
+  onWorkflowChainCompleted(handler: (payload: { workflowId: string; success: boolean; totalNodes: number }) => void): () => void {
+    return getClient().subscribe('workflow_chain_completed', handler as (payload: unknown) => void)
+  },
+  onWorkflowNodeHeartbeat(handler: (payload: { workflowId: string; nodeId: string; progress: number }) => void): () => void {
+    return getClient().subscribe('workflow_node_heartbeat', handler as (payload: unknown) => void)
   },
 }
 
@@ -970,8 +1142,14 @@ export interface WorkflowNode {
   name: string
   agentId: string
   type: string
-  status: string
+  subgraphId?: string
+  config?: Record<string, unknown>
   position: { x: number; y: number }
+  status: string
+  result?: unknown
+  startedAt?: string
+  completedAt?: string
+  dependsOn?: string[]
   // Interrupt fields for human-in-the-loop (LangGraph pattern)
   interrupt?: boolean
   interruptBefore?: boolean
@@ -1073,44 +1251,6 @@ export interface AutomationTrigger {
 export interface AutomationAction {
   type: string
   params?: Record<string, unknown>
-}
-
-export interface Automation {
-  id: string
-  name: string
-  description?: string
-  trigger: AutomationTrigger
-  actions: AutomationAction[]
-  enabled: boolean
-  cooldown?: string
-  fireCount?: number
-  lastFired?: string
-}
-
-// Workflow Artifact types (Prefect 3 Artifacts pattern)
-export interface WorkflowArtifact {
-  id: string
-  workflowId: string
-  nodeId?: string
-  key: string
-  type: 'json' | 'markdown' | 'table' | 'link' | 'text' | 'progress'
-  data: unknown
-  description?: string
-  version: number
-  createdAt: string
-  updatedAt: string
-  metadata?: Record<string, string>
-}
-
-export interface WorkflowVariable {
-  id: string
-  name: string
-  key: string
-  type: 'string' | 'number' | 'boolean' | 'json' | 'array'
-  value?: unknown
-  default?: unknown
-  description?: string
-  required: boolean
 }
 
 export interface WorkflowEdge {
@@ -1269,64 +1409,11 @@ export const workflowApi = {
   },
 }
 
-// Automation API (Prefect 3 Automations pattern)
-const automationApi = {
-  async list(): Promise<Automation[]> {
-    return getClient().invoke('list_automations', {})
-  },
-
-  async add(automation: Omit<Automation, 'fireCount' | 'lastFired'>): Promise<{ id: string; status: string }> {
-    return getClient().invoke('add_automation', automation)
-  },
-
-  async remove(id: string): Promise<void> {
-    return getClient().invoke('remove_automation', { id })
-  },
-
-  async enable(id: string, enabled: boolean): Promise<void> {
-    return getClient().invoke('enable_automation', { id, enabled })
-  },
-}
-
-// Artifact API (Prefect 3 Artifacts pattern)
-const artifactApi = {
-  async list(workflowId: string, nodeId?: string): Promise<WorkflowArtifact[]> {
-    return getClient().invoke('list_artifacts', { workflowId, nodeId })
-  },
-
-  async get(params: { id?: string; workflowId?: string; key?: string }): Promise<WorkflowArtifact> {
-    return getClient().invoke('get_artifact', params)
-  },
-
-  async create(artifact: Omit<WorkflowArtifact, 'id' | 'version' | 'createdAt' | 'updatedAt'>): Promise<{ id: string; status: string }> {
-    return getClient().invoke('create_artifact', artifact)
-  },
-
-  async remove(workflowId: string, key: string): Promise<void> {
-    return getClient().invoke('delete_artifact', { workflowId, key })
-  },
-}
-
-// Variable API (Dify/Prefect Variable System pattern)
-const variableApi = {
-  async list(workflowId: string): Promise<WorkflowVariable[]> {
-    return getClient().invoke('list_variables', { workflowId })
-  },
-
-  async add(workflowId: string, variable: Omit<WorkflowVariable, 'id'>): Promise<{ id: string; key: string }> {
-    return getClient().invoke('add_variable', { workflowId, ...variable })
-  },
-
-  async remove(workflowId: string, variableId: string): Promise<void> {
-    return getClient().invoke('remove_variable', { workflowId, variableId })
-  },
-
-  async setValue(workflowId: string, key: string, value: unknown): Promise<void> {
-    return getClient().invoke('set_variable_value', { workflowId, key, value })
-  },
-
-  async resolve(workflowId: string, template: string): Promise<{ result: string }> {
-    return getClient().invoke('resolve_variables', { workflowId, template })
+// Workspace API (uses Tauri native invoke, not WebSocket)
+export const workspaceApi = {
+  async openFolderDialog(): Promise<string | null> {
+    const result = await tauriInvoke<string | null>('open_folder')
+    return result
   },
 }
 
@@ -1342,10 +1429,10 @@ export const api = {
   monitoring: monitoringApi,
   a2a: a2aApi,
   workflows: workflowApi,
-  automations: automationApi,
-  artifacts: artifactApi,
-  variables: variableApi,
   instructions: instructionsApi,
+  workspace: workspaceApi,
+  gitBlame: gitBlameApi,
+  worktree: worktreeApi,
   events,
 }
 

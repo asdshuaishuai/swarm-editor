@@ -19,7 +19,7 @@ func (h *CommandHandler) handleGetMCPServers(ctx context.Context, params json.Ra
 		result = append(result, MCPServerInfo{
 			ID:     id,
 			Name:   id,
-			Status: "connected",
+			Status: StatusConnected,
 		})
 	}
 
@@ -51,7 +51,7 @@ func (h *CommandHandler) handleStartMCPServer(ctx context.Context, params json.R
 
 	return map[string]any{
 		"id":     req.ServerID,
-		"status": "connected",
+		"status": StatusConnected,
 	}, nil
 }
 
@@ -178,7 +178,7 @@ func (h *CommandHandler) handleAddMCPServer(ctx context.Context, params json.Raw
 		connectStatus = "disconnected"
 		apiLog.Warn("MCP server saved but connect failed", "name", req.Config.Name, "error", err)
 	} else {
-		connectStatus = "connected"
+		connectStatus = StatusConnected
 	}
 
 	return map[string]any{
@@ -246,7 +246,10 @@ func (h *CommandHandler) handleScanMCPServers(ctx context.Context, params json.R
 	}
 
 	discovery := agent.NewMCPDiscovery(scanner)
-	discovered, err := discovery.DiscoverAll()
+
+	// Use scope-aware discovery: agents + global configs + project configs
+	workspaceDir := h.server.workspacePath
+	discovered, err := discovery.DiscoverAllWithScope(workspaceDir)
 	if err != nil {
 		return nil, safeError("MCP discovery failed", err)
 	}
@@ -264,7 +267,7 @@ func (h *CommandHandler) handleScanMCPServers(ctx context.Context, params json.R
 			Env:      s.Env,
 			Disabled: s.Disabled,
 			Source:   s.Source,
-			Status:   "discovered",
+			Status:   StatusDiscovered,
 		})
 	}
 

@@ -59,8 +59,8 @@ func (h *CommandHandler) handleGetAgents(ctx context.Context, params json.RawMes
 			info := AgentInfo{
 				ID:    conn.ID,
 				Name:  name,
-				Type:  "external",
-				State: "connected",
+				Type:  AgentTypeExternal,
+				State: AgentStateConnected,
 			}
 			if cfg != nil {
 				info.Command = cfg.Command
@@ -78,14 +78,14 @@ func (h *CommandHandler) handleGetAgents(ctx context.Context, params json.RawMes
 			if seen[cli.ID] {
 				continue
 			}
-			state := "available"
+			state := AgentStateAvailable
 			if cli.Status == agent.AgentStatusRunning {
-				state = "running"
+				state = AgentStateRunning
 			}
 			info := AgentInfo{
 				ID:           cli.ID,
 				Name:         cli.Name,
-				Type:         "cli",
+				Type:         AgentTypeCLI,
 				State:        state,
 				Command:      cli.Path,
 				Capabilities: cli.Capabilities,
@@ -158,7 +158,7 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 				}
 			}
 			ag.SetState(agent.StateIdle)
-			result := map[string]string{"status": "started"}
+			result := map[string]string{"status": StatusStarted}
 			if connWarning != "" {
 				result["warning"] = connWarning
 			}
@@ -175,10 +175,10 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 				if connMgr := h.server.ConnManager(); connMgr != nil {
 					if _, err := connMgr.Connect(ctx, req.ID); err != nil {
 						connWarning = fmt.Sprintf("ACP connection failed: %v", err)
-						return map[string]string{"status": "error", "warning": connWarning}, nil
+						return map[string]string{"status": StatusError, "warning": connWarning}, nil
 					}
 				}
-				result := map[string]string{"status": "started"}
+				result := map[string]string{"status": StatusStarted}
 				if connWarning != "" {
 					result["warning"] = connWarning
 				}
@@ -215,7 +215,7 @@ func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMes
 		}
 	}
 
-	return map[string]string{"status": "stopped"}, nil
+	return map[string]string{"status": StatusStopped}, nil
 }
 
 func (h *CommandHandler) handleRefreshAgents(ctx context.Context, params json.RawMessage) (any, error) {
@@ -248,6 +248,9 @@ func (h *CommandHandler) handleAddAgent(ctx context.Context, params json.RawMess
 	}
 	if strings.TrimSpace(req.Config.Name) == "" {
 		return nil, errValidation("agent name is required")
+	}
+	if strings.TrimSpace(req.Config.Command) == "" {
+		return nil, errValidation("agent command is required")
 	}
 	if len(req.Config.ID) > maxIDLen {
 		return nil, errValidation(fmt.Sprintf("agent id too long (max %d)", maxIDLen))
@@ -359,7 +362,7 @@ func (h *CommandHandler) handleDeleteAgent(ctx context.Context, params json.RawM
 		return nil, safeError("failed to save config", err)
 	}
 
-	return map[string]string{"id": req.ID, "status": "deleted"}, nil
+	return map[string]string{"id": req.ID, "status": StatusDeleted}, nil
 }
 
 func (h *CommandHandler) handleGetConfigPath(ctx context.Context, params json.RawMessage) (any, error) {

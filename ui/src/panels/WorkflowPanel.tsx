@@ -146,7 +146,8 @@ export default function WorkflowPanel() {
         setCurrentWorkflow(workflow)
         setActiveTab('design')
         addToast('success', 'Workflow imported', workflow.name || file.name)
-      } catch {
+      } catch (err) {
+        logger.debug('WorkflowPanel', 'workflow import failed', err)
         addToast('error', 'Failed to import workflow', 'Invalid JSON file')
       }
     }

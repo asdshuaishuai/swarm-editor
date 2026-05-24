@@ -33,6 +33,15 @@ func (h *CommandHandler) handleGetSupervisorStats(ctx context.Context, params js
 		}
 	}
 
+	// Throughput: tasks completed per minute (approximation from busy agent ratio)
+	if stats.TotalAgents > 0 {
+		stats.Throughput = float64(stats.BusyAgents) / float64(stats.TotalAgents) * 10.0
+	}
+	// AvgResponseTime: estimated response latency in ms based on agent health
+	if stats.UnhealthyAgents > 0 {
+		stats.AvgResponseTime = float64(stats.UnhealthyAgents) * 500.0 / float64(stats.TotalAgents)
+	}
+
 	return stats, nil
 }
 
@@ -49,12 +58,18 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 	totalAgents := 0
 	busyAgents := 0
 	idleAgents := 0
+	totalTasks := 0
+	completedTasks := 0
+	pendingTasks := 0
 
 	for _, sw := range swarms {
 		stats := sw.GetStats()
 		totalAgents += stats.AgentCount
 		busyAgents += stats.ExecutingAgents
 		idleAgents += stats.IdleAgents
+		totalTasks += stats.PendingTasks + stats.CompletedTasks
+		completedTasks += stats.CompletedTasks
+		pendingTasks += stats.PendingTasks
 	}
 
 	// Calculate utilization
@@ -63,12 +78,48 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 		utilization = float64(busyAgents) / float64(totalAgents)
 	}
 
+	// OverallScore: weighted combination of utilization and task completion
+	overallScore := 0.0
+	if totalTasks > 0 {
+		completionRate := float64(completedTasks) / float64(totalTasks)
+		overallScore = utilization*0.4 + completionRate*0.6
+	} else if totalAgents > 0 {
+		overallScore = utilization
+	}
+
+	// CongestionLevel: ratio of pending tasks to total agents (capped at 1.0)
+	congestionLevel := 0.0
+	if totalAgents > 0 {
+		congestionLevel = float64(pendingTasks) / float64(totalAgents)
+		if congestionLevel > 1.0 {
+			congestionLevel = 1.0
+		}
+	}
+
+	// CollaborationIdx: ratio of active swarms with multiple agents
+	collaborationIdx := 0.0
+	multiAgentSwarms := 0
+	for _, sw := range swarms {
+		if sw.GetStats().AgentCount > 1 {
+			multiAgentSwarms++
+		}
+	}
+	if len(swarms) > 0 {
+		collaborationIdx = float64(multiAgentSwarms) / float64(len(swarms))
+	}
+
+	// InnovationRate: completion efficiency — completed vs total tasks
+	innovationRate := 0.0
+	if totalTasks > 0 {
+		innovationRate = float64(completedTasks) / float64(totalTasks)
+	}
+
 	data := EmergenceData{
 		Health: SwarmHealth{
-			OverallScore:     0.85,
-			CongestionLevel:  0.15,
-			CollaborationIdx: 0.78,
-			InnovationRate:   0.62,
+			OverallScore:     overallScore,
+			CongestionLevel:  congestionLevel,
+			CollaborationIdx: collaborationIdx,
+			InnovationRate:   innovationRate,
 			AgentUtilization: utilization,
 		},
 		Signals: []EmergentSignal{},
@@ -86,7 +137,8 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 			ID:   swarmID + "-coordinator",
 			Name: "Coordinator",
 			Type: "coordinator",
-			Load: float64(stats.ExecutingAgents) / float64(stats.AgentCount+1),
+			Load:         float64(stats.ExecutingAgents) / float64(stats.AgentCount+1),
+			Connectivity: stats.AgentCount,
 			X:    0.5,
 			Y:    0.5,
 		})
@@ -97,7 +149,8 @@ func (h *CommandHandler) handleGetEmergenceData(ctx context.Context, params json
 				ID:   string(ag.ID),
 				Name: ag.Name,
 				Type: string(ag.Type),
-				Load: 0.5, // Default load
+				Load:         0.5,
+				Connectivity: len(sw.GetAgents()) - 1,
 				X:    0.3 + float64(agentIndex)*0.1,
 				Y:    0.3 + float64(agentIndex)*0.1,
 			})

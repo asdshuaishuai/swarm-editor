@@ -99,6 +99,9 @@ type Task struct {
 	TurnCount       int `json:"turnCount,omitempty"`
 
 	Metadata map[string]any `json:"metadata,omitempty"`
+
+	// onStateChange is called when task state transitions. Set by the owning Swarm.
+	onStateChange func(taskID string, oldState, newState TaskState) `json:"-"`
 }
 
 // TaskExecutionResult represents the result of task execution (specific to task.go)
@@ -167,41 +170,59 @@ func (t *Task) CreateSubtasks(count int) []*Task {
 // Assign assigns the task to agents
 func (t *Task) Assign(agentIDs ...acp.AgentID) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if !canTransition(t.State, TaskStateRunning) {
+		t.mu.Unlock()
 		return false
 	}
+	prev := t.State
 	t.AssignedTo = agentIDs
 	t.State = TaskStateRunning
 	t.StartedAt = time.Now()
+	cb := t.onStateChange
+	t.mu.Unlock()
+	if cb != nil {
+		cb(t.ID, prev, TaskStateRunning)
+	}
 	return true
 }
 
 // Complete marks the task as completed
 func (t *Task) Complete(result *TaskResult) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if !canTransition(t.State, TaskStateCompleted) {
+		t.mu.Unlock()
 		return false
 	}
+	prev := t.State
 	t.State = TaskStateCompleted
 	t.Result = result
 	t.CompletedAt = time.Now()
+	cb := t.onStateChange
+	t.mu.Unlock()
+	if cb != nil {
+		cb(t.ID, prev, TaskStateCompleted)
+	}
 	return true
 }
 
 // Fail marks the task as failed
 func (t *Task) Fail(err error) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if !canTransition(t.State, TaskStateFailed) {
+		t.mu.Unlock()
 		return false
 	}
+	prev := t.State
 	t.State = TaskStateFailed
 	if err != nil {
 		t.Error = err.Error()
 	}
 	t.CompletedAt = time.Now()
+	cb := t.onStateChange
+	t.mu.Unlock()
+	if cb != nil {
+		cb(t.ID, prev, TaskStateFailed)
+	}
 	return true
 }
 
@@ -222,10 +243,11 @@ const (
 // The reason is stored in metadata and propagated to subtasks (Google A2A pattern).
 func (t *Task) Cancel(reason CancelReason) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if !canTransition(t.State, TaskStateCancelled) {
+		t.mu.Unlock()
 		return false
 	}
+	prev := t.State
 	t.State = TaskStateCancelled
 	t.CompletedAt = time.Now()
 	if reason != "" {
@@ -233,6 +255,11 @@ func (t *Task) Cancel(reason CancelReason) bool {
 			t.Metadata = make(map[string]any)
 		}
 		t.Metadata["cancelReason"] = string(reason)
+	}
+	cb := t.onStateChange
+	t.mu.Unlock()
+	if cb != nil {
+		cb(t.ID, prev, TaskStateCancelled)
 	}
 	// Cascade cancellation to subtasks with same reason
 	for _, st := range t.Subtasks {

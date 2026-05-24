@@ -27,30 +27,12 @@ vi.mock('./hooks', () => ({
   })),
 }))
 
-// Mock child components
+// Mock MainLayout — now renders without children (it has its own content)
 vi.mock('./components/layouts/MainLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="main-layout">{children}</div>
-  ),
+  default: () => <div data-testid="main-layout">MainLayout</div>,
 }))
 
-// Mock lazy loaded panels - 返回完整的 mock 组件
-vi.mock('./panels/EditorPanel', () => ({
-  default: () => <div data-testid="editor-panel">Editor</div>,
-}))
-
-vi.mock('./panels/AgentCollaborationPanel', () => ({
-  AgentCollaborationPanel: () => <div data-testid="agent-collaboration-panel">Agent Collaboration</div>,
-}))
-
-vi.mock('./panels/SwarmPanel', () => ({
-  default: () => <div data-testid="swarm-panel">Swarm</div>,
-}))
-
-vi.mock('./panels/TeamPanel', () => ({
-  default: () => <div data-testid="team-panel">Team</div>,
-}))
-
+// Mock lazy loaded panels
 vi.mock('./panels/SettingsPanel', () => ({
   default: () => <div data-testid="settings-panel">Settings</div>,
 }))
@@ -100,18 +82,7 @@ describe('App', () => {
     vi.clearAllMocks()
   })
 
-  it('renders MainLayout', async () => {
-    await act(async () => {
-      render(
-        <MemoryRouter>
-          <App />
-        </MemoryRouter>
-      )
-    })
-    expect(screen.getByTestId('main-layout')).toBeInTheDocument()
-  })
-
-  it('renders AgentCollaborationPanel on root route', async () => {
+  it('renders MainLayout on root route', async () => {
     await act(async () => {
       render(
         <MemoryRouter initialEntries={['/']}>
@@ -119,10 +90,10 @@ describe('App', () => {
         </MemoryRouter>
       )
     })
-    expect(screen.getByTestId('agent-collaboration-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('main-layout')).toBeInTheDocument()
   })
 
-  it('renders EditorPanel on /editor route', async () => {
+  it('renders MainLayout on /editor route', async () => {
     await act(async () => {
       render(
         <MemoryRouter initialEntries={['/editor']}>
@@ -130,10 +101,10 @@ describe('App', () => {
         </MemoryRouter>
       )
     })
-    expect(screen.getByTestId('editor-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('main-layout')).toBeInTheDocument()
   })
 
-  it('renders SwarmPanel on /swarm route', async () => {
+  it('renders MainLayout on /swarm route', async () => {
     await act(async () => {
       render(
         <MemoryRouter initialEntries={['/swarm']}>
@@ -141,18 +112,7 @@ describe('App', () => {
         </MemoryRouter>
       )
     })
-    expect(screen.getByTestId('swarm-panel')).toBeInTheDocument()
-  })
-
-  it('renders TeamPanel on /team route', async () => {
-    await act(async () => {
-      render(
-        <MemoryRouter initialEntries={['/team']}>
-          <App />
-        </MemoryRouter>
-      )
-    })
-    expect(screen.getByTestId('team-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('main-layout')).toBeInTheDocument()
   })
 
   it('renders SettingsPanel on /settings route', async () => {
@@ -164,5 +124,18 @@ describe('App', () => {
       )
     })
     expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
+  })
+
+  it('renders global components (status bar, command palette, etc)', async () => {
+    await act(async () => {
+      render(
+        <MemoryRouter>
+          <App />
+        </MemoryRouter>
+      )
+    })
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument()
+    expect(screen.getByTestId('command-palette')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-switcher')).toBeInTheDocument()
   })
 })

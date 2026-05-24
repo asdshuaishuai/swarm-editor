@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { lspApi } from '../services/lspApi'
+import { logger } from '../utils'
 
 interface UseEditorCleanupOptions {
   mountedRef: React.MutableRefObject<boolean>
@@ -26,12 +27,12 @@ export function useEditorCleanup(options: UseEditorCleanupOptions) {
       if (lspDebounceRef.current) clearTimeout(lspDebounceRef.current)
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current)
       if (lspOpenFileRef.current) {
-        lspApi.didClose(lspOpenFileRef.current).catch(() => {})
+        lspApi.didClose(lspOpenFileRef.current).catch(() => logger.debug('EditorCleanup', 'Failed to close LSP'))
       }
       if (secondaryLspDebounceRef.current) clearTimeout(secondaryLspDebounceRef.current)
       if (secondaryAutoSaveTimeoutRef.current) clearTimeout(secondaryAutoSaveTimeoutRef.current)
       if (secondaryLspOpenFileRef.current) {
-        lspApi.didClose(secondaryLspOpenFileRef.current).catch(() => {})
+        lspApi.didClose(secondaryLspOpenFileRef.current).catch(() => logger.debug('EditorCleanup', 'Failed to close secondary LSP'))
       }
       providerDisposablesRef.current.forEach(d => d.dispose())
       providerDisposablesRef.current = []

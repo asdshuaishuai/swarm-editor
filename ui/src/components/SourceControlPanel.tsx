@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { gitApi, GitFileStatus, GitCommit } from '../services/api'
+import { gitApi, gitDiffApi, GitFileStatus, GitCommit } from '../services/api'
 import { useAppStore } from '../store/appStore'
 import { useMenuKeyboardNav } from '../hooks/useMenuKeyboardNav'
 import { logger } from '../utils'
@@ -16,7 +16,7 @@ interface SourceControlPanelProps {
   onOpenFile?: (path: string) => void
 }
 
-export default function SourceControlPanel({ onStatusChange, onOpenFile }: SourceControlPanelProps) {
+export default function SourceControlPanel({ onStatusChange }: SourceControlPanelProps) {
   const [stagedFiles, setStagedFiles] = useState<GitFileStatus[]>([])
   const [unstagedFiles, setUnstagedFiles] = useState<GitFileStatus[]>([])
   const [commitMessage, setCommitMessage] = useState('')
@@ -42,6 +42,24 @@ export default function SourceControlPanel({ onStatusChange, onOpenFile }: Sourc
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  // Open diff view for a file — fetches original/modified from backend and dispatches event
+  const handleOpenDiff = useCallback(async (path: string, staged?: boolean) => {
+    try {
+      const diffData = await gitDiffApi.getFileDiff(path, staged)
+      const event = new CustomEvent('editor:show-diff', {
+        detail: {
+          path: diffData.path,
+          original: diffData.original,
+          modified: diffData.modified,
+        },
+      })
+      window.dispatchEvent(event)
+    } catch (err) {
+      logger.error('SourceControl', 'Failed to load diff for', path, err)
+      addToast('error', 'Diff failed', `Could not load diff for ${path.split('/').pop()}`)
+    }
+  }, [addToast])
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -513,8 +531,8 @@ export default function SourceControlPanel({ onStatusChange, onOpenFile }: Sourc
                       </span>
                       <span
                         className="text-xs text-text-primary truncate flex-1 cursor-pointer hover:underline"
-                        onClick={() => onOpenFile?.(file.path)}
-                        title={`Open ${file.path}`}
+                        onClick={() => handleOpenDiff(file.path, true)}
+                        title={`Open diff: ${file.path}`}
                       >{file.path}</span>
                     </div>
                   ))}
@@ -564,8 +582,8 @@ export default function SourceControlPanel({ onStatusChange, onOpenFile }: Sourc
                       </span>
                       <span
                         className="text-xs text-text-primary truncate flex-1 cursor-pointer hover:underline"
-                        onClick={() => onOpenFile?.(file.path)}
-                        title={`Open ${file.path}`}
+                        onClick={() => handleOpenDiff(file.path, false)}
+                        title={`Open diff: ${file.path}`}
                       >{file.path}</span>
                       <button
                         onClick={() => setDiscardTarget(file.path)}
