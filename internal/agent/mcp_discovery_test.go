@@ -491,3 +491,121 @@ func TestDiscoverAll_SkipsErrors(t *testing.T) {
 		t.Errorf("expected 1 server (invalid agent skipped), got %d: %v", len(servers), servers)
 	}
 }
+
+func TestDiscoverProject(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create project .mcp.json
+	mcpDir := filepath.Join(tmpDir, ".swarm-editor")
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mcpJSON := filepath.Join(mcpDir, "mcp.json")
+	config := `{"mcpServers":{"test-server":{"command":"test-cmd","args":["--flag"]}}}`
+	if err := os.WriteFile(mcpJSON, []byte(config), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewMCPDiscovery(&Scanner{})
+	servers, err := d.DiscoverProject(tmpDir)
+	if err != nil {
+		t.Fatalf("DiscoverProject: %v", err)
+	}
+	if len(servers) < 1 {
+		t.Fatalf("expected at least 1 server, got %d", len(servers))
+	}
+	s := servers[0]
+	if s.Name != "test-server" {
+		t.Errorf("expected name 'test-server', got %s", s.Name)
+	}
+	if s.Command != "test-cmd" {
+		t.Errorf("expected command 'test-cmd', got %s", s.Command)
+	}
+	if s.Source == "" {
+		t.Error("expected non-empty source tag")
+	}
+}
+
+func TestDiscoverProject_EmptyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	d := NewMCPDiscovery(&Scanner{})
+	servers, err := d.DiscoverProject(tmpDir)
+	if err != nil {
+		t.Fatalf("DiscoverProject: %v", err)
+	}
+	if len(servers) != 0 {
+		t.Errorf("expected 0 servers from empty dir, got %d", len(servers))
+	}
+}
+
+func TestDiscoverGlobal(t *testing.T) {
+	d := NewMCPDiscovery(&Scanner{})
+	servers, err := d.DiscoverGlobal()
+	if err != nil {
+		t.Fatalf("DiscoverGlobal: %v", err)
+	}
+	t.Logf("DiscoverGlobal found %d servers", len(servers))
+}
+
+func TestDiscoverAllWithScope(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mcpDir := filepath.Join(tmpDir, ".swarm-editor")
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mcpJSON := filepath.Join(mcpDir, "mcp.json")
+	config := `{"mcpServers":{"proj-srv":{"command":"proj-cmd","args":[]}}}`
+	if err := os.WriteFile(mcpJSON, []byte(config), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewMCPDiscovery(&Scanner{})
+	servers, err := d.DiscoverAllWithScope(tmpDir)
+	if err != nil {
+		t.Fatalf("DiscoverAllWithScope: %v", err)
+	}
+	found := false
+	for _, s := range servers {
+		if s.Name == "proj-srv" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find proj-srv in results")
+	}
+}
+
+func TestDiscoverAllWithScope_Dedup(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	for _, dir := range []string{".swarm-editor", "."} {
+		p := filepath.Join(tmpDir, dir)
+		if dir != "." {
+			if err := os.MkdirAll(p, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f := filepath.Join(p, "mcp.json")
+		config := `{"mcpServers":{"dup-srv":{"command":"dup-cmd","args":[]}}}`
+		if err := os.WriteFile(f, []byte(config), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	d := NewMCPDiscovery(&Scanner{})
+	servers, err := d.DiscoverAllWithScope(tmpDir)
+	if err != nil {
+		t.Fatalf("DiscoverAllWithScope: %v", err)
+	}
+	count := 0
+	for _, s := range servers {
+		if s.Name == "dup-srv" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 unique 'dup-srv', got %d", count)
+	}
+}

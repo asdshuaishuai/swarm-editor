@@ -381,3 +381,48 @@ func TestSharedMemory_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestDeepCopyValue_Nil(t *testing.T) {
+	if deepCopyValue(nil) != nil {
+		t.Error("expected nil")
+	}
+}
+
+func TestDeepCopyValue_Scalars(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"bool", true},
+		{"int", 42},
+		{"float64", 3.14},
+		{"string", "hello"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cp := deepCopyValue(tc.value)
+			if cp != tc.value {
+				t.Errorf("expected %v, got %v", tc.value, cp)
+			}
+		})
+	}
+}
+
+func TestDeepCopyValue_Map(t *testing.T) {
+	original := map[string]any{"key": "value", "nested": map[string]any{"a": 1}}
+	cp := deepCopyValue(original)
+	cpMap := cp.(map[string]any)
+	cpMap["key"] = "mutated"
+	if original["key"] != "value" {
+		t.Error("mutation leaked to original")
+	}
+}
+
+func TestDeepCopyValue_Slice(t *testing.T) {
+	original := []any{1, "two", 3.0}
+	cp := deepCopyValue(original)
+	cpSlice := cp.([]any)
+	cpSlice[0] = "changed"
+	if original[0] != 1 {
+		t.Error("mutation leaked to original")
+	}
+}
