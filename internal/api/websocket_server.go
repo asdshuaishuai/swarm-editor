@@ -442,6 +442,9 @@ type WebSocketServer struct {
 	// Emergence
 	emergenceService *EmergenceService // Real-time emergence dashboard data
 
+	// Shadow buffer (Design Doc Section 7: code change double-buffering)
+	shadowBuffer *ShadowBuffer
+
 	// Terminal
 	terminalMgr *terminal.Manager
 
@@ -564,6 +567,7 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		a2aRouter:        a2aRouter,
 		a2aCoordinator:   a2aCoordinator,
 		a2aCardRegistry:  a2aCardRegistry,
+		shadowBuffer:     NewShadowBuffer(),
 		clientSessions:   make(map[string]map[string]struct{}),
 		sessionToMode:    make(map[string]string),
 		authToken:        cfg.AuthToken,
@@ -764,6 +768,11 @@ func (s *WebSocketServer) ConnManager() *acp.ConnectionManager {
 // Scanner returns the agent CLI scanner
 func (s *WebSocketServer) Scanner() *agent.Scanner {
 	return s.scanner
+}
+
+// ShadowBuffer returns the code change double-buffer (Design Doc Section 7)
+func (s *WebSocketServer) ShadowBuffer() *ShadowBuffer {
+	return s.shadowBuffer
 }
 
 // A2ARouter returns the A2A protocol router

@@ -631,3 +631,95 @@ func (h *CommandHandler) handleGetAgentLogs(ctx context.Context, params json.Raw
 
 	return conn.RecentLogs(req.Count), nil
 }
+
+// ==================== Shadow Buffer Handlers ====================
+
+func (h *CommandHandler) handleStagePatch(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID    string `json:"agentId"`
+		Path       string `json:"path"`
+		OldContent string `json:"oldContent"`
+		NewContent string `json:"newContent"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agentId is required")
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return nil, errValidation("path is required")
+	}
+
+	sb := h.server.ShadowBuffer()
+	if sb == nil {
+		return nil, NewAPIError(CodeInternalError, "shadow buffer not available")
+	}
+
+	id := sb.Stage(req.AgentID, req.Path, req.OldContent, req.NewContent)
+	patch, _ := sb.Get(id)
+	return map[string]any{
+		"id":        id,
+		"agentId":   patch.AgentID,
+		"path":      patch.Path,
+		"createdAt": patch.CreatedAt,
+	}, nil
+}
+
+func (h *CommandHandler) handleListPatches(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string `json:"agentId"`
+	}
+	_ = json.Unmarshal(params, &req)
+
+	sb := h.server.ShadowBuffer()
+	if sb == nil {
+		return []PendingPatch{}, nil
+	}
+
+	return sb.List(req.AgentID), nil
+}
+
+func (h *CommandHandler) handleCommitPatch(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errValidation("id is required")
+	}
+
+	sb := h.server.ShadowBuffer()
+	if sb == nil {
+		return nil, NewAPIError(CodeInternalError, "shadow buffer not available")
+	}
+
+	if !sb.Commit(req.ID) {
+		return nil, errNotFound("patch not found")
+	}
+	return map[string]string{"id": req.ID, "status": "committed"}, nil
+}
+
+func (h *CommandHandler) handleRejectPatch(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errValidation("id is required")
+	}
+
+	sb := h.server.ShadowBuffer()
+	if sb == nil {
+		return nil, NewAPIError(CodeInternalError, "shadow buffer not available")
+	}
+
+	if !sb.Reject(req.ID) {
+		return nil, errNotFound("patch not found")
+	}
+	return map[string]string{"id": req.ID, "status": "rejected"}, nil
+}

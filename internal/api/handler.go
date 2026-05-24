@@ -79,6 +79,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		case "get_agent_logs":
 			return h.handleGetAgentLogs(ctx, params)
 
+		// Shadow buffer (Design Doc Section 7)
+		case "stage_patch":
+			return h.handleStagePatch(ctx, params)
+		case "list_patches":
+			return h.handleListPatches(ctx, params)
+		case "commit_patch":
+			return h.handleCommitPatch(ctx, params)
+		case "reject_patch":
+			return h.handleRejectPatch(ctx, params)
+
 	// A2A protocol
 	case "get_agent_cards":
 		return h.handleGetAgentCards(ctx, params)
