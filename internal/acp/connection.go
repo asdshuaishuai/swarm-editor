@@ -93,6 +93,9 @@ type AgentConnection struct {
 	// Process metrics (Design Doc Section 1: PID/CPU/RSS)
 	metrics ProcessMetrics
 
+	// Log ring buffer (Design Doc Section 2: 5000-line stdout/stderr capture)
+	logs *LogRingBuffer
+
 	// ACP communication
 	transport Transport
 	client    *Client
@@ -250,6 +253,7 @@ func (m *ConnectionManager) Connect(ctx context.Context, agentID string) (*Agent
 		Config:   agentCfg,
 		State:    StateConnecting,
 		sessions: make(map[SessionID]*AgentSession),
+		logs:     NewLogRingBuffer(5000),
 	}
 	conn.ctx, conn.cancel = context.WithCancel(ctx)
 
@@ -846,4 +850,25 @@ func (c *AgentConnection) CollectMetrics() ProcessMetrics {
 	}
 
 	return c.metrics
+}
+
+// RecentLogs returns the last n log entries from this connection's ring buffer.
+func (c *AgentConnection) RecentLogs(n int) []LogEntry {
+	c.mu.RLock()
+	logs := c.logs
+	c.mu.RUnlock()
+	if logs == nil {
+		return nil
+	}
+	return logs.Recent(n)
+}
+
+// AppendLog adds a log line to the connection's ring buffer.
+func (c *AgentConnection) AppendLog(line, stream string) {
+	c.mu.RLock()
+	logs := c.logs
+	c.mu.RUnlock()
+	if logs != nil {
+		logs.Append(line, stream)
+	}
 }

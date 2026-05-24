@@ -601,3 +601,33 @@ func (h *CommandHandler) handleGetProcessMetrics(ctx context.Context, params jso
 
 	return results, nil
 }
+
+func (h *CommandHandler) handleGetAgentLogs(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string `json:"agentId"`
+		Count   int    `json:"count"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	if req.AgentID == "" {
+		return nil, errValidation("agentId is required")
+	}
+	if req.Count <= 0 {
+		req.Count = 100
+	}
+
+	connMgr := h.server.ConnManager()
+	if connMgr == nil {
+		return []acp.LogEntry{}, nil
+	}
+
+	conn, ok := connMgr.GetConnection(req.AgentID)
+	if !ok {
+		return nil, errNotFound("agent not connected")
+	}
+
+	return conn.RecentLogs(req.Count), nil
+}

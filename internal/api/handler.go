@@ -76,6 +76,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleTestAgent(ctx, params)
 		case "get_process_metrics":
 			return h.handleGetProcessMetrics(ctx, params)
+		case "get_agent_logs":
+			return h.handleGetAgentLogs(ctx, params)
 
 	// A2A protocol
 	case "get_agent_cards":
