@@ -296,4 +296,71 @@ describe('swarmAlgorithmStore', () => {
       expect(state.checkpoints).toHaveLength(0)
     })
   })
+
+  describe('error paths', () => {
+    it('handles non-Error thrown in fetchQueenStatus', async () => {
+      vi.mocked(api.swarm.getQueenStatus).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().fetchQueenStatus('sw-1')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to fetch queen status')
+      expect(useSwarmAlgorithmStore.getState().loading).toBe(false)
+    })
+
+    it('handles non-Error thrown in triggerElection', async () => {
+      vi.mocked(api.swarm.triggerElection).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().triggerElection('sw-1')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to trigger election')
+    })
+
+    it('handles non-Error thrown in abdicateQueen', async () => {
+      vi.mocked(api.swarm.abdicateQueen).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().abdicateQueen('sw-1', 'reason')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to abdicate queen')
+    })
+
+    it('handles non-Error thrown in interruptAgent', async () => {
+      vi.mocked(api.swarm.interruptAgent).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().interruptAgent('sw-1', 'a-1', 't-1', 'stuck')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to interrupt agent')
+    })
+
+    it('handles non-Error thrown in resumeTask', async () => {
+      vi.mocked(api.swarm.resumeTask).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().resumeTask('cp-1')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to resume task')
+    })
+
+    it('handles non-Error thrown in recoverTask', async () => {
+      vi.mocked(api.swarm.recoverTask).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().recoverTask('cp-1', 'retry')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to recover task')
+    })
+
+    it('handles non-Error thrown in fetchCheckpoints', async () => {
+      vi.mocked(api.swarm.getCheckpoints).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().fetchCheckpoints('sw-1')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to fetch checkpoints')
+    })
+
+    it('handles non-Error thrown in fetchRoleAssignments', async () => {
+      vi.mocked(api.swarm.getRoleAssignments).mockRejectedValue('string error')
+
+      await useSwarmAlgorithmStore.getState().fetchRoleAssignments('sw-1')
+
+      expect(useSwarmAlgorithmStore.getState().error).toBe('Failed to fetch role assignments')
+    })
+  })
 })

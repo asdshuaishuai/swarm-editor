@@ -10,6 +10,9 @@ vi.mock('../services/api', () => ({
     ]),
     readFile: vi.fn().mockResolvedValue('file content'),
   },
+  events: {
+    subscribe: vi.fn().mockReturnValue(() => {}),
+  },
 }))
 
 vi.mock('../utils', () => ({
@@ -407,6 +410,93 @@ describe('workspaceStore', () => {
     it('sets language', () => {
       useWorkspaceStore.getState().setLanguage('go')
       expect(useWorkspaceStore.getState().language).toBe('go')
+    })
+  })
+
+  describe('reorderFiles', () => {
+    beforeEach(() => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([
+          ['/project/a.ts', 'a'],
+          ['/project/b.ts', 'b'],
+          ['/project/c.ts', 'c'],
+        ]),
+      })
+    })
+
+    it('reorders files within bounds', () => {
+      const before = [...useWorkspaceStore.getState().openFiles]
+      useWorkspaceStore.getState().reorderFiles(0, 2)
+      const after = useWorkspaceStore.getState().openFiles
+      expect(after[2]).toBe(before[0])
+      expect(after[0]).toBe(before[1])
+    })
+
+    it('does nothing with negative fromIndex', () => {
+      const before = [...useWorkspaceStore.getState().openFiles]
+      useWorkspaceStore.getState().reorderFiles(-1, 1)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(before)
+    })
+
+    it('does nothing with out-of-bounds toIndex', () => {
+      const before = [...useWorkspaceStore.getState().openFiles]
+      useWorkspaceStore.getState().reorderFiles(0, 100)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(before)
+    })
+
+    it('does nothing with out-of-bounds fromIndex', () => {
+      const before = [...useWorkspaceStore.getState().openFiles]
+      useWorkspaceStore.getState().reorderFiles(100, 0)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(before)
+    })
+
+    it('does nothing with negative toIndex', () => {
+      const before = [...useWorkspaceStore.getState().openFiles]
+      useWorkspaceStore.getState().reorderFiles(0, -1)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(before)
+    })
+  })
+
+  describe('isPinned', () => {
+    it('returns false for unpinned file', async () => {
+      resetStore()
+      await useWorkspaceStore.getState().openFile('/project/a.ts')
+      expect(useWorkspaceStore.getState().isPinned('/project/a.ts')).toBe(false)
+    })
+
+    it('returns true for pinned file', async () => {
+      resetStore()
+      await useWorkspaceStore.getState().openFile('/project/a.ts')
+      useWorkspaceStore.getState().togglePin('/project/a.ts')
+      expect(useWorkspaceStore.getState().isPinned('/project/a.ts')).toBe(true)
+    })
+  })
+
+  describe('clearExternalModification', () => {
+    it('removes path from external modifications', () => {
+      resetStore()
+      useWorkspaceStore.setState({ externalModifications: new Set(['/project/a.ts', '/project/b.ts']) })
+      useWorkspaceStore.getState().clearExternalModification('/project/a.ts')
+      expect(useWorkspaceStore.getState().externalModifications.has('/project/a.ts')).toBe(false)
+      expect(useWorkspaceStore.getState().externalModifications.has('/project/b.ts')).toBe(true)
+    })
+
+    it('does nothing for path not in set', () => {
+      resetStore()
+      useWorkspaceStore.setState({ externalModifications: new Set(['/project/a.ts']) })
+      useWorkspaceStore.getState().clearExternalModification('/project/c.ts')
+      expect(useWorkspaceStore.getState().externalModifications.size).toBe(1)
+    })
+  })
+
+  describe('subscribeToFileChanges', () => {
+    it('returns cleanup function', () => {
+      resetStore()
+      const cleanup = useWorkspaceStore.getState().subscribeToFileChanges()
+      expect(typeof cleanup).toBe('function')
+      cleanup()
     })
   })
 })
