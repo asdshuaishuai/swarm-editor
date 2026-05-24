@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 
 export function useWindowEvent(
   event: string,
-  handler: (ev: Event) => any,
+  handler: (ev: Event) => void,
   deps: React.DependencyList = [],
   options?: AddEventListenerOptions,
 ) {
