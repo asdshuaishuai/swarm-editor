@@ -29,6 +29,7 @@ const (
 type FileEvent struct {
 	Path      string `json:"path"`
 	EventType string `json:"eventType"`
+	GitStatus string `json:"gitStatus,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -173,13 +174,17 @@ func (fw *FileWatcher) handleEvent(event fsnotify.Event, debounceInterval time.D
 
 	// Classify the event
 	var eventType FileEventType
+	var gitStatus string
 	switch {
 	case event.Has(fsnotify.Create):
 		eventType = FileCreated
+		gitStatus = "Added"
 	case event.Has(fsnotify.Write):
 		eventType = FileChanged
+		gitStatus = "Modified"
 	case event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename):
 		eventType = FileDeleted
+		gitStatus = "Deleted"
 	default:
 		return
 	}
@@ -194,6 +199,7 @@ func (fw *FileWatcher) handleEvent(event fsnotify.Event, debounceInterval time.D
 	payload := FileEvent{
 		Path:      relPath,
 		EventType: string(eventType),
+		GitStatus: gitStatus,
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 	}
 

@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -1960,4 +1961,31 @@ func TestMaxSessionsPerConnection_Constant(t *testing.T) {
 	// Note: eviction logic lives in CreateSession (requires mock client).
 	// This test verifies the constant is set. Integration-level eviction
 	// is covered by CreateSession tests.
+}
+
+func TestAgentConnectionCollectMetrics_NoProcess(t *testing.T) {
+	conn := &AgentConnection{}
+	m := conn.CollectMetrics()
+	if m.PID != 0 {
+		t.Errorf("expected PID 0 for no process, got %d", m.PID)
+	}
+}
+
+func TestProcessMetricsJSON(t *testing.T) {
+	m := ProcessMetrics{
+		PID:       1234,
+		CPU:       12.5,
+		RSS:       1024 * 1024 * 50, // 50MB
+		Collected: time.Now(),
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"pid":1234`) {
+		t.Errorf("expected pid in JSON, got %s", string(data))
+	}
+	if !strings.Contains(string(data), `"rssBytes"`) {
+		t.Errorf("expected rssBytes in JSON, got %s", string(data))
+	}
 }

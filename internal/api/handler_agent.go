@@ -580,3 +580,24 @@ func (h *CommandHandler) handleTestAgent(ctx context.Context, params json.RawMes
 		"status": string(status),
 	}, nil
 }
+
+func (h *CommandHandler) handleGetProcessMetrics(ctx context.Context, params json.RawMessage) (any, error) {
+	connMgr := h.server.ConnManager()
+	if connMgr == nil {
+		return []map[string]any{}, nil
+	}
+
+	results := make([]map[string]any, 0)
+	for _, conn := range connMgr.ListConnections() {
+		m := conn.CollectMetrics()
+		results = append(results, map[string]any{
+			"agentId":     conn.ID,
+			"pid":         m.PID,
+			"cpuPercent":  m.CPU,
+			"rssBytes":    m.RSS,
+			"collectedAt": m.Collected,
+		})
+	}
+
+	return results, nil
+}

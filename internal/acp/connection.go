@@ -16,6 +16,14 @@ import (
 
 var connLog = log.With("component", "Connection")
 
+// ProcessMetrics holds physical resource metrics for a managed agent process.
+type ProcessMetrics struct {
+	PID       int       `json:"pid"`
+	CPU       float64   `json:"cpuPercent"`
+	RSS       uint64    `json:"rssBytes"`
+	Collected time.Time `json:"collectedAt"`
+}
+
 // ConnectionState represents the state of an agent connection
 type ConnectionState string
 
@@ -81,6 +89,9 @@ type AgentConnection struct {
 	stdin  io.WriteCloser
 	stdout io.Reader
 	stderr io.Reader
+
+	// Process metrics (Design Doc Section 1: PID/CPU/RSS)
+	metrics ProcessMetrics
 
 	// ACP communication
 	transport Transport
@@ -803,4 +814,36 @@ func (c *AgentConnection) OnUpdateFunc() func(sessionID SessionID, update *Updat
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.onUpdate
+}
+
+// GetMetrics returns the latest process resource metrics for this connection.
+func (c *AgentConnection) GetMetrics() ProcessMetrics {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.metrics
+}
+
+// CollectMetrics reads current PID/CPU/RSS from the OS for this agent process.
+// On non-Linux systems, only PID is populated.
+func (c *AgentConnection) CollectMetrics() ProcessMetrics {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.cmd == nil || c.cmd.Process == nil {
+		return c.metrics
+	}
+
+	pid := c.cmd.Process.Pid
+	c.metrics.PID = pid
+	c.metrics.Collected = time.Now()
+
+	// Read RSS from /proc/[pid]/statm (Linux only)
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid)); err == nil {
+		var size, resident uint64
+		if _, err := fmt.Sscanf(string(data), "%d %d", &size, &resident); err == nil {
+			c.metrics.RSS = resident * uint64(os.Getpagesize())
+		}
+	}
+
+	return c.metrics
 }

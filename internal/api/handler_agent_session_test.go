@@ -153,3 +153,19 @@ func TestSessionHandler_CloseSession_NotFound(t *testing.T) {
 	_, err := handler.HandleCommand("close_session", json.RawMessage(`{"sessionId":"ghost"}`), "test")
 	t.Logf("close_session ghost: err=%v", err)
 }
+
+func TestAgentHandler_GetProcessMetrics_NilConnMgr(t *testing.T) {
+	handler, _ := newTestHandler()
+
+	result, err := handler.HandleCommand("get_process_metrics", json.RawMessage(`{}`), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	arr, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatalf("expected []map[string]any, got %T", result)
+	}
+	if len(arr) != 0 {
+		t.Errorf("expected empty array without connection manager, got %d", len(arr))
+	}
+}
