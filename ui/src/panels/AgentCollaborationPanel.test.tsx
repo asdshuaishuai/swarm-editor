@@ -983,3 +983,198 @@ describe('AgentCollaborationPanel', () => {
     })
   })
 })
+
+describe('AgentCollaborationPanel edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    chatOnSendMessage = undefined
+    chatOnSwitchAgent = undefined
+    mockGetAgents.mockResolvedValue([
+      { id: 'claude-code', name: 'Claude Code', state: 'active', type: 'acp' },
+    ])
+    mockCreateSession.mockResolvedValue({ id: 'session-1' })
+    mockSendMessage.mockResolvedValue({ content: 'response' })
+    mockCloseSession.mockResolvedValue(undefined)
+    mockGetSwarms.mockResolvedValue([])
+    mockGetSwarmTasks.mockResolvedValue([])
+    mockGetConsensus.mockResolvedValue({ consensus: [], algorithm: 'majority', threshold: 0.5 })
+    mockGetEmergenceData.mockResolvedValue(null)
+    mockSubscribe.mockReturnValue(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('handles unknown agent IDs with default icon', async () => {
+    mockGetAgents.mockResolvedValue([
+      { id: 'unknown-agent', name: 'Unknown Agent', state: 'active', type: 'acp' },
+    ])
+
+    render(<AgentCollaborationPanel />)
+    await waitFor(() => {
+      expect(mockGetAgents).toHaveBeenCalled()
+    })
+    // Should not crash with unknown agent ID
+    expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+  })
+
+  it('handles null taskList from getSwarmTasks', async () => {
+    mockGetSwarms.mockResolvedValue([
+      { id: 'sw-1', name: 'Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 1, taskCount: 0 },
+    ])
+    mockGetSwarmTasks.mockResolvedValue(null)
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(mockGetSwarmTasks).toHaveBeenCalledWith('sw-1')
+    })
+
+    // Should show 0 tasks (null handled as empty)
+    expect(screen.getByTestId('task-count')).toHaveTextContent('0')
+  })
+
+  it('handles unknown agent ID in WebSocket agent_stats', async () => {
+    let agentStatsHandler: ((data: unknown) => void) | undefined
+    mockSubscribe.mockImplementation((event: string, handler: (data: unknown) => void) => {
+      if (event === 'agent_stats') agentStatsHandler = handler
+      return () => {}
+    })
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(agentStatsHandler).toBeDefined()
+    })
+
+    // Send agent stats with unknown ID (not in AGENT_ICONS map)
+    await act(async () => {
+      agentStatsHandler!([
+        { id: 'custom-agent', name: 'Custom', state: 'active' },
+      ])
+    })
+
+    // Should not crash
+    expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+  })
+
+  it('passes emergence data with health and signals to SwarmStatus', async () => {
+    mockGetEmergenceData.mockResolvedValue({
+      health: { overallScore: 90, congestionLevel: 5, collaborationIndex: 95, innovationRate: 80, agentUtilization: 85 },
+      signals: [{ id: 's-1', type: 'synergy', severity: 'low', message: 'Test signal' }],
+      agents: [],
+      flows: [],
+    })
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('emergence-present')).toBeInTheDocument()
+    })
+  })
+
+  it('handles createSession failure on message send', async () => {
+    mockCreateSession.mockRejectedValueOnce(new Error('Session create failed'))
+
+    render(<AgentCollaborationPanel />)
+    await waitFor(() => {
+      expect(chatOnSendMessage).toBeDefined()
+    })
+
+    await act(async () => {
+      await chatOnSendMessage!('hello')
+    })
+
+    // Should add error message
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-message-count')).toHaveTextContent('2')
+    })
+  })
+
+  it('passes primaryAgentId to AgentChat', async () => {
+    render(<AgentCollaborationPanel primaryAgentId="kimi-code" />)
+
+    await waitFor(() => {
+      expect(mockGetAgents).toHaveBeenCalled()
+    })
+    expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+  })
+
+  it('handles empty task list from swarms', async () => {
+    mockGetSwarms.mockResolvedValue([
+      { id: 'sw-1', name: 'Empty Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 0, taskCount: 0 },
+    ])
+    mockGetSwarmTasks.mockResolvedValue([])
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(mockGetSwarmTasks).toHaveBeenCalledWith('sw-1')
+    })
+
+    expect(screen.getByTestId('task-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('progress')).toHaveTextContent('0')
+  })
+
+  it('handles consensus data with mixed agree/disagree votes', async () => {
+    mockGetConsensus.mockResolvedValue({
+      consensus: [
+        { taskId: 't-1', algorithm: 'pbft', approvalRate: 1.0, totalVotes: 3, approvedVotes: 3, completed: true, agreed: true },
+        { taskId: 't-2', algorithm: 'majority', approvalRate: 0.4, totalVotes: 5, approvedVotes: 2, completed: true, agreed: false },
+        { taskId: 't-3', algorithm: 'pbft', approvalRate: 0.8, totalVotes: 5, approvedVotes: 4, completed: true, agreed: true },
+      ],
+      algorithm: 'hybrid',
+      threshold: 0.5,
+    })
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('consensus-total')).toHaveTextContent('3')
+      expect(screen.getByTestId('consensus-agreed')).toHaveTextContent('2')
+    })
+  })
+
+  it('calculates 100% progress when all tasks completed', async () => {
+    mockGetSwarms.mockResolvedValue([
+      { id: 'sw-1', name: 'Done Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 1, taskCount: 3 },
+    ])
+    mockGetSwarmTasks.mockResolvedValue([
+      { id: 't-1', title: 'Done 1', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+      { id: 't-2', title: 'Done 2', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+      { id: 't-3', title: 'Done 3', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+    ])
+
+    render(<AgentCollaborationPanel />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('progress')).toHaveTextContent('100')
+    })
+  })
+
+  it('handles switch agent with closeSession rejection', async () => {
+    mockCloseSession.mockRejectedValueOnce(new Error('close failed'))
+
+    render(<AgentCollaborationPanel />)
+    await waitFor(() => {
+      expect(chatOnSendMessage).toBeDefined()
+    })
+
+    // Create a session first
+    await act(async () => {
+      await chatOnSendMessage!('hello')
+    })
+    await waitFor(() => {
+      expect(mockCreateSession).toHaveBeenCalled()
+    })
+
+    // Switch agent (should handle close rejection gracefully)
+    await act(async () => {
+      chatOnSwitchAgent!('kimi-code')
+    })
+
+    // Should still add system message
+    expect(screen.getByTestId('chat-message-count')).toHaveTextContent('3')
+  })
+})

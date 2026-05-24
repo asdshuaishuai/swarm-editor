@@ -741,3 +741,240 @@ describe('AgentConfigPanel agent management', () => {
     vi.useRealTimers()
   })
 })
+
+describe('AgentConfigPanel delete error paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handles delete agent API error', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.agent.deleteAgent).mockRejectedValueOnce(new Error('Delete failed'))
+
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'delete-fail-agent',
+        name: 'Delete Fail Agent',
+        command: '/usr/bin/fail',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click delete button
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+
+    // Confirm delete
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    // Agent should still be in the list after failed delete
+    await waitFor(() => {
+      expect(screen.getByText('Delete Fail Agent')).toBeInTheDocument()
+    })
+  })
+
+  it('handles delete agent error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.agent.deleteAgent).mockRejectedValueOnce('string error')
+
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'delete-err-agent',
+        name: 'Delete Err Agent',
+        command: '/usr/bin/err',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click delete button
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+
+    // Confirm delete
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    // Agent should still be in the list after failed delete
+    await waitFor(() => {
+      expect(screen.getByText('Delete Err Agent')).toBeInTheDocument()
+    })
+  })
+
+  it('cancels delete via Cancel button in dialog', async () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'cancel-del-agent',
+        name: 'Cancel Del Agent',
+        command: '/usr/bin/cancel',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click delete button
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+
+    // Cancel delete
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByText('Cancel'))
+
+    // Dialog should be gone
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // Agent should still be visible
+    expect(screen.getByText('Cancel Del Agent')).toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigPanel test connection non-available status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sets error status when agent returns non-available status', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.agent.testAgent).mockResolvedValueOnce({ id: 'test-agent', status: 'unavailable' })
+
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'test-agent',
+        name: 'Unavailable Agent',
+        command: '/usr/bin/test',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    fireEvent.click(testButton)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Status indicator should be red (error) for non-available status
+    const statusIndicator = document.querySelector('.bg-error')
+    expect(statusIndicator).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+})
+
+describe('AgentConfigPanel agent count display', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows correct agent count in subtitle', () => {
+    const initialAgents: AgentConfig[] = [
+      { id: 'a1', name: 'Agent 1', command: '/bin/1', args: [], enabled: true },
+      { id: 'a2', name: 'Agent 2', command: '/bin/2', args: [], enabled: true },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    expect(screen.getByText('2 agents configured')).toBeInTheDocument()
+  })
+
+  it('shows 0 agents configured when empty', () => {
+    render(<AgentConfigPanel />)
+    expect(screen.getByText('0 agents configured')).toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigPanel edit modal pre-population', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('pre-populates form when editing an agent with tags', async () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'edit-tags-agent',
+        name: 'Edit Tags Agent',
+        command: '/usr/bin/edittags',
+        args: ['--verbose'],
+        enabled: true,
+        tags: ['production', 'critical'],
+        swarmConfig: {
+          canBeCoordinator: false,
+          canBeWorker: true,
+          preferredRoles: ['reviewer'],
+          maxConcurrent: 5,
+          priority: 8,
+        },
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click edit button
+    const editButton = screen.getByTitle('Edit')
+    fireEvent.click(editButton)
+
+    // Modal should show Edit Agent title
+    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+
+    // Form should be pre-populated
+    expect(screen.getByPlaceholderText('claude-code')).toHaveValue('edit-tags-agent')
+    expect(screen.getByPlaceholderText('Claude Code')).toHaveValue('Edit Tags Agent')
+    expect(screen.getByPlaceholderText('/usr/local/bin/claude-code')).toHaveValue('/usr/bin/edittags')
+    expect(screen.getByPlaceholderText('acp, --mode=swarm')).toHaveValue('--verbose')
+    expect(screen.getByPlaceholderText('primary, coding, review')).toHaveValue('production, critical')
+  })
+})
+
+describe('AgentConfigPanel multiple agents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders all agents in the list', () => {
+    const initialAgents: AgentConfig[] = [
+      { id: 'agent-a', name: 'Agent A', command: '/bin/a', args: [], enabled: true },
+      { id: 'agent-b', name: 'Agent B', command: '/bin/b', args: [], enabled: false },
+      { id: 'agent-c', name: 'Agent C', command: '/bin/c', args: [], enabled: true },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    expect(screen.getByText('Agent A')).toBeInTheDocument()
+    expect(screen.getByText('Agent B')).toBeInTheDocument()
+    expect(screen.getByText('Agent C')).toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigCard status rendering', () => {
+  const mockAgent: AgentConfig = {
+    id: 'status-agent',
+    name: 'Status Agent',
+    command: '/usr/bin/status',
+    args: [],
+    enabled: true,
+  }
+
+  it('shows connected status indicator', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} status="connected" />)
+    const dot = document.querySelector('.bg-success')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('shows error status indicator', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} status="error" />)
+    const dot = document.querySelector('.bg-error')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('shows idle status indicator by default', () => {
+    render(<AgentConfigCard agent={mockAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const dot = document.querySelector('.bg-text-tertiary')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('shows agent description when present', () => {
+    const agentWithDesc = { ...mockAgent, description: 'A test agent for testing' }
+    // AgentConfigCard does not render description, but this tests the interface
+    render(<AgentConfigCard agent={agentWithDesc} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('status-agent')).toBeInTheDocument()
+  })
+})

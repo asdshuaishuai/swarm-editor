@@ -1,22 +1,50 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import DiffView from './DiffView'
 
 // ---------------------------------------------------------------------------
-// Mock setup
+// Mock setup — use vi.hoisted to ensure variables are available in mock factories
 // ---------------------------------------------------------------------------
 
-const mockDestroyA = vi.fn()
-const mockDestroyB = vi.fn()
-const mockMergeViewInstance = {
-  a: { destroy: mockDestroyA },
-  b: { destroy: mockDestroyB },
-  chunks: [] as unknown[],
-  dom: {
-    classList: { add: vi.fn() },
-    style: { height: '' },
-  },
-}
+const {
+  mockDestroyA,
+  mockDestroyB,
+  mockMergeViewInstance,
+  mockEditorViewDestroy,
+  mockEditorViewInstance,
+  MockedEditorViewConstructor,
+  EditorViewMock,
+} = vi.hoisted(() => {
+  const destroyA = vi.fn()
+  const destroyB = vi.fn()
+  const mergeView = {
+    a: { destroy: destroyA },
+    b: { destroy: destroyB },
+    chunks: [] as unknown[],
+    dom: {
+      classList: { add: vi.fn() },
+      style: { height: '' },
+    },
+  }
+  const evDestroy = vi.fn()
+  const evInstance = { destroy: evDestroy, state: {} }
+  const evConstructor = vi.fn(function(this: unknown, _config: unknown) {
+    return evInstance
+  })
+  const evMock = Object.assign(evConstructor, {
+    theme: vi.fn(() => (() => {}) as unknown as import('@codemirror/state').Extension),
+    baseTheme: vi.fn(() => (() => {}) as unknown as import('@codemirror/state').Extension),
+  })
+  return {
+    mockDestroyA: destroyA,
+    mockDestroyB: destroyB,
+    mockMergeViewInstance: mergeView,
+    mockEditorViewDestroy: evDestroy,
+    mockEditorViewInstance: evInstance,
+    MockedEditorViewConstructor: evConstructor,
+    EditorViewMock: evMock,
+  }
+})
 
 vi.mock('@codemirror/merge', () => ({
   MergeView: vi.fn(function(this: unknown) { return mockMergeViewInstance }),
@@ -27,10 +55,7 @@ vi.mock('@codemirror/merge', () => ({
 }))
 
 vi.mock('@codemirror/view', () => ({
-  EditorView: {
-    theme: vi.fn(() => (() => {}) as unknown as import('@codemirror/state').Extension),
-    baseTheme: vi.fn(() => (() => {}) as unknown as import('@codemirror/state').Extension),
-  },
+  get EditorView() { return EditorViewMock },
 }))
 
 vi.mock('@codemirror/state', () => ({
@@ -63,8 +88,12 @@ vi.mock('../utils', () => ({
 
 import { MergeView } from '@codemirror/merge'
 import { EditorState } from '@codemirror/state'
+import { getChunks, goToNextChunk, goToPreviousChunk } from '@codemirror/merge'
 import { getLanguageExtension } from '../utils/codemirrorSetup'
 import { logger } from '../utils'
+
+// Re-import the mocked EditorView constructor for assertions
+const EditorView = MockedEditorViewConstructor
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -192,7 +221,6 @@ describe('DiffView', () => {
     })
 
     it('handles empty original (splits to one empty-string line)', () => {
-      // "".split('\n') = [""], so 1 removal of empty line + N additions
       const { container } = render(<DiffView {...defaultProps} original="" modified={"a\nb"} />)
       expect(getAddedStat(container)).toBe('+2')
       expect(getRemovedStat(container)).toBe('-1')
@@ -233,8 +261,6 @@ describe('DiffView', () => {
     })
 
     it('computes all lines removed', () => {
-      // "".split('\n') = [""], so original has 3 lines, modified has 1 empty line
-      // LCS = [""] if any origLine matches ""; otherwise LCS=0
       const { container } = render(<DiffView {...defaultProps} original={"x\ny\nz"} modified="" />)
       expect(getAddedStat(container)).toBe('+1')
       expect(getRemovedStat(container)).toBe('-3')
@@ -485,8 +511,332 @@ describe('DiffView', () => {
 
     it('shows chunk index and total in header', () => {
       render(<DiffView {...defaultProps} />)
-      // chunkIndex starts at 0, totalChunks is 0
       expect(screen.getByText('0/0')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Unified mode rendering
+  // -------------------------------------------------------------------------
+  describe('unified mode', () => {
+    it('creates EditorState.create in unified mode', () => {
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      expect(EditorState.create).toHaveBeenCalled()
+    })
+
+    it('creates EditorView in unified mode', () => {
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      expect(EditorView).toHaveBeenCalled()
+    })
+
+    it('destroys unified editor when switching back to side-by-side', () => {
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      expect(EditorView).toHaveBeenCalled()
+      mockEditorViewDestroy.mockClear()
+      fireEvent.click(screen.getByTitle('Switch to side-by-side view'))
+      expect(mockEditorViewDestroy).toHaveBeenCalled()
+    })
+
+    it('destroys unified editor on unmount', () => {
+      const { unmount } = render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      mockEditorViewDestroy.mockClear()
+      unmount()
+      expect(mockEditorViewDestroy).toHaveBeenCalled()
+    })
+
+    it('sets totalChunks to 0 when getChunks returns null in unified mode', () => {
+      vi.mocked(getChunks).mockReturnValue(null)
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      expect(screen.getByText('0/0')).toBeInTheDocument()
+    })
+
+    it('re-creates unified editor when original changes in unified mode', () => {
+      const { rerender } = render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      const callCountBefore = vi.mocked(EditorState.create).mock.calls.length
+      rerender(<DiffView {...defaultProps} original="changed original" />)
+      expect(vi.mocked(EditorState.create).mock.calls.length).toBeGreaterThan(callCountBefore)
+    })
+
+    it('re-creates unified editor when modified changes in unified mode', () => {
+      const { rerender } = render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      const callCountBefore = vi.mocked(EditorState.create).mock.calls.length
+      rerender(<DiffView {...defaultProps} modified="changed modified" />)
+      expect(vi.mocked(EditorState.create).mock.calls.length).toBeGreaterThan(callCountBefore)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Chunk navigation with chunks present (requires fake timers for rAF)
+  // -------------------------------------------------------------------------
+  describe('chunk navigation with chunks', () => {
+    let rAFCallbacks: FrameRequestCallback[] = []
+    let originalRAF: typeof requestAnimationFrame
+
+    beforeEach(() => {
+      originalRAF = window.requestAnimationFrame
+      rAFCallbacks = []
+      window.requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {
+        rAFCallbacks.push(cb)
+        return rAFCallbacks.length
+      })
+    })
+
+    afterEach(() => {
+      window.requestAnimationFrame = originalRAF
+    })
+
+    function flushRAF(): void {
+      act(() => {
+        const pending = [...rAFCallbacks]
+        rAFCallbacks = []
+        pending.forEach(cb => cb(0))
+      })
+    }
+
+    it('enables prev/next buttons when MergeView has chunks', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      render(<DiffView {...defaultProps} />)
+      flushRAF()
+      const nextBtn = screen.getByTitle('Next change (F5)')
+      const prevBtn = screen.getByTitle('Previous change (Alt+F5)')
+      expect(nextBtn).not.toBeDisabled()
+      expect(prevBtn).not.toBeDisabled()
+    })
+
+    it('calls goToNextChunk on merge view b editor in side-by-side mode', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      render(<DiffView {...defaultProps} />)
+      flushRAF()
+      fireEvent.click(screen.getByTitle('Next change (F5)'))
+      expect(goToNextChunk).toHaveBeenCalledWith(mockMergeViewInstance.b)
+    })
+
+    it('calls goToPreviousChunk on merge view b editor in side-by-side mode', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      render(<DiffView {...defaultProps} />)
+      flushRAF()
+      fireEvent.click(screen.getByTitle('Previous change (Alt+F5)'))
+      expect(goToPreviousChunk).toHaveBeenCalledWith(mockMergeViewInstance.b)
+    })
+
+    it('calls goToNextChunk on unified editor in unified mode', () => {
+      vi.mocked(getChunks).mockReturnValue({ chunks: [{ fromA: 0, toA: 1, fromB: 0, toB: 1, endA: 1, endB: 1, changes: [], precise: false }], side: null as "a" | "b" | null })
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      flushRAF()
+      fireEvent.click(screen.getByTitle('Next change (F5)'))
+      expect(goToNextChunk).toHaveBeenCalledWith(mockEditorViewInstance)
+    })
+
+    it('calls goToPreviousChunk on unified editor in unified mode', () => {
+      vi.mocked(getChunks).mockReturnValue({ chunks: [{ fromA: 0, toA: 1, fromB: 0, toB: 1, endA: 1, endB: 1, changes: [], precise: false }], side: null as "a" | "b" | null })
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      flushRAF()
+      fireEvent.click(screen.getByTitle('Previous change (Alt+F5)'))
+      expect(goToPreviousChunk).toHaveBeenCalledWith(mockEditorViewInstance)
+    })
+
+    it('updates chunk count via refreshChunkCount after next chunk in side-by-side', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      render(<DiffView {...defaultProps} />)
+      flushRAF()
+      expect(screen.getByText('1/1')).toBeInTheDocument()
+    })
+
+    it('refreshes chunk count after navigating next in unified mode', () => {
+      vi.mocked(getChunks).mockReturnValue({ chunks: [{ fromA: 0, toA: 1, fromB: 0, toB: 1, endA: 1, endB: 1, changes: [], precise: false }], side: null as "a" | "b" | null })
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      flushRAF()
+      vi.mocked(getChunks).mockClear()
+      fireEvent.click(screen.getByTitle('Next change (F5)'))
+      expect(getChunks).toHaveBeenCalled()
+    })
+
+    it('does not call goToNextChunk when no mergeView in side-by-side mode', () => {
+      vi.mocked(MergeView).mockImplementationOnce(() => {
+        throw new Error('no merge view')
+      })
+      render(<DiffView {...defaultProps} />)
+      const nextBtn = screen.getByTitle('Next change (F5)')
+      expect(nextBtn).toBeDisabled()
+    })
+
+    it('updates chunk count via rAF after MergeView creation with multiple chunks', () => {
+      mockMergeViewInstance.chunks = [
+        { fromA: 0, toA: 1, fromB: 0, toB: 1 },
+        { fromA: 2, toA: 3, fromB: 2, toB: 3 },
+      ]
+      render(<DiffView {...defaultProps} />)
+      expect(screen.getByText('0/0')).toBeInTheDocument()
+      flushRAF()
+      expect(screen.getByText('1/2')).toBeInTheDocument()
+    })
+
+    it('updates chunk count via rAF after unified editor creation', () => {
+      vi.mocked(getChunks).mockReturnValue({ chunks: [{ fromA: 0, toA: 1, fromB: 0, toB: 1, endA: 1, endB: 1, changes: [], precise: false }], side: null as "a" | "b" | null })
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      flushRAF()
+      expect(getChunks).toHaveBeenCalled()
+    })
+
+    it('does not set totalChunks if unmounted before rAF fires', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      const { unmount } = render(<DiffView {...defaultProps} />)
+      unmount()
+      flushRAF()
+      // No error thrown = success
+    })
+
+    it('switches mode without error when no unified editor exists', () => {
+      // Create scenario where unified mode creation fails
+      vi.mocked(EditorState.create).mockImplementationOnce(() => {
+        throw new Error('State creation failed')
+      })
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      // Error logged but component still works
+      expect(logger.error).toHaveBeenCalled()
+      // Switch back
+      fireEvent.click(screen.getByTitle('Switch to side-by-side view'))
+      expect(screen.getByTitle('Switch to unified view')).toBeInTheDocument()
+    })
+
+    it('navigates chunks correctly after multiple mode switches', () => {
+      mockMergeViewInstance.chunks = [{ fromA: 0, toA: 1, fromB: 0, toB: 1 }]
+      render(<DiffView {...defaultProps} />)
+      // Switch to unified and back
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      fireEvent.click(screen.getByTitle('Switch to side-by-side view'))
+      // Chunks should still be tracked
+      flushRAF()
+      expect(screen.getByText('1/1')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Mode toggle button icons
+  // -------------------------------------------------------------------------
+  describe('mode toggle icons', () => {
+    it('shows unified icon in side-by-side mode', () => {
+      render(<DiffView {...defaultProps} />)
+      const toggleBtn = screen.getByTitle('Switch to unified view')
+      const svg = toggleBtn.querySelector('svg')
+      expect(svg).toBeInTheDocument()
+      expect(svg?.querySelector('rect')).toBeInTheDocument()
+    })
+
+    it('shows split icon in unified mode', () => {
+      render(<DiffView {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Switch to unified view'))
+      const toggleBtn = screen.getByTitle('Switch to side-by-side view')
+      const svg = toggleBtn.querySelector('svg')
+      expect(svg).toBeInTheDocument()
+      const rects = svg?.querySelectorAll('rect')
+      expect(rects?.length).toBe(2)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // MergeView config details
+  // -------------------------------------------------------------------------
+  describe('MergeView configuration', () => {
+    it('passes collapseUnchanged config', () => {
+      render(<DiffView {...defaultProps} />)
+      const call = vi.mocked(MergeView).mock.calls[0]
+      const config = call[0] as { collapseUnchanged: { margin: number; minSize: number } }
+      expect(config.collapseUnchanged).toEqual({ margin: 3, minSize: 4 })
+    })
+
+    it('passes orientation a-b', () => {
+      render(<DiffView {...defaultProps} />)
+      const call = vi.mocked(MergeView).mock.calls[0]
+      const config = call[0] as { orientation: string }
+      expect(config.orientation).toBe('a-b')
+    })
+
+    it('passes highlightChanges true', () => {
+      render(<DiffView {...defaultProps} />)
+      const call = vi.mocked(MergeView).mock.calls[0]
+      const config = call[0] as { highlightChanges: boolean }
+      expect(config.highlightChanges).toBe(true)
+    })
+
+    it('passes gutter true', () => {
+      render(<DiffView {...defaultProps} />)
+      const call = vi.mocked(MergeView).mock.calls[0]
+      const config = call[0] as { gutter: boolean }
+      expect(config.gutter).toBe(true)
+    })
+
+    it('passes sharedExtensions including readOnly', () => {
+      render(<DiffView {...defaultProps} />)
+      const call = vi.mocked(MergeView).mock.calls[0]
+      const config = call[0] as unknown as Record<string, unknown>
+      const aConfig = config.a as Record<string, unknown>
+      expect(aConfig.extensions).toBeDefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Diff stats edge cases
+  // -------------------------------------------------------------------------
+  describe('diff stats edge cases', () => {
+    it('handles LCS backtrack with j=0 case', () => {
+      const { container } = render(
+        <DiffView {...defaultProps} original={"a\nb\nc\nd"} modified="x" />
+      )
+      expect(getAddedStat(container)).toBe('+1')
+      expect(getRemovedStat(container)).toBe('-4')
+    })
+
+    it('handles LCS backtrack with i=0 case', () => {
+      const { container } = render(
+        <DiffView {...defaultProps} original="x" modified={"a\nb\nc\nd"} />
+      )
+      expect(getAddedStat(container)).toBe('+4')
+      expect(getRemovedStat(container)).toBe('-1')
+    })
+
+    it('uses heuristic fallback for large files with some shared lines', () => {
+      const shared = 'shared line\n'
+      const origLines = Array.from({ length: 3200 }, (_, i) => `orig-${i}`)
+      const modLines = Array.from({ length: 3200 }, (_, i) => i < 100 ? `orig-${i}` : `mod-${i}`)
+      const { container } = render(
+        <DiffView {...defaultProps} original={shared + origLines.join('\n')} modified={shared + modLines.join('\n')} />
+      )
+      expect(getAddedStat(container)).toMatch(/\+\d+/)
+      expect(getRemovedStat(container)).toMatch(/-\d+/)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Unmount cleanup paths
+  // -------------------------------------------------------------------------
+  describe('unmount cleanup', () => {
+    it('handles null mergeViewRef on unmount gracefully', () => {
+      vi.mocked(MergeView).mockImplementationOnce(() => {
+        throw new Error('no merge view')
+      })
+      const { unmount } = render(<DiffView {...defaultProps} />)
+      expect(() => unmount()).not.toThrow()
+    })
+
+    it('cleans up injected style elements on effect cleanup', () => {
+      const { container, rerender } = render(<DiffView {...defaultProps} />)
+      const contentDiv = container.querySelector('.flex-1.overflow-hidden') as HTMLElement
+      expect(contentDiv.querySelectorAll('style').length).toBeGreaterThan(0)
+      rerender(<DiffView {...defaultProps} original="changed" />)
+      expect(contentDiv.querySelectorAll('style').length).toBeGreaterThan(0)
     })
   })
 })

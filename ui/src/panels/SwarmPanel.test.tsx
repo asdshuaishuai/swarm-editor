@@ -1,7 +1,9 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import SwarmPanel, { SwarmCard } from './SwarmPanel'
+import type { Swarm } from '../types'
+import type { SwarmInfo } from '../services/api'
 import { useAppStore } from '../store/appStore'
 
 // Mock SwarmCoordinatorPanel
@@ -36,6 +38,7 @@ vi.mock('../services', () => ({
       }),
       startSwarm: vi.fn().mockResolvedValue({}),
       stopSwarm: vi.fn().mockResolvedValue({}),
+      deleteSwarm: vi.fn().mockResolvedValue(undefined),
     },
   },
 }))
@@ -1177,5 +1180,1116 @@ describe('SwarmPanel successful operations', () => {
       expect(calledSwarms[0].agents[0].id).toBe('agent-1')
       expect(calledSwarms[0].agents[1].id).toBe('agent-2')
     })
+  })
+})
+
+describe('SwarmPanel loadSwarms', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows loading spinner when loading swarms', async () => {
+    const { api } = await import('../services')
+    let resolveLoad: (value: SwarmInfo[]) => void
+    const loadPromise = new Promise((resolve: (value: SwarmInfo[]) => void) => { resolveLoad = resolve })
+    vi.mocked(api.swarm.getSwarms).mockReturnValue(loadPromise)
+
+    const mockSetSwarms = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: mockSetSwarms,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    const spinner = refreshBtn.querySelector('.animate-spin')
+    expect(spinner).toBeInTheDocument()
+
+    await act(async () => {
+      resolveLoad!([])
+      await loadPromise
+    })
+  })
+
+  it('handles loadSwarms error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.getSwarms).mockRejectedValueOnce('string error')
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to load swarms', 'Unknown error')
+    })
+  })
+
+  it('loads swarms with status fallback when state is missing', async () => {
+    const { api } = await import('../services')
+    const mockSetSwarms = vi.fn()
+    vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([
+      {
+        id: 'sw-1',
+        name: 'Fallback Swarm',
+        topology: 'mesh',
+        strategy: 'sequential',
+        // No state field, only status
+        status: 'active',
+        agents: [],
+        agentCount: 1,
+        taskCount: 3,
+      },
+    ])
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: mockSetSwarms,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    await waitFor(() => {
+      expect(mockSetSwarms).toHaveBeenCalled()
+      const calledSwarms = mockSetSwarms.mock.calls[0][0]
+      expect(calledSwarms[0].state).toBe('active')
+      expect(calledSwarms[0].stats.state).toBe('active')
+    })
+  })
+
+  it('loads swarms with taskCount fallback for stats', async () => {
+    const { api } = await import('../services')
+    const mockSetSwarms = vi.fn()
+    vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([
+      {
+        id: 'sw-1',
+        name: 'Stats Swarm',
+        topology: 'ring',
+        strategy: 'pipeline',
+        status: 'idle',
+        state: 'idle',
+        agents: [],
+        agentCount: 3,
+        taskCount: 7,
+        // No nested stats
+      },
+    ])
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: mockSetSwarms,
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    await waitFor(() => {
+      expect(mockSetSwarms).toHaveBeenCalled()
+      const calledSwarms = mockSetSwarms.mock.calls[0][0]
+      expect(calledSwarms[0].stats.agentCount).toBe(3)
+      expect(calledSwarms[0].stats.pendingTasks).toBe(7)
+    })
+  })
+})
+
+describe('SwarmPanel delete swarm', () => {
+  const mockSwarm = {
+    id: 'del-1',
+    name: 'Delete Me',
+    topology: 'star' as const,
+    state: 'stopped' as const,
+    agents: [],
+    stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows delete confirmation dialog when delete button clicked', async () => {
+    render(<SwarmPanel />)
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    await userEvent.click(deleteBtn)
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog.getAttribute('aria-label')).toBe('Delete Swarm')
+    expect(within(dialog).getByText(/Are you sure you want to delete "Delete Me"/)).toBeInTheDocument()
+  })
+
+  it('cancels delete when Cancel clicked in dialog', async () => {
+    render(<SwarmPanel />)
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    await userEvent.click(deleteBtn)
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByText('Cancel'))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('deletes swarm successfully on confirm', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.deleteSwarm).mockResolvedValueOnce(undefined)
+    vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([])
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    await userEvent.click(deleteBtn)
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Swarm' }))
+
+    await waitFor(() => {
+      expect(api.swarm.deleteSwarm).toHaveBeenCalledWith('del-1')
+      expect(mockAddToast).toHaveBeenCalledWith('success', 'Swarm deleted')
+    })
+  })
+
+  it('handles delete swarm API error', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.deleteSwarm).mockRejectedValueOnce(new Error('Delete failed'))
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    await userEvent.click(deleteBtn)
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Swarm' }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to delete swarm', 'Delete failed')
+    })
+  })
+
+  it('handles delete swarm error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.deleteSwarm).mockRejectedValueOnce('network failure')
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    const deleteBtn = screen.getByTitle('Delete Swarm')
+    await userEvent.click(deleteBtn)
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Swarm' }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to delete swarm', 'Unknown error')
+    })
+  })
+})
+
+describe('SwarmPanel createSwarm error paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handles createSwarm error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.createSwarm).mockRejectedValueOnce('server error')
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Test Agent', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    await userEvent.type(screen.getByPlaceholderText('My Swarm'), 'Error Swarm')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /Create Swarm/ }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to create swarm', 'Unknown error')
+    })
+  })
+
+  it('handles createSwarm success with status fallback', async () => {
+    const { api } = await import('../services')
+    const mockAddSwarm = vi.fn()
+    vi.mocked(api.swarm.createSwarm).mockResolvedValueOnce({
+      id: 'sw-new',
+      name: 'New Swarm',
+      topology: 'star',
+      strategy: 'parallel',
+      status: 'stopped',
+      // No state, only status
+      agents: ['agent-1'],
+      agentCount: 1,
+      taskCount: 2,
+      stats: {
+        agentCount: 1,
+        idleAgents: 1,
+        executingAgents: 0,
+        pendingTasks: 2,
+        completedTasks: 0,
+        topology: '',
+        strategy: '',
+        state: '',
+      },
+      createdAt: new Date().toISOString(),
+    })
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent One', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: mockAddSwarm,
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    await userEvent.type(screen.getByPlaceholderText('My Swarm'), 'New Swarm')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /Create Swarm/ }))
+
+    await waitFor(() => {
+      expect(mockAddSwarm).toHaveBeenCalled()
+      const swarm = mockAddSwarm.mock.calls[0][0]
+      expect(swarm.state).toBe('stopped')
+      expect(swarm.stats.pendingTasks).toBe(2)
+    })
+  })
+
+  it('resets form after successful creation', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.createSwarm).mockResolvedValueOnce({
+      id: 'sw-reset',
+      name: 'Reset Test',
+      topology: 'star',
+      strategy: 'parallel',
+      status: 'stopped',
+      state: 'stopped',
+      agents: ['agent-1'],
+      agentCount: 1,
+      taskCount: 0,
+      stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: '', strategy: '', state: '' },
+      createdAt: new Date().toISOString(),
+    })
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent One', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+
+    // Select mesh topology and pipeline strategy
+    const meshButton = screen.getByText('mesh').closest('button')!
+    fireEvent.click(meshButton)
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[0], { target: { value: 'pipeline' } })
+
+    await userEvent.type(screen.getByPlaceholderText('My Swarm'), 'Reset Test')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /Create Swarm/ }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Create New Swarm')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('SwarmPanel start/stop error paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handles startSwarm error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.startSwarm).mockRejectedValueOnce('connection refused')
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Test', topology: 'star' as const, state: 'stopped' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Start Swarm'))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to start swarm', 'Unknown error')
+    })
+  })
+
+  it('handles stopSwarm error with non-Error object', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.stopSwarm).mockRejectedValueOnce('timeout')
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Active', topology: 'star' as const, state: 'active' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Stop Swarm'))
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Stop Swarm' }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to stop swarm', 'Unknown error')
+    })
+  })
+})
+
+describe('SwarmPanel coordinator view details', () => {
+  const mockSwarm = {
+    id: '1', name: 'Coord Swarm', topology: 'mesh' as const, state: 'active' as const, agents: [],
+    stats: { agentCount: 3, completedTasks: 5, pendingTasks: 1 },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [mockSwarm],
+        agents: [],
+        activeSwarm: mockSwarm,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('has Back to Swarms button with aria-label', () => {
+    render(<SwarmPanel />)
+    expect(screen.getByLabelText('Back to swarms list')).toBeInTheDocument()
+  })
+
+  it('renders SwarmCoordinatorPanel inside coordinator view', () => {
+    render(<SwarmPanel />)
+    expect(screen.getByTestId('swarm-coordinator')).toBeInTheDocument()
+  })
+})
+
+describe('SwarmCard topology icons', () => {
+  const makeSwarm = (topology: string): Swarm => ({
+    id: '1', name: 'Icon Swarm', topology: topology as Swarm['topology'],
+    strategy: 'parallel' as Swarm['strategy'], state: 'stopped' as Swarm['state'], agents: [],
+    stats: { agentCount: 0, idleAgents: 0, executingAgents: 0, completedTasks: 0, pendingTasks: 0, topology: '', strategy: '', state: '' },
+  })
+
+  it('renders star topology icon', () => {
+    render(<SwarmCard swarm={makeSwarm('star')} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('★')).toBeInTheDocument()
+  })
+
+  it('renders mesh topology icon', () => {
+    render(<SwarmCard swarm={makeSwarm('mesh')} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('◇')).toBeInTheDocument()
+  })
+
+  it('renders tree topology icon', () => {
+    render(<SwarmCard swarm={makeSwarm('tree')} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('▴')).toBeInTheDocument()
+  })
+
+  it('renders ring topology icon', () => {
+    render(<SwarmCard swarm={makeSwarm('ring')} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('○')).toBeInTheDocument()
+  })
+
+  it('renders hybrid topology icon', () => {
+    render(<SwarmCard swarm={makeSwarm('hybrid')} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('◈')).toBeInTheDocument()
+  })
+
+  it('renders status color for initializing state', () => {
+    const swarm = { ...makeSwarm('star'), state: 'initializing' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    const dot = document.querySelector('.bg-warning')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('renders status color for paused state', () => {
+    const swarm = { ...makeSwarm('star'), state: 'paused' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    const dot = document.querySelector('.bg-info')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('renders status color for stopping state', () => {
+    const swarm = { ...makeSwarm('star'), state: 'stopping' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    const dot = document.querySelector('.bg-warning')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('renders status color for stopped state', () => {
+    const swarm = { ...makeSwarm('star'), state: 'stopped' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    const dot = document.querySelector('.bg-text-tertiary')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('shows start button when swarm is not running', () => {
+    const swarm = { ...makeSwarm('star'), state: 'stopped' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByTitle('Start Swarm')).toBeInTheDocument()
+    expect(screen.queryByTitle('Stop Swarm')).not.toBeInTheDocument()
+  })
+
+  it('shows stop button when swarm is active', () => {
+    const swarm = { ...makeSwarm('star'), state: 'active' as const }
+    render(<SwarmCard swarm={swarm} isActive={false} onSelect={() => {}} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    expect(screen.getByTitle('Stop Swarm')).toBeInTheDocument()
+    expect(screen.queryByTitle('Start Swarm')).not.toBeInTheDocument()
+  })
+
+  it('calls onSelect when Manage button clicked', () => {
+    const handleSelect = vi.fn()
+    render(<SwarmCard swarm={makeSwarm('star')} isActive={false} onSelect={handleSelect} onStart={() => {}} onStop={() => {}} onDelete={() => {}} />)
+    fireEvent.click(screen.getByText('Manage'))
+    expect(handleSelect).toHaveBeenCalled()
+  })
+})
+
+describe('SwarmPanel stop confirmation cancel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('cancels stop confirmation without calling stopSwarm API', async () => {
+    const { api } = await import('../services')
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Active', topology: 'star' as const, state: 'active' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Stop Swarm'))
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByText('Cancel'))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(api.swarm.stopSwarm).not.toHaveBeenCalled()
+  })
+})
+
+describe('SwarmPanel refresh without active swarm', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows refresh button with correct aria-label', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    expect(screen.getByLabelText('Refresh swarms')).toBeInTheDocument()
+  })
+})
+
+describe('SwarmPanel modal close button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('closes modal when X button clicked', async () => {
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    expect(screen.getByText('Create New Swarm')).toBeInTheDocument()
+
+    const closeBtn = screen.getByLabelText('Close modal')
+    await userEvent.click(closeBtn)
+    expect(screen.queryByText('Create New Swarm')).not.toBeInTheDocument()
+  })
+
+  it('renders modal with dialog role and aria-modal', async () => {
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('aria-label', 'Create New Swarm')
+  })
+})
+
+describe('SwarmPanel strategy change', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('changes to pipeline strategy', () => {
+    render(<SwarmPanel />)
+    fireEvent.click(screen.getByText('New Swarm'))
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[0], { target: { value: 'pipeline' } })
+    expect(selects[0]).toHaveValue('pipeline')
+  })
+
+  it('changes to mapreduce strategy', () => {
+    render(<SwarmPanel />)
+    fireEvent.click(screen.getByText('New Swarm'))
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[0], { target: { value: 'mapreduce' } })
+    expect(selects[0]).toHaveValue('mapreduce')
+  })
+})
+
+describe('SwarmPanel agent selection display', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [
+          { id: 'agent-1', name: 'Agent Alpha', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true },
+        ],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows agent type badge', async () => {
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    expect(screen.getByText('coder')).toBeInTheDocument()
+  })
+
+  it('shows agent name in checkbox list', async () => {
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    expect(screen.getByText('Agent Alpha')).toBeInTheDocument()
+  })
+})
+
+describe('SwarmPanel topology description display', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('shows star description by default', () => {
+    render(<SwarmPanel />)
+    fireEvent.click(screen.getByText('New Swarm'))
+    expect(screen.getByText('Central coordinator with agents reporting to it')).toBeInTheDocument()
+  })
+})
+
+describe('SwarmPanel unmount during async', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handles unmount during loadSwarms without crashing', async () => {
+    const { api } = await import('../services')
+    let resolveLoad: (value: SwarmInfo[]) => void
+    const loadPromise = new Promise((resolve: (value: SwarmInfo[]) => void) => { resolveLoad = resolve })
+    vi.mocked(api.swarm.getSwarms).mockReturnValue(loadPromise)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    // Unmount while loading
+    unmount()
+
+    // Resolve the promise - should not cause errors
+    await act(async () => {
+      resolveLoad!([])
+      await loadPromise
+    })
+  })
+
+  it('handles unmount during loadSwarms error without crashing', async () => {
+    const { api } = await import('../services')
+    let rejectLoad: (reason: unknown) => void
+    const loadPromise: Promise<SwarmInfo[]> = new Promise((_resolve, reject) => { rejectLoad = reject })
+    vi.mocked(api.swarm.getSwarms).mockReturnValue(loadPromise)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    const refreshBtn = screen.getByTitle('Refresh')
+    await userEvent.click(refreshBtn)
+
+    // Unmount while loading
+    unmount()
+
+    // Reject the promise - should not cause errors
+    await act(async () => {
+      rejectLoad!(new Error('Unmounted'))
+      try { await loadPromise } catch { /* expected */ }
+    })
+  })
+
+  it('handles unmount during createSwarm without crashing', async () => {
+    const { api } = await import('../services')
+    let resolveCreate: (value: SwarmInfo) => void
+    const createPromise = new Promise((resolve: (value: SwarmInfo) => void) => { resolveCreate = resolve })
+    vi.mocked(api.swarm.createSwarm).mockReturnValue(createPromise as never)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent One', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    await userEvent.type(screen.getByPlaceholderText('My Swarm'), 'Unmount Test')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /Create Swarm/ }))
+
+    // Unmount while creating
+    unmount()
+
+    // Resolve the promise - should not cause errors
+    await act(async () => {
+      resolveCreate!({
+        id: 'sw-1', name: 'Unmount Test', topology: 'star', strategy: 'parallel',
+        status: 'stopped',
+        state: 'stopped', agents: ['agent-1'], agentCount: 1, taskCount: 0,
+        stats: { agentCount: 1, idleAgents: 1, executingAgents: 0, pendingTasks: 0, completedTasks: 0, topology: '', strategy: '', state: '' },
+        createdAt: new Date().toISOString(),
+      } as unknown as SwarmInfo)
+      try { await createPromise } catch { /* expected */ }
+    })
+  })
+
+  it('handles unmount during createSwarm error without crashing', async () => {
+    const { api } = await import('../services')
+    let rejectCreate: (reason: unknown) => void
+    const createPromise: Promise<SwarmInfo> = new Promise((_resolve, reject) => { rejectCreate = reject })
+    vi.mocked(api.swarm.createSwarm).mockReturnValue(createPromise as never)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [{ id: 'agent-1', name: 'Agent One', type: 'coder', status: 'stopped', command: 'claude', capabilities: [], lastActive: null, enabled: true }],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    await userEvent.click(screen.getByText('New Swarm'))
+    await userEvent.type(screen.getByPlaceholderText('My Swarm'), 'Error Unmount')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /Create Swarm/ }))
+
+    // Unmount while creating
+    unmount()
+
+    // Reject the promise - should not cause errors
+    await act(async () => {
+      rejectCreate!(new Error('Unmounted'))
+      try { await createPromise } catch { /* expected */ }
+    })
+  })
+
+  it('handles unmount during startSwarm without crashing', async () => {
+    const { api } = await import('../services')
+    let resolveStart: (value: unknown) => void
+    const startPromise = new Promise((resolve: (value: unknown) => void) => { resolveStart = resolve })
+    vi.mocked(api.swarm.startSwarm).mockReturnValue(startPromise as never)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Test', topology: 'star' as const, state: 'stopped' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Start Swarm'))
+
+    // Unmount while starting
+    unmount()
+
+    await act(async () => {
+      resolveStart!({})
+      try { await startPromise } catch { /* expected */ }
+    })
+  })
+
+  it('handles unmount during stopSwarm without crashing', async () => {
+    const { api } = await import('../services')
+    let resolveStop: (value: unknown) => void
+    const stopPromise = new Promise((resolve: (value: unknown) => void) => { resolveStop = resolve })
+    vi.mocked(api.swarm.stopSwarm).mockReturnValue(stopPromise as never)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Active', topology: 'star' as const, state: 'active' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Stop Swarm'))
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Stop Swarm' }))
+
+    // Unmount while stopping
+    unmount()
+
+    await act(async () => {
+      resolveStop!({})
+      try { await stopPromise } catch { /* expected */ }
+    })
+  })
+
+  it('handles unmount during deleteSwarm without crashing', async () => {
+    const { api } = await import('../services')
+    let resolveDelete: (value: unknown) => void
+    const deletePromise = new Promise((resolve: (value: unknown) => void) => { resolveDelete = resolve })
+    vi.mocked(api.swarm.deleteSwarm).mockReturnValue(deletePromise as never)
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Delete Me', topology: 'star' as const, state: 'stopped' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Delete Swarm'))
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Swarm' }))
+
+    // Unmount while deleting
+    unmount()
+
+    await act(async () => {
+      resolveDelete!(undefined)
+      try { await deletePromise } catch { /* expected */ }
+    })
+  })
+})
+
+describe('SwarmPanel start success with toast', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows success toast after starting swarm', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.swarm.startSwarm).mockResolvedValueOnce({} as never)
+    vi.mocked(api.swarm.getSwarms).mockResolvedValueOnce([])
+
+    const mockAddToast = vi.fn()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [{
+          id: '1', name: 'Stopped', topology: 'star' as const, state: 'stopped' as const, agents: [],
+          stats: { agentCount: 1, completedTasks: 0, pendingTasks: 0 },
+        }],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: mockAddToast,
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    await userEvent.click(screen.getByTitle('Start Swarm'))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('success', 'Swarm started')
+    })
+  })
+})
+
+describe('SwarmPanel agent count subtitle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows subtitle "Coordinate multiple agents"', () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    render(<SwarmPanel />)
+    expect(screen.getByText('Coordinate multiple agents')).toBeInTheDocument()
+  })
+})
+
+describe('SwarmPanel header icon', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        swarms: [],
+        agents: [],
+        activeSwarm: null,
+        setActiveSwarm: vi.fn(),
+        addToast: vi.fn(),
+        setSwarms: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  it('renders Network icon container', () => {
+    render(<SwarmPanel />)
+    // The Network icon is in the header
+    const iconContainer = document.querySelector('.bg-accent\\/10')
+    expect(iconContainer).toBeInTheDocument()
   })
 })

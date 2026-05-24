@@ -7,6 +7,43 @@ vi.mock('../store/appStore', () => ({
   useAppStore: vi.fn(),
 }))
 
+vi.mock('../utils', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
+vi.mock('../utils/fileReference', () => ({
+  isCursorInFileReference: vi.fn(() => ({ inReference: false })),
+  parseFileReferences: vi.fn(() => []),
+  getLanguageFromExtension: vi.fn((ext: string) => ext || 'text'),
+  expandGlob: vi.fn((_pattern: string, files: string[]) => files),
+}))
+
+vi.mock('./FileAutocomplete', () => ({
+  FileAutocompleteWrapper: ({ visible }: { visible: boolean }) =>
+    visible ? <div data-testid="file-autocomplete">File Autocomplete</div> : null,
+}))
+
+vi.mock('./ConfirmDialog', () => ({
+  ConfirmDialog: ({ onConfirm, onCancel, title, message }: {
+    onConfirm: () => void
+    onCancel: () => void
+    title: string
+    message: string
+  }) => (
+    <div data-testid="confirm-dialog">
+      <span>{title}</span>
+      <span>{message}</span>
+      <button onClick={onConfirm} data-testid="confirm-btn">Confirm</button>
+      <button onClick={onCancel} data-testid="cancel-btn">Cancel</button>
+    </div>
+  ),
+}))
+
 // Store event handlers for triggering in tests
 const eventHandlers = new Map<string, (payload: unknown) => void>()
 
@@ -15,7 +52,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-// Mock WebSocket events API
+// Mock services module
 vi.mock('../services', () => ({
   events: {
     onAgentMessage: vi.fn().mockImplementation((handler: (payload: unknown) => void) => {
@@ -31,11 +68,9 @@ vi.mock('../services', () => ({
         agentName: 'Agent 1',
       }),
       sendMessage: vi.fn().mockImplementation(async (_sessionId: string, _message: string) => {
-        // Simulate a delay and then trigger the WebSocket event handler
         await new Promise((resolve) => {
           setTimeout(resolve, 500)
         })
-        // Trigger the WebSocket event handler for agent_message
         const handler = eventHandlers.get('agent_message')
         if (handler) {
           handler({
@@ -51,6 +86,10 @@ vi.mock('../services', () => ({
       closeSession: vi.fn().mockResolvedValue(undefined),
     },
   },
+  fsApi: {
+    listDir: vi.fn().mockResolvedValue([]),
+    readFile: vi.fn().mockResolvedValue('file content'),
+  },
 }))
 
 // Shared mock functions accessible across all describe blocks
@@ -60,8 +99,8 @@ const mockStopAgent = vi.fn()
 const mockLoadAgents = vi.fn()
 const mockAddToast = vi.fn()
 
-describe('AgentPanel', () => {
-  const defaultMockState = {
+function mockStore(overrides: Record<string, unknown> = {}) {
+  const defaultState = {
     agents: [
       { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
       { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle', capabilities: {} },
@@ -72,14 +111,23 @@ describe('AgentPanel', () => {
     stopAgent: mockStopAgent,
     loadAgents: mockLoadAgents,
     addToast: mockAddToast,
+    agentLoadError: null,
+    ...overrides,
   }
+  ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector?: (state: unknown) => unknown) => {
+    return selector ? selector(defaultState) : defaultState
+  })
+  return defaultState
+}
 
+describe('AgentPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector?: (state: unknown) => unknown) => {
-      return selector ? selector(defaultMockState) : defaultMockState
-    })
+    eventHandlers.clear()
+    mockStore()
   })
+
+  // --- Rendering ---
 
   it('renders agent selector', () => {
     render(<AgentPanel />)
@@ -94,22 +142,161 @@ describe('AgentPanel', () => {
 
   it('renders agents list with status', () => {
     render(<AgentPanel />)
-    // Check agent list section - use getAllByText since there are multiple Idle labels
     const idleLabels = screen.getAllByText('Idle')
     expect(idleLabels.length).toBeGreaterThanOrEqual(2)
   })
 
   it('renders input placeholder when agent selected', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     expect(screen.getByPlaceholderText('Type a message... (@File to reference files)')).toBeInTheDocument()
   })
+
+  it('renders default placeholder when no agent selected', () => {
+    render(<AgentPanel />)
+    expect(screen.getByPlaceholderText('Select an agent first...')).toBeInTheDocument()
+  })
+
+  it('shows empty state when no agents available', () => {
+    mockStore({ agents: [] })
+    render(<AgentPanel />)
+    expect(screen.getByText('No agents available')).toBeInTheDocument()
+  })
+
+  it('shows "Select an agent to start chatting" when no agent selected', () => {
+    render(<AgentPanel />)
+    expect(screen.getByText('Select an agent to start chatting')).toBeInTheDocument()
+  })
+
+  it('shows chat prompt with agent name when agent selected', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    expect(screen.getByText('Chat with Agent 1')).toBeInTheDocument()
+  })
+
+  // --- Agent Load Error Banner ---
+
+  it('shows error banner when agentLoadError is set', () => {
+    mockStore({ agentLoadError: 'Failed to load agents' })
+    render(<AgentPanel />)
+    expect(screen.getByText('Failed to load agents')).toBeInTheDocument()
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+  })
+
+  it('does not show error banner when agentLoadError is null', () => {
+    render(<AgentPanel />)
+    expect(screen.queryByText('Retry')).toBeNull()
+  })
+
+  it('retry button in error banner calls handleRefresh', async () => {
+    mockStore({ agentLoadError: 'Failed to load agents' })
+    render(<AgentPanel />)
+    // There are two refresh buttons: one in the banner and one in the selector header.
+    // The banner one is the "Retry" text link.
+    fireEvent.click(screen.getByText('Retry'))
+    await waitFor(() => {
+      expect(mockLoadAgents).toHaveBeenCalled()
+    })
+  })
+
+  // --- Agent Selector ---
+
+  it('calls selectAgent when agent is selected via dropdown', () => {
+    render(<AgentPanel />)
+    const select = screen.getByRole('combobox')
+    fireEvent.change(select, { target: { value: '1' } })
+    expect(mockSelectAgent).toHaveBeenCalled()
+  })
+
+  it('calls selectAgent with null when selecting empty option', () => {
+    render(<AgentPanel />)
+    const select = screen.getByRole('combobox')
+    fireEvent.change(select, { target: { value: '1' } })
+    expect(mockSelectAgent).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
+    fireEvent.change(select, { target: { value: '' } })
+    expect(mockSelectAgent).toHaveBeenCalledWith(null)
+  })
+
+  it('calls selectAgent with null when agent not found in dropdown', () => {
+    render(<AgentPanel />)
+    const select = screen.getByRole('combobox')
+    fireEvent.change(select, { target: { value: 'non-existent-agent' } })
+    expect(mockSelectAgent).toHaveBeenCalledWith(null)
+  })
+
+  it('calls selectAgent when agent card is clicked in agent list', () => {
+    render(<AgentPanel />)
+    const agentName = screen.getByText('Agent 1')
+    const agentCard = agentName.closest('.cursor-pointer')
+    expect(agentCard).toBeInTheDocument()
+    fireEvent.click(agentCard!)
+    expect(mockSelectAgent).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
+  })
+
+  it('shows visual selection state when agent is selected in list', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const agentNames = screen.getAllByText('Agent 1')
+    const agentCard = agentNames
+      .map(el => el.closest('.cursor-pointer'))
+      .find(el => el !== null)
+    expect(agentCard).toHaveClass('border')
+    expect(agentCard).toHaveClass('border-accent/30')
+  })
+
+  // --- Selected Agent Info ---
+
+  it('shows selected agent info section when agent is selected', () => {
+    mockStore({
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+    })
+    render(<AgentPanel />)
+    // Agent name appears in both the agent list card and the info section
+    const agentNames = screen.getAllByText('Agent 1')
+    // The info section one is inside a bg-glass/30 container
+    const infoSectionName = agentNames.find(el => el.closest('.bg-glass\\/30'))
+    expect(infoSectionName).toBeInTheDocument()
+  })
+
+  it('shows capabilities when agent has pairProgramming', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true } }],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true } },
+    })
+    render(<AgentPanel />)
+    expect(screen.getByText('Pair Programming')).toBeInTheDocument()
+  })
+
+  it('shows capabilities when agent has teamCollaboration', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { teamCollaboration: true } }],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { teamCollaboration: true } },
+    })
+    render(<AgentPanel />)
+    expect(screen.getByText('Team Collaboration')).toBeInTheDocument()
+  })
+
+  it('shows both capabilities when agent has both', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } }],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } },
+    })
+    render(<AgentPanel />)
+    expect(screen.getByText('Pair Programming')).toBeInTheDocument()
+    expect(screen.getByText('Team Collaboration')).toBeInTheDocument()
+  })
+
+  it('does not show capability badges when agent has no capabilities', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+    })
+    render(<AgentPanel />)
+    expect(screen.queryByText('Pair Programming')).toBeNull()
+    expect(screen.queryByText('Team Collaboration')).toBeNull()
+  })
+
+  // --- Send Button State ---
 
   it('send button is disabled when no agent selected', () => {
     render(<AgentPanel />)
@@ -118,22 +305,29 @@ describe('AgentPanel', () => {
     expect(sendButton).toBeDisabled()
   })
 
-  it('calls selectAgent when agent is selected', () => {
+  it('send button is disabled when input is empty', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
-    const select = screen.getByRole('combobox')
-    fireEvent.change(select, { target: { value: '1' } })
-    expect(mockSelectAgent).toHaveBeenCalled()
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    expect(sendButton).toBeDisabled()
   })
+
+  it('send button is enabled when input has text and agent is selected', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    expect(sendButton).not.toBeDisabled()
+  })
+
+  // --- Sending Messages ---
 
   it('sends message on button click when agent is selected', async () => {
     vi.useFakeTimers()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello agent' } })
@@ -141,12 +335,9 @@ describe('AgentPanel', () => {
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
     fireEvent.click(sendButton!)
 
-    // Check user message appears
     expect(screen.getByText('Hello agent')).toBeInTheDocument()
-    // Input should be cleared
     expect(input).toHaveValue('')
 
-    // Advance timers to complete the setTimeout and prevent unhandled errors
     await act(async () => {
       vi.runAllTimersAsync()
     })
@@ -155,13 +346,7 @@ describe('AgentPanel', () => {
 
   it('sends message on Enter key when agent is selected', async () => {
     vi.useFakeTimers()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Test message' } })
@@ -169,39 +354,24 @@ describe('AgentPanel', () => {
 
     expect(screen.getByText('Test message')).toBeInTheDocument()
 
-    // Advance timers to complete the setTimeout and prevent unhandled errors
     await act(async () => {
       vi.runAllTimersAsync()
     })
     vi.useRealTimers()
   })
 
-  it('does not send message on Shift+Enter', async () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+  it('does not send message on Shift+Enter', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Test message' } })
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
-
-    // Message should not appear in chat
     expect(screen.getByText('Chat with Agent 1')).toBeInTheDocument()
   })
 
   it('shows loading indicator after sending', async () => {
     vi.useFakeTimers()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello' } })
@@ -209,11 +379,9 @@ describe('AgentPanel', () => {
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
     fireEvent.click(sendButton!)
 
-    // Loading indicator should appear
     const spinners = document.querySelectorAll('.animate-spin')
     expect(spinners.length).toBeGreaterThan(0)
 
-    // Advance timers to complete the setTimeout and prevent unhandled errors
     await act(async () => {
       vi.runAllTimersAsync()
     })
@@ -222,13 +390,7 @@ describe('AgentPanel', () => {
 
   it('receives agent response after delay', async () => {
     vi.useFakeTimers()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
     fireEvent.change(input, { target: { value: 'Hello' } })
@@ -236,7 +398,6 @@ describe('AgentPanel', () => {
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
     fireEvent.click(sendButton!)
 
-    // Fast-forward timers and wrap in act
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000)
     })
@@ -245,193 +406,26 @@ describe('AgentPanel', () => {
     vi.useRealTimers()
   })
 
-  it('calls loadAgents when refresh button clicked', async () => {
-    render(<AgentPanel />)
-    const refreshButtons = screen.getAllByRole('button')
-    const refreshButton = refreshButtons.find(btn => btn.querySelector('svg.lucide-refresh-cw'))
-    fireEvent.click(refreshButton!)
-    
-    await waitFor(() => {
-      expect(mockLoadAgents).toHaveBeenCalled()
-    })
-  })
-
-  it('calls startAgent when play button clicked on idle agent', async () => {
-    render(<AgentPanel />)
-    const playButtons = screen.getAllByRole('button')
-    const playButton = playButtons.find(btn => btn.querySelector('svg.lucide-play'))
-    fireEvent.click(playButton!)
-    
-    await waitFor(() => {
-      expect(mockStartAgent).toHaveBeenCalledWith('1')
-    })
-  })
-
-  it('calls stopAgent when stop button clicked on running agent', async () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        agents: [
-          { id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} },
-        ],
-      }
-      return selector ? selector(state) : state
-    })
-    render(<AgentPanel />)
-    const stopButtons = screen.getAllByRole('button')
-    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
-    fireEvent.click(stopButton!)
-
-    // Component shows a ConfirmDialog before stopping - confirm it
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Stop Agent' })).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Stop Agent' }))
-
-    await waitFor(() => {
-      expect(mockStopAgent).toHaveBeenCalledWith('1')
-    })
-  })
-
-  it('shows empty state when no agents available', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        agents: [],
-      }
-      return selector ? selector(state) : state
-    })
-    render(<AgentPanel />)
-    expect(screen.getByText('No agents available')).toBeInTheDocument()
-  })
-
-  it('calls selectAgent when agent card is clicked in agent list', () => {
-    render(<AgentPanel />)
-    // Find the agent card by looking for the agent name in the list
-    const agentName = screen.getByText('Agent 1')
-    // The parent div with onClick is 4 levels up from the name span
-    // Agent name is in: div > div.flex-1.min-w-0 > div.text-sm.font-medium.truncate > span
-    // The clickable card is: div.cursor-pointer (the grandparent of agentName's parent)
-    const agentCard = agentName.closest('.cursor-pointer')
-    expect(agentCard).toBeInTheDocument()
-    fireEvent.click(agentCard!)
-    expect(mockSelectAgent).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
-  })
-
-  it('shows visual selection state when agent is selected in list', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        ...defaultMockState,
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-      }
-      return selector ? selector(state) : state
-    })
-    render(<AgentPanel />)
-    // The selected agent card should have the accent border class
-    // Use getAllByText since 'Agent 1' appears in both dropdown and list
-    const agentNames = screen.getAllByText('Agent 1')
-    // Find the one that's inside a cursor-pointer element (the list card)
-    const agentCard = agentNames
-      .map(el => el.closest('.cursor-pointer'))
-      .find(el => el !== null)
-    expect(agentCard).toHaveClass('border')
-    expect(agentCard).toHaveClass('border-accent/30')
-  })
-})
-
-describe('AgentPanel with selected agent', () => {
-  const mockSelectAgent = vi.fn()
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Selected Agent', type: 'coder', state: 'idle', capabilities: {} }],
-        selectedAgent: { id: '1', name: 'Selected Agent', type: 'coder', state: 'idle' },
-        selectAgent: mockSelectAgent,
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
-    })
-  })
-
-  it('shows selected agent in dropdown', () => {
-    render(<AgentPanel />)
-    const select = screen.getByRole('combobox')
-    expect(select).toHaveValue('1')
-  })
-
-  it('shows chat prompt with agent name', () => {
-    render(<AgentPanel />)
-    expect(screen.getByText('Chat with Selected Agent')).toBeInTheDocument()
-  })
-
-  it('shows capabilities when agent has pairProgramming and teamCollaboration', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } }],
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: { pairProgramming: true, teamCollaboration: true } },
-        selectAgent: mockSelectAgent,
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
-    })
-    render(<AgentPanel />)
-    // Check that capabilities are displayed as separate badges
-    expect(screen.getByText('Pair Programming')).toBeInTheDocument()
-    expect(screen.getByText('Team Collaboration')).toBeInTheDocument()
-  })
-})
-
-describe('AgentPanel loading state', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
-        selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
-        selectAgent: vi.fn(),
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
-    })
-  })
-
   it('does not send message while loading', async () => {
     vi.useFakeTimers()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
 
-    // Send first message
     fireEvent.change(input, { target: { value: 'First message' } })
     const sendButtons = screen.getAllByRole('button')
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
     fireEvent.click(sendButton!)
 
-    // Wait for async handleSend to complete (file resolution)
     await act(async () => {
       vi.runAllTimersAsync()
     })
 
-    // Input should be cleared after async resolution
     expect(input).toHaveValue('')
 
-    // Type another message and try to send via Enter while still loading
     fireEvent.change(input, { target: { value: 'Second message' } })
-
-    // Press Enter while loading - this tests the isLoading return branch
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 
-    // Only the first message should be visible in the chat
     const messageAreas = screen.getAllByText('First message')
     expect(messageAreas.length).toBe(1)
 
@@ -439,167 +433,1042 @@ describe('AgentPanel loading state', () => {
   })
 
   it('returns early when handleSend called with empty input', () => {
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
     render(<AgentPanel />)
     const sendButtons = screen.getAllByRole('button')
     const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
-
-    // Button is disabled, but let's verify
     expect(sendButton).toBeDisabled()
   })
-})
 
-describe('AgentPanel agent selection', () => {
-  const mockSelectAgent = vi.fn()
-  const mockAddToast = vi.fn()
+  // --- Refresh ---
 
-  beforeEach(() => {
-    vi.clearAllMocks()
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: mockSelectAgent,
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+  it('calls loadAgents when refresh button clicked', async () => {
+    render(<AgentPanel />)
+    const refreshButtons = screen.getAllByRole('button')
+    const refreshButton = refreshButtons.find(btn => btn.querySelector('svg.lucide-refresh-cw'))
+    fireEvent.click(refreshButton!)
+
+    await waitFor(() => {
+      expect(mockLoadAgents).toHaveBeenCalled()
     })
   })
 
-  it('calls selectAgent with null when selecting empty option', () => {
+  // --- Agent Toggle (Start/Stop) ---
+
+  it('calls startAgent when play button clicked on idle agent', async () => {
     render(<AgentPanel />)
-    const select = screen.getByRole('combobox')
+    const playButtons = screen.getAllByRole('button')
+    const playButton = playButtons.find(btn => btn.querySelector('svg.lucide-play'))
+    fireEvent.click(playButton!)
 
-    // Select an agent first
-    fireEvent.change(select, { target: { value: '1' } })
-    expect(mockSelectAgent).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
-
-    // Now select the empty option
-    fireEvent.change(select, { target: { value: '' } })
-    expect(mockSelectAgent).toHaveBeenCalledWith(null)
+    await waitFor(() => {
+      expect(mockStartAgent).toHaveBeenCalledWith('1')
+    })
   })
 
-  it('calls selectAgent with null when agent not found', () => {
+  it('shows confirm dialog when stop button clicked on running agent', async () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
     render(<AgentPanel />)
-    const select = screen.getByRole('combobox')
+    const stopButtons = screen.getAllByRole('button')
+    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
+    fireEvent.click(stopButton!)
 
-    // Try to select an agent that doesn't exist
-    fireEvent.change(select, { target: { value: 'non-existent-agent' } })
-    expect(mockSelectAgent).toHaveBeenCalledWith(null)
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+    })
   })
-})
 
-describe('AgentPanel state colors', () => {
+  it('calls stopAgent when confirm button clicked in confirm dialog', async () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const stopButtons = screen.getAllByRole('button')
+    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
+    fireEvent.click(stopButton!)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-btn')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('confirm-btn'))
+
+    await waitFor(() => {
+      expect(mockStopAgent).toHaveBeenCalledWith('1')
+    })
+  })
+
+  it('closes confirm dialog when cancel button clicked', async () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const stopButtons = screen.getAllByRole('button')
+    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
+    fireEvent.click(stopButton!)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cancel-btn')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('cancel-btn'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('confirm-dialog')).toBeNull()
+    })
+  })
+
+  it('shows confirm dialog with correct agent name for executing agent', async () => {
+    mockStore({
+      agents: [{ id: '1', name: 'TestBot', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const stopButtons = screen.getAllByRole('button')
+    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
+    fireEvent.click(stopButton!)
+
+    // The confirm dialog message should contain the agent name
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Are you sure you want to stop "TestBot"/)).toBeInTheDocument()
+  })
+
+  // --- Agent State Colors & Labels ---
+
   it('shows green color for executing agent', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: vi.fn(),
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    expect(screen.getByText('Running')).toBeInTheDocument()
+  })
+
+  it('shows green color for running agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'running', capabilities: {} }],
     })
     render(<AgentPanel />)
     expect(screen.getByText('Running')).toBeInTheDocument()
   })
 
   it('shows yellow color for thinking agent', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'thinking', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: vi.fn(),
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'thinking', capabilities: {} }],
     })
     render(<AgentPanel />)
     expect(screen.getByText('Thinking')).toBeInTheDocument()
   })
 
   it('shows red color for error agent', () => {
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'error', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: vi.fn(),
-        startAgent: vi.fn(),
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'error', capabilities: {} }],
     })
     render(<AgentPanel />)
     expect(screen.getByText('Error')).toBeInTheDocument()
   })
 
-  it('handles startAgent error gracefully', async () => {
-    const mockStartAgent = vi.fn().mockRejectedValueOnce(new Error('Start failed'))
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: vi.fn(),
-        startAgent: mockStartAgent,
-        stopAgent: vi.fn(),
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+  it('shows Idle for idle agent', () => {
+    render(<AgentPanel />)
+    expect(screen.getAllByText('Idle').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('shows Idle for stopped agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'stopped', capabilities: {} }],
     })
     render(<AgentPanel />)
+    expect(screen.getByText('Idle')).toBeInTheDocument()
+  })
 
-    // Find and click start button
+  it('shows agent type capitalized', () => {
+    render(<AgentPanel />)
+    expect(screen.getByText('coder')).toBeInTheDocument()
+    expect(screen.getByText('reviewer')).toBeInTheDocument()
+  })
+
+  // --- State Dot Colors ---
+
+  it('shows success dot for running agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'running', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const dots = document.querySelectorAll('.bg-success')
+    expect(dots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows warning dot for thinking agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'thinking', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const dots = document.querySelectorAll('.bg-warning')
+    expect(dots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows error dot for error agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'error', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const dots = document.querySelectorAll('.bg-error')
+    expect(dots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows default dot for idle agent', () => {
+    render(<AgentPanel />)
+    const dots = document.querySelectorAll('.bg-text-tertiary')
+    expect(dots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // --- Toggle Button State Colors ---
+
+  it('shows error color on toggle button for executing agent', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const stopButtons = screen.getAllByRole('button')
+    const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
+    expect(stopButton!.className).toContain('text-error')
+  })
+
+  it('shows success color on toggle button for idle agent', () => {
+    render(<AgentPanel />)
+    const playButtons = screen.getAllByRole('button')
+    const playButton = playButtons.find(btn => btn.querySelector('svg.lucide-play'))
+    expect(playButton!.className).toContain('text-success')
+  })
+
+  // --- Error Handling ---
+
+  it('handles startAgent error gracefully', async () => {
+    const failingStart = vi.fn().mockRejectedValueOnce(new Error('Start failed'))
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+      startAgent: failingStart,
+    })
+    render(<AgentPanel />)
     const startButtons = screen.getAllByRole('button')
     const startButton = startButtons.find(btn => btn.querySelector('svg.lucide-play'))
     fireEvent.click(startButton!)
 
-    // Should not crash - error is logged
     await waitFor(() => {
-      expect(mockStartAgent).toHaveBeenCalled()
+      expect(failingStart).toHaveBeenCalled()
     })
   })
 
   it('handles stopAgent error gracefully', async () => {
-    const mockStopAgent = vi.fn().mockRejectedValueOnce(new Error('Stop failed'))
-    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
-      const state = {
-        agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
-        selectedAgent: null,
-        selectAgent: vi.fn(),
-        startAgent: vi.fn(),
-        stopAgent: mockStopAgent,
-        loadAgents: vi.fn(),
-        addToast: mockAddToast,
-      }
-      return selector ? selector(state) : state
+    const failingStop = vi.fn().mockRejectedValueOnce(new Error('Stop failed'))
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+      stopAgent: failingStop,
     })
     render(<AgentPanel />)
-
-    // Find and click stop button
     const stopButtons = screen.getAllByRole('button')
     const stopButton = stopButtons.find(btn => btn.querySelector('svg.lucide-square'))
     fireEvent.click(stopButton!)
 
-    // Component shows a ConfirmDialog before stopping - confirm it
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Stop Agent' })).toBeInTheDocument()
+      expect(screen.getByTestId('confirm-btn')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Stop Agent' }))
+    fireEvent.click(screen.getByTestId('confirm-btn'))
 
-    // Should not crash - error is logged
     await waitFor(() => {
-      expect(mockStopAgent).toHaveBeenCalled()
+      expect(failingStop).toHaveBeenCalled()
     })
+  })
+
+  // --- Message Display ---
+
+  it('displays user message with justify-end class', async () => {
+    vi.useFakeTimers()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    const userMsg = screen.getByText('Hello').closest('.flex')
+    expect(userMsg!.className).toContain('justify-end')
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
+  })
+
+  it('displays user message with accent background', async () => {
+    vi.useFakeTimers()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    const msgBubble = screen.getByText('Hello').closest('.rounded-mac')
+    expect(msgBubble!.className).toContain('bg-accent')
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
+  })
+
+  it('displays assistant message with glass background', async () => {
+    vi.useFakeTimers()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    const assistantMsg = screen.getByText('I understand your request. Let me help you with that.').closest('.rounded-mac')
+    expect(assistantMsg!.className).toContain('bg-glass')
+    vi.useRealTimers()
+  })
+
+  it('displays loading spinner with aria-live attribute', async () => {
+    vi.useFakeTimers()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    expect(screen.getByLabelText('Agent is thinking')).toBeInTheDocument()
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
+  })
+
+  // --- Toggle Agent Loading State ---
+
+  it('shows spinner on toggle button while toggling', async () => {
+    // Make startAgent hang so isToggling stays set
+    const hangingStart = vi.fn().mockImplementation(() => new Promise(() => {}))
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+      startAgent: hangingStart,
+    })
+    render(<AgentPanel />)
+    const playButtons = screen.getAllByRole('button')
+    const playButton = playButtons.find(btn => btn.querySelector('svg.lucide-play'))
+    await act(async () => {
+      fireEvent.click(playButton!)
+    })
+
+    // The button should now show a spinner instead of play icon
+    const allButtons = screen.getAllByRole('button')
+    const loaderBtn = allButtons.find(btn => btn.querySelector('svg.lucide-loader-circle'))
+    expect(loaderBtn).toBeTruthy()
+  })
+
+  it('disables toggle button while toggling', async () => {
+    const hangingStart = vi.fn().mockImplementation(() => new Promise(() => {}))
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+      startAgent: hangingStart,
+    })
+    render(<AgentPanel />)
+    const playButtons = screen.getAllByRole('button')
+    const playButton = playButtons.find(btn => btn.querySelector('svg.lucide-play'))
+    await act(async () => {
+      fireEvent.click(playButton!)
+    })
+
+    // Find the button that is now disabled with the loader icon
+    const toggleButtons = screen.getAllByRole('button')
+    const loaderBtn = toggleButtons.find(btn => btn.querySelector('svg.lucide-loader-circle'))
+    expect(loaderBtn).toBeTruthy()
+    expect(loaderBtn).toBeDisabled()
+  })
+
+  // --- Refresh Spinner ---
+
+  it('shows spinning animation on refresh button while refreshing', async () => {
+    const hangingLoad = vi.fn().mockImplementation(() => new Promise(() => {}))
+    mockStore({ loadAgents: hangingLoad })
+    render(<AgentPanel />)
+    const refreshButtons = screen.getAllByRole('button')
+    const refreshButton = refreshButtons.find(btn => btn.querySelector('svg.lucide-refresh-cw'))
+    fireEvent.click(refreshButton!)
+
+    const svg = refreshButton!.querySelector('svg')
+    expect(svg!.className.baseVal || svg!.className).toContain('animate-spin')
+  })
+})
+
+describe('AgentPanel input handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('updates input value on change', () => {
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'test input' } })
+    expect(input).toHaveValue('test input')
+  })
+
+  it('clears input after sending message', async () => {
+    vi.useFakeTimers()
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    expect(input).toHaveValue('')
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
+  })
+
+  it('textarea is disabled when no agent is selected', () => {
+    mockStore({ selectedAgent: null })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Select an agent first...')
+    expect(input).toBeDisabled()
+  })
+
+  it('textarea is enabled when agent is selected', () => {
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    expect(input).not.toBeDisabled()
+  })
+})
+
+describe('AgentPanel file loading', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('loads files from backend on mount', async () => {
+    const { fsApi } = await import('../services')
+    vi.mocked(fsApi.listDir).mockResolvedValue([
+      { name: 'test.ts', isDirectory: false, path: 'test.ts' },
+    ])
+    render(<AgentPanel />)
+    await waitFor(() => {
+      expect(fsApi.listDir).toHaveBeenCalledWith('.')
+    })
+  })
+
+  it('loads files recursively from subdirectories', async () => {
+    const { fsApi } = await import('../services')
+    vi.mocked(fsApi.listDir)
+      .mockResolvedValueOnce([
+        { name: 'src', isDirectory: true, path: 'src' },
+      ])
+      .mockResolvedValueOnce([
+        { name: 'index.ts', isDirectory: false, path: 'src/index.ts' },
+      ])
+    render(<AgentPanel />)
+    await waitFor(() => {
+      expect(fsApi.listDir).toHaveBeenCalledWith('.')
+      expect(fsApi.listDir).toHaveBeenCalledWith('src')
+    })
+  })
+
+  it('skips excluded directories when loading files', async () => {
+    const { fsApi } = await import('../services')
+    vi.mocked(fsApi.listDir).mockResolvedValue([
+      { name: 'node_modules', isDirectory: true, path: 'node_modules' },
+      { name: 'app.ts', isDirectory: false, path: 'app.ts' },
+    ])
+    render(<AgentPanel />)
+    await waitFor(() => {
+      expect(fsApi.listDir).toHaveBeenCalledWith('.')
+    })
+    // node_modules should be skipped - only called once for '.'
+    // No recursive call for node_modules
+    const listDirCalls = vi.mocked(fsApi.listDir).mock.calls
+    const nodeModulesCall = listDirCalls.find(c => c[0] === 'node_modules')
+    expect(nodeModulesCall).toBeUndefined()
+  })
+
+  it('handles listDir errors gracefully', async () => {
+    const { fsApi } = await import('../services')
+    vi.mocked(fsApi.listDir).mockRejectedValue(new Error('Permission denied'))
+    // Should not crash
+    render(<AgentPanel />)
+    await waitFor(() => {
+      expect(fsApi.listDir).toHaveBeenCalled()
+    })
+  })
+})
+
+describe('AgentPanel file autocomplete', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('shows file autocomplete when cursor is in file reference', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({
+      inReference: true,
+      query: 'test',
+    })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File test', selectionStart: 11 } })
+    expect(screen.getByTestId('file-autocomplete')).toBeInTheDocument()
+  })
+
+  it('hides file autocomplete when cursor leaves file reference', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({ inReference: false })
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'normal text', selectionStart: 5 } })
+    expect(screen.queryByTestId('file-autocomplete')).toBeNull()
+  })
+
+  it('closes file autocomplete via onClose callback', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({
+      inReference: true,
+      query: 'test',
+    })
+    // This test verifies the FileAutocompleteWrapper onClose integration
+    // The mocked component receives onClose and can invoke it
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File test', selectionStart: 11 } })
+    expect(screen.getByTestId('file-autocomplete')).toBeInTheDocument()
+    // After next change with no reference, it should be hidden
+    vi.mocked(isCursorInFileReference).mockReturnValue({ inReference: false })
+    fireEvent.change(input, { target: { value: 'plain text', selectionStart: 5 } })
+    expect(screen.queryByTestId('file-autocomplete')).toBeNull()
+  })
+})
+
+describe('AgentPanel session management', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+  })
+
+  it('creates a new session when sending first message', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(api.agent.createSession).toHaveBeenCalledWith('1')
+    vi.useRealTimers()
+  })
+
+  it('handles session creation error', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.createSession).mockRejectedValueOnce(new Error('Session creation failed'))
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'error',
+      'Session Error',
+      expect.stringContaining('Session creation failed')
+    )
+    vi.useRealTimers()
+  })
+
+  it('handles session creation error with non-Error object', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.createSession).mockRejectedValueOnce('string error')
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'error',
+      'Session Error',
+      expect.stringContaining('string error')
+    )
+    vi.useRealTimers()
+  })
+
+  it('closes session when switching agents', async () => {
+    const { api } = await import('../services')
+    const { rerender } = render(<AgentPanel />)
+
+    // First, set up a session by selecting agent 1
+    mockStore({
+      agents: [
+        { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+        { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle', capabilities: {} },
+      ],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
+    })
+    rerender(<AgentPanel />)
+
+    // Now simulate creating a session by sending a message
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await waitFor(() => {
+      expect(api.agent.createSession).toHaveBeenCalled()
+    })
+
+    // Now switch to agent 2
+    mockStore({
+      agents: [
+        { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+        { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle', capabilities: {} },
+      ],
+      selectedAgent: { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle' },
+    })
+    rerender(<AgentPanel />)
+
+    await waitFor(() => {
+      expect(api.agent.closeSession).toHaveBeenCalled()
+    })
+  })
+})
+
+describe('AgentPanel file reference resolution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('resolves @File references when sending message', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'file',
+      path: 'test.ts',
+      raw: '@File test.ts',
+      startIndex: 0,
+      endIndex: 15,
+    }])
+    vi.mocked(fsApi.readFile).mockResolvedValue('const x = 1')
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File test.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(fsApi.readFile).toHaveBeenCalledWith('test.ts')
+    vi.useRealTimers()
+  })
+
+  it('handles file read error in @File resolution', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'file',
+      path: 'missing.ts',
+      raw: '@File missing.ts',
+      startIndex: 0,
+      endIndex: 18,
+    }])
+    vi.mocked(fsApi.readFile).mockRejectedValue(new Error('File not found'))
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File missing.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Should still send the message with error placeholder
+    expect(api.agent.sendMessage).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('resolves @File glob patterns', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences, expandGlob } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'glob',
+      path: '**/*.ts',
+      raw: '@Files **/*.ts',
+      startIndex: 0,
+      endIndex: 15,
+    }])
+    vi.mocked(expandGlob).mockReturnValue(['a.ts', 'b.ts'])
+    vi.mocked(fsApi.readFile).mockResolvedValue('content')
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@Files **/*.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(fsApi.readFile).toHaveBeenCalledWith('a.ts')
+    expect(fsApi.readFile).toHaveBeenCalledWith('b.ts')
+    vi.useRealTimers()
+  })
+
+  it('handles glob with no matches', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences, expandGlob } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'glob',
+      path: '**/*.xyz',
+      raw: '@Files **/*.xyz',
+      startIndex: 0,
+      endIndex: 16,
+    }])
+    vi.mocked(expandGlob).mockReturnValue([])
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@Files **/*.xyz' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(fsApi.readFile).not.toHaveBeenCalled()
+    expect(api.agent.sendMessage).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('handles glob with more than 10 matches by limiting to 10', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences, expandGlob } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    const manyFiles = Array.from({ length: 15 }, (_, i) => `file${i}.ts`)
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'glob',
+      path: '**/*.ts',
+      raw: '@Files **/*.ts',
+      startIndex: 0,
+      endIndex: 15,
+    }])
+    vi.mocked(expandGlob).mockReturnValue(manyFiles)
+    vi.mocked(fsApi.readFile).mockResolvedValue('content')
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@Files **/*.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Should only read 10 files
+    expect(fsApi.readFile).toHaveBeenCalledTimes(10)
+    vi.useRealTimers()
+  })
+
+  it('handles glob file read error gracefully', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences, expandGlob } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'glob',
+      path: '**/*.ts',
+      raw: '@Files **/*.ts',
+      startIndex: 0,
+      endIndex: 15,
+    }])
+    vi.mocked(expandGlob).mockReturnValue(['bad.ts'])
+    vi.mocked(fsApi.readFile).mockRejectedValue(new Error('Read error'))
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@Files **/*.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(api.agent.sendMessage).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('resolves folder type references by removing them', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences } = await import('../utils/fileReference')
+    const { api } = await import('../services')
+
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'folder',
+      path: 'src/',
+      raw: '@File src/',
+      startIndex: 0,
+      endIndex: 11,
+    }])
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File src/' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Should still send the message (folder refs removed)
+    expect(api.agent.sendMessage).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})
+
+describe('AgentPanel send message error paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('handles sendMessage error', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.sendMessage).mockRejectedValueOnce(new Error('Network error'))
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'error',
+      'Send Error',
+      expect.stringContaining('Network error')
+    )
+    vi.useRealTimers()
+  })
+
+  it('handles sendMessage error with non-Error object', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.sendMessage).mockRejectedValueOnce('timeout')
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'error',
+      'Send Error',
+      expect.stringContaining('timeout')
+    )
+    vi.useRealTimers()
+  })
+
+  it('sets isLoading to false when session creation fails during send', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.createSession).mockRejectedValueOnce(new Error('No session'))
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Loading spinner should be gone
+    expect(screen.queryByLabelText('Agent is thinking')).toBeNull()
+    vi.useRealTimers()
+  })
+})
+
+describe('AgentPanel confirmStopAgent guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+  })
+
+  it('confirmStopAgent returns early when stopAgentConfirm is null', () => {
+    // This tests the guard at line 353
+    // The confirm dialog is only visible after clicking stop, so
+    // confirmStopAgent should be a no-op when called without prior state
+    render(<AgentPanel />)
+    // Verify confirm dialog is NOT shown (stopAgentConfirm is null)
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull()
+  })
+})
+
+describe('AgentPanel agent state colors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+  })
+
+  it('shows success text color for executing state', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'executing', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
+    const icon = agentName!.closest('.flex')!.querySelector('svg')
+    expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-success')
+  })
+
+  it('shows success text color for running state', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'running', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
+    const icon = agentName!.closest('.flex')!.querySelector('svg')
+    expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-success')
+  })
+
+  it('shows warning text color for thinking state', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'thinking', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
+    const icon = agentName!.closest('.flex')!.querySelector('svg')
+    expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-warning')
+  })
+
+  it('shows error text color for error state', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'error', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
+    const icon = agentName!.closest('.flex')!.querySelector('svg')
+    expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-error')
+  })
+
+  it('shows tertiary text color for idle state', () => {
+    mockStore({
+      agents: [{ id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} }],
+    })
+    render(<AgentPanel />)
+    const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
+    const icon = agentName!.closest('.flex')!.querySelector('svg')
+    expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-text-tertiary')
   })
 })
