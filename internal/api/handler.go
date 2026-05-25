@@ -89,6 +89,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		case "reject_patch":
 			return h.handleRejectPatch(ctx, params)
 
+		case "verify_patch":
+			return h.handleVerifyPatch(ctx, params)
 	// A2A protocol
 	case "get_agent_cards":
 		return h.handleGetAgentCards(ctx, params)

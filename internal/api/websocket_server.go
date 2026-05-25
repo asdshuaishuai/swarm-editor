@@ -445,6 +445,9 @@ type WebSocketServer struct {
 	// Shadow buffer (Design Doc Section 7: code change double-buffering)
 	shadowBuffer *ShadowBuffer
 
+	// Verifier runs lint/compile checks after patch commit
+	verifier *Verifier
+
 	// Terminal
 	terminalMgr *terminal.Manager
 
@@ -773,6 +776,19 @@ func (s *WebSocketServer) Scanner() *agent.Scanner {
 // ShadowBuffer returns the code change double-buffer (Design Doc Section 7)
 func (s *WebSocketServer) ShadowBuffer() *ShadowBuffer {
 	return s.shadowBuffer
+}
+
+// Verifier returns the lint/compile verifier, initializing lazily.
+func (s *WebSocketServer) Verifier() *Verifier {
+	if s.verifier == nil {
+		s.verifier = NewVerifier(s.workspacePath)
+	}
+	return s.verifier
+}
+
+// WorkspacePath returns the root workspace directory.
+func (s *WebSocketServer) WorkspacePath() string {
+	return s.workspacePath
 }
 
 // A2ARouter returns the A2A protocol router

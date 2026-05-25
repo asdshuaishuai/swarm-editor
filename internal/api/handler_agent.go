@@ -4,6 +4,7 @@ import (
 "context"
 "encoding/json"
 "fmt"
+"os"
 "path/filepath"
 "strings"
 "github.com/swarm-editor/swarm-editor/internal/acp"
@@ -696,10 +697,34 @@ func (h *CommandHandler) handleCommitPatch(ctx context.Context, params json.RawM
 		return nil, NewAPIError(CodeInternalError, "shadow buffer not available")
 	}
 
-	if !sb.Commit(req.ID) {
+	patch, ok := sb.Get(req.ID)
+	if !ok {
 		return nil, errNotFound("patch not found")
 	}
-	return map[string]string{"id": req.ID, "status": "committed"}, nil
+
+	// Write new content to disk
+	if h.server.WorkspacePath() != "" && patch.NewContent != "" {
+		fullPath := filepath.Join(h.server.WorkspacePath(), patch.Path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return nil, NewAPIError(CodeInternalError, "failed to create directory: "+err.Error())
+		}
+		if err := os.WriteFile(fullPath, []byte(patch.NewContent), 0644); err != nil {
+			return nil, NewAPIError(CodeInternalError, "failed to write file: "+err.Error())
+		}
+	}
+
+	// Remove from buffer after successful write
+	sb.Commit(req.ID)
+
+	// Trigger verification
+	result := h.verifyAndBroadcast(ctx, patch)
+
+	return map[string]any{
+		"id":           req.ID,
+		"status":       "committed",
+		"verifyState":  string(result.State),
+		"verifyErrors": result.Errors,
+	}, nil
 }
 
 func (h *CommandHandler) handleRejectPatch(ctx context.Context, params json.RawMessage) (any, error) {
@@ -722,4 +747,121 @@ func (h *CommandHandler) handleRejectPatch(ctx context.Context, params json.RawM
 		return nil, errNotFound("patch not found")
 	}
 	return map[string]string{"id": req.ID, "status": "rejected"}, nil
+}
+
+const maxVerifyRetries = 3
+
+func (h *CommandHandler) verifyAndBroadcast(ctx context.Context, patch *PendingPatch) VerifyResult {
+	hub := h.server.Hub()
+	verifier := h.server.Verifier()
+	if hub == nil || verifier == nil {
+		return VerifyResult{State: VerifyPassed}
+	}
+
+	hub.Broadcast("verification_started", map[string]any{
+		"patchId": patch.ID,
+		"agentId": patch.AgentID,
+		"path":    patch.Path,
+	})
+
+	result := verifier.Verify(ctx, patch.Path)
+
+	if result.State == VerifyPassed {
+		hub.Broadcast("verification_passed", map[string]any{
+			"patchId": patch.ID,
+			"agentId": patch.AgentID,
+			"path":    patch.Path,
+		})
+		return result
+	}
+
+	patch.RetryCount++
+	hub.Broadcast("verification_failed", map[string]any{
+		"patchId":    patch.ID,
+		"agentId":    patch.AgentID,
+		"path":       patch.Path,
+		"errors":     result.Errors,
+		"retryCount": patch.RetryCount,
+	})
+
+	if patch.RetryCount >= maxVerifyRetries {
+		hub.Broadcast("verification_escalated", map[string]any{
+			"patchId":    patch.ID,
+			"agentId":    patch.AgentID,
+			"path":       patch.Path,
+			"errors":     result.Errors,
+			"retryCount": patch.RetryCount,
+			"reason":     "max retries exceeded, requiring human intervention",
+		})
+		return result
+	}
+
+	h.sendVerifyFeedback(ctx, patch, result.Errors)
+	return result
+}
+
+func (h *CommandHandler) sendVerifyFeedback(ctx context.Context, patch *PendingPatch, errors []VerificationError) {
+	if h.server.connManager == nil {
+		return
+	}
+	conn, ok := h.server.connManager.GetConnection(patch.AgentID)
+	if !ok {
+		apiLog.Warn("no agent connection for verify feedback", "agentId", patch.AgentID)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Verification failed for %s (attempt %d/%d):\n\n", patch.Path, patch.RetryCount, maxVerifyRetries))
+	for i, e := range errors {
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s:%d: %s\n", i+1, e.Source, e.File, e.Line, e.Message))
+	}
+	sb.WriteString("\nPlease fix these errors and generate a new patch.")
+
+	// Find an active session for this agent
+	h.server.mu.RLock()
+	var sessionID acp.SessionID
+	for sid, aid := range h.server.sessionToAgent {
+		if aid == patch.AgentID {
+			sessionID = acp.SessionID(sid)
+			break
+		}
+	}
+	h.server.mu.RUnlock()
+
+	if sessionID == "" {
+		apiLog.Warn("no active session for verify feedback", "agentId", patch.AgentID)
+		return
+	}
+
+	prompt := acp.Prompt{
+		{Type: "text", Text: sb.String()},
+	}
+	_, err := conn.SendPrompt(ctx, sessionID, prompt)
+	if err != nil {
+		apiLog.Error("failed to send verify feedback", "agentId", patch.AgentID, "error", err)
+	}
+}
+
+func (h *CommandHandler) handleVerifyPatch(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return nil, errValidation("path is required")
+	}
+
+	verifier := h.server.Verifier()
+	if verifier == nil {
+		return nil, NewAPIError(CodeInternalError, "verifier not available")
+	}
+
+	result := verifier.Verify(ctx, req.Path)
+	return map[string]any{
+		"path":        req.Path,
+		"verifyState": string(result.State),
+		"errors":      result.Errors,
+	}, nil
 }
