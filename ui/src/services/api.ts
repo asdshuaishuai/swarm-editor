@@ -57,6 +57,17 @@ export interface PendingPatch {
   oldContent: string
   newContent: string
   createdAt: string
+  verifyState?: string
+  verifyErrors?: VerificationErrorInfo[]
+  retryCount?: number
+}
+
+export interface VerificationErrorInfo {
+  file: string
+  line: number
+  column?: number
+  message: string
+  source: string
 }
 
 export interface FileEntry {
@@ -350,12 +361,16 @@ export const agentApi = {
     return getClient().invoke<PendingPatch[]>('list_patches', { agentId: agentId ?? '' })
   },
 
-  async commitPatch(id: string): Promise<{ id: string; status: string }> {
+  async commitPatch(id: string): Promise<{ id: string; status: string; verifyState?: string; verifyErrors?: VerificationErrorInfo[] }> {
     return getClient().invoke('commit_patch', { id })
   },
 
   async rejectPatch(id: string): Promise<{ id: string; status: string }> {
     return getClient().invoke('reject_patch', { id })
+  },
+
+  async verifyPatch(path: string): Promise<{ path: string; verifyState: string; errors?: VerificationErrorInfo[] }> {
+    return getClient().invoke('verify_patch', { path })
   },
 }
 

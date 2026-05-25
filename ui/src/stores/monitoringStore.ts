@@ -813,6 +813,26 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
+    // Verification events (auto lint feedback loop)
+    for (const evt of ['verification_started', 'verification_passed', 'verification_failed', 'verification_escalated'] as const) {
+      cleanups.push(
+        events.subscribe(evt, (payload: unknown) => {
+          const p = payload as { patchId?: string; agentId?: string; path?: string; errors?: unknown[]; retryCount?: number }
+          get().addAuditEvent({
+            id: `${evt}_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            eventType: 'verification',
+            actor: p?.agentId || 'verifier',
+            action: evt.replace('verification_', '') + (p?.path ? `: ${p.path}` : ''),
+            resourceType: 'patch',
+            resourceId: p?.patchId || 'unknown',
+            success: evt === 'verification_passed',
+            details: evt === 'verification_failed' ? { errorCount: p?.errors?.length ?? 0, retryCount: p?.retryCount ?? 0 } : undefined,
+          })
+        }),
+      )
+    }
+
     // Combine all cleanups into one
     return () => {
       for (const cleanup of cleanups) {

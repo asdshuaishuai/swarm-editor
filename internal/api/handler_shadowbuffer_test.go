@@ -127,9 +127,9 @@ func TestHandleStageCommitReject_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit failed: %v", err)
 	}
-	commitMap := commitResult.(map[string]string)
+	commitMap := commitResult.(map[string]any)
 	if commitMap["status"] != "committed" {
-		t.Errorf("expected committed status, got %s", commitMap["status"])
+		t.Errorf("expected committed status, got %v", commitMap["status"])
 	}
 
 	// Verify removed
