@@ -1,5 +1,8 @@
 import { useRef } from 'react'
 import { useWindowEvent } from './useWindowEvent'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { useWorkspaceStore } from '../stores/workspaceStore'
+import { logger } from '../utils'
 
 interface UseCommandPaletteEventsOptions {
   currentFile: string | null
@@ -63,12 +66,29 @@ export function useCommandPaletteEvents(options: UseCommandPaletteEventsOptions)
     er.current.focus()
   }, [])
 
-  useWindowEvent('open-file', () => {
-    optsRef.current.addToast('info', 'Open File', 'Use the file explorer to open files')
+  useWindowEvent('open-file', async () => {
+    try {
+      const selected = await openDialog({ multiple: false, directory: false, title: 'Open File' })
+      if (typeof selected === 'string' && selected) {
+        const { workspacePath } = useWorkspaceStore.getState()
+        const path = workspacePath ? selected.replace(workspacePath + '/', '') : selected
+        useWorkspaceStore.getState().openFile(path)
+      }
+    } catch (err) {
+      logger.debug('CommandPalette', 'File dialog cancelled or failed:', err)
+    }
   }, [])
 
-  useWindowEvent('open-folder', () => {
-    optsRef.current.addToast('info', 'Open Folder', 'Use File > Open Folder menu')
+  useWindowEvent('open-folder', async () => {
+    try {
+      const selected = await openDialog({ directory: true, title: 'Open Folder' })
+      if (typeof selected === 'string' && selected) {
+        useWorkspaceStore.getState().setWorkspacePath(selected)
+        optsRef.current.addToast('success', 'Workspace Opened', selected)
+      }
+    } catch (err) {
+      logger.debug('CommandPalette', 'Folder dialog cancelled or failed:', err)
+    }
   }, [])
 
   useWindowEvent('go-to-file', () => {

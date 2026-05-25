@@ -10,6 +10,22 @@ vi.mock('./useWindowEvent', () => ({
   },
 }))
 
+// Mock Tauri dialog plugin
+const mockOpenDialog = vi.fn()
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: (...args: unknown[]) => mockOpenDialog(...args),
+}))
+
+// Mock workspace store
+const mockSetWorkspacePath = vi.fn()
+const mockOpenFile = vi.fn()
+vi.mock('../stores/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    () => ({ setWorkspacePath: mockSetWorkspacePath, openFile: mockOpenFile, workspacePath: '/workspace' }),
+    { getState: () => ({ setWorkspacePath: mockSetWorkspacePath, openFile: mockOpenFile, workspacePath: '/workspace' }) },
+  ),
+}))
+
 describe('useCommandPaletteEvents', () => {
   const mockToggleSplit = vi.fn()
   const mockHandleCloseSplit = vi.fn()
@@ -248,16 +264,34 @@ describe('useCommandPaletteEvents', () => {
   // ---------------------------------------------------------------------------
   // open-file / open-folder
   // ---------------------------------------------------------------------------
-  it('open-file shows toast', () => {
+  it('open-file calls Tauri dialog', async () => {
+    mockOpenDialog.mockResolvedValueOnce('/workspace/src/main.ts')
     renderHook(() => useCommandPaletteEvents(baseOptions))
-    eventHandlers['open-file']()
-    expect(mockAddToast).toHaveBeenCalledWith('info', 'Open File', expect.any(String))
+    await eventHandlers['open-file']()
+    expect(mockOpenDialog).toHaveBeenCalledWith(expect.objectContaining({ multiple: false, directory: false }))
   })
 
-  it('open-folder shows toast', () => {
+  it('open-file handles cancellation', async () => {
+    mockOpenDialog.mockResolvedValueOnce(null)
     renderHook(() => useCommandPaletteEvents(baseOptions))
-    eventHandlers['open-folder']()
-    expect(mockAddToast).toHaveBeenCalledWith('info', 'Open Folder', expect.any(String))
+    await eventHandlers['open-file']()
+    expect(mockOpenFile).not.toHaveBeenCalled()
+  })
+
+  it('open-folder calls Tauri dialog and sets workspace', async () => {
+    mockOpenDialog.mockResolvedValueOnce('/home/user/project')
+    renderHook(() => useCommandPaletteEvents(baseOptions))
+    await eventHandlers['open-folder']()
+    expect(mockOpenDialog).toHaveBeenCalledWith(expect.objectContaining({ directory: true }))
+    expect(mockSetWorkspacePath).toHaveBeenCalledWith('/home/user/project')
+    expect(mockAddToast).toHaveBeenCalledWith('success', 'Workspace Opened', '/home/user/project')
+  })
+
+  it('open-folder handles cancellation', async () => {
+    mockOpenDialog.mockResolvedValueOnce(null)
+    renderHook(() => useCommandPaletteEvents(baseOptions))
+    await eventHandlers['open-folder']()
+    expect(mockSetWorkspacePath).not.toHaveBeenCalled()
   })
 
   // ---------------------------------------------------------------------------
