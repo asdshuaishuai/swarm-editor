@@ -213,5 +213,378 @@ describe('executeEditorAction', () => {
       expect(editor.getAction).toHaveBeenCalledWith('editor.action.someUnknownAction')
       expect(mockAction.run).toHaveBeenCalled()
     })
+
+    it('does nothing when built-in action not found', () => {
+      const editor = createMockEditor({ getAction: vi.fn(() => null) })
+      expect(() => executeEditorAction(editor, 'editor.action.nonexistent')).not.toThrow()
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Sort lines edge cases
+  // ---------------------------------------------------------------
+  describe('sort lines edge cases', () => {
+    it('sorts ascending with multiple selections', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [
+          { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 6, isEmpty: () => false },
+          { startLineNumber: 3, startColumn: 1, endLineNumber: 3, endColumn: 12, isEmpty: () => false },
+        ]),
+      })
+      executeEditorAction(editor, 'editor.action.sortLinesAscending')
+      expect(editor.executeEdits).toHaveBeenCalledTimes(2)
+    })
+
+    it('sorts descending produces reverse order', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [{ startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 12, isEmpty: () => false }]),
+      })
+      editor._model.getValueInRange = vi.fn(() => 'gamma\nbeta\nalpha')
+      executeEditorAction(editor, 'editor.action.sortLinesDescending')
+      const editArgs = editor._edits[0]?.edits[0] as { text: string }
+      expect(editArgs.text).toBe('gamma\nbeta\nalpha')
+    })
+
+    it('does nothing when getSelections returns null', () => {
+      const editor = createMockEditor({ getSelections: vi.fn(() => null) })
+      executeEditorAction(editor, 'editor.action.sortLinesAscending')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('pushes undo stops around sort edits', () => {
+      const editor = createMockEditor()
+      executeEditorAction(editor, 'editor.action.sortLinesAscending')
+      expect(editor._undoStops.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Transform case edge cases
+  // ---------------------------------------------------------------
+  describe('transform case edge cases', () => {
+    it('does nothing if no model for transform', () => {
+      const editor = createMockEditor({ getModel: vi.fn(() => null) })
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('does nothing if no selections for transform', () => {
+      const editor = createMockEditor({ getSelections: vi.fn(() => null) })
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('does nothing if empty selections array for transform', () => {
+      const editor = createMockEditor({ getSelections: vi.fn(() => []) })
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('pushes undo stops around transform edits', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 5, isEmpty: () => false }]),
+      })
+      editor._model.getValueInRange = vi.fn(() => 'hello')
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      expect(editor._undoStops.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('handles mixed case to lowercase', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 8, isEmpty: () => false }]),
+      })
+      editor._model.getValueInRange = vi.fn(() => 'HeLLo')
+      executeEditorAction(editor, 'editor.action.transformToLowercase')
+      const editArgs = editor._edits[0]?.edits[0] as { text: string }
+      expect(editArgs.text).toBe('hello')
+    })
+
+    it('skips multiple empty selections but processes non-empty ones', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [
+          { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1, isEmpty: () => true },
+          { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 5, isEmpty: () => false },
+        ]),
+      })
+      editor._model.getValueInRange = vi.fn(() => 'hello')
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      // Only the non-empty selection should produce an edit
+      expect(editor.executeEdits).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Transpose letters edge cases
+  // ---------------------------------------------------------------
+  describe('transpose letters edge cases', () => {
+    it('does nothing if no model', () => {
+      const editor = createMockEditor({ getModel: vi.fn(() => null) })
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('does nothing if no position', () => {
+      const editor = createMockEditor({ getPosition: vi.fn(() => null) })
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('transposes at column 2 (minimum valid position)', () => {
+      const editor = createMockEditor({
+        getPosition: vi.fn(() => ({ lineNumber: 1, column: 2 })),
+      })
+      editor._model.getLineContent = vi.fn(() => 'ab')
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      expect(editor.executeEdits).toHaveBeenCalledWith('transpose', expect.any(Array))
+      const editArgs = editor._edits[0]?.edits[0] as { text: string }
+      expect(editArgs.text).toBe('ba')
+    })
+
+    it('transposes at end of line', () => {
+      const editor = createMockEditor({
+        getPosition: vi.fn(() => ({ lineNumber: 1, column: 5 })),
+      })
+      editor._model.getLineContent = vi.fn(() => 'abcde')
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      const editArgs = editor._edits[0]?.edits[0] as { text: string }
+      // col=5, slice(3,5)='de', transposed='ed'
+      expect(editArgs.text).toBe('ed')
+    })
+
+    it('does nothing when column equals line length + 1', () => {
+      const editor = createMockEditor({
+        getPosition: vi.fn(() => ({ lineNumber: 1, column: 6 })),
+      })
+      editor._model.getLineContent = vi.fn(() => 'abcde')
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      expect(editor.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('updates position after transposing', () => {
+      const editor = createMockEditor()
+      editor._model.getLineContent = vi.fn(() => 'abcdef')
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      expect(editor.setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 6 })
+    })
+
+    it('uses correct range in edit', () => {
+      const editor = createMockEditor()
+      editor._model.getLineContent = vi.fn(() => 'abcdef')
+      executeEditorAction(editor, 'editor.action.transposeLetters')
+      const editArgs = editor._edits[0]?.edits[0] as { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string }
+      expect(editArgs.range).toEqual({
+        startLineNumber: 1,
+        startColumn: 4,
+        endLineNumber: 1,
+        endColumn: 6,
+      })
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Cursor navigation edge cases
+  // ---------------------------------------------------------------
+  describe('cursor navigation edge cases', () => {
+    it('cursorTop reveals line 1 in center', () => {
+      const editor = createMockEditor()
+      executeEditorAction(editor, 'cursorTop')
+      expect(editor.revealLineInCenter).toHaveBeenCalledWith(1)
+    })
+
+    it('cursorBottom handles single line document', () => {
+      const editor = createMockEditor({
+        getModel: vi.fn(() => ({
+          ...createMockEditor()._model,
+          getLineCount: vi.fn(() => 1),
+        })),
+      })
+      executeEditorAction(editor, 'cursorBottom')
+      expect(editor.setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 1 })
+      expect(editor.revealLineInCenter).toHaveBeenCalledWith(1)
+    })
+
+    it('cursorBottom handles null model', () => {
+      const editor = createMockEditor({ getModel: vi.fn(() => null) })
+      executeEditorAction(editor, 'cursorBottom')
+      expect(editor.setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 1 })
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Scroll actions edge cases
+  // ---------------------------------------------------------------
+  describe('scroll actions edge cases', () => {
+    it('scrollToTop focuses editor', () => {
+      const editor = createMockEditor()
+      executeEditorAction(editor, 'editor.action.scrollToTop')
+      expect(editor.focus).toHaveBeenCalled()
+    })
+
+    it('scrollToBottom focuses editor', () => {
+      const editor = createMockEditor()
+      executeEditorAction(editor, 'editor.action.scrollToBottom')
+      expect(editor.focus).toHaveBeenCalled()
+    })
+
+    it('scrollToBottom uses scroll height from editor', () => {
+      const editor = createMockEditor({ getScrollHeight: vi.fn(() => 1200) })
+      executeEditorAction(editor, 'editor.action.scrollToBottom')
+      expect(editor.setScrollTop).toHaveBeenCalledWith(1200)
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Find toggle actions
+  // ---------------------------------------------------------------
+  describe('find toggle actions', () => {
+    it('toggles case sensitive from false to true', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: false, wholeWord: false, regex: false, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindCaseSensitive')
+      expect(change).toHaveBeenCalledWith({ matchCase: true }, true)
+    })
+
+    it('toggles case sensitive from true to false', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: true, wholeWord: false, regex: false, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindCaseSensitive')
+      expect(change).toHaveBeenCalledWith({ matchCase: false }, true)
+    })
+
+    it('toggles whole word from false to true', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: false, wholeWord: false, regex: false, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindWholeWord')
+      expect(change).toHaveBeenCalledWith({ wholeWord: true }, true)
+    })
+
+    it('toggles whole word from true to false', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: false, wholeWord: true, regex: false, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindWholeWord')
+      expect(change).toHaveBeenCalledWith({ wholeWord: false }, true)
+    })
+
+    it('toggles regex from false to true', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: false, wholeWord: false, regex: false, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindRegex')
+      expect(change).toHaveBeenCalledWith({ regex: true }, true)
+    })
+
+    it('toggles regex from true to false', () => {
+      const change = vi.fn()
+      const editor = createMockEditor({
+        _contributions: {
+          'editor.contrib.findController': {
+            getState: () => ({ matchCase: false, wholeWord: false, regex: true, change }),
+          },
+        },
+      })
+      executeEditorAction(editor, 'editor.action.toggleFindRegex')
+      expect(change).toHaveBeenCalledWith({ regex: false }, true)
+    })
+
+    it('does nothing when find controller contribution is missing', () => {
+      const editor = createMockEditor({ _contributions: {} })
+      expect(() => executeEditorAction(editor, 'editor.action.toggleFindCaseSensitive')).not.toThrow()
+      expect(() => executeEditorAction(editor, 'editor.action.toggleFindWholeWord')).not.toThrow()
+      expect(() => executeEditorAction(editor, 'editor.action.toggleFindRegex')).not.toThrow()
+    })
+
+    it('does nothing when _contributions is undefined', () => {
+      const editor = createMockEditor({ _contributions: undefined })
+      expect(() => executeEditorAction(editor, 'editor.action.toggleFindCaseSensitive')).not.toThrow()
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Action delegation edge cases
+  // ---------------------------------------------------------------
+  describe('action delegation edge cases', () => {
+    it('handles null action for goToTypeDefinition gracefully', () => {
+      const editor = createMockEditor({ getAction: vi.fn(() => null) })
+      expect(() => executeEditorAction(editor, 'editor.action.goToTypeDefinition')).not.toThrow()
+    })
+
+    it('handles null action for goToReferences gracefully', () => {
+      const editor = createMockEditor({ getAction: vi.fn(() => null) })
+      expect(() => executeEditorAction(editor, 'editor.action.goToReferences')).not.toThrow()
+    })
+
+    it('handles null action for indentLines gracefully', () => {
+      const editor = createMockEditor({ getAction: vi.fn(() => null) })
+      expect(() => executeEditorAction(editor, 'editor.action.indentLines')).not.toThrow()
+    })
+
+    it('handles null action for outdentLines gracefully', () => {
+      const editor = createMockEditor({ getAction: vi.fn(() => null) })
+      expect(() => executeEditorAction(editor, 'editor.action.outdentLines')).not.toThrow()
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Sort with single line selection
+  // ---------------------------------------------------------------
+  describe('sort lines single line', () => {
+    it('sorts a single line ascending (no-op on single line)', () => {
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 12, isEmpty: () => false }]),
+      })
+      editor._model.getValueInRange = vi.fn(() => 'hello world')
+      executeEditorAction(editor, 'editor.action.sortLinesAscending')
+      expect(editor.executeEdits).toHaveBeenCalledWith('sortLines', expect.any(Array))
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Transform with multiple selections
+  // ---------------------------------------------------------------
+  describe('transform case multiple selections', () => {
+    it('transforms multiple selections to uppercase', () => {
+      let callCount = 0
+      const editor = createMockEditor({
+        getSelections: vi.fn(() => [
+          { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 5, isEmpty: () => false },
+          { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 5, isEmpty: () => false },
+        ]),
+      })
+      editor._model.getValueInRange = vi.fn(() => {
+        callCount++
+        return callCount === 1 ? 'hello' : 'world'
+      })
+      executeEditorAction(editor, 'editor.action.transformToUppercase')
+      expect(editor.executeEdits).toHaveBeenCalledTimes(2)
+    })
   })
 })

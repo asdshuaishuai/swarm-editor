@@ -633,4 +633,479 @@ describe('QueenDispatcher', () => {
     const btn = screen.getByTitle('下发目标')
     expect(btn.style.background).toBe('rgb(88, 166, 255)') // #58a6ff
   })
+
+  // --- Additional edge cases and branches ---
+
+  describe('Strategy descriptions', () => {
+    it('displays Round Robin description for round_robin option', () => {
+      render(<QueenDispatcher />)
+      expect(screen.getByText(/Round Robin/)).toBeInTheDocument()
+    })
+
+    it('displays Least Loaded description for least_loaded option', () => {
+      render(<QueenDispatcher />)
+      expect(screen.getByText(/Least Loaded/)).toBeInTheDocument()
+    })
+
+    it('displays Capability Match description for capability option', () => {
+      render(<QueenDispatcher />)
+      expect(screen.getByText(/Capability Match/)).toBeInTheDocument()
+    })
+
+    it('displays Priority Based description for priority option', () => {
+      render(<QueenDispatcher />)
+      expect(screen.getByText(/Priority Based/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Strategy selection interactions', () => {
+    it('switches from priority to least_loaded and submits with medium priority', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'least_loaded' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'least_loaded' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test goal' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ priority: 'medium' }),
+        )
+      })
+    })
+
+    it('switches to capability strategy and submits with medium priority', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'capability' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'capability' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'cap goal' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ priority: 'medium' }),
+        )
+      })
+    })
+  })
+
+  describe('Error handling edge cases', () => {
+    it('handles non-Error thrown values in catch block', async () => {
+      mockGetSwarms.mockRejectedValueOnce('string error')
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith('error', '下发失败', '目标下发失败')
+      })
+    })
+
+    it('handles null rejection in catch block', async () => {
+      mockGetSwarms.mockRejectedValueOnce(null)
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith('error', '下发失败', '目标下发失败')
+      })
+    })
+
+    it('logs warning with the rejected value', async () => {
+      const { logger } = await import('../utils')
+      const errObj = new Error('specific fail')
+      mockGetSwarms.mockRejectedValueOnce(errObj)
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(logger.warn).toHaveBeenCalledWith('QueenDispatcher: submit failed', errObj)
+      })
+    })
+  })
+
+  describe('Agent session fallback edge cases', () => {
+    it('does not call sendMessage when no sessions available', async () => {
+      mockGetSwarms.mockResolvedValueOnce([])
+      mockGetSessions.mockResolvedValueOnce([])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'no session' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith('warning', expect.any(String), expect.any(String))
+      })
+      expect(mockSendMessage).not.toHaveBeenCalled()
+    })
+
+    it('uses first session ID from available sessions', async () => {
+      mockGetSwarms.mockResolvedValueOnce([])
+      mockGetSessions.mockResolvedValueOnce([{ id: 'sess-a' }, { id: 'sess-b' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'multi session' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSendMessage).toHaveBeenCalledWith('sess-a', 'multi session')
+      })
+    })
+  })
+
+  describe('Recent tasks edge cases', () => {
+    it('shows exactly 3 tasks when more than 3 exist', () => {
+      const tasks = new Map()
+      for (let i = 0; i < 5; i++) {
+        tasks.set(`t${i}`, {
+          taskId: `t${i}`, swarmId: 's1', title: `Task ${i}`,
+          status: 'pending', assignedAgents: [], handoffs: [], toolCalls: [],
+          createdAt: new Date(Date.now() + i * 1000).toISOString(),
+        })
+      }
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+
+      // Only 3 should be displayed
+      for (let i = 2; i < 5; i++) {
+        expect(screen.getByText(`Task ${i}`)).toBeInTheDocument()
+      }
+      expect(screen.queryByText('Task 0')).not.toBeInTheDocument()
+      expect(screen.queryByText('Task 1')).not.toBeInTheDocument()
+    })
+
+    it('shows single task correctly', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Only Task',
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+      expect(screen.getByText('Only Task')).toBeInTheDocument()
+    })
+
+    it('handles task with exactly 24 character title without truncation', () => {
+      const tasks = new Map()
+      const title24 = 'a'.repeat(24)
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: title24,
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+      expect(screen.getByText(title24)).toBeInTheDocument()
+    })
+
+    it('handles task with exactly 25 character title with truncation', () => {
+      const tasks = new Map()
+      const title25 = 'a'.repeat(25)
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: title25,
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+      // 25 > 24 so it should be truncated to 22 + '..'
+      expect(screen.getByText('a'.repeat(22) + '..')).toBeInTheDocument()
+    })
+  })
+
+  describe('Status label colors', () => {
+    it('uses correct color for running status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Running',
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      // Find the status dot (first span with rounded-full)
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(88, 166, 255)') // #58a6ff
+    })
+
+    it('uses correct color for completed status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Completed',
+        status: 'completed', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(63, 185, 80)') // #3fb950
+    })
+
+    it('uses correct color for failed status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Failed',
+        status: 'failed', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(248, 81, 73)') // #f85149
+    })
+
+    it('uses correct color for pending status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Pending',
+        status: 'pending', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(107, 114, 128)') // #6b7280
+    })
+
+    it('uses correct color for cancelled status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Cancelled',
+        status: 'cancelled', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(107, 114, 128)') // #6b7280
+    })
+
+    it('uses default color for unknown status', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Unknown',
+        status: 'unknown_status', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      const { container } = render(<QueenDispatcher />)
+
+      const dot = container.querySelector('.rounded-full') as HTMLElement
+      expect(dot.style.background).toBe('rgb(107, 114, 128)') // #6b7280
+    })
+  })
+
+  describe('Task title text color', () => {
+    it('displays task titles with secondary text color', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Colored Title',
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+
+      const titleSpan = screen.getByText('Colored Title')
+      expect(titleSpan.style.color).toBe('rgb(156, 163, 175)') // #9ca3af
+    })
+
+    it('displays status label text with status color', () => {
+      const tasks = new Map()
+      tasks.set('t1', {
+        taskId: 't1', swarmId: 's1', title: 'Status Color',
+        status: 'running', assignedAgents: [], handoffs: [], toolCalls: [],
+        createdAt: '2026-01-01T10:00:00Z',
+      })
+      taskFlowState = { tasks }
+
+      render(<QueenDispatcher />)
+
+      const statusLabel = screen.getByText('执行中')
+      expect(statusLabel.style.color).toBe('rgb(88, 166, 255)') // #58a6ff
+    })
+  })
+
+  describe('Submitting state interactions', () => {
+    it('does not submit when goal is only whitespace via Enter', () => {
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: '   ' } })
+      fireEvent.keyDown(screen.getByPlaceholderText(/下发全域调度目标/), { key: 'Enter' })
+      expect(mockGetSwarms).not.toHaveBeenCalled()
+    })
+
+    it('recovers submitting state after successful submission', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'priority' }])
+      render(<QueenDispatcher />)
+      const input = screen.getByPlaceholderText(/下发全域调度目标/)
+      const btn = screen.getByTitle('下发目标')
+      fireEvent.change(input, { target: { value: 'task' } })
+      fireEvent.click(btn)
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalled()
+      })
+      // Input should be cleared after success
+      expect(input).toHaveValue('')
+      // Button is disabled because goal is empty (not because submitting)
+      expect(btn).toBeDisabled()
+      // Input should no longer be disabled
+      expect(input).not.toBeDisabled()
+    })
+  })
+
+  describe('Container layout', () => {
+    it('has flex-col layout', () => {
+      const { container } = render(<QueenDispatcher />)
+      const wrapper = container.firstChild as HTMLElement
+      expect(wrapper.className).toContain('flex-col')
+    })
+
+    it('has gap-2 spacing', () => {
+      const { container } = render(<QueenDispatcher />)
+      const wrapper = container.firstChild as HTMLElement
+      expect(wrapper.className).toContain('gap-2')
+    })
+
+    it('has shrink-0 class', () => {
+      const { container } = render(<QueenDispatcher />)
+      const wrapper = container.firstChild as HTMLElement
+      expect(wrapper.className).toContain('shrink-0')
+    })
+  })
+
+  describe('Goal input styling', () => {
+    it('has mono font class', () => {
+      render(<QueenDispatcher />)
+      const input = screen.getByPlaceholderText(/下发全域调度目标/)
+      expect(input.className).toContain('font-mono')
+    })
+
+    it('has correct text color', () => {
+      render(<QueenDispatcher />)
+      const input = screen.getByPlaceholderText(/下发全域调度目标/)
+      expect(input.style.color).toBe('rgb(209, 213, 219)') // #d1d5db
+    })
+  })
+
+  describe('Strategy label styling', () => {
+    it('has font-mono class on strategy row', () => {
+      const { container } = render(<QueenDispatcher />)
+      const strategyRow = container.querySelector('.font-mono')
+      expect(strategyRow).toBeInTheDocument()
+    })
+
+    it('has correct text color on strategy label', () => {
+      const { container } = render(<QueenDispatcher />)
+      const strategyRow = container.querySelector('.font-mono') as HTMLElement
+      expect(strategyRow.style.color).toBe('rgb(107, 114, 128)') // #6b7280
+    })
+  })
+
+  describe('Swarm submission with matching strategy', () => {
+    it('prefers round_robin swarm when round_robin strategy selected', async () => {
+      mockGetSwarms.mockResolvedValueOnce([
+        { id: 's-priority', strategy: 'priority' },
+        { id: 's-rr', strategy: 'round_robin' },
+      ])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'round_robin' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ swarmId: 's-rr' }),
+        )
+      })
+    })
+
+    it('prefers least_loaded swarm when least_loaded strategy selected', async () => {
+      mockGetSwarms.mockResolvedValueOnce([
+        { id: 's-priority', strategy: 'priority' },
+        { id: 's-ll', strategy: 'least_loaded' },
+      ])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'least_loaded' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ swarmId: 's-ll' }),
+        )
+      })
+    })
+
+    it('prefers capability swarm when capability strategy selected', async () => {
+      mockGetSwarms.mockResolvedValueOnce([
+        { id: 's-priority', strategy: 'priority' },
+        { id: 's-cap', strategy: 'capability' },
+      ])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'capability' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ swarmId: 's-cap' }),
+        )
+      })
+    })
+  })
+
+  describe('Submit button hover state', () => {
+    it('has hover:bg-blue-600 class', () => {
+      render(<QueenDispatcher />)
+      const btn = screen.getByTitle('下发目标')
+      expect(btn.className).toContain('hover:bg-blue-600')
+    })
+  })
+
+  describe('Description formatting', () => {
+    it('includes correct Chinese strategy label in description for least_loaded', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'least_loaded' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'least_loaded' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ description: expect.stringContaining('最小负载') }),
+        )
+      })
+    })
+
+    it('includes correct Chinese strategy label in description for round_robin', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'round_robin' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'round_robin' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ description: expect.stringContaining('轮询调度') }),
+        )
+      })
+    })
+
+    it('includes correct Chinese strategy label in description for capability', async () => {
+      mockGetSwarms.mockResolvedValueOnce([{ id: 's1', strategy: 'capability' }])
+      render(<QueenDispatcher />)
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'capability' } })
+      fireEvent.change(screen.getByPlaceholderText(/下发全域调度目标/), { target: { value: 'test' } })
+      fireEvent.click(screen.getByTitle('下发目标'))
+      await waitFor(() => {
+        expect(mockSubmitTask).toHaveBeenCalledWith(
+          expect.objectContaining({ description: expect.stringContaining('能力匹配') }),
+        )
+      })
+    })
+  })
 })

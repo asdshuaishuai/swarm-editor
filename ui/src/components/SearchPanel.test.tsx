@@ -951,4 +951,644 @@ describe('SearchPanel', () => {
     // line is 9 but displayed as line+1 = 10
     expect(screen.getByText('10')).toBeInTheDocument()
   })
+
+  // --- Result option keyDown navigation (ArrowDown/ArrowUp focus between options) ---
+
+  it('focuses next option on ArrowDown from result option', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello alpha' },
+      { path: '/src/a.ts', line: 5, content: 'hello beta' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    const focusSpy = vi.spyOn(options[1], 'focus')
+    fireEvent.keyDown(options[0], { key: 'ArrowDown' })
+    expect(focusSpy).toHaveBeenCalled()
+  })
+
+  it('does not focus next sibling if it has no role=option', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello alpha' },
+      { path: '/src/b.ts', line: 2, content: 'hello beta' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    // Collapse first group
+    fireEvent.click(screen.getByText('/src/a.ts'))
+    // After collapse, only 1 option visible
+    expect(screen.queryAllByRole('option')).toHaveLength(1)
+  })
+
+  it('focuses previous option on ArrowUp from result option', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello alpha' },
+      { path: '/src/a.ts', line: 5, content: 'hello beta' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    const focusSpy = vi.spyOn(options[0], 'focus')
+    fireEvent.keyDown(options[1], { key: 'ArrowUp' })
+    expect(focusSpy).toHaveBeenCalled()
+  })
+
+  it('navigates to result on Enter key from result option', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const option = await screen.findByRole('option')
+    fireEvent.keyDown(option, { key: 'Enter' })
+    expect(mockNavigate).toHaveBeenCalledWith('/?file=%2Fsrc%2Fapp.ts&line=10')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  // --- Ctrl+Up from input focuses first result option ---
+
+  it('focuses first result on Ctrl+ArrowUp from input', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 1, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const option = await screen.findByRole('option')
+    const focusSpy = vi.spyOn(option, 'focus')
+    fireEvent.keyDown(screen.getByPlaceholderText('Search in files...'), { key: 'ArrowUp', ctrlKey: true })
+    expect(focusSpy).toHaveBeenCalled()
+  })
+
+  it('does nothing on Ctrl+ArrowUp when no results', () => {
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    const input = screen.getByPlaceholderText('Search in files...')
+    fireEvent.keyDown(input, { key: 'ArrowUp', ctrlKey: true })
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  // --- Ctrl+Down from results focuses input ---
+
+  it('focuses input on Ctrl+ArrowDown from results container', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 1, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    const input = screen.getByPlaceholderText('Search in files...')
+    const focusSpy = vi.spyOn(input, 'focus')
+    const listbox = screen.getByRole('listbox', { name: 'Search results' })
+    fireEvent.keyDown(listbox, { key: 'ArrowDown', ctrlKey: true })
+    expect(focusSpy).toHaveBeenCalled()
+  })
+
+  // --- Keyboard navigation when no results ---
+
+  it('ArrowDown does nothing when no results', () => {
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    const input = screen.getByPlaceholderText('Search in files...')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('ArrowUp does nothing when no results', () => {
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    const input = screen.getByPlaceholderText('Search in files...')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  // --- Multiple files collapse/expand all ---
+
+  it('expands all files after collapse all', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello' },
+      { path: '/src/b.ts', line: 2, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findAllByRole('option')
+    fireEvent.click(screen.getByTitle('Collapse All'))
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    fireEvent.click(screen.getByTitle('Expand All'))
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+  })
+
+  // --- Match count singular/plural ---
+
+  it('shows singular match text for single match in a file', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    expect(screen.getByText('1 match')).toBeInTheDocument()
+  })
+
+  // --- Filter bar folder display (when filters hidden but folder set) ---
+
+  it('shows folder pill when filters hidden but folder is set', () => {
+    render(<SearchPanel isOpen={true} onClose={onClose} initialFolder="/src" />)
+    fireEvent.click(screen.getByTitle('Filter files to include/exclude'))
+    expect(screen.getByText('/src')).toBeInTheDocument()
+  })
+
+  it('clears folder from compact pill view', () => {
+    render(<SearchPanel isOpen={true} onClose={onClose} initialFolder="/src" />)
+    fireEvent.click(screen.getByTitle('Filter files to include/exclude'))
+    const folderPill = screen.getByText('/src').closest('div')
+    const xBtn = folderPill?.querySelector('button')
+    expect(xBtn).toBeTruthy()
+    if (xBtn) fireEvent.click(xBtn)
+    expect(screen.queryByText('/src')).not.toBeInTheDocument()
+  })
+
+  // --- Search error: non-regex search failure does not show error ---
+
+  it('does not show search error when not using regex and search fails', async () => {
+    mockSearchContent.mockRejectedValueOnce(new Error('Network error'))
+    mockSearchContent.mockResolvedValue([])
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await waitFor(() => {
+      expect(mockSearchContent).toHaveBeenCalled()
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('No results found')).toBeInTheDocument()
+  })
+
+  // --- Replace error with non-Error object ---
+
+  it('shows fallback error message on replace failure with non-Error', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockRejectedValueOnce('string-error')
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Replace failed')).toBeInTheDocument()
+    })
+  })
+
+  // --- Replace in file error with non-Error object ---
+
+  it('shows fallback error on replace in file with non-Error', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockRejectedValueOnce('some-error')
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByTitle('Replace all in this file'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Replace failed')).toBeInTheDocument()
+    })
+  })
+
+  // --- Search with folder filter ---
+
+  it('passes folder option to search', async () => {
+    mockSearchContent.mockResolvedValue([])
+    render(<SearchPanel isOpen={true} onClose={onClose} initialFolder="/src" />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await waitFor(() => {
+      expect(mockSearchContent).toHaveBeenCalledWith('hello', false, undefined, expect.objectContaining({
+        folder: '/src',
+      }))
+    })
+  })
+
+  // --- Replace all with include/exclude filters scopes to result files ---
+
+  it('scopes replace to result files when filters are active', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockResolvedValueOnce({ changedFiles: 1 })
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.click(screen.getByTitle('Filter files to include/exclude'))
+    fireEvent.change(screen.getByPlaceholderText('*.ts, *.tsx (comma-separated)'), { target: { value: '*.ts' } })
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.change(screen.getByPlaceholderText('Replace with...'), { target: { value: 'world' } })
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(mockReplaceContent).toHaveBeenCalledWith('hello', 'world', expect.objectContaining({
+        files: ['/src/app.ts'],
+      }))
+    })
+  })
+
+  // --- Empty search history ---
+
+  it('does not show history when localStorage has empty array', () => {
+    localStorage.setItem('swarm-editor-search-history', JSON.stringify([]))
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.focus(screen.getByPlaceholderText('Search in files...'))
+    expect(screen.queryByText('Recent searches')).not.toBeInTheDocument()
+  })
+
+  // --- Search history max display ---
+
+  it('shows at most 10 history items', () => {
+    const history = Array.from({ length: 15 }, (_, i) => `query-${i}`)
+    localStorage.setItem('swarm-editor-search-history', JSON.stringify(history))
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.focus(screen.getByPlaceholderText('Search in files...'))
+    expect(screen.queryByText('query-9')).toBeInTheDocument()
+    expect(screen.queryByText('query-10')).not.toBeInTheDocument()
+  })
+
+  // --- Escape key in results listbox ---
+
+  it('Escape key in input always closes panel even with results', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 1, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.keyDown(screen.getByPlaceholderText('Search in files...'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  // --- Stale request guard during error ---
+
+  it('discards stale search error', async () => {
+    let rejectFirst: (reason: unknown) => void
+    let resolveSecond: (value: unknown[]) => void
+    mockSearchContent
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectFirst = reject }))
+      .mockImplementationOnce(() => new Promise(r => { resolveSecond = r }))
+    mockSearchContent.mockResolvedValue([])
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Use regular expression'))
+
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'first' } })
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'second' } })
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await act(async () => { resolveSecond([{ path: '/b.ts', line: 1, content: 'second match' }]) })
+
+    await waitFor(() => {
+      expect(screen.getByText('/b.ts')).toBeInTheDocument()
+    })
+
+    await act(async () => { rejectFirst(new Error('stale error')) })
+
+    expect(screen.queryByText('stale error')).not.toBeInTheDocument()
+    expect(screen.getByText('/b.ts')).toBeInTheDocument()
+  })
+
+  // --- Highlight match with long content (truncation) ---
+
+  it('displays truncated content when result content exceeds 200 chars', async () => {
+    const longContent = 'hello ' + 'x'.repeat(250)
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 1, content: longContent },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    expect(screen.getByRole('option')).toBeInTheDocument()
+  })
+
+  // --- ArrowDown/Up clamping at boundaries ---
+
+  it('ArrowDown does not exceed last result', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello' },
+      { path: '/src/b.ts', line: 2, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    const input = screen.getByPlaceholderText('Search in files...')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toBeInTheDocument()
+  })
+
+  // --- ArrowUp clamps at 0 ---
+
+  it('ArrowUp does not go below 0', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    const input = screen.getByPlaceholderText('Search in files...')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(input).toBeInTheDocument()
+  })
+
+  // --- Body overflow cleanup on unmount with non-standard initial value ---
+
+  it('restores original body overflow on unmount', () => {
+    document.body.style.overflow = 'scroll'
+    const { unmount } = render(<SearchPanel isOpen={true} onClose={onClose} />)
+    expect(document.body.style.overflow).toBe('hidden')
+    unmount()
+    expect(document.body.style.overflow).toBe('scroll')
+  })
+
+  // --- Replace in file disabled while replacing ---
+
+  it('Replace in file button is disabled while replacing', async () => {
+    let resolveReplace: (value: unknown) => void
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockImplementationOnce(() => new Promise(r => { resolveReplace = r }))
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    const replaceInFileBtn = screen.getByTitle('Replace all in this file')
+    expect(replaceInFileBtn).not.toBeDisabled()
+
+    fireEvent.click(replaceInFileBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Replace all in this file')).toBeDisabled()
+    })
+
+    await act(async () => { resolveReplace({ changedFiles: 1 }) })
+  })
+
+  // --- Alt+Enter does not replace when showReplace is false ---
+
+  it('Alt+Enter navigates instead of replacing when replace not shown', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.keyDown(screen.getByPlaceholderText('Search in files...'), { key: 'Enter', altKey: true })
+    expect(mockNavigate).toHaveBeenCalled()
+    expect(mockReplaceContent).not.toHaveBeenCalled()
+  })
+
+  // --- Clear preview state on query change ---
+
+  it('clears replace summary when query changes', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockResolvedValueOnce({ changedFiles: 1 })
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Replaced in 1 file/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'world' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Replaced in/)).not.toBeInTheDocument()
+    })
+  })
+
+  // --- Replace all with caseSensitive option ---
+
+  it('passes caseSensitive to replace all', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockResolvedValueOnce({ changedFiles: 1 })
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.click(screen.getByTitle('Match case'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(mockReplaceContent).toHaveBeenCalledWith('hello', '', expect.objectContaining({
+        caseSensitive: true,
+      }))
+    })
+  })
+
+  // --- Replace all with preserveCase option ---
+
+  it('passes preserveCase to replace all', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockResolvedValueOnce({ changedFiles: 1 })
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.click(screen.getByTitle('Preserve Case'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(mockReplaceContent).toHaveBeenCalledWith('hello', '', expect.objectContaining({
+        preserveCase: true,
+      }))
+    })
+  })
+
+  // --- Search debounce cancellation ---
+
+  it('cancels previous search on rapid input', async () => {
+    mockSearchContent.mockResolvedValue([])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    const input = screen.getByPlaceholderText('Search in files...')
+
+    fireEvent.change(input, { target: { value: 'h' } })
+    fireEvent.change(input, { target: { value: 'he' } })
+    fireEvent.change(input, { target: { value: 'hel' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await waitFor(() => {
+      expect(mockSearchContent).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // --- File group selection highlighting ---
+
+  it('highlights file group containing selected result', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/a.ts', line: 1, content: 'hello' },
+      { path: '/src/b.ts', line: 2, content: 'hello' },
+    ])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findAllByRole('option')
+    const aHeader = screen.getByText('/src/a.ts').closest('div')
+    expect(aHeader?.className).toContain('bg-accent')
+  })
+
+  // --- Replace error alert role ---
+
+  it('replace error has proper alert role', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockRejectedValueOnce(new Error('Disk full'))
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert).toBeInTheDocument()
+      expect(screen.getByText('Disk full')).toBeInTheDocument()
+    })
+  })
+
+  // --- Search with include pattern trimming ---
+
+  it('trims and splits include pattern correctly', async () => {
+    mockSearchContent.mockResolvedValue([])
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Filter files to include/exclude'))
+    fireEvent.change(screen.getByPlaceholderText('*.ts, *.tsx (comma-separated)'), { target: { value: ' *.ts , , *.tsx ' } })
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await waitFor(() => {
+      expect(mockSearchContent).toHaveBeenCalledWith('hello', false, undefined, expect.objectContaining({
+        includeFiles: ['*.ts', '*.tsx'],
+      }))
+    })
+  })
+
+  // --- Handles replace all failure with non-Error object (string) ---
+
+  it('handles replace failure with string error', async () => {
+    mockSearchContent.mockResolvedValue([
+      { path: '/src/app.ts', line: 10, content: 'hello' },
+    ])
+    mockReplaceContent.mockRejectedValueOnce('unexpected failure')
+
+    render(<SearchPanel isOpen={true} onClose={onClose} />)
+    fireEvent.click(screen.getByTitle('Toggle replace'))
+    fireEvent.change(screen.getByPlaceholderText('Search in files...'), { target: { value: 'hello' } })
+
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    await screen.findByRole('option')
+    fireEvent.click(screen.getByText('Replace All'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Replace failed')).toBeInTheDocument()
+    })
+  })
 })

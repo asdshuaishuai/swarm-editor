@@ -1178,3 +1178,570 @@ describe('AgentCollaborationPanel edge cases', () => {
     expect(screen.getByTestId('chat-message-count')).toHaveTextContent('3')
   })
 })
+
+describe('AgentCollaborationPanel additional edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    chatOnSendMessage = undefined
+    chatOnSwitchAgent = undefined
+    mockGetAgents.mockResolvedValue([
+      { id: 'claude-code', name: 'Claude Code', state: 'active', type: 'acp' },
+      { id: 'kimi-code', name: 'Kimi Code', state: 'idle', type: 'acp' },
+    ])
+    mockCreateSession.mockResolvedValue({ id: 'session-1' })
+    mockSendMessage.mockResolvedValue({ content: 'response' })
+    mockCloseSession.mockResolvedValue(undefined)
+    mockGetSwarms.mockResolvedValue([])
+    mockGetSwarmTasks.mockResolvedValue([])
+    mockGetConsensus.mockResolvedValue({ consensus: [], algorithm: 'majority', threshold: 0.5 })
+    mockGetEmergenceData.mockResolvedValue(null)
+    mockSubscribe.mockReturnValue(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  describe('fetchAgents error handling', () => {
+    it('logs warning when fetchAgents fails', async () => {
+      const { logger } = await import('../utils')
+      mockGetAgents.mockRejectedValueOnce(new Error('Network timeout'))
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(mockGetAgents).toHaveBeenCalled()
+      })
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AgentCollaboration',
+        'Failed to fetch agents',
+        expect.any(Error)
+      )
+    })
+
+    it('continues rendering after fetchAgents failure', async () => {
+      mockGetAgents.mockRejectedValueOnce(new Error('Server error'))
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+        expect(screen.getByTestId('swarm-status')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('fetchSwarmData error handling', () => {
+    it('logs debug when fetchSwarmData fails completely', async () => {
+      const { logger } = await import('../utils')
+      mockGetSwarms.mockRejectedValueOnce(new Error('Swarm service unavailable'))
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(mockGetSwarms).toHaveBeenCalled()
+      })
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        'AgentCollaboration',
+        'Failed to fetch swarm data',
+        expect.any(Error)
+      )
+    })
+
+    it('continues rendering after fetchSwarmData failure', async () => {
+      mockGetSwarms.mockRejectedValueOnce(new Error('Connection refused'))
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+        expect(screen.getByTestId('swarm-status')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('message sending edge cases', () => {
+    it('creates session with activeAgentId', async () => {
+      render(<AgentCollaborationPanel primaryAgentId="kimi-code" />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+      })
+
+      await act(async () => {
+        await chatOnSendMessage!('hello kimi')
+      })
+
+      expect(mockCreateSession).toHaveBeenCalledWith('kimi-code', 'default')
+    })
+
+    it('uses fallback message when agent name not found', async () => {
+      // Use only one agent, then switch to an agent not in the list
+      mockGetAgents.mockResolvedValue([
+        { id: 'claude-code', name: 'Claude Code', state: 'active', type: 'acp' },
+      ])
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSwitchAgent).toBeDefined()
+      })
+
+      // Switch to an agent not in the fetched list
+      await act(async () => {
+        chatOnSwitchAgent!('unknown-agent')
+      })
+
+      // System message should use the agent ID as fallback name
+      expect(screen.getByTestId('chat-message-count')).toHaveTextContent('1')
+    })
+
+    it('handles sendMessage returning null content', async () => {
+      mockSendMessage.mockResolvedValueOnce({ content: null })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+      })
+
+      await act(async () => {
+        await chatOnSendMessage!('hello')
+      })
+
+      // Should still add a response message with fallback text
+      await waitFor(() => {
+        expect(screen.getByTestId('chat-message-count')).toHaveTextContent('2')
+      })
+    })
+
+    it('handles sendMessage returning empty string content', async () => {
+      mockSendMessage.mockResolvedValueOnce({ content: '' })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+      })
+
+      await act(async () => {
+        await chatOnSendMessage!('hello')
+      })
+
+      // Empty string is falsy, should use fallback message
+      await waitFor(() => {
+        expect(screen.getByTestId('chat-message-count')).toHaveTextContent('2')
+      })
+    })
+
+    it('handles createSession rejection with non-Error object', async () => {
+      mockCreateSession.mockRejectedValueOnce('string error')
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+      })
+
+      await act(async () => {
+        await chatOnSendMessage!('hello')
+      })
+
+      // Should add error message with "unknown error" fallback
+      await waitFor(() => {
+        expect(screen.getByTestId('chat-message-count')).toHaveTextContent('2')
+      })
+    })
+  })
+
+  describe('agent switching edge cases', () => {
+    it('switches to new agent and creates new session on next message', async () => {
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+        expect(chatOnSwitchAgent).toBeDefined()
+      })
+
+      // Send first message to create session
+      await act(async () => {
+        await chatOnSendMessage!('first')
+      })
+
+      expect(mockCreateSession).toHaveBeenCalledTimes(1)
+
+      // Switch agent
+      await act(async () => {
+        chatOnSwitchAgent!('new-agent')
+      })
+
+      expect(mockCloseSession).toHaveBeenCalledWith('session-1')
+
+      // Prepare for new session creation
+      mockCreateSession.mockResolvedValueOnce({ id: 'session-2' })
+
+      // Send another message - should create new session
+      await act(async () => {
+        await chatOnSendMessage!('second')
+      })
+
+      expect(mockCreateSession).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not call onSwitchAgent when callback is undefined', async () => {
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSwitchAgent).toBeDefined()
+      })
+
+      // onSwitchAgent is not provided, should not crash
+      await act(async () => {
+        chatOnSwitchAgent!('new-agent')
+      })
+
+      // Should still add system message
+      expect(screen.getByTestId('chat-message-count')).toHaveTextContent('1')
+    })
+
+    it('handles multiple rapid agent switches', async () => {
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSwitchAgent).toBeDefined()
+      })
+
+      // Switch agents multiple times rapidly
+      await act(async () => {
+        chatOnSwitchAgent!('agent-1')
+      })
+      await act(async () => {
+        chatOnSwitchAgent!('agent-2')
+      })
+      await act(async () => {
+        chatOnSwitchAgent!('agent-3')
+      })
+
+      // Should have 3 system messages
+      expect(screen.getByTestId('chat-message-count')).toHaveTextContent('3')
+    })
+  })
+
+  describe('WebSocket subscription cleanup', () => {
+    it('handles WebSocket subscription handler for swarm_stats with non-array', async () => {
+      let swarmStatsHandler: ((data: unknown) => void) | undefined
+      mockSubscribe.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'swarm_stats') swarmStatsHandler = handler
+        return () => {}
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(swarmStatsHandler).toBeDefined()
+      })
+
+      const initialCallCount = mockGetSwarms.mock.calls.length
+
+      // Send non-array data
+      await act(async () => {
+        swarmStatsHandler!('not an array')
+      })
+
+      // Should not trigger fetchSwarmData
+      expect(mockGetSwarms).toHaveBeenCalledTimes(initialCallCount)
+    })
+
+    it('handles WebSocket subscription handler for agent_stats with empty array', async () => {
+      let agentStatsHandler: ((data: unknown) => void) | undefined
+      mockSubscribe.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'agent_stats') agentStatsHandler = handler
+        return () => {}
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(agentStatsHandler).toBeDefined()
+      })
+
+      // Send empty array
+      await act(async () => {
+        agentStatsHandler!([])
+      })
+
+      // Should update agents to empty array
+      expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+    })
+  })
+
+  describe('session cleanup edge cases', () => {
+    it('logs debug when session close fails on unmount', async () => {
+      const { logger } = await import('../utils')
+      mockCloseSession.mockRejectedValueOnce(new Error('close failed'))
+
+      const { unmount } = render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+      })
+
+      // Create a session
+      await act(async () => {
+        await chatOnSendMessage!('hello')
+      })
+
+      unmount()
+
+      await waitFor(() => {
+        expect(logger.debug).toHaveBeenCalledWith(
+          'AgentCollaboration',
+          'Failed to close session',
+          expect.any(Error)
+        )
+      })
+    })
+
+    it('logs debug when session close fails on agent switch', async () => {
+      const { logger } = await import('../utils')
+      mockCloseSession.mockRejectedValueOnce(new Error('close failed'))
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(chatOnSendMessage).toBeDefined()
+        expect(chatOnSwitchAgent).toBeDefined()
+      })
+
+      // Create a session
+      await act(async () => {
+        await chatOnSendMessage!('hello')
+      })
+
+      // Switch agent - should attempt close and log debug on failure
+      await act(async () => {
+        chatOnSwitchAgent!('kimi-code')
+      })
+
+      await waitFor(() => {
+        expect(logger.debug).toHaveBeenCalledWith(
+          'AgentCollaboration',
+          'Failed to close session',
+          expect.any(Error)
+        )
+      })
+    })
+  })
+
+  describe('consensus data processing', () => {
+    it('processes consensus with 0% approval rate', async () => {
+      mockGetConsensus.mockResolvedValue({
+        consensus: [
+          { taskId: 't-1', algorithm: 'unanimous', approvalRate: 0, totalVotes: 5, approvedVotes: 0, completed: true, agreed: false },
+        ],
+        algorithm: 'unanimous',
+        threshold: 1.0,
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('consensus-total')).toHaveTextContent('1')
+        expect(screen.getByTestId('consensus-agreed')).toHaveTextContent('0')
+      })
+    })
+
+    it('processes consensus with 100% approval rate', async () => {
+      mockGetConsensus.mockResolvedValue({
+        consensus: [
+          { taskId: 't-1', algorithm: 'unanimous', approvalRate: 1.0, totalVotes: 3, approvedVotes: 3, completed: true, agreed: true },
+        ],
+        algorithm: 'unanimous',
+        threshold: 1.0,
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('consensus-total')).toHaveTextContent('1')
+        expect(screen.getByTestId('consensus-agreed')).toHaveTextContent('1')
+      })
+    })
+
+    it('handles consensus with single entry', async () => {
+      mockGetConsensus.mockResolvedValue({
+        consensus: [
+          { taskId: 'single-task', algorithm: 'pbft', approvalRate: 0.67, totalVotes: 3, approvedVotes: 2, completed: true, agreed: true },
+        ],
+        algorithm: 'pbft',
+        threshold: 0.66,
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('consensus-total')).toHaveTextContent('1')
+      })
+    })
+  })
+
+  describe('emergence data processing', () => {
+    it('passes emergence health and signals to SwarmStatus', async () => {
+      mockGetEmergenceData.mockResolvedValue({
+        health: {
+          overallScore: 95,
+          congestionLevel: 2,
+          collaborationIndex: 98,
+          innovationRate: 85,
+          agentUtilization: 90,
+        },
+        signals: [
+          { id: 's-1', type: 'emergence', severity: 'high', message: 'High collaboration detected' },
+          { id: 's-2', type: 'synergy', severity: 'medium', message: 'New pattern found' },
+        ],
+        agents: [],
+        flows: [],
+      })
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('emergence-present')).toBeInTheDocument()
+      })
+    })
+
+    it('does not pass emergence data when null', async () => {
+      mockGetEmergenceData.mockResolvedValue(null)
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(mockGetEmergenceData).toHaveBeenCalled()
+      })
+
+      expect(screen.queryByTestId('emergence-present')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('task progress calculation', () => {
+    it('shows 0% progress when all tasks are pending', async () => {
+      mockGetSwarms.mockResolvedValue([
+        { id: 'sw-1', name: 'Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 1, taskCount: 3 },
+      ])
+      mockGetSwarmTasks.mockResolvedValue([
+        { id: 't-1', title: 'Pending 1', status: 'pending', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-2', title: 'Pending 2', status: 'pending', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-3', title: 'Pending 3', status: 'pending', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+      ])
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('progress')).toHaveTextContent('0')
+      })
+    })
+
+    it('shows correct progress with mixed task statuses', async () => {
+      mockGetSwarms.mockResolvedValue([
+        { id: 'sw-1', name: 'Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 1, taskCount: 6 },
+      ])
+      mockGetSwarmTasks.mockResolvedValue([
+        { id: 't-1', title: 'Completed 1', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-2', title: 'Completed 2', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-3', title: 'Failed', status: 'failed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-4', title: 'Running', status: 'running', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-5', title: 'Pending', status: 'pending', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-6', title: 'Completed 3', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+      ])
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        // 3 completed / 6 total = 50%
+        expect(screen.getByTestId('progress')).toHaveTextContent('50')
+      })
+    })
+
+    it('rounds progress correctly', async () => {
+      mockGetSwarms.mockResolvedValue([
+        { id: 'sw-1', name: 'Swarm', status: 'running', state: 'running', topology: 'mesh', strategy: 'parallel', agentCount: 1, taskCount: 3 },
+      ])
+      mockGetSwarmTasks.mockResolvedValue([
+        { id: 't-1', title: 'Completed', status: 'completed', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-2', title: 'Running', status: 'running', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+        { id: 't-3', title: 'Pending', status: 'pending', description: '', priority: 'medium', assignedTo: [], results: [], createdAt: '' },
+      ])
+
+      render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        // 1 completed / 3 total = 33.33...% rounds to 33
+        expect(screen.getByTestId('progress')).toHaveTextContent('33')
+      })
+    })
+  })
+
+  describe('primaryAgentId prop changes', () => {
+    it('updates activeAgentId when primaryAgentId prop changes from undefined to a value', async () => {
+      const { rerender } = render(<AgentCollaborationPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+      })
+
+      rerender(<AgentCollaborationPanel primaryAgentId="kimi-code" />)
+
+      // Should still render without errors
+      expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+    })
+
+    it('updates activeAgentId when primaryAgentId prop changes from one value to another', async () => {
+      const { rerender } = render(<AgentCollaborationPanel primaryAgentId="claude-code" />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+      })
+
+      rerender(<AgentCollaborationPanel primaryAgentId="kimi-code" />)
+
+      expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+    })
+
+    it('does not update activeAgentId when primaryAgentId is undefined', async () => {
+      const { rerender } = render(<AgentCollaborationPanel primaryAgentId="claude-code" />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+      })
+
+      // Re-render with undefined primaryAgentId - should keep current activeAgentId
+      rerender(<AgentCollaborationPanel />)
+
+      expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+    })
+  })
+
+  describe('component layout', () => {
+    it('renders with correct flex layout classes', () => {
+      const { container } = render(<AgentCollaborationPanel />)
+      const outerDiv = container.firstElementChild
+      expect(outerDiv?.className).toContain('flex')
+      expect(outerDiv?.className).toContain('flex-col')
+      expect(outerDiv?.className).toContain('h-full')
+    })
+
+    it('renders AgentChat in a flex-1 container', () => {
+      const { container } = render(<AgentCollaborationPanel />)
+      const chatContainer = container.querySelector('.flex-1')
+      expect(chatContainer).toBeInTheDocument()
+    })
+
+    it('renders SwarmStatus outside the chat container', () => {
+      render(<AgentCollaborationPanel />)
+      expect(screen.getByTestId('agent-chat')).toBeInTheDocument()
+      expect(screen.getByTestId('swarm-status')).toBeInTheDocument()
+    })
+  })
+})

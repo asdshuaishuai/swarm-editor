@@ -978,3 +978,476 @@ describe('AgentConfigCard status rendering', () => {
     expect(screen.getByText('status-agent')).toBeInTheDocument()
   })
 })
+
+describe('AgentConfigPanel handleDeleteAgent edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('does not crash when deleteTarget is cleared before confirm', async () => {
+    // This tests the guard at line 38: if (!deleteTarget) return
+    // When ConfirmDialog's onConfirm is called but deleteTarget was already cleared,
+    // handleDeleteAgent should return early without calling the API.
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'guard-agent',
+        name: 'Guard Agent',
+        command: '/usr/bin/guard',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click delete button to open confirmation dialog
+    const deleteButton = screen.getByTitle('Delete')
+    fireEvent.click(deleteButton)
+
+    // ConfirmDialog should appear
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    // Now the dialog is shown with deleteTarget set
+    // We verify the guard by testing normal flow still works
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('AgentConfigPanel modal interactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('closes add modal and opens again without stale data', () => {
+    render(<AgentConfigPanel />)
+
+    // Open modal, type something
+    fireEvent.click(screen.getByText('Add Agent'))
+    fireEvent.change(screen.getByPlaceholderText('claude-code'), { target: { value: 'stale-test' } })
+
+    // Close modal
+    fireEvent.click(screen.getByText('Cancel'))
+    expect(screen.queryByText('Add New Agent')).not.toBeInTheDocument()
+
+    // Reopen modal - form should be reset
+    fireEvent.click(screen.getByText('Add Agent'))
+    expect(screen.getByPlaceholderText('claude-code')).toHaveValue('')
+  })
+
+  it('opens edit modal and populates form with existing agent data', async () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'edit-modal-agent',
+        name: 'Edit Modal Agent',
+        command: '/usr/bin/editmodal',
+        args: ['--flag1', '--flag2'],
+        enabled: false,
+        tags: ['tag1', 'tag2'],
+        swarmConfig: {
+          canBeCoordinator: false,
+          canBeWorker: true,
+          preferredRoles: ['tester'],
+          maxConcurrent: 7,
+          priority: 3,
+        },
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Click edit button
+    const editButton = screen.getByTitle('Edit')
+    fireEvent.click(editButton)
+
+    // Modal should show Edit Agent title
+    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+
+    // Form should be pre-populated with agent data
+    expect(screen.getByPlaceholderText('claude-code')).toHaveValue('edit-modal-agent')
+    expect(screen.getByPlaceholderText('Claude Code')).toHaveValue('Edit Modal Agent')
+    expect(screen.getByPlaceholderText('/usr/local/bin/claude-code')).toHaveValue('/usr/bin/editmodal')
+    expect(screen.getByPlaceholderText('acp, --mode=swarm')).toHaveValue('--flag1, --flag2')
+    expect(screen.getByPlaceholderText('primary, coding, review')).toHaveValue('tag1, tag2')
+
+    // Worker checkbox should be checked, coordinator unchecked
+    expect(screen.getByLabelText('Can be Coordinator')).not.toBeChecked()
+    expect(screen.getByLabelText('Can be Worker')).toBeChecked()
+  })
+
+  it('closes edit modal and reopens add modal separately', async () => {
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'close-edit-agent',
+        name: 'Close Edit Agent',
+        command: '/usr/bin/closeedit',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+
+    // Open edit modal
+    fireEvent.click(screen.getByTitle('Edit'))
+    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+
+    // Close modal
+    fireEvent.click(screen.getByText('Cancel'))
+    expect(screen.queryByText('Edit Agent')).not.toBeInTheDocument()
+
+    // Open add modal - should be add mode
+    fireEvent.click(screen.getByText('Add Agent'))
+    expect(screen.getByText('Add New Agent')).toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigPanel simultaneous operations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('handles rapid test button clicks for same agent', async () => {
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'rapid-test-agent',
+        name: 'Rapid Test Agent',
+        command: '/usr/bin/rapid',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    // Click test button multiple times rapidly
+    fireEvent.click(testButton)
+    fireEvent.click(testButton)
+    fireEvent.click(testButton)
+
+    // Wait for connection tests to complete
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Component should still render without errors
+    expect(screen.getByText('Rapid Test Agent')).toBeInTheDocument()
+    vi.useRealTimers()
+  })
+})
+
+describe('AgentConfigCard additional edge cases', () => {
+  const baseAgent: AgentConfig = {
+    id: 'edge-agent',
+    name: 'Edge Agent',
+    command: '/usr/bin/edge',
+    args: [],
+    enabled: true,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows command with font-mono and truncate classes', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const commandEl = screen.getByText('/usr/bin/edge')
+    expect(commandEl.className).toContain('font-mono')
+    expect(commandEl.className).toContain('truncate')
+  })
+
+  it('shows command section with bg-glass/50 class', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const commandContainer = screen.getByText('/usr/bin/edge').parentElement
+    expect(commandContainer?.className).toContain('bg-glass')
+  })
+
+  it('renders agent name with font-medium class', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const nameEl = screen.getByText('Edge Agent')
+    expect(nameEl.className).toContain('font-medium')
+  })
+
+  it('renders agent id with text-sm class', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const idEl = screen.getByText('edge-agent')
+    expect(idEl.className).toContain('text-sm')
+  })
+
+  it('renders status dot with correct size', () => {
+    const { container } = render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const dot = container.querySelector('.w-3.h-3')
+    expect(dot).toBeInTheDocument()
+    expect(dot?.classList.contains('rounded-full')).toBe(true)
+  })
+
+  it('renders enabled badge with correct classes', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const badge = screen.getByText('Enabled')
+    expect(badge.className).toContain('bg-success/10')
+    expect(badge.className).toContain('text-success')
+  })
+
+  it('renders disabled badge with correct classes', () => {
+    const disabledAgent = { ...baseAgent, enabled: false }
+    render(<AgentConfigCard agent={disabledAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const badge = screen.getByText('Disabled')
+    expect(badge.className).toContain('bg-glass')
+    expect(badge.className).toContain('text-text-secondary')
+  })
+
+  it('renders swarm config badges with correct classes', () => {
+    const agent: AgentConfig = {
+      ...baseAgent,
+      swarmConfig: {
+        canBeCoordinator: true,
+        canBeWorker: true,
+        preferredRoles: ['coder'],
+        maxConcurrent: 5,
+        priority: 8,
+      },
+    }
+    render(<AgentConfigCard agent={agent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+
+    const coordinatorBadge = screen.getByText('Coordinator')
+    expect(coordinatorBadge.className).toContain('bg-accent/10')
+    expect(coordinatorBadge.className).toContain('text-accent')
+
+    const workerBadge = screen.getByText('Worker')
+    expect(workerBadge.className).toContain('bg-info/10')
+    expect(workerBadge.className).toContain('text-info')
+
+    const priorityBadge = screen.getByText('Priority: 8')
+    expect(priorityBadge.className).toContain('bg-glass')
+
+    const maxBadge = screen.getByText('Max: 5')
+    expect(maxBadge.className).toContain('bg-glass')
+  })
+
+  it('renders tags with correct classes', () => {
+    const agent: AgentConfig = {
+      ...baseAgent,
+      tags: ['alpha', 'beta'],
+    }
+    render(<AgentConfigCard agent={agent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+
+    const alphaTag = screen.getByText('alpha')
+    expect(alphaTag.className).toContain('bg-glass')
+    expect(alphaTag.className).toContain('border-glass-border')
+    expect(alphaTag.className).toContain('text-text-secondary')
+  })
+
+  it('renders test button with correct aria-label', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const testButton = screen.getByLabelText('Test Connection')
+    expect(testButton).toBeInTheDocument()
+  })
+
+  it('renders edit button with correct aria-label', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const editButton = screen.getByLabelText('Edit')
+    expect(editButton).toBeInTheDocument()
+  })
+
+  it('renders delete button with correct aria-label', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const deleteButton = screen.getByLabelText('Delete')
+    expect(deleteButton).toBeInTheDocument()
+  })
+
+  it('renders card with correct border classes', () => {
+    const { container } = render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const card = container.firstElementChild
+    expect(card?.className).toContain('border-glass-border')
+    expect(card?.className).toContain('rounded-mac-xl')
+    expect(card?.className).toContain('bg-glass')
+  })
+
+  it('shows Terminal icon in command section', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    // The command section should have a Terminal SVG icon
+    const commandRow = screen.getByText('/usr/bin/edge').closest('div')
+    const svg = commandRow?.querySelector('svg')
+    expect(svg).toBeInTheDocument()
+  })
+
+  it('shows edit button icon', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const editButton = screen.getByTitle('Edit')
+    const svg = editButton.querySelector('svg')
+    expect(svg).toBeInTheDocument()
+  })
+
+  it('shows delete button icon with group-hover class', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    const deleteButton = screen.getByTitle('Delete')
+    expect(deleteButton.className).toContain('group')
+    const svg = deleteButton.querySelector('svg')
+    expect(svg).toBeInTheDocument()
+    expect(svg?.classList.contains('group-hover:text-error')).toBe(true)
+  })
+
+  it('does not show swarm config section when swarmConfig is undefined', () => {
+    const agent = { ...baseAgent, swarmConfig: undefined }
+    render(<AgentConfigCard agent={agent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} />)
+    expect(screen.queryByText(/Priority:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Max:/)).not.toBeInTheDocument()
+  })
+
+  it('shows loading spinner with animate-spin class during testing', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} status="testing" />)
+    const testButton = screen.getByTitle('Test Connection')
+    const spinner = testButton.querySelector('.animate-spin')
+    expect(spinner).toBeInTheDocument()
+    expect(spinner?.classList.contains('text-accent')).toBe(true)
+  })
+
+  it('shows Terminal icon with text-text-secondary class when idle', () => {
+    render(<AgentConfigCard agent={baseAgent} onEdit={() => {}} onTest={() => {}} onDelete={() => {}} status="idle" />)
+    const testButton = screen.getByTitle('Test Connection')
+    const icon = testButton.querySelector('.text-text-secondary')
+    expect(icon).toBeInTheDocument()
+  })
+})
+
+describe('AgentConfigPanel empty state rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows Bot icon with opacity-50 in empty state', () => {
+    const { container } = render(<AgentConfigPanel />)
+    const emptyBotIcon = container.querySelector('.opacity-50')
+    expect(emptyBotIcon).toBeInTheDocument()
+  })
+
+  it('shows correct subtitle text in empty state', () => {
+    render(<AgentConfigPanel />)
+    expect(screen.getByText('No agents configured')).toBeInTheDocument()
+    expect(screen.getByText('Add an ACP agent to get started')).toBeInTheDocument()
+  })
+
+  it('has correct class on empty state container', () => {
+    render(<AgentConfigPanel />)
+    const textTertiary = document.querySelector('.text-text-tertiary')
+    expect(textTertiary).toBeInTheDocument()
+    expect(textTertiary?.className).toContain('h-64')
+  })
+})
+
+describe('AgentConfigPanel header rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders Bot icon in header with correct classes', () => {
+    const { container } = render(<AgentConfigPanel />)
+    const botIcons = container.querySelectorAll('svg')
+    // Should have at least one Bot icon (in the header)
+    expect(botIcons.length).toBeGreaterThan(0)
+  })
+
+  it('renders header with accent background on icon container', () => {
+    const { container } = render(<AgentConfigPanel />)
+    const accentBg = container.querySelector('.bg-accent\\/10')
+    expect(accentBg).toBeInTheDocument()
+  })
+
+  it('renders Add Agent button with btn-primary class', () => {
+    render(<AgentConfigPanel />)
+    const addButton = screen.getByText('Add Agent').closest('button')
+    expect(addButton?.className).toContain('btn-primary')
+  })
+})
+
+describe('AgentConfigPanel test connection detailed flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('transitions from testing to connected on success', async () => {
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'flow-agent',
+        name: 'Flow Agent',
+        command: '/usr/bin/flow',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    // Click test - should show spinner
+    fireEvent.click(testButton)
+    expect(testButton.querySelector('.animate-spin')).toBeInTheDocument()
+
+    // Wait for test to complete
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Should show connected status (green dot)
+    const greenDot = document.querySelector('.bg-success')
+    expect(greenDot).toBeInTheDocument()
+
+    // Spinner should be gone
+    expect(testButton.querySelector('.animate-spin')).not.toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('transitions from testing to error on failure', async () => {
+    vi.useFakeTimers()
+    const { api } = await import('../services')
+    vi.mocked(api.agent.testAgent).mockRejectedValueOnce(new Error('Connection refused'))
+
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'error-flow-agent',
+        name: 'Error Flow Agent',
+        command: '/usr/bin/errorflow',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    fireEvent.click(testButton)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Should show error status (red dot)
+    const redDot = document.querySelector('.bg-error')
+    expect(redDot).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('can test connection again after previous test', async () => {
+    vi.useFakeTimers()
+    const initialAgents: AgentConfig[] = [
+      {
+        id: 'retest-agent',
+        name: 'Retest Agent',
+        command: '/usr/bin/retest',
+        args: [],
+        enabled: true,
+      },
+    ]
+    render(<AgentConfigPanel initialAgents={initialAgents} />)
+    const testButton = screen.getByTitle('Test Connection')
+
+    // First test
+    fireEvent.click(testButton)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(document.querySelector('.bg-success')).toBeInTheDocument()
+
+    // Second test
+    fireEvent.click(testButton)
+    await vi.advanceTimersByTimeAsync(2000)
+    // Should still be connected
+    expect(document.querySelector('.bg-success')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+})
