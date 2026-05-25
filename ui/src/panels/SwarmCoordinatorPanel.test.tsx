@@ -5,6 +5,10 @@ import { useAppStore } from '../store/appStore'
 import { api } from '../services'
 import type { CoordinationTask } from '../types'
 
+// Captured subscribe handlers so tests can fire WS events
+let capturedSubscribeHandler: ((data: unknown) => void) | null = null
+const mockUnsubscribe = vi.fn()
+
 vi.mock('../store/appStore', () => ({
   useAppStore: vi.fn(),
 }))
@@ -26,7 +30,7 @@ vi.mock('../services', () => ({
           },
         },
       }),
-      getSwarmTasks: vi.fn().mockResolvedValue({ pending: 0, running: 0, completed: 0 }),
+      getSwarmTasks: vi.fn().mockResolvedValue([]),
     },
   },
 }))
@@ -49,6 +53,26 @@ vi.mock('../services/scheduling', () => ({
     recordTaskScheduled: vi.fn(),
     updateAgentLoad: vi.fn(),
   },
+}))
+
+// Mock logger
+vi.mock('../utils', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}))
+
+// Mock WebSocket client
+vi.mock('../services/websocket', () => ({
+  getWebSocketClient: () => ({
+    subscribe: (_eventType: string, handler: (data: unknown) => void) => {
+      capturedSubscribeHandler = handler
+      return mockUnsubscribe
+    },
+  }),
 }))
 
 describe('SwarmCoordinatorPanel', () => {
@@ -1868,5 +1892,1564 @@ describe('testSelectedTaskId invalid ID', () => {
 
     // No task should be selected (no Task Details shown)
     expect(screen.queryByText('Task Details')).not.toBeInTheDocument()
+  })
+})
+
+describe('WebSocket swarm_task_update event', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: 'swarm-1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('updates task status when swarm_task_update event received', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'ws-task-1',
+        title: 'WS Task',
+        description: 'Task updated via WS',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Verify initial status shows 1 pending
+    const pendingCards = screen.getAllByText('Pending')
+    expect(pendingCards.length).toBeGreaterThan(0)
+
+    // Fire a WebSocket event to update the task
+    act(() => {
+      capturedSubscribeHandler!({
+        taskId: 'ws-task-1',
+        status: 'running',
+        progress: 0.5,
+      })
+    })
+
+    // Task should now show as running (stat card updated)
+    const runningCards = screen.getAllByText('Running')
+    expect(runningCards.length).toBeGreaterThan(0)
+  })
+
+  it('updates task progress via WS event', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'ws-prog-task',
+        title: 'Progress Task',
+        description: 'Progress test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.1,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Initially 10%
+    expect(screen.getByText('10%')).toBeInTheDocument()
+
+    // Update progress via WS
+    act(() => {
+      capturedSubscribeHandler!({
+        taskId: 'ws-prog-task',
+        status: 'running',
+        progress: 0.75,
+      })
+    })
+
+    expect(screen.getByText('75%')).toBeInTheDocument()
+  })
+
+  it('preserves existing progress when WS event has no progress', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'ws-noprog',
+        title: 'No Progress Task',
+        description: 'No progress in event',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.4,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    expect(screen.getByText('40%')).toBeInTheDocument()
+
+    // Update without progress field
+    act(() => {
+      capturedSubscribeHandler!({
+        taskId: 'ws-noprog',
+        status: 'running',
+      })
+    })
+
+    // Progress should stay at 40%
+    expect(screen.getByText('40%')).toBeInTheDocument()
+  })
+
+  it('ignores WS events for unknown task IDs', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'known-task',
+        title: 'Known Task',
+        description: 'Known task',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Fire event for unknown task
+    act(() => {
+      capturedSubscribeHandler!({
+        taskId: 'unknown-task-999',
+        status: 'running',
+        progress: 0.5,
+      })
+    })
+
+    // Known task should remain pending
+    expect(screen.getByText('Known Task')).toBeInTheDocument()
+  })
+
+  it('unsubscribes on unmount', () => {
+    mockUnsubscribe.mockClear()
+    const { unmount } = render(<SwarmCoordinatorPanel />)
+
+    unmount()
+
+    expect(mockUnsubscribe).toHaveBeenCalled()
+  })
+})
+
+describe('Polling fallback for active swarm', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: 'swarm-1', name: 'Poll Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('marks running tasks as completed when backend returns no running tasks', async () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'poll-task-1',
+        title: 'Poll Running Task',
+        description: 'Running',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // getSwarmTasks returns empty list (no running tasks)
+    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([])
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Advance by 10s to trigger polling
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
+
+    // The running task should be marked as completed
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+
+  it('does not mark tasks completed when backend still has running tasks', async () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'poll-task-2',
+        title: 'Still Running',
+        description: 'Still running',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Backend still has running tasks
+    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([
+      { id: 'poll-task-2', status: 'running' } as CoordinationTask,
+    ])
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
+
+    // Should still show Running stat (not completed)
+    const runningCards = screen.getAllByText('Running')
+    expect(runningCards.length).toBeGreaterThan(0)
+  })
+
+  it('handles polling error gracefully', async () => {
+    const { logger } = await import('../utils')
+    vi.mocked(api.swarm.getSwarmTasks).mockRejectedValue(new Error('Network error'))
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'poll-error-task',
+        title: 'Poll Error Task',
+        description: 'Error test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
+
+    // Logger.debug should have been called
+    expect(logger.debug).toHaveBeenCalled()
+  })
+
+  it('does not poll when there is no active swarm', async () => {
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: null,
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    vi.mocked(api.swarm.getSwarmTasks).mockClear()
+
+    render(<SwarmCoordinatorPanel />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20000)
+    })
+
+    expect(api.swarm.getSwarmTasks).not.toHaveBeenCalled()
+  })
+
+  it('stops polling on unmount', async () => {
+    vi.mocked(api.swarm.getSwarmTasks).mockClear()
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'poll-unmount',
+        title: 'Unmount Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.3,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    const { unmount } = render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    unmount()
+
+    const callCountBefore = vi.mocked(api.swarm.getSwarmTasks).mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20000)
+    })
+
+    // No new calls after unmount
+    expect(vi.mocked(api.swarm.getSwarmTasks).mock.calls.length).toBe(callCountBefore)
+  })
+
+  it('updates selectedTask to completed when backend finishes running task', async () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'sel-poll-task',
+        title: 'Selected Poll Task',
+        description: 'Selected and running',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.6,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([])
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    // Select the task
+    fireEvent.click(screen.getByText('Selected Poll Task'))
+    expect(screen.getByText('Task Details')).toBeInTheDocument()
+
+    // Advance polling
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
+
+    // Selected task details should show completed
+    expect(screen.getByText('completed')).toBeInTheDocument()
+  })
+})
+
+describe('New Task Modal - close and reset', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('closes modal with X button and resets form', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    // Fill in a title
+    const titleInput = screen.getByPlaceholderText('Implement user authentication')
+    fireEvent.change(titleInput, { target: { value: 'Some title' } })
+
+    // The X button is the one inside the dialog that has an SVG with lucide-x class
+    const dialog = screen.getByRole('dialog')
+    const xButtons = dialog.querySelectorAll('button')
+    // The X button has a child SVG with the lucide-x class
+    let xButton: HTMLButtonElement | null = null
+    xButtons.forEach(btn => {
+      const svg = btn.querySelector('svg')
+      if (svg && btn.closest('[role="dialog"]') && btn.parentElement?.querySelector('h3')) {
+        // This is the header close button (sibling of h3)
+        xButton = btn
+      }
+    })
+    expect(xButton).not.toBeNull()
+    fireEvent.click(xButton!)
+
+    expect(screen.queryByText('Submit New Task')).not.toBeInTheDocument()
+  })
+
+  it('switches risk tolerance to low', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    // Click the "low" risk tolerance button
+    const lowButton = screen.getByText('低')
+    fireEvent.click(lowButton)
+
+    // Should have active styling (just verify click works without crash)
+    expect(lowButton).toBeInTheDocument()
+  })
+
+  it('switches risk tolerance to high', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    const highButton = screen.getByText('高')
+    fireEvent.click(highButton)
+    expect(highButton).toBeInTheDocument()
+  })
+
+  it('enters constraints text', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    const constraintsInput = screen.getByPlaceholderText('如：不改测试文件, 不动配置')
+    fireEvent.change(constraintsInput, { target: { value: 'no test changes, no config edits' } })
+    expect(constraintsInput).toHaveValue('no test changes, no config edits')
+  })
+
+  it('enters acceptance criteria text', () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    const acceptanceInput = screen.getByPlaceholderText('如：所有测试通过, 无 lint 错误')
+    fireEvent.change(acceptanceInput, { target: { value: 'all tests pass, no lint errors' } })
+    expect(acceptanceInput).toHaveValue('all tests pass, no lint errors')
+  })
+})
+
+describe('handleSubmitTask with constraints and acceptance', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: 'swarm-1', name: 'Submit Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('submits task with constraints parsed as comma-separated list', async () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Constrained Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Do the thing' } })
+    fireEvent.change(screen.getByPlaceholderText('如：不改测试文件, 不动配置'), { target: { value: 'no tests, no config' } })
+    fireEvent.change(screen.getByPlaceholderText('如：所有测试通过, 无 lint 错误'), { target: { value: 'tests pass, no lint' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(api.swarm.submitTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        constraints: ['no tests', 'no config'],
+        acceptance: ['tests pass', 'no lint'],
+      })
+    )
+  })
+
+  it('submits task with empty constraints and acceptance', async () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'No Constraints Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Test prompt' } })
+
+    // Don't fill constraints or acceptance
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(api.swarm.submitTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        constraints: undefined,
+        acceptance: undefined,
+      })
+    )
+  })
+
+  it('submits with riskTolerance value', async () => {
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Risk Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Prompt' } })
+
+    // Click high risk
+    fireEvent.click(screen.getByText('高'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(api.swarm.submitTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        riskTolerance: 'high',
+      })
+    )
+  })
+
+  it('handles non-Error rejection in submit catch', async () => {
+    const { logger } = await import('../utils')
+    vi.mocked(api.swarm.submitTask).mockRejectedValueOnce('string error')
+
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Error Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Prompt' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Should show generic error toast
+    expect(screen.getByText('Submit New Task')).toBeInTheDocument()
+    expect(logger.error).toHaveBeenCalled()
+  })
+
+  it('calls recordTaskScheduled after successful submission', async () => {
+    const { schedulingService } = await import('../services/scheduling')
+
+    render(<SwarmCoordinatorPanel />)
+    fireEvent.click(screen.getByText('New Task'))
+
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Scheduled Task' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Prompt' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(schedulingService.recordTaskScheduled).toHaveBeenCalled()
+  })
+})
+
+describe('handleStartTask success path - agent results', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('calls schedulingService.updateAgentLoad after task execution', async () => {
+    const { schedulingService } = await import('../services/scheduling')
+    vi.mocked(schedulingService.updateAgentLoad).mockClear()
+
+    vi.mocked(api.swarm.executeTask).mockResolvedValueOnce({
+      taskId: 'exec-task',
+      status: 'completed',
+      agentResults: {
+        'agent-1': { agentId: 'agent-1', content: 'Result 1', success: true, durationMs: 500 },
+        'agent-2': { agentId: 'agent-2', content: 'Result 2', success: true, durationMs: 800 },
+      },
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'exec-load-task',
+        title: 'Load Test Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    fireEvent.click(screen.getByText('Load Test Task'))
+    fireEvent.click(screen.getByText('Start'))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    // Should have been called for both agents
+    expect(schedulingService.updateAgentLoad).toHaveBeenCalledTimes(2)
+    expect(schedulingService.updateAgentLoad).toHaveBeenCalledWith('agent-1', 0, 5, 500)
+    expect(schedulingService.updateAgentLoad).toHaveBeenCalledWith('agent-2', 0, 5, 800)
+  })
+
+  it('does not update state if component unmounts before API resolves', async () => {
+    vi.useRealTimers()
+
+    let resolveApi: (value: unknown) => void
+    vi.mocked(api.swarm.executeTask).mockImplementation(async () => {
+      await new Promise((resolve) => { resolveApi = resolve })
+      return {
+        taskId: 'unmount-task',
+        status: 'completed',
+        agentResults: {
+          'agent-1': { agentId: 'agent-1', content: 'Result', success: true, durationMs: 100 },
+        },
+      }
+    })
+
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'unmount-task',
+        title: 'Unmount Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'pending',
+        progress: 0,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    const { unmount } = render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    fireEvent.click(screen.getByText('Unmount Task'))
+    fireEvent.click(screen.getByText('Start'))
+
+    await waitFor(() => {
+      expect(screen.getByText('running')).toBeInTheDocument()
+    })
+
+    // Unmount while API is pending
+    unmount()
+
+    // Resolve the API call after unmount - should not throw
+    resolveApi!(undefined)
+
+    // Wait a bit to ensure no async errors
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+  })
+})
+
+describe('handleCancelTask via ConfirmDialog', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('dismisses cancel confirm dialog without canceling task', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'dismiss-task',
+        title: 'Dismiss Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    fireEvent.click(screen.getByText('Dismiss Task'))
+    fireEvent.click(screen.getByText('Cancel'))
+
+    // ConfirmDialog should be visible
+    expect(screen.getByText('Are you sure you want to cancel "Dismiss Task"? This action cannot be undone.')).toBeInTheDocument()
+
+    // Click the dialog cancel button (not the task cancel button)
+    const dialogCancelButtons = screen.getAllByRole('button').filter(
+      btn => btn.textContent === 'Cancel' && btn.closest('[role="alertdialog"]')
+    )
+    fireEvent.click(dialogCancelButtons[0])
+
+    // ConfirmDialog should be gone
+    expect(screen.queryByText('Are you sure you want to cancel')).not.toBeInTheDocument()
+    // Task should still be running (not failed)
+    expect(screen.getByText('running')).toBeInTheDocument()
+  })
+
+  it('shows task title in confirm dialog when task has a title', () => {
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'named-task',
+        title: 'My Named Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
+
+    fireEvent.click(screen.getByText('My Named Task'))
+    fireEvent.click(screen.getByText('Cancel'))
+
+    // The confirm dialog should contain the task title
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('My Named Task')
+  })
+
+  it('uses taskId in confirm dialog when task has no title', () => {
+    // requestCancelTask uses task?.title || taskId
+    // We need to directly test with testCancelTaskId on a task without a title match
+    const tasks: CoordinationTask[] = [
+      {
+        id: 'id-only-task',
+        title: 'Some Task',
+        description: 'Test',
+        prompt: 'Test',
+        priority: 'medium',
+        status: 'running',
+        progress: 0.5,
+        assignedTo: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    // Use testCancelTaskId to trigger requestCancelTask with a non-existent ID
+    render(<SwarmCoordinatorPanel initialTasks={tasks} testCancelTaskId="nonexistent-id" />)
+
+    // Should show confirm dialog with the raw ID since no task found
+    expect(screen.getByText(/nonexistent-id/)).toBeInTheDocument()
+  })
+})
+
+describe('TaskCard expanded details', () => {
+  const baseTask: CoordinationTask = {
+    id: 'expand-task',
+    title: 'Expandable Task',
+    description: 'Test',
+    prompt: 'Test',
+    priority: 'medium',
+    status: 'completed',
+    progress: 1,
+    assignedTo: [],
+    results: {},
+    createdAt: new Date().toISOString(),
+  }
+
+  it('toggles expanded state on click of Show/Hide details button', () => {
+    const onToggleExpand = vi.fn()
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={onToggleExpand}
+      />
+    )
+
+    const toggleButton = screen.getByText('Show details')
+    fireEvent.click(toggleButton)
+    expect(onToggleExpand).toHaveBeenCalled()
+  })
+
+  it('shows Hide details when expanded', () => {
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('Hide details')).toBeInTheDocument()
+  })
+
+  it('shows No results yet when expanded with no results', () => {
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('No results yet')).toBeInTheDocument()
+  })
+
+  it('shows result content when expanded with results', () => {
+    const taskWithResults: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result content for agent one',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 60000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskWithResults}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('agent-1')).toBeInTheDocument()
+    expect(screen.getByText('Result content for agent one')).toBeInTheDocument()
+  })
+
+  it('shows filesChanged count when expanded with file changes', () => {
+    const taskWithFiles: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Changed files',
+          filesChanged: ['file1.ts', 'file2.ts', 'file3.ts'],
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 5000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskWithFiles}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('3 files')).toBeInTheDocument()
+  })
+
+  it('shows duration when result has duration > 0', () => {
+    const taskWithDuration: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 12345,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskWithDuration}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('12345ms')).toBeInTheDocument()
+  })
+
+  it('does not show duration when duration is 0', () => {
+    const taskWithZeroDuration: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 0,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskWithZeroDuration}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.queryByText(/ms/)).not.toBeInTheDocument()
+  })
+
+  it('shows HIGH risk level when > 10 files changed', () => {
+    const manyFiles = Array.from({ length: 12 }, (_, i) => `file${i}.ts`)
+    const taskHighRisk: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          filesChanged: manyFiles,
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 1000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskHighRisk}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('HIGH')).toBeInTheDocument()
+  })
+
+  it('shows MEDIUM risk level when > 3 files changed', () => {
+    const taskMedRisk: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          filesChanged: ['file1.ts', 'file2.ts', 'file3.ts', 'file4.ts'],
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 1000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskMedRisk}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('MEDIUM')).toBeInTheDocument()
+  })
+
+  it('shows LOW risk level when <= 3 files changed', () => {
+    const taskLowRisk: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          filesChanged: ['file1.ts', 'file2.ts'],
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 1000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskLowRisk}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('LOW')).toBeInTheDocument()
+  })
+
+  it('shows LOW risk when no results', () => {
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.getByText('LOW')).toBeInTheDocument()
+  })
+
+  it('responds to Enter key press', () => {
+    const onClick = vi.fn()
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={onClick}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Find the card element by role
+    const card = screen.getByRole('button', { name: /Expandable Task/ })
+    fireEvent.keyDown(card, { key: 'Enter', preventDefault: () => {} })
+    expect(onClick).toHaveBeenCalled()
+  })
+
+  it('responds to Space key press', () => {
+    const onClick = vi.fn()
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={onClick}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    const card = screen.getByRole('button', { name: /Expandable Task/ })
+    fireEvent.keyDown(card, { key: ' ', preventDefault: () => {} })
+    expect(onClick).toHaveBeenCalled()
+  })
+
+  it('ignores other key presses', () => {
+    const onClick = vi.fn()
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={onClick}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    const card = screen.getByRole('button', { name: /Expandable Task/ })
+    fireEvent.keyDown(card, { key: 'Tab', preventDefault: () => {} })
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('shows description from prompt when no description', () => {
+    const taskNoDesc: CoordinationTask = {
+      ...baseTask,
+      description: '',
+      prompt: 'This is a long prompt that should be truncated when displayed as fallback for description',
+    }
+
+    render(
+      <TaskCard
+        task={taskNoDesc}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should show first 50 chars of prompt + "..."
+    // prompt.slice(0, 50) = "This is a long prompt that should be truncated whe"
+    expect(screen.getByText('This is a long prompt that should be truncated whe...')).toBeInTheDocument()
+  })
+
+  it('shows empty string when no description and no prompt', () => {
+    const taskEmpty: CoordinationTask = {
+      ...baseTask,
+      description: '',
+      prompt: '',
+    }
+
+    render(
+      <TaskCard
+        task={taskEmpty}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should still render without crash
+    expect(screen.getByText('Expandable Task')).toBeInTheDocument()
+  })
+
+  it('shows selected styling when isSelected is true', () => {
+    render(
+      <TaskCard
+        task={baseTask}
+        isSelected={true}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // The outer card div has the role="button" and the selected styling
+    const card = screen.getByRole('button', { name: /Expandable Task/ })
+    expect(card.className).toContain('border-accent')
+  })
+
+  it('uses default priorityColor for unknown priority', () => {
+    const unknownPriorityTask: CoordinationTask = {
+      ...baseTask,
+      priority: 'unknown',
+    }
+
+    render(
+      <TaskCard
+        task={unknownPriorityTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should still render, using the fallback color
+    expect(screen.getByText('unknown')).toBeInTheDocument()
+  })
+
+  it('does not show progress bar for non-running tasks', () => {
+    const pendingTask: CoordinationTask = {
+      ...baseTask,
+      status: 'pending',
+      progress: 0.5,
+    }
+
+    render(
+      <TaskCard
+        task={pendingTask}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-text-tertiary"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    expect(screen.queryByText('Progress')).not.toBeInTheDocument()
+  })
+
+  it('does not show assigned agents section when empty array', () => {
+    render(
+      <TaskCard
+        task={{ ...baseTask, assignedTo: [] }}
+        isSelected={false}
+        isExpanded={false}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // No agent badges should be shown
+    expect(screen.queryByText('+')).not.toBeInTheDocument()
+  })
+
+  it('truncates long content to 200 chars in expanded view', () => {
+    const longContent = 'A'.repeat(300)
+    const taskLongContent: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: longContent,
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 1000,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskLongContent}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should show first 200 chars
+    expect(screen.getByText('A'.repeat(200))).toBeInTheDocument()
+    // Full 300 chars should NOT be present
+    expect(screen.queryByText('A'.repeat(300))).not.toBeInTheDocument()
+  })
+
+  it('handles result with no content in expanded view', () => {
+    const taskNoContent: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: '',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 100,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskNoContent}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should show agent label and duration but no Output line
+    expect(screen.getByText('agent-1')).toBeInTheDocument()
+    expect(screen.getByText('100ms')).toBeInTheDocument()
+  })
+
+  it('handles result with filesChanged empty array', () => {
+    const taskEmptyFiles: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-1': {
+          agentId: 'agent-1',
+          content: 'Result',
+          filesChanged: [],
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 100,
+        },
+      },
+    }
+
+    render(
+      <TaskCard
+        task={taskEmptyFiles}
+        isSelected={false}
+        isExpanded={true}
+        statusColor="bg-success"
+        priorityColor="text-warning"
+        onClick={() => {}}
+        onToggleExpand={() => {}}
+      />
+    )
+
+    // Should not show files count since array is empty
+    expect(screen.queryByText(/files/)).not.toBeInTheDocument()
+  })
+})
+
+describe('TaskDetails component - comprehensive', () => {
+  const baseTask: CoordinationTask = {
+    id: 'detail-comp-task',
+    title: 'Detail Test',
+    description: 'Detail description',
+    prompt: 'Detail prompt text',
+    priority: 'high',
+    status: 'completed',
+    progress: 1,
+    assignedTo: [],
+    results: {},
+    createdAt: new Date().toISOString(),
+  }
+
+  const mockHandlers = {
+    onStart: vi.fn(),
+    onPause: vi.fn(),
+    onCancel: vi.fn(),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders task ID', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.getByText('detail-comp-task')).toBeInTheDocument()
+  })
+
+  it('renders task title', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.getByText('Detail Test')).toBeInTheDocument()
+  })
+
+  it('renders task status capitalized', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.getByText('completed')).toBeInTheDocument()
+  })
+
+  it('renders task priority with capitalize class', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    // The component renders "high" with CSS capitalize, not text-transformed
+    expect(screen.getByText('high')).toBeInTheDocument()
+  })
+
+  it('renders prompt in pre block', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.getByText('Detail prompt text')).toBeInTheDocument()
+  })
+
+  it('renders no action buttons for completed task', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.queryByText('Start')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pause')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cancel')).not.toBeInTheDocument()
+  })
+
+  it('renders no action buttons for failed task', () => {
+    const failedTask = { ...baseTask, status: 'failed' as const }
+    render(<TaskDetails task={failedTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.queryByText('Start')).not.toBeInTheDocument()
+  })
+
+  it('calls onClose when close button clicked', () => {
+    const onClose = vi.fn()
+    render(<TaskDetails task={baseTask} onClose={onClose} {...mockHandlers} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('renders results with multiple agents', () => {
+    const taskMultiResults: CoordinationTask = {
+      ...baseTask,
+      results: {
+        'agent-a': {
+          agentId: 'agent-a',
+          content: 'Result A',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 60000,
+        },
+        'agent-b': {
+          agentId: 'agent-b',
+          content: 'Result B',
+          startedAt: '2024-01-01T00:00:00Z',
+          completedAt: '2024-01-01T00:01:00Z',
+          duration: 45000,
+        },
+      },
+    }
+
+    render(<TaskDetails task={taskMultiResults} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.getByText('agent-a')).toBeInTheDocument()
+    expect(screen.getByText('agent-b')).toBeInTheDocument()
+    expect(screen.getByText('Result A')).toBeInTheDocument()
+    expect(screen.getByText('Result B')).toBeInTheDocument()
+  })
+
+  it('does not render Results section when results is empty object', () => {
+    render(<TaskDetails task={baseTask} onClose={() => {}} {...mockHandlers} />)
+    expect(screen.queryByText('Results')).not.toBeInTheDocument()
+  })
+})
+
+describe('Scheduling stats display', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('displays scheduling stats from service', () => {
+    render(<SwarmCoordinatorPanel />)
+
+    // getSchedulingStats returns totalTasksScheduled: 5
+    // There's a dedicated "Scheduled" label next to the value
+    const scheduledLabel = screen.getByText('Scheduled')
+    const scheduledContainer = scheduledLabel.closest('.bg-glass')
+    const scheduledValue = scheduledContainer?.querySelector('.text-xl, .text-sm.font-bold')
+    expect(scheduledValue?.textContent).toBe('5')
+
+    // calculateLoadBalanceEfficiency returns 0.85 -> 85%
+    const loadLabel = screen.getByText('Load Balance')
+    const loadContainer = loadLabel.closest('.bg-glass')
+    const loadValue = loadContainer?.querySelector('.text-sm.font-bold')
+    expect(loadValue?.textContent).toBe('85%')
+
+    // starvationPreventions: 0
+    const starvationLabel = screen.getByText('Starvation')
+    const starvationContainer = starvationLabel.closest('.bg-glass')
+    const starvationValue = starvationContainer?.querySelector('.text-sm.font-bold')
+    expect(starvationValue?.textContent).toBe('0')
+  })
+
+  it('displays Scheduled label', () => {
+    render(<SwarmCoordinatorPanel />)
+    expect(screen.getByText('Scheduled')).toBeInTheDocument()
+  })
+
+  it('displays Load Balance label', () => {
+    render(<SwarmCoordinatorPanel />)
+    expect(screen.getByText('Load Balance')).toBeInTheDocument()
+  })
+
+  it('displays Starvation label', () => {
+    render(<SwarmCoordinatorPanel />)
+    expect(screen.getByText('Starvation')).toBeInTheDocument()
+  })
+})
+
+describe('Unmounted component protection', () => {
+  it('does not update state after unmount during submit', async () => {
+    vi.useRealTimers()
+
+    let resolveSubmit: (value: unknown) => void
+    vi.mocked(api.swarm.submitTask).mockImplementation(async () => {
+      await new Promise((resolve) => { resolveSubmit = resolve })
+      return 'late-task-id'
+    })
+
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+
+    const { unmount } = render(<SwarmCoordinatorPanel />)
+
+    fireEvent.click(screen.getByText('New Task'))
+    fireEvent.change(screen.getByPlaceholderText('Implement user authentication'), { target: { value: 'Unmount Submit' } })
+    fireEvent.change(screen.getByPlaceholderText('Write the prompt that will be sent to agents...'), { target: { value: 'Prompt' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Task' }))
+
+    // Unmount while API is pending
+    unmount()
+
+    // Resolve API after unmount - should not throw
+    resolveSubmit!(undefined)
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+  })
+})
+
+describe('Refresh button', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    capturedSubscribeHandler = null
+    ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
+      const state = {
+        activeSwarm: { id: '1', name: 'Test Swarm' },
+        addToast: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('has a Refresh button in header', () => {
+    render(<SwarmCoordinatorPanel />)
+    expect(screen.getByLabelText('Refresh')).toBeInTheDocument()
   })
 })

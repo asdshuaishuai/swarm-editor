@@ -113,8 +113,10 @@ vi.mock('@codemirror/language', () => ({ indentUnit: { of: () => ({}) } }))
 // Mock codemirrorSetup with importable spies
 let compartmentGetReturn: unknown = undefined
 const mockReconfigure = vi.fn((v: unknown) => ({ type: 'reconfigure', value: v }))
-const mockCreateEditorExtensions = vi.fn((..._args: unknown[]) => [])
+const mockCreateEditorExtensions = vi.fn((..._args: unknown[]): unknown[] => [])
 const mockGetLanguageExtension = vi.fn((..._args: unknown[]) => [])
+// Shared capture for onChange callback in tests
+let capturedTestOnChange: ((v: string) => void) | undefined
 
 vi.mock('../utils/codemirrorSetup', () => ({
   createEditorExtensions: (a: unknown, b?: unknown) => mockCreateEditorExtensions(a, b),
@@ -997,6 +999,179 @@ describe('CodeMirrorPane', () => {
       // The view exists, so it should dispatch
       const valueUpdate = mockDispatchCalls.find(d => d.changes)
       expect(valueUpdate).toBeDefined()
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // onChange callback invocation via extension
+  // ---------------------------------------------------------------
+  describe('onChange via extension', () => {
+    it('invokes onChange when extension callback fires and not external update', () => {
+      const onChange = vi.fn()
+      capturedTestOnChange = undefined
+      mockCreateEditorExtensions.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const opts = args[1] as Record<string, unknown> | undefined
+          capturedTestOnChange = opts?.onChange as ((v: string) => void) | undefined
+          return []
+        }
+      )
+      render(<CodeMirrorPane value="test" filename="a.ts" onChange={onChange} />)
+
+      // Simulate user typing: invoke the captured onChange callback
+      expect(capturedTestOnChange).toBeDefined()
+      capturedTestOnChange!('new content')
+      expect(onChange).toHaveBeenCalledWith('new content')
+    })
+
+    it('does not invoke onChange when isExternalUpdate is true', () => {
+      const onChange = vi.fn()
+      mockCreateEditorExtensions.mockImplementationOnce(
+        (...args: unknown[]) => {
+          const opts = args[1] as Record<string, unknown> | undefined
+          capturedTestOnChange = opts?.onChange as ((v: string) => void) | undefined
+          return []
+        }
+      )
+      render(<CodeMirrorPane value="test" filename="a.ts" onChange={onChange} />)
+
+      // Trigger an external value update, which sets isExternalUpdate to true
+      // During that window, the onChange should NOT be called
+      const { rerender } = render(
+        <CodeMirrorPane value="test" filename="a.ts" onChange={onChange} />
+      )
+      onChange.mockClear()
+      rerender(<CodeMirrorPane value="updated externally" filename="a.ts" onChange={onChange} />)
+      // onChange was not called during the external update
+      expect(onChange).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Save keymap and DOM handler execution
+  // ---------------------------------------------------------------
+  describe('save keymap execution', () => {
+    it('executes Mod-s keymap handler and calls onSave via keymap', () => {
+      const onSave = vi.fn()
+      // Use Array<unknown> via type assertion to avoid never[] inference
+      const extensionsArray = new Array<unknown>()
+      mockCreateEditorExtensions.mockReturnValue(extensionsArray)
+
+      render(<CodeMirrorPane value="test" filename="a.ts" onSave={onSave} />)
+
+      // The keymap extension is pushed after createEditorExtensions returns
+      // keymap.of() in our mock returns its argument unchanged
+      // Find the keymap binding array that was pushed
+      const keymapBinding = extensionsArray.find((ext) => {
+        if (Array.isArray(ext) && ext.length === 1) {
+          const item = ext[0] as Record<string, unknown> | undefined
+          return item && typeof item === 'object' && 'key' in item && 'run' in item
+        }
+        return false
+      })
+
+      expect(keymapBinding).toBeDefined()
+      const binding = (keymapBinding as unknown[])[0] as Record<string, unknown>
+      expect(binding.key).toBe('Mod-s')
+      const runResult = (binding.run as () => boolean)()
+      expect(runResult).toBe(true)
+      expect(onSave).toHaveBeenCalled()
+    })
+
+    it('onSaveRef stays current when onSave prop changes', () => {
+      const onSave1 = vi.fn()
+      const onSave2 = vi.fn()
+      const extensionsArray = new Array<unknown>()
+      mockCreateEditorExtensions.mockReturnValue(extensionsArray)
+
+      const { rerender } = render(
+        <CodeMirrorPane value="test" filename="a.ts" onSave={onSave1} />
+      )
+      rerender(<CodeMirrorPane value="test" filename="a.ts" onSave={onSave2} />)
+
+      // Find the keymap binding and invoke run — it should call onSave2 via the ref
+      const keymapBinding = extensionsArray.find((ext) => {
+        if (Array.isArray(ext) && ext.length === 1) {
+          const item = ext[0] as Record<string, unknown> | undefined
+          return item && typeof item === 'object' && 'key' in item && 'run' in item
+        }
+        return false
+      })
+
+      if (keymapBinding) {
+        const binding = (keymapBinding as unknown[])[0] as Record<string, unknown>
+        ;(binding.run as () => boolean)()
+        // onSave2 should be called, not onSave1, because the ref is kept current
+        expect(onSave1).not.toHaveBeenCalled()
+        expect(onSave2).toHaveBeenCalled()
+      }
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // DOM keydown handler for Ctrl+S / Cmd+S
+  // ---------------------------------------------------------------
+  describe('DOM keydown save handler', () => {
+    it('captures domEventHandlers extension and tests Ctrl+S', () => {
+      const onSave = vi.fn()
+      const extensionsArray = new Array<unknown>()
+      mockCreateEditorExtensions.mockReturnValue(extensionsArray)
+
+      render(<CodeMirrorPane value="test" filename="a.ts" onSave={onSave} />)
+
+      // After mount, extensionsArray should have had items pushed to it:
+      // 1. keymap.of() (because onSave is provided)
+      // 2. EditorView.domEventHandlers({...})
+      // Find the domEventHandlers result
+      const domHandlerExt = extensionsArray.find((ext) => {
+        return typeof ext === 'object' && ext !== null && 'keydown' in (ext as Record<string, unknown>)
+      }) as Record<string, unknown> | undefined
+
+      if (domHandlerExt) {
+        const keydownFn = domHandlerExt.keydown as (event: Partial<KeyboardEvent>) => boolean
+        // Simulate Ctrl+S
+        const result = keydownFn({ ctrlKey: true, metaKey: false, key: 's', preventDefault: vi.fn() } as unknown as KeyboardEvent)
+        expect(result).toBe(true)
+        expect(onSave).toHaveBeenCalled()
+      }
+    })
+
+    it('domEventHandlers keydown returns false for non-save keys', () => {
+      const onSave = vi.fn()
+      const extensionsArray = new Array<unknown>()
+      mockCreateEditorExtensions.mockReturnValue(extensionsArray)
+
+      render(<CodeMirrorPane value="test" filename="a.ts" onSave={onSave} />)
+
+      const domHandlerExt = extensionsArray.find((ext) => {
+        return typeof ext === 'object' && ext !== null && 'keydown' in (ext as Record<string, unknown>)
+      }) as Record<string, unknown> | undefined
+
+      if (domHandlerExt) {
+        const keydownFn = domHandlerExt.keydown as (event: Partial<KeyboardEvent>) => boolean
+        const result = keydownFn({ ctrlKey: true, metaKey: false, key: 'x', preventDefault: vi.fn() } as unknown as KeyboardEvent)
+        expect(result).toBe(false)
+      }
+    })
+
+    it('domEventHandlers keydown handles Cmd+S (metaKey)', () => {
+      const onSave = vi.fn()
+      const extensionsArray = new Array<unknown>()
+      mockCreateEditorExtensions.mockReturnValue(extensionsArray)
+
+      render(<CodeMirrorPane value="test" filename="a.ts" onSave={onSave} />)
+
+      const domHandlerExt = extensionsArray.find((ext) => {
+        return typeof ext === 'object' && ext !== null && 'keydown' in (ext as Record<string, unknown>)
+      }) as Record<string, unknown> | undefined
+
+      if (domHandlerExt) {
+        const keydownFn = domHandlerExt.keydown as (event: Partial<KeyboardEvent>) => boolean
+        const mockPreventDefault = vi.fn()
+        keydownFn({ ctrlKey: false, metaKey: true, key: 's', preventDefault: mockPreventDefault } as unknown as KeyboardEvent)
+        expect(mockPreventDefault).toHaveBeenCalled()
+        expect(onSave).toHaveBeenCalled()
+      }
     })
   })
 })

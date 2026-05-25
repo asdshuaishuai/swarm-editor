@@ -29,6 +29,19 @@ vi.mock('./splitPaneStore', () => ({
 }))
 
 import { useWorkspaceStore } from './workspaceStore'
+import { fsApi, events } from '../services/api'
+import { useSplitPaneStore } from './splitPaneStore'
+
+// Helper to capture the fileChangeHandler from subscribeToFileChanges
+function captureFileChangeHandler(): (payload: unknown) => void {
+  // Clear previous subscribe calls
+  vi.mocked(events.subscribe).mockClear()
+  // subscribeToFileChanges calls events.subscribe 3 times with the same handler
+  useWorkspaceStore.getState().subscribeToFileChanges()
+  // The first call's second arg is the handler
+  const calls = vi.mocked(events.subscribe).mock.calls
+  return calls[0][1] as (payload: unknown) => void
+}
 
 // Helper to reset store state between tests
 function resetStore() {
@@ -46,6 +59,7 @@ function resetStore() {
     mruOrder: [],
     language: 'typescript',
     loading: false,
+    externalModifications: new Set<string>(),
   })
 }
 
@@ -497,6 +511,990 @@ describe('workspaceStore', () => {
       const cleanup = useWorkspaceStore.getState().subscribeToFileChanges()
       expect(typeof cleanup).toBe('function')
       cleanup()
+    })
+
+    it('subscribes to workspace_file_changed, workspace_file_deleted, workspace_file_created events', () => {
+      resetStore()
+      useWorkspaceStore.getState().subscribeToFileChanges()
+      expect(events.subscribe).toHaveBeenCalledWith('workspace_file_changed', expect.any(Function))
+      expect(events.subscribe).toHaveBeenCalledWith('workspace_file_deleted', expect.any(Function))
+      expect(events.subscribe).toHaveBeenCalledWith('workspace_file_created', expect.any(Function))
+    })
+
+    it('marks open non-dirty file as externally modified on workspace_file_changed', () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        dirtyFiles: new Set<string>(),
+        workspacePath: '/project',
+      })
+      handler({ path: '/project/a.ts', eventType: 'workspace_file_changed' })
+      expect(useWorkspaceStore.getState().externalModifications.has('/project/a.ts')).toBe(true)
+    })
+
+    it('does not mark dirty file as externally modified on workspace_file_changed', () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        dirtyFiles: new Set(['/project/a.ts']),
+        workspacePath: '/project',
+      })
+      handler({ path: '/project/a.ts', eventType: 'workspace_file_changed' })
+      expect(useWorkspaceStore.getState().externalModifications.has('/project/a.ts')).toBe(false)
+    })
+
+    it('does not mark closed file as externally modified on workspace_file_changed', () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/b.ts'],
+        dirtyFiles: new Set<string>(),
+        workspacePath: '/project',
+      })
+      handler({ path: '/project/a.ts', eventType: 'workspace_file_changed' })
+      expect(useWorkspaceStore.getState().externalModifications.size).toBe(0)
+    })
+
+    it('ignores events without path', () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      handler({ eventType: 'workspace_file_changed' })
+      expect(useWorkspaceStore.getState().externalModifications.size).toBe(0)
+    })
+
+    it('refreshes file tree on workspace_file_deleted', async () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      useWorkspaceStore.setState({ workspacePath: '/project' })
+      handler({ path: '/project/a.ts', eventType: 'workspace_file_deleted' })
+      // fsApi.listDir was called by refreshFileTree
+
+      expect(fsApi.listDir).toHaveBeenCalledWith('/project')
+    })
+
+    it('refreshes file tree on workspace_file_created', async () => {
+      resetStore()
+      const handler = captureFileChangeHandler()
+      useWorkspaceStore.setState({ workspacePath: '/project' })
+      handler({ path: '/project/a.ts', eventType: 'workspace_file_created' })
+
+      expect(fsApi.listDir).toHaveBeenCalledWith('/project')
+    })
+  })
+
+  describe('setWorkspacePath', () => {
+    it('syncs workspace to backend via fsApi.setWorkspace', async () => {
+      resetStore()
+      useWorkspaceStore.getState().setWorkspacePath('/my/project')
+
+      expect(fsApi.setWorkspace).toHaveBeenCalledWith('/my/project')
+      expect(useWorkspaceStore.getState().workspacePath).toBe('/my/project')
+    })
+
+    it('handles fsApi.setWorkspace rejection gracefully', async () => {
+      resetStore()
+
+      const failingSetWorkspace = vi.fn().mockRejectedValue(new Error('sync failed'))
+      vi.mocked(fsApi).setWorkspace = failingSetWorkspace
+      // Should not throw
+      useWorkspaceStore.getState().setWorkspacePath('/fail/path')
+      // Wait for the promise to settle
+      await new Promise(r => setTimeout(r, 10))
+      expect(useWorkspaceStore.getState().workspacePath).toBe('/fail/path')
+      // Restore mock
+      vi.mocked(fsApi).setWorkspace = vi.fn().mockResolvedValue(undefined)
+    })
+  })
+
+  describe('loadWorkspace', () => {
+    it('handles loadWorkspace error gracefully', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).getWorkspace = vi.fn().mockRejectedValue(new Error('load failed'))
+      await useWorkspaceStore.getState().loadWorkspace()
+      // Should not throw, workspacePath remains unchanged
+      expect(useWorkspaceStore.getState().workspacePath).toBe('')
+      // Restore mock
+      vi.mocked(fsApi).getWorkspace = vi.fn().mockResolvedValue('/project')
+    })
+  })
+
+  describe('refreshFileTree', () => {
+    it('does nothing when workspacePath is empty', async () => {
+      resetStore()
+      useWorkspaceStore.setState({ workspacePath: '' })
+      await useWorkspaceStore.getState().refreshFileTree()
+
+      expect(fsApi.listDir).not.toHaveBeenCalled()
+    })
+
+    it('handles listDir error gracefully', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).listDir = vi.fn().mockRejectedValue(new Error('dir failed'))
+      useWorkspaceStore.setState({ workspacePath: '/project' })
+      await useWorkspaceStore.getState().refreshFileTree()
+      expect(useWorkspaceStore.getState().loading).toBe(false)
+      expect(useWorkspaceStore.getState().fileTree).toEqual([])
+      // Restore mock
+      vi.mocked(fsApi).listDir = vi.fn().mockResolvedValue([])
+    })
+  })
+
+  describe('openFile language inference', () => {
+    it('infers javascript from .js extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('js content')
+      await useWorkspaceStore.getState().openFile('/project/app.js')
+      expect(useWorkspaceStore.getState().language).toBe('javascript')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+
+    it('infers python from .py extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('py content')
+      await useWorkspaceStore.getState().openFile('/project/main.py')
+      expect(useWorkspaceStore.getState().language).toBe('python')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+
+    it('infers go from .go extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('go content')
+      await useWorkspaceStore.getState().openFile('/project/main.go')
+      expect(useWorkspaceStore.getState().language).toBe('go')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+
+    it('infers json from .json extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('{}')
+      await useWorkspaceStore.getState().openFile('/project/pkg.json')
+      expect(useWorkspaceStore.getState().language).toBe('json')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+
+    it('does not change language for unknown extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('binary')
+      useWorkspaceStore.setState({ language: 'typescript' })
+      await useWorkspaceStore.getState().openFile('/project/data.bin')
+      expect(useWorkspaceStore.getState().language).toBe('typescript')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+
+    it('handles file with no extension', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('makefile content')
+      useWorkspaceStore.setState({ language: 'typescript' })
+      await useWorkspaceStore.getState().openFile('/project/Makefile')
+      expect(useWorkspaceStore.getState().language).toBe('typescript')
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+  })
+
+  describe('closeFile secondary pane integration', () => {
+    it('clears secondary pane when closed file was in it', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/a.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        currentFile: '/project/a.ts',
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+        previewTab: null,
+      })
+      useWorkspaceStore.getState().closeFile('/project/a.ts')
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('does not clear secondary pane when closed file was not in it', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/c.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        currentFile: '/project/a.ts',
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+        previewTab: null,
+      })
+      useWorkspaceStore.getState().closeFile('/project/a.ts')
+      expect(mockSetPaneFile).not.toHaveBeenCalled()
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('focuses left neighbor when closing rightmost tab', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        currentFile: '/project/b.ts',
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+        previewTab: null,
+      })
+      useWorkspaceStore.getState().closeFile('/project/b.ts')
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/a.ts')
+    })
+
+    it('clears previewTab when closing preview file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        currentFile: '/project/a.ts',
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts'],
+        previewTab: '/project/a.ts',
+      })
+      useWorkspaceStore.getState().closeFile('/project/a.ts')
+      expect(useWorkspaceStore.getState().previewTab).toBeNull()
+    })
+  })
+
+  describe('renameFileInStore secondary pane', () => {
+    it('updates secondary pane when renamed file was in it', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/old.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/old.ts'],
+        fileContents: new Map([['/project/old.ts', 'content']]),
+        currentFile: '/project/old.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/old.ts'],
+      })
+      useWorkspaceStore.getState().renameFileInStore('/project/old.ts', '/project/new.ts')
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', '/project/new.ts')
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('updates recentlyClosedFiles paths on rename', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/old.ts'],
+        fileContents: new Map([['/project/old.ts', 'content']]),
+        currentFile: '/project/old.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [{ path: '/project/old.ts', content: 'old', wasDirty: false }],
+        mruOrder: ['/project/old.ts'],
+      })
+      useWorkspaceStore.getState().renameFileInStore('/project/old.ts', '/project/new.ts')
+      expect(useWorkspaceStore.getState().recentlyClosedFiles[0].path).toBe('/project/new.ts')
+    })
+
+    it('does not update secondary pane when renamed file was not in it', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/other.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/old.ts'],
+        fileContents: new Map([['/project/old.ts', 'content']]),
+        currentFile: '/project/old.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/old.ts'],
+      })
+      useWorkspaceStore.getState().renameFileInStore('/project/old.ts', '/project/new.ts')
+      expect(mockSetPaneFile).not.toHaveBeenCalled()
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('does not change currentFile when renaming a different file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().renameFileInStore('/project/b.ts', '/project/c.ts')
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/a.ts')
+    })
+  })
+
+  describe('closeAllFiles secondary pane integration', () => {
+    it('clears secondary pane when its file is among closed', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/b.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeAllFiles()
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('keeps pinned dirty files content and dirty state', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'dirty a'], ['/project/b.ts', 'clean b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set(['/project/a.ts']),
+        pinnedFiles: new Set(['/project/a.ts']),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeAllFiles()
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toEqual(['/project/a.ts'])
+      expect(state.fileContents.get('/project/a.ts')).toBe('dirty a')
+      expect(state.dirtyFiles.has('/project/a.ts')).toBe(true)
+    })
+  })
+
+  describe('closeOthers edge cases', () => {
+    it('switches currentFile to kept file when current is closed', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeOthers('/project/b.ts')
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/b.ts')
+    })
+
+    it('clears secondary pane when its file is closed', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/a.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/b.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeOthers('/project/b.ts')
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('preserves dirty files that are not the kept file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'dirty a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/b.ts',
+        dirtyFiles: new Set(['/project/a.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeOthers('/project/b.ts')
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/b.ts')
+      expect(state.dirtyFiles.has('/project/a.ts')).toBe(true)
+    })
+  })
+
+  describe('closeToLeft edge cases', () => {
+    it('does nothing when keepIndex is 0', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/b.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/a.ts')
+      expect(useWorkspaceStore.getState().openFiles).toHaveLength(3)
+    })
+
+    it('clears secondary pane when its file is closed to left', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/a.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/b.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/c.ts')
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('preserves pinned files to the left', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/c.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set(['/project/a.ts']),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/c.ts')
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/c.ts')
+      expect(state.openFiles).not.toContain('/project/b.ts')
+    })
+
+    it('preserves dirty files to the left', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/c.ts',
+        dirtyFiles: new Set(['/project/a.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/c.ts')
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/c.ts')
+      expect(state.openFiles).not.toContain('/project/b.ts')
+    })
+
+    it('switches currentFile to kept file when current is closed', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/c.ts')
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/c.ts')
+    })
+
+    it('auto-pins the kept file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/c.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToLeft('/project/c.ts')
+      expect(useWorkspaceStore.getState().pinnedFiles.has('/project/c.ts')).toBe(true)
+    })
+  })
+
+  describe('closeToRight edge cases', () => {
+    it('does nothing when keepPath is last file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/b.ts')
+      expect(useWorkspaceStore.getState().openFiles).toHaveLength(2)
+    })
+
+    it('does nothing when keepPath not found', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/nonexistent.ts')
+      expect(useWorkspaceStore.getState().openFiles).toHaveLength(1)
+    })
+
+    it('clears secondary pane when its file is closed to right', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/c.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/a.ts')
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('preserves pinned files to the right', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set(['/project/c.ts']),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/a.ts')
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/c.ts')
+      expect(state.openFiles).not.toContain('/project/b.ts')
+    })
+
+    it('preserves dirty files to the right', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set(['/project/c.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/a.ts')
+      const state = useWorkspaceStore.getState()
+      expect(state.openFiles).toContain('/project/a.ts')
+      expect(state.openFiles).toContain('/project/c.ts')
+      expect(state.openFiles).not.toContain('/project/b.ts')
+    })
+
+    it('switches currentFile to kept file when current is closed', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/c.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/a.ts')
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/a.ts')
+    })
+
+    it('auto-pins the kept file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeToRight('/project/a.ts')
+      expect(useWorkspaceStore.getState().pinnedFiles.has('/project/a.ts')).toBe(true)
+    })
+  })
+
+  describe('closeSaved edge cases', () => {
+    it('sets currentFile to last remaining when current was closed', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'dirty b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set(['/project/b.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeSaved()
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/b.ts')
+    })
+
+    it('keeps currentFile when it is a dirty file', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'dirty a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set(['/project/a.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeSaved()
+      expect(useWorkspaceStore.getState().currentFile).toBe('/project/a.ts')
+    })
+
+    it('clears secondary pane when its file is closed', async () => {
+      resetStore()
+
+      const mockSetPaneFile = vi.fn()
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: '/project/c.ts' },
+        setPaneFile: mockSetPaneFile,
+      })
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'dirty b'], ['/project/c.ts', 'c']]),
+        currentFile: '/project/b.ts',
+        dirtyFiles: new Set(['/project/b.ts']),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+      })
+      useWorkspaceStore.getState().closeSaved()
+      expect(mockSetPaneFile).toHaveBeenCalledWith('secondary', null)
+      // Restore
+      vi.mocked(useSplitPaneStore).getState = vi.fn().mockReturnValue({
+        paneFiles: { secondary: null },
+        setPaneFile: vi.fn(),
+      })
+    })
+
+    it('sets currentFile to null when all files are saved', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts'],
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+        currentFile: '/project/a.ts',
+        dirtyFiles: new Set<string>(),
+        pinnedFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: ['/project/a.ts', '/project/b.ts'],
+      })
+      useWorkspaceStore.getState().closeSaved()
+      expect(useWorkspaceStore.getState().currentFile).toBeNull()
+    })
+  })
+
+  describe('undoCloseFile edge cases', () => {
+    it('does not reopen if file is already open', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        dirtyFiles: new Set<string>(),
+        recentlyClosedFiles: [{ path: '/project/a.ts', content: 'a', wasDirty: false }],
+        mruOrder: ['/project/a.ts'],
+      })
+      await useWorkspaceStore.getState().undoCloseFile()
+      expect(useWorkspaceStore.getState().openFiles).toEqual(['/project/a.ts'])
+      expect(useWorkspaceStore.getState().recentlyClosedFiles).toHaveLength(0)
+    })
+
+    it('restores dirty state on undo', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: [],
+        fileContents: new Map<string, string>(),
+        dirtyFiles: new Set<string>(),
+        recentlyClosedFiles: [{ path: '/project/a.ts', content: 'dirty content', wasDirty: true }],
+        mruOrder: [],
+      })
+      await useWorkspaceStore.getState().undoCloseFile()
+      const state = useWorkspaceStore.getState()
+      expect(state.dirtyFiles.has('/project/a.ts')).toBe(true)
+      expect(state.fileContents.get('/project/a.ts')).toBe('dirty content')
+      expect(state.mruOrder).toContain('/project/a.ts')
+    })
+  })
+
+  describe('undoCloseFiles edge cases', () => {
+    it('skips files that are already open', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        dirtyFiles: new Set<string>(),
+        recentlyClosedFiles: [
+          { path: '/project/a.ts', content: 'old a', wasDirty: false },
+          { path: '/project/b.ts', content: 'b', wasDirty: false },
+        ],
+        mruOrder: ['/project/a.ts'],
+      })
+      await useWorkspaceStore.getState().undoCloseFiles()
+      const state = useWorkspaceStore.getState()
+      // a.ts was already open, so its entry stays in recentlyClosedFiles
+      expect(state.openFiles).toEqual(['/project/a.ts', '/project/b.ts'])
+      expect(state.currentFile).toBe('/project/b.ts')
+      expect(state.recentlyClosedFiles).toHaveLength(1)
+      expect(state.recentlyClosedFiles[0].path).toBe('/project/a.ts')
+    })
+
+    it('handles empty recentlyClosedFiles', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: [],
+        fileContents: new Map<string, string>(),
+        dirtyFiles: new Set<string>(),
+        recentlyClosedFiles: [],
+        mruOrder: [],
+        currentFile: null,
+      })
+      await useWorkspaceStore.getState().undoCloseFiles()
+      expect(useWorkspaceStore.getState().openFiles).toHaveLength(0)
+    })
+
+    it('restores dirty state for multiple files', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: [],
+        fileContents: new Map<string, string>(),
+        dirtyFiles: new Set<string>(),
+        recentlyClosedFiles: [
+          { path: '/project/a.ts', content: 'dirty a', wasDirty: true },
+          { path: '/project/b.ts', content: 'clean b', wasDirty: false },
+        ],
+        mruOrder: [],
+      })
+      await useWorkspaceStore.getState().undoCloseFiles()
+      const state = useWorkspaceStore.getState()
+      expect(state.dirtyFiles.has('/project/a.ts')).toBe(true)
+      expect(state.dirtyFiles.has('/project/b.ts')).toBe(false)
+    })
+  })
+
+  describe('reorderFiles pinned area boundaries', () => {
+    it('prevents pinned tab from moving into unpinned area', () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/pinned.ts', '/project/unpinned.ts'],
+        pinnedFiles: new Set(['/project/pinned.ts']),
+        fileContents: new Map([['/project/pinned.ts', 'p'], ['/project/unpinned.ts', 'u']]),
+      })
+      // Try to move pinned tab to index 1 (unpinned area)
+      useWorkspaceStore.getState().reorderFiles(0, 1)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(['/project/pinned.ts', '/project/unpinned.ts'])
+    })
+
+    it('prevents unpinned tab from moving into pinned area', () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/pinned.ts', '/project/unpinned.ts'],
+        pinnedFiles: new Set(['/project/pinned.ts']),
+        fileContents: new Map([['/project/pinned.ts', 'p'], ['/project/unpinned.ts', 'u']]),
+      })
+      // Try to move unpinned tab to index 0 (pinned area)
+      useWorkspaceStore.getState().reorderFiles(1, 0)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(['/project/pinned.ts', '/project/unpinned.ts'])
+    })
+
+    it('allows reordering within pinned area', () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts', '/project/b.ts', '/project/c.ts'],
+        pinnedFiles: new Set(['/project/a.ts', '/project/b.ts']),
+        fileContents: new Map([['/project/a.ts', 'a'], ['/project/b.ts', 'b'], ['/project/c.ts', 'c']]),
+      })
+      // Move a.ts (pinned) to index 1 (still in pinned area: 0..1)
+      useWorkspaceStore.getState().reorderFiles(0, 1)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(['/project/b.ts', '/project/a.ts', '/project/c.ts'])
+    })
+
+    it('allows reordering within unpinned area', () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/pinned.ts', '/project/a.ts', '/project/b.ts'],
+        pinnedFiles: new Set(['/project/pinned.ts']),
+        fileContents: new Map([['/project/pinned.ts', 'p'], ['/project/a.ts', 'a'], ['/project/b.ts', 'b']]),
+      })
+      // Move a.ts (unpinned, index 1) to index 2 (still unpinned area: 1+)
+      useWorkspaceStore.getState().reorderFiles(1, 2)
+      expect(useWorkspaceStore.getState().openFiles).toEqual(['/project/pinned.ts', '/project/b.ts', '/project/a.ts'])
+    })
+  })
+
+  describe('updateFileContent MRU', () => {
+    it('adds path to MRU if not already present', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        dirtyFiles: new Set<string>(),
+        mruOrder: [],
+        previewTab: null,
+      })
+      useWorkspaceStore.getState().updateFileContent('/project/a.ts', 'edited')
+      expect(useWorkspaceStore.getState().mruOrder).toContain('/project/a.ts')
+    })
+
+    it('does not duplicate path in MRU if already present', async () => {
+      resetStore()
+      useWorkspaceStore.setState({
+        openFiles: ['/project/a.ts'],
+        fileContents: new Map([['/project/a.ts', 'a']]),
+        dirtyFiles: new Set<string>(),
+        mruOrder: ['/project/a.ts'],
+        previewTab: null,
+      })
+      useWorkspaceStore.getState().updateFileContent('/project/a.ts', 'edited')
+      const mru = useWorkspaceStore.getState().mruOrder
+      expect(mru.filter(p => p === '/project/a.ts')).toHaveLength(1)
+    })
+  })
+
+  describe('openFile error handling', () => {
+    it('handles readFile error gracefully', async () => {
+      resetStore()
+
+      vi.mocked(fsApi).readFile = vi.fn().mockRejectedValue(new Error('read failed'))
+      useWorkspaceStore.setState({ workspacePath: '/project' })
+      await useWorkspaceStore.getState().openFile('/project/broken.ts')
+      expect(useWorkspaceStore.getState().loading).toBe(false)
+      expect(useWorkspaceStore.getState().openFiles).not.toContain('/project/broken.ts')
+      // Restore
+      vi.mocked(fsApi).readFile = vi.fn().mockResolvedValue('file content')
+    })
+  })
+
+  describe('openFile existing file branch', () => {
+    it('switching to existing file updates MRU even in preview', async () => {
+      resetStore()
+      // Open a.ts permanently (non-preview)
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: false })
+      // Open b.ts as preview
+      await useWorkspaceStore.getState().openFile('/project/b.ts', { preview: true })
+      // Switch back to a.ts via openFile (already open, preview=true)
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: true })
+      const state = useWorkspaceStore.getState()
+      expect(state.currentFile).toBe('/project/a.ts')
+      expect(state.mruOrder).toContain('/project/a.ts')
+    })
+
+    it('switching to existing preview tab keeps it as preview', async () => {
+      resetStore()
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: true })
+      // Switch back to same file with preview
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: true })
+      expect(useWorkspaceStore.getState().previewTab).toBe('/project/a.ts')
+    })
+
+    it('switching to existing non-preview clears preview if it was preview', async () => {
+      resetStore()
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: true })
+      expect(useWorkspaceStore.getState().previewTab).toBe('/project/a.ts')
+      // Pin it via non-preview open
+      await useWorkspaceStore.getState().openFile('/project/a.ts', { preview: false })
+      expect(useWorkspaceStore.getState().previewTab).toBeNull()
     })
   })
 })

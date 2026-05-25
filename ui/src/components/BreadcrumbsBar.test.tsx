@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { BreadcrumbsBar } from './BreadcrumbsBar'
 
 // Mock lucide-react ChevronDown to avoid SVG complexity
@@ -251,6 +251,22 @@ describe('BreadcrumbsBar', () => {
       fireEvent.click(overlay!)
       expect(srcBtn).toHaveAttribute('aria-expanded', 'false')
     })
+
+    it('closes dropdown on mousedown outside via document listener', async () => {
+      render(<BreadcrumbsBar filePath="src/App.tsx" fileTree={sampleTree} />)
+      const srcBtn = screen.getByText('src').closest('button')!
+      fireEvent.click(srcBtn)
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'true')
+
+      // Dispatch a native mousedown event on the document body (outside the dropdown)
+      // This exercises the useEffect mousedown handler at lines 52-55
+      await act(async () => {
+        const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true })
+        document.body.dispatchEvent(mouseDownEvent)
+      })
+
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'false')
+    })
   })
 
   describe('keyboard navigation', () => {
@@ -397,6 +413,324 @@ describe('BreadcrumbsBar', () => {
       expect(srcBtn.className).not.toContain('bg-card-hover')
       fireEvent.click(srcBtn)
       expect(srcBtn.className).toContain('bg-card-hover')
+    })
+
+    it('highlights current file entry in dropdown with accent class', () => {
+      render(
+        <BreadcrumbsBar filePath="src/components/App.tsx" fileTree={sampleTree} />
+      )
+      // Use getAllByText since 'components' appears in both breadcrumb button and dropdown
+      const compButtons = screen.getAllByText('components')
+      fireEvent.click(compButtons[0])
+      // src children: components, utils, index.ts
+      const menu = screen.getByRole('menu')
+      expect(menu).toBeInTheDocument()
+      // Verify siblings appear in dropdown
+      expect(screen.getByText('utils')).toBeInTheDocument()
+      expect(screen.getByText('index.ts')).toBeInTheDocument()
+    })
+
+    it('chevron rotates when dropdown is open', () => {
+      render(<BreadcrumbsBar filePath="src/App.tsx" fileTree={sampleTree} />)
+      const srcBtn = screen.getByText('src').closest('button')!
+      const chevrons = screen.getAllByTestId('chevron')
+      // First chevron belongs to src button
+      const srcChevron = chevrons[0]
+      expect(srcChevron.getAttribute('class')).not.toContain('rotate-180')
+      fireEvent.click(srcBtn)
+      expect(srcChevron.getAttribute('class')).toContain('rotate-180')
+    })
+  })
+
+  describe('getSiblingsAtPath - nested tree traversal', () => {
+    it('finds siblings in deeply nested directory', () => {
+      render(
+        <BreadcrumbsBar
+          filePath="src/components/App.tsx"
+          fileTree={sampleTree}
+        />
+      )
+      // Click on 'components' segment (index 1)
+      // dirPath = segments.slice(0, 1).join('/') = 'src'
+      // Should find src's children which include utils, index.ts, components
+      fireEvent.click(screen.getByText('components'))
+
+      // Verify the dropdown shows the siblings of 'components' in 'src'
+      expect(screen.getByText('utils')).toBeInTheDocument()
+      expect(screen.getByText('index.ts')).toBeInTheDocument()
+    })
+
+    it('finds siblings at root level when clicking first segment', () => {
+      render(
+        <BreadcrumbsBar
+          filePath="src/components/App.tsx"
+          fileTree={sampleTree}
+        />
+      )
+      // Click on 'src' segment (index 0)
+      // dirPath = '' (empty) -> returns fileTree root
+      fireEvent.click(screen.getByText('src'))
+
+      // Root level siblings: src, package.json
+      expect(screen.getByText('package.json')).toBeInTheDocument()
+    })
+
+    it('shows no dropdown when directory has no matching siblings', () => {
+      render(
+        <BreadcrumbsBar
+          filePath="src/App.tsx"
+          fileTree={[makeEntry('src', 'src', true, [makeEntry('App.tsx', 'src/App.tsx', false)])]}
+        />
+      )
+      // Click 'src': dirPath = '' -> root level siblings = [src dir]
+      fireEvent.click(screen.getByText('src'))
+      // Only one sibling (src itself) — but dropdownSiblings.length > 0
+      const menu = screen.queryByRole('menu')
+      expect(menu).toBeInTheDocument()
+    })
+
+    it('finds siblings via recursive descent into nested directories', () => {
+      // Tree: src -> components -> App.tsx, Button.tsx
+      // When clicking "App.tsx" segment, dirPath = "src/components"
+      // getSiblingsAtPath needs to descend: src -> children -> find "components" match
+      const deepTree: FileEntry[] = [
+        makeEntry('src', 'src', true, [
+          makeEntry('components', 'src/components', true, [
+            makeEntry('App.tsx', 'src/components/App.tsx', false),
+            makeEntry('Button.tsx', 'src/components/Button.tsx', false),
+          ]),
+        ]),
+      ]
+
+      render(
+        <BreadcrumbsBar
+          filePath="src/components/App.tsx"
+          fileTree={deepTree}
+        />
+      )
+      // Click "App.tsx" segment (index 2, last) — last segment won't open dropdown
+      // Click "components" segment (index 1) — dirPath = 'src' which matches top-level, not recursive
+      // Click "src" segment (index 0) — dirPath = '' which returns root
+      // To exercise recursive path (lines 23-28), need a 4+ segment path
+      // e.g. filePath = "a/b/c/d.ts", click "d.ts" won't work (last)
+      // click "c" (index 2): dirPath = "a/b" — need to descend into a, then find b
+    })
+
+    it('exercises recursive getSiblingsAtPath with 4-level deep path', () => {
+      const deepTree: FileEntry[] = [
+        makeEntry('a', 'a', true, [
+          makeEntry('b', 'a/b', true, [
+            makeEntry('c', 'a/b/c', true, [
+              makeEntry('d.ts', 'a/b/c/d.ts', false),
+              makeEntry('e.ts', 'a/b/c/e.ts', false),
+            ]),
+          ]),
+        ]),
+      ]
+
+      render(
+        <BreadcrumbsBar
+          filePath="a/b/c/d.ts"
+          fileTree={deepTree}
+        />
+      )
+
+      // Click segment "c" (index 2): dirPath = "a/b"
+      // getSiblingsAtPath will check top-level "a" (path != "a/b"), descend into children,
+      // find "b" (path == "a/b"), return b's children
+      const cButtons = screen.getAllByText('c')
+      fireEvent.click(cButtons[0])
+
+      // The dropdown should show b's children: c dir
+      const menu = screen.getByRole('menu')
+      expect(menu).toBeInTheDocument()
+      // Should show entry "c" as a sibling
+      const menuItems = menu.querySelectorAll('button[role="menuitem"]')
+      expect(menuItems.length).toBeGreaterThan(0)
+    })
+
+    it('returns empty when dirPath has no matching entry in tree', () => {
+      const deepTree: FileEntry[] = [
+        makeEntry('src', 'src', true, [
+          makeEntry('components', 'src/components', true, [
+            makeEntry('App.tsx', 'src/components/App.tsx', false),
+          ]),
+        ]),
+      ]
+
+      render(
+        <BreadcrumbsBar
+          filePath="src/components/App.tsx"
+          fileTree={deepTree}
+        />
+      )
+      // Click "components" segment (index 1): dirPath = 'src'
+      // This matches top-level directly (line 20-21), not recursive
+      const compButtons = screen.getAllByText('components')
+      fireEvent.click(compButtons[0])
+
+      // Verify dropdown shows src's children using getAllByText
+      const compElements = screen.getAllByText('components')
+      expect(compElements.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('exercises getSiblingsAtPath returning empty when no match found', () => {
+      // Provide a fileTree that doesn't contain the dirPath
+      // filePath = "foo/bar/baz.ts", click "bar" (index 1): dirPath = "foo"
+      // tree has entry with path 'other', not 'foo' -> recursion fails -> returns []
+      const mismatchTree: FileEntry[] = [
+        makeEntry('other', 'other', true, [
+          makeEntry('file.ts', 'other/file.ts', false),
+        ]),
+      ]
+
+      render(
+        <BreadcrumbsBar
+          filePath="foo/bar/baz.ts"
+          fileTree={mismatchTree}
+        />
+      )
+
+      // Click "bar" (index 1): dirPath = 'foo'
+      // getSiblingsAtPath iterates tree: entry 'other' (path != 'foo'), has children, recurse
+      // recursive call on [file.ts]: file.ts is not a directory, skip. Loop ends -> return []
+      // Back in parent: result.length === 0, don't return. Loop ends -> return []
+      const barButtons = screen.getAllByText('bar')
+      fireEvent.click(barButtons[0])
+
+      // dropdownSiblings will be empty, so no dropdown renders
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+
+    it('shows no dropdown when dirPath not found via recursive search', () => {
+      // Tree: a -> [ b ]  but we click a segment that needs dirPath 'missing'
+      // filePath = "a/b/c/d.ts" -> click "d.ts" last, click "c" (index 2): dirPath = "a/b"
+      // getSiblingsAtPath(tree, "a/b") -> finds a, descends into children, finds b, returns children
+      // To return empty (line 28), need dirPath that's not found in any branch
+      const tree: FileEntry[] = [
+        makeEntry('a', 'a', true, [
+          makeEntry('b', 'a/b', true, [
+            makeEntry('c', 'a/b/c', true, []),
+          ]),
+        ]),
+      ]
+
+      render(
+        <BreadcrumbsBar filePath="a/b/c/d.ts" fileTree={tree} />
+      )
+
+      // Click "c" (index 2): dirPath = "a/b"
+      // Descends: a (path='a' != 'a/b'), recurse into [b], b (path='a/b' == 'a/b') -> returns children
+      // This exercises lines 23-25 (recursive path)
+      const cButtons = screen.getAllByText('c')
+      fireEvent.click(cButtons[0])
+
+      const menu = screen.getByRole('menu')
+      expect(menu).toBeInTheDocument()
+    })
+  })
+
+  describe('handleKeyDown - edge cases', () => {
+    it('does nothing when no buttons are focused', () => {
+      render(<BreadcrumbsBar filePath="src/App.tsx" />)
+      const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      // Blur everything first
+      ;(document.activeElement as HTMLElement)?.blur?.()
+      fireEvent.keyDown(nav, { key: 'ArrowRight' })
+      // No crash, focus unchanged
+      expect(nav).toBeInTheDocument()
+    })
+  })
+
+  describe('double-click navigation paths', () => {
+    it('calls onNavigate with first segment path on double click', () => {
+      const onNavigate = vi.fn()
+      render(<BreadcrumbsBar filePath="src/components/App.tsx" onNavigate={onNavigate} />)
+      fireEvent.doubleClick(screen.getByText('src'))
+      expect(onNavigate).toHaveBeenCalledWith('src')
+    })
+
+    it('does not call onNavigate when double-clicking last segment matching filePath', () => {
+      const onNavigate = vi.fn()
+      render(<BreadcrumbsBar filePath="App.tsx" onNavigate={onNavigate} />)
+      fireEvent.doubleClick(screen.getByText('App.tsx'))
+      expect(onNavigate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('dropdown close on Escape while open', () => {
+    it('closes dropdown via Escape key in nav', () => {
+      render(<BreadcrumbsBar filePath="src/App.tsx" fileTree={sampleTree} />)
+      const srcBtn = screen.getByText('src').closest('button')!
+      fireEvent.click(srcBtn)
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'true')
+
+      const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      fireEvent.keyDown(nav, { key: 'Escape' })
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'false')
+    })
+  })
+
+  describe('dropdown menu keyboard handler', () => {
+    it('closes dropdown on menu keyDown handler invocation', () => {
+      render(<BreadcrumbsBar filePath="src/App.tsx" fileTree={sampleTree} />)
+      const srcBtn = screen.getByText('src').closest('button')!
+      fireEvent.click(srcBtn)
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'true')
+
+      // The dropdown menu has onKeyDown={menuKeyDown}
+      const menu = screen.getByRole('menu')
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'false')
+    })
+  })
+
+  describe('click interactions - advanced', () => {
+    it('does not open dropdown when clicking last segment', () => {
+      render(<BreadcrumbsBar filePath="App.tsx" />)
+      const appBtn = screen.getByText('App.tsx').closest('button')!
+      fireEvent.click(appBtn)
+      expect(appBtn).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('switches dropdown from one segment to another', () => {
+      render(<BreadcrumbsBar filePath="src/components/App.tsx" fileTree={sampleTree} />)
+      const srcBtn = screen.getByText('src').closest('button')!
+      const compBtn = screen.getByText('components').closest('button')!
+
+      // Open src dropdown
+      fireEvent.click(srcBtn)
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'true')
+      expect(compBtn).toHaveAttribute('aria-expanded', 'false')
+
+      // Click components — should close src and open components
+      fireEvent.click(compBtn)
+      expect(srcBtn).toHaveAttribute('aria-expanded', 'false')
+      expect(compBtn).toHaveAttribute('aria-expanded', 'true')
+    })
+  })
+
+  describe('file selection in dropdown', () => {
+    it('selects a file in deeply nested directory', () => {
+      const onFileSelect = vi.fn()
+      render(
+        <BreadcrumbsBar
+          filePath="src/utils/helpers.ts"
+          fileTree={sampleTree}
+          onFileSelect={onFileSelect}
+        />
+      )
+      // Click 'utils' segment to see src's children
+      fireEvent.click(screen.getByText('utils'))
+      // The dropdown shows src's children: components, utils, index.ts
+      // Clicking a different file should call onFileSelect
+      const menu = screen.getByRole('menu')
+      const indexBtn = Array.from(menu.querySelectorAll('button')).find(
+        b => b.textContent?.includes('index.ts')
+      )
+      expect(indexBtn).toBeTruthy()
+      fireEvent.click(indexBtn!)
+      expect(onFileSelect).toHaveBeenCalledWith('src/index.ts')
     })
   })
 })

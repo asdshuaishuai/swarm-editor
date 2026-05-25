@@ -23,9 +23,18 @@ vi.mock('../utils/fileReference', () => ({
   expandGlob: vi.fn((_pattern: string, files: string[]) => files),
 }))
 
+// Capture FileAutocompleteWrapper props for testing onSelect/onClose
+const autocompleteProps = {
+  onSelect: (_path: string) => {},
+  onClose: () => {},
+}
+
 vi.mock('./FileAutocomplete', () => ({
-  FileAutocompleteWrapper: ({ visible }: { visible: boolean }) =>
-    visible ? <div data-testid="file-autocomplete">File Autocomplete</div> : null,
+  FileAutocompleteWrapper: (props: { visible: boolean; onSelect: (path: string) => void; onClose: () => void }) => {
+    autocompleteProps.onSelect = props.onSelect
+    autocompleteProps.onClose = props.onClose
+    return props.visible ? <div data-testid="file-autocomplete">File Autocomplete</div> : null
+  },
 }))
 
 vi.mock('./ConfirmDialog', () => ({
@@ -1470,5 +1479,238 @@ describe('AgentPanel agent state colors', () => {
     const agentName = screen.getAllByText('Agent 1').find(el => el.closest('.cursor-pointer'))
     const icon = agentName!.closest('.flex')!.querySelector('svg')
     expect(icon!.className.baseVal || (icon!.className as string)).toContain('text-text-tertiary')
+  })
+})
+
+describe('AgentPanel closeSession error path', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+  })
+
+  it('logs warning when closeSession fails during agent switch', async () => {
+    const { api } = await import('../services')
+    vi.mocked(api.agent.closeSession).mockRejectedValueOnce(new Error('Close failed'))
+
+    const { rerender } = render(<AgentPanel />)
+
+    // Set up a session by selecting agent 1 and sending a message
+    mockStore({
+      agents: [
+        { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+        { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle', capabilities: {} },
+      ],
+      selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' },
+    })
+    rerender(<AgentPanel />)
+
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: 'Hello' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await waitFor(() => {
+      expect(api.agent.createSession).toHaveBeenCalled()
+    })
+
+    const { logger } = await import('../utils')
+
+    // Switch to agent 2 to trigger closeSession
+    mockStore({
+      agents: [
+        { id: '1', name: 'Agent 1', type: 'coder', state: 'idle', capabilities: {} },
+        { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle', capabilities: {} },
+      ],
+      selectedAgent: { id: '2', name: 'Agent 2', type: 'reviewer', state: 'idle' },
+    })
+    rerender(<AgentPanel />)
+
+    await waitFor(() => {
+      expect(logger.warn).toHaveBeenCalledWith('AgentPanel', 'Failed to close session:', expect.any(Error))
+    })
+  })
+})
+
+describe('AgentPanel file reference edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('removes file reference when content is not in fileContents map', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+
+    // Simulate a file reference that fails to read (fileContents.get returns undefined)
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'file',
+      path: 'missing.ts',
+      raw: '@File missing.ts',
+      startIndex: 0,
+      endIndex: 17,
+    }])
+    // readFile rejects, so the catch sets the error string, but we want to test
+    // the path where content is falsy in fileContents. Use empty string result.
+    vi.mocked(fsApi.readFile).mockResolvedValue('')
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File missing.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // Message should be sent (reference removed because empty content is falsy)
+    expect(api.agent.sendMessage).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('includes overflow indicator when glob matches more than 10 files in first pass', async () => {
+    vi.useFakeTimers()
+    const { parseFileReferences, expandGlob } = await import('../utils/fileReference')
+    const { api, fsApi } = await import('../services')
+    const { logger } = await import('../utils')
+
+    const manyFiles = Array.from({ length: 15 }, (_, i) => `file${i}.ts`)
+    vi.mocked(parseFileReferences).mockReturnValue([{
+      type: 'glob',
+      path: '**/*.ts',
+      raw: '@Files **/*.ts',
+      startIndex: 0,
+      endIndex: 15,
+    }])
+    vi.mocked(expandGlob).mockImplementation((_pattern: string, _files: string[]) => manyFiles)
+    vi.mocked(fsApi.readFile).mockResolvedValue('content')
+    vi.mocked(api.agent.sendMessage).mockImplementation(async () => {
+      return { sessionId: 'test-session', stopReason: 'EndTurn' }
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@Files **/*.ts' } })
+    const sendButtons = screen.getAllByRole('button')
+    const sendButton = sendButtons.find(btn => btn.querySelector('svg.lucide-send'))
+    fireEvent.click(sendButton!)
+
+    await act(async () => {
+      vi.runAllTimersAsync()
+    })
+
+    // The first pass should log about limiting to 10 files
+    expect(logger.info).toHaveBeenCalledWith('AgentPanel', 'Glob matched 15 files, limited to 10')
+    // Only 10 files should be read
+    expect(fsApi.readFile).toHaveBeenCalledTimes(10)
+    vi.useRealTimers()
+  })
+})
+
+describe('AgentPanel excluded directory path matching', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('skips excluded directory when dirPath equals excluded dir name', async () => {
+    const { fsApi } = await import('../services')
+    // When listDir returns a directory named 'node_modules' at root level,
+    // the recursive call for 'node_modules' should be skipped because
+    // dirPath === 'node_modules' matches the EXCLUDE_DIRS check
+    vi.mocked(fsApi.listDir)
+      .mockResolvedValueOnce([
+        { name: 'node_modules', isDirectory: true, path: 'node_modules' },
+        { name: 'app.ts', isDirectory: false, path: 'app.ts' },
+      ])
+
+    render(<AgentPanel />)
+    await waitFor(() => {
+      expect(fsApi.listDir).toHaveBeenCalledWith('.')
+    })
+
+    // No recursive call for 'node_modules'
+    const calls = vi.mocked(fsApi.listDir).mock.calls.map(c => c[0])
+    expect(calls).not.toContain('node_modules')
+  })
+})
+
+describe('AgentPanel file autocomplete selection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    eventHandlers.clear()
+    mockStore({ selectedAgent: { id: '1', name: 'Agent 1', type: 'coder', state: 'idle' } })
+  })
+
+  it('replaces @File reference text when file is selected from autocomplete', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({
+      inReference: true,
+      query: 'test',
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+
+    // Type text with @File reference
+    fireEvent.change(input, { target: { value: '@File test', selectionStart: 11 } })
+
+    // Trigger file selection via the captured callback
+    act(() => {
+      autocompleteProps.onSelect('src/utils/test.ts')
+    })
+
+    // The input should be updated with the selected path
+    expect(input).toHaveValue('@File src/utils/test.ts ')
+  })
+
+  it('does not replace text when no @File match is found', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({
+      inReference: true,
+      query: 'test',
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+
+    // Type text WITHOUT @File reference pattern
+    fireEvent.change(input, { target: { value: 'some plain text', selectionStart: 15 } })
+
+    // Trigger file selection - since there's no @File match, it should just close autocomplete
+    act(() => {
+      autocompleteProps.onSelect('some-file.ts')
+    })
+
+    // Input should remain unchanged (no @File match found)
+    expect(input).toHaveValue('some plain text')
+  })
+
+  it('closes autocomplete via onClose callback', async () => {
+    const { isCursorInFileReference } = await import('../utils/fileReference')
+    vi.mocked(isCursorInFileReference).mockReturnValue({
+      inReference: true,
+      query: 'test',
+    })
+
+    render(<AgentPanel />)
+    const input = screen.getByPlaceholderText('Type a message... (@File to reference files)')
+    fireEvent.change(input, { target: { value: '@File test', selectionStart: 11 } })
+    expect(screen.getByTestId('file-autocomplete')).toBeInTheDocument()
+
+    // Trigger close via the captured callback
+    act(() => {
+      autocompleteProps.onClose()
+    })
+
+    expect(screen.queryByTestId('file-autocomplete')).toBeNull()
   })
 })

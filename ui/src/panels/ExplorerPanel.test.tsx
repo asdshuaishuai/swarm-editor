@@ -1964,4 +1964,675 @@ describe('ExplorerPanel', () => {
     // No "New File" since main.ts is not a directory
     expect(screen.queryByText('New File')).not.toBeInTheDocument()
   })
+
+  // ─── loadFile Error Handling ───
+
+  it('shows toast on file load error', async () => {
+    const onOpenFile = vi.fn(() => { throw new Error('read error') })
+    render(<ExplorerPanel {...defaultProps} onOpenFile={onOpenFile} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    const mainBtn = findTreeButton('main.ts')
+    fireEvent.click(mainBtn!)
+
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('error', 'Failed to load file', 'read error')
+    })
+  })
+
+  // ─── Deeply Nested updateChildren ───
+
+  it('loads children into deeply nested directory from API', async () => {
+    const srcDir = dir('src', '/project/src', [
+      dir('components', '/project/src/components', []),
+    ])
+    mockListDir
+      .mockResolvedValueOnce([srcDir])
+      .mockResolvedValueOnce([file('App.tsx', '/project/src/components/App.tsx')])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // Expand src first
+    fireEvent.click(screen.getByRole('button', { name: /Expand src/ }))
+    await waitFor(() => {
+      expect(screen.getByText('components')).toBeInTheDocument()
+    })
+
+    // Now expand components (which has empty children, so API call is needed)
+    fireEvent.click(screen.getByRole('button', { name: /Expand components/ }))
+    await waitFor(() => {
+      expect(mockListDir).toHaveBeenCalledWith('/project/src/components')
+      expect(screen.getByText('App.tsx')).toBeInTheDocument()
+    })
+  })
+
+  // ─── Context Menu: New Folder from directory ───
+
+  it('opens new folder dialog from directory context menu', async () => {
+    mockListDir.mockResolvedValue([dir('src', '/project/src')])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    const srcBtn = findTreeButton('src')
+    fireEvent.contextMenu(srcBtn!, { clientX: 100, clientY: 200 })
+
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const newFolderBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.includes('New Folder'))
+      expect(newFolderBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      newFolderBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      const heading = screen.getAllByText('New Folder').find(el => el.tagName === 'H3')
+      expect(heading).toBeTruthy()
+      expect(screen.getByPlaceholderText('folder-name')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('folder-name')
+    fireEvent.change(input, { target: { value: 'subdir' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockMkdir).toHaveBeenCalledWith('/project/src/subdir')
+      expect(defaultProps.onToast).toHaveBeenCalledWith('success', 'Created', 'Folder: subdir')
+    })
+  })
+
+  // ─── Context Menu: handleNewFile with file entry (parent dir fallback) ───
+
+  it('creates new file in parent directory when new file from file entry context menu', async () => {
+    mockListDir.mockResolvedValue([
+      dir('src', '/project/src', [file('main.ts', '/project/src/main.ts')]),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // Expand src
+    fireEvent.click(screen.getByRole('button', { name: /Expand src/ }))
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    // Right-click on the file main.ts and click "New File" - but it's a file, so no "New File" option
+    // Instead, test the header new-file button works when clicking from within a subdir
+    // We'll use a directory context menu to create new file in parent
+    const srcBtn = findTreeButton('src')
+    fireEvent.contextMenu(srcBtn!, { clientX: 100, clientY: 200 })
+
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const newFileBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.includes('New File'))
+      expect(newFileBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      newFileBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('file-name.ext')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('file-name.ext')
+    fireEvent.change(input, { target: { value: 'new.ts' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockCreateFile).toHaveBeenCalledWith('/project/src/new.ts')
+    })
+  })
+
+  // ─── Keyboard: ArrowDown / ArrowUp Navigation ───
+
+  it('moves focus to next file on ArrowDown', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+      file('b.ts', '/project/b.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('a.ts')).toBeInTheDocument()
+      expect(screen.getByText('b.ts')).toBeInTheDocument()
+    })
+
+    const aBtn = findTreeButton('a.ts')
+    const bBtn = findTreeButton('b.ts')
+    aBtn!.focus()
+    fireEvent.keyDown(aBtn!, { key: 'ArrowDown' })
+
+    expect(document.activeElement).toBe(bBtn)
+  })
+
+  it('moves focus to previous file on ArrowUp', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+      file('b.ts', '/project/b.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('a.ts')).toBeInTheDocument()
+      expect(screen.getByText('b.ts')).toBeInTheDocument()
+    })
+
+    const aBtn = findTreeButton('a.ts')
+    const bBtn = findTreeButton('b.ts')
+    bBtn!.focus()
+    fireEvent.keyDown(bBtn!, { key: 'ArrowUp' })
+
+    expect(document.activeElement).toBe(aBtn)
+  })
+
+  it('does not move focus past first item on ArrowUp', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('a.ts')).toBeInTheDocument()
+    })
+
+    const aBtn = findTreeButton('a.ts')
+    aBtn!.focus()
+    fireEvent.keyDown(aBtn!, { key: 'ArrowUp' })
+
+    // Should stay on the same button (index 0)
+    expect(document.activeElement).toBe(aBtn)
+  })
+
+  it('does not move focus past last item on ArrowDown', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('a.ts')).toBeInTheDocument()
+    })
+
+    const aBtn = findTreeButton('a.ts')
+    aBtn!.focus()
+    fireEvent.keyDown(aBtn!, { key: 'ArrowDown' })
+
+    // Should stay on the same button (last index)
+    expect(document.activeElement).toBe(aBtn)
+  })
+
+  // ─── Keyboard: Home / End ───
+
+  it('focuses first file on Home key', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+      file('b.ts', '/project/b.ts'),
+      file('c.ts', '/project/c.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('c.ts')).toBeInTheDocument()
+    })
+
+    const cBtn = findTreeButton('c.ts')
+    const aBtn = findTreeButton('a.ts')
+    cBtn!.focus()
+    fireEvent.keyDown(cBtn!, { key: 'Home' })
+
+    expect(document.activeElement).toBe(aBtn)
+  })
+
+  it('focuses last file on End key', async () => {
+    mockListDir.mockResolvedValue([
+      file('a.ts', '/project/a.ts'),
+      file('b.ts', '/project/b.ts'),
+      file('c.ts', '/project/c.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('c.ts')).toBeInTheDocument()
+    })
+
+    const aBtn = findTreeButton('a.ts')
+    const cBtn = findTreeButton('c.ts')
+    aBtn!.focus()
+    fireEvent.keyDown(aBtn!, { key: 'End' })
+
+    expect(document.activeElement).toBe(cBtn)
+  })
+
+  // ─── Keyboard: ArrowRight on expanded directory (focus first child) ───
+
+  it('focuses first child on ArrowRight when directory already expanded', async () => {
+    const srcDir = dir('src', '/project/src', [file('index.ts', '/project/src/index.ts')])
+    mockListDir.mockResolvedValue([srcDir])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // Expand directory first
+    fireEvent.click(screen.getByRole('button', { name: /Expand src/ }))
+    await waitFor(() => {
+      expect(screen.getByText('index.ts')).toBeInTheDocument()
+    })
+
+    // Now ArrowRight on an already-expanded directory should focus first child
+    const srcBtn = findTreeButton('src')
+    srcBtn!.focus()
+    fireEvent.keyDown(srcBtn!, { key: 'ArrowRight' })
+    flushRAF()
+
+    const indexBtn = findTreeButton('index.ts')
+    expect(document.activeElement).toBe(indexBtn)
+  })
+
+  // ─── Keyboard: ArrowLeft on collapsed directory (no-op) ───
+
+  it('does nothing on ArrowLeft when directory is already collapsed', async () => {
+    const srcDir = dir('src', '/project/src', [file('index.ts', '/project/src/index.ts')])
+    mockListDir.mockResolvedValue([srcDir])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // ArrowLeft on collapsed dir does nothing
+    const srcBtn = findTreeButton('src')
+    srcBtn!.focus()
+    fireEvent.keyDown(srcBtn!, { key: 'ArrowLeft' })
+
+    // index.ts should NOT appear
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
+  })
+
+  // ─── Cut directory entry ───
+
+  it('sets clipboard for copy on directory entry', async () => {
+    mockListDir.mockResolvedValue([dir('src', '/project/src')])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    const srcBtn = findTreeButton('src')
+    fireEvent.contextMenu(srcBtn!, { clientX: 100, clientY: 200 })
+
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const copyBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Copy')
+      expect(copyBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      copyBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('info', 'Copied', 'Folder copied: src')
+    })
+  })
+
+  // ─── Paste into file entry (uses parent dir as target) ───
+
+  it('pastes file using parent directory of file entry as target', async () => {
+    mockListDir
+      .mockResolvedValueOnce([
+        file('main.ts', '/project/main.ts'),
+        dir('src', '/project/src', [file('app.ts', '/project/src/app.ts')]),
+      ])
+      .mockResolvedValueOnce([]) // refreshFileTree after paste
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // Expand src to see app.ts
+    fireEvent.click(screen.getByRole('button', { name: /Expand src/ }))
+    await waitFor(() => {
+      expect(screen.getByText('app.ts')).toBeInTheDocument()
+    })
+
+    // Copy main.ts
+    const mainBtn = findTreeButton('main.ts')
+    fireEvent.contextMenu(mainBtn!, { clientX: 100, clientY: 200 })
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const copyBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Copy')
+      expect(copyBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      copyBtn!.dispatchEvent(evt)
+    })
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('info', 'Copied', 'File copied: main.ts')
+    })
+
+    // Right-click on app.ts (file, not directory) and paste
+    const appBtn = findTreeButton('app.ts')
+    fireEvent.contextMenu(appBtn!, { clientX: 100, clientY: 200 })
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const pasteBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Paste')
+      expect(pasteBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      pasteBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      // Target dir for file entry app.ts at /project/src/app.ts -> /project/src
+      expect(mockCopyFile).toHaveBeenCalledWith('/project/main.ts', '/project/src/main.ts')
+    })
+  })
+
+  // ─── Paste with cut operation on non-open file ───
+
+  it('pastes with cut (move) on file not currently open', async () => {
+    mockListDir
+      .mockResolvedValueOnce([
+        file('main.ts', '/project/main.ts'),
+        dir('src', '/project/src', [file('index.ts', '/project/src/index.ts')]),
+      ])
+      .mockResolvedValueOnce([])
+
+    render(<ExplorerPanel {...defaultProps} openFiles={[]} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    // Cut the file
+    const mainBtn = findTreeButton('main.ts')
+    fireEvent.contextMenu(mainBtn!, { clientX: 100, clientY: 200 })
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const cutBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Cut')
+      expect(cutBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      cutBtn!.dispatchEvent(evt)
+    })
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('info', 'Cut', 'File cut: main.ts')
+    })
+
+    // Paste into directory
+    const srcBtn = findTreeButton('src')
+    fireEvent.contextMenu(srcBtn!, { clientX: 100, clientY: 200 })
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const pasteBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Paste')
+      expect(pasteBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      pasteBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      expect(mockRename).toHaveBeenCalledWith('/project/main.ts', '/project/src/main.ts')
+      expect(defaultProps.onToast).toHaveBeenCalledWith('success', 'Moved', 'File moved: main.ts')
+      expect(defaultProps.onRefreshGitStatus).toHaveBeenCalled()
+    })
+  })
+
+  // ─── Chevron space key on chevron span ───
+
+  it('expands directory via chevron Space key', async () => {
+    const srcDir = dir('src', '/project/src', [file('index.ts', '/project/src/index.ts')])
+    mockListDir.mockResolvedValue([srcDir])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    const chevronBtn = screen.getByRole('button', { name: /Expand src/ })
+    fireEvent.keyDown(chevronBtn, { key: ' ' })
+
+    await waitFor(() => {
+      expect(screen.getByText('index.ts')).toBeInTheDocument()
+    })
+  })
+
+  // ─── Rename file not currently open ───
+
+  it('does not call onRenameFileInStore when renamed file is not open', async () => {
+    render(<ExplorerPanel {...defaultProps} openFiles={[]} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    const mainBtn = findTreeButton('main.ts')
+    await act(async () => {
+      fireEvent.keyDown(mainBtn!, { key: 'F2' })
+    })
+
+    let input: HTMLInputElement | null = null
+    await waitFor(() => {
+      input = findRenameInput()
+      expect(input).toBeTruthy()
+    })
+
+    fireEvent.change(input!, { target: { value: 'renamed.ts' } })
+    await act(async () => {
+      fireEvent.keyDown(input!, { key: 'Enter' })
+    })
+
+    await waitFor(() => {
+      expect(mockRename).toHaveBeenCalledWith('/project/main.ts', '/project/renamed.ts')
+      expect(defaultProps.onRenameFileInStore).not.toHaveBeenCalled()
+    })
+  })
+
+  // ─── Delete file not currently open ───
+
+  it('does not close file after deleting when file is not open', async () => {
+    render(<ExplorerPanel {...defaultProps} openFiles={[]} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    const mainBtn = findTreeButton('main.ts')
+    fireEvent.keyDown(mainBtn!, { key: 'Delete' })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Delete main.ts\?/)).toBeInTheDocument()
+    })
+
+    const dialogs = document.querySelectorAll('[role="dialog"]')
+    const deleteDialog = Array.from(dialogs).find(d => d.textContent?.includes('Delete main.ts'))
+    const confirmBtn = within(deleteDialog! as HTMLElement).getByText('Delete')
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(mockDelete).toHaveBeenCalledWith('/project/main.ts')
+      expect(defaultProps.onCloseFile).not.toHaveBeenCalled()
+    })
+  })
+
+  // ─── New folder creates with create button ───
+
+  it('creates folder via Create button click', async () => {
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByTitle('新建文件夹')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('新建文件夹'))
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('folder-name')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('folder-name')
+    fireEvent.change(input, { target: { value: 'mydir' } })
+
+    // Click the Create button instead of pressing Enter
+    const dialogs = document.querySelectorAll('[role="dialog"]')
+    const dialog = Array.from(dialogs).find(d => d.textContent?.includes('New Folder'))
+    const createBtn = within(dialog! as HTMLElement).getByText('Create')
+    fireEvent.click(createBtn)
+
+    await waitFor(() => {
+      expect(mockMkdir).toHaveBeenCalledWith('/project/mydir')
+    })
+  })
+
+  // ─── New folder does not open file after creation ───
+
+  it('handles mkdir error', async () => {
+    mockMkdir.mockRejectedValueOnce(new Error('mkdir failed'))
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByTitle('新建文件夹')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('新建文件夹'))
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('folder-name')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('folder-name')
+    fireEvent.change(input, { target: { value: 'myfolder' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('error', 'Create failed', 'mkdir failed')
+    })
+  })
+
+  // ─── Cancel new folder dialog ───
+
+  it('cancels new folder dialog', async () => {
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByTitle('新建文件夹')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('新建文件夹'))
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('folder-name')).toBeInTheDocument()
+    })
+
+    const dialogs = document.querySelectorAll('[role="dialog"]')
+    const dialog = Array.from(dialogs).find(d => d.textContent?.includes('New Folder'))
+    const cancelBtn = within(dialog! as HTMLElement).getByText('Cancel')
+    fireEvent.click(cancelBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('folder-name')).not.toBeInTheDocument()
+    })
+  })
+
+  // ─── Empty directory with children array but zero length ───
+
+  it('shows empty state when all files are filtered out', async () => {
+    mockListDir.mockResolvedValue([
+      file('main.ts', '/project/main.ts'),
+    ])
+
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Filter files...'), { target: { value: 'zzznonexistent' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('main.ts')).not.toBeInTheDocument()
+    })
+  })
+
+  // ─── Copy operation on directory ───
+
+  it('copy on directory shows folder copied toast', async () => {
+    mockListDir.mockResolvedValue([dir('src', '/project/src')])
+    render(<ExplorerPanel {...defaultProps} />)
+    await waitFor(() => {
+      expect(screen.getByText('src')).toBeInTheDocument()
+    })
+
+    const srcBtn = findTreeButton('src')
+    fireEvent.contextMenu(srcBtn!, { clientX: 100, clientY: 200 })
+
+    await waitFor(() => {
+      const menu = document.querySelector('.fixed.rounded-lg.shadow-xl') as HTMLElement
+      expect(menu).toBeTruthy()
+      const copyBtn = Array.from(menu!.querySelectorAll('button'))
+        .find(b => b.textContent?.trim() === 'Copy')
+      expect(copyBtn).toBeTruthy()
+      const evt = new MouseEvent('click', { bubbles: true })
+      Object.defineProperty(evt, 'stopPropagation', { value: vi.fn() })
+      copyBtn!.dispatchEvent(evt)
+    })
+
+    await waitFor(() => {
+      expect(defaultProps.onToast).toHaveBeenCalledWith('info', 'Copied', 'Folder copied: src')
+    })
+  })
+
+  // ─── Git status: other status codes ───
+
+  it('displays generic status code for unrecognized git status', async () => {
+    const gitStatusMap = {
+      '/project/main.ts': { path: '/project/main.ts', status: 'R', staged: false },
+    }
+    render(<ExplorerPanel {...defaultProps} gitStatusMap={gitStatusMap} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    // For unrecognized status, it should display the raw status code
+    // 'R' appears in both the file tree badge and the git section
+    const rElements = screen.getAllByText('R')
+    expect(rElements.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ─── Git added file with isAdded logic ───
+
+  it('renders git added file with isAdded styling', async () => {
+    const gitStatusMap = {
+      '/project/main.ts': { path: '/project/main.ts', status: 'A', staged: true },
+    }
+    render(<ExplorerPanel {...defaultProps} gitStatusMap={gitStatusMap} />)
+    await waitFor(() => {
+      expect(screen.getByText('main.ts')).toBeInTheDocument()
+    })
+
+    // The Added status is shown in the file tree badge
+    expect(screen.getByText('Added')).toBeInTheDocument()
+  })
 })
