@@ -6,14 +6,37 @@ import (
 	"time"
 )
 
+// VerificationState represents the state of patch verification.
+type VerificationState string
+
+const (
+	VerifyPending   VerificationState = "pending"
+	VerifyRunning   VerificationState = "running"
+	VerifyPassed    VerificationState = "passed"
+	VerifyFailed    VerificationState = "failed"
+	VerifyEscalated VerificationState = "escalated"
+)
+
+// VerificationError represents a single lint/compile error.
+type VerificationError struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Column  int    `json:"column,omitempty"`
+	Message string `json:"message"`
+	Source  string `json:"source"`
+}
+
 // PendingPatch represents a code change staged in the shadow buffer.
 type PendingPatch struct {
-	ID        string    `json:"id"`
-	AgentID   string    `json:"agentId"`
-	Path      string    `json:"path"`
-	OldContent string   `json:"oldContent"`
-	NewContent string   `json:"newContent"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID          string             `json:"id"`
+	AgentID     string             `json:"agentId"`
+	Path        string             `json:"path"`
+	OldContent  string             `json:"oldContent"`
+	NewContent  string             `json:"newContent"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	VerifyState VerificationState  `json:"verifyState,omitempty"`
+	VerifyErrors []VerificationError `json:"verifyErrors,omitempty"`
+	RetryCount  int                `json:"retryCount,omitempty"`
 }
 
 // ShadowBuffer holds pending code patches before they are written to disk.
