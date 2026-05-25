@@ -45,7 +45,7 @@ export function QueenElectionPanel({ swarmId }: QueenElectionPanelProps) {
         onQueenElected(data)
         const payload = data as { swarmId: string; queenId: string; round: number; electedAt: string }
         if (payload.swarmId === swarmId) {
-          const evt: ElectionEvent = { id: `evt-${Date.now()}`, type: 'elected', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.electedAt }
+          const evt: ElectionEvent = { id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, type: 'elected', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.electedAt }
           setElectionHistory((prev) => [evt, ...prev].slice(0, 5))
         }
       }),
@@ -53,14 +53,14 @@ export function QueenElectionPanel({ swarmId }: QueenElectionPanelProps) {
         onQueenAbdicated(data)
         const payload = data as { swarmId: string; queenId: string; reason: string; timestamp: string }
         if (payload.swarmId === swarmId) {
-          const evt: ElectionEvent = { id: `evt-${Date.now()}`, type: 'abdicated', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.timestamp, reason: payload.reason }
+          const evt: ElectionEvent = { id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, type: 'abdicated', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.timestamp, reason: payload.reason }
           setElectionHistory((prev) => [evt, ...prev].slice(0, 5))
         }
       }),
       api.events.subscribe('backup_activated', (data) => {
         const payload = data as { swarmId: string; queenId: string; timestamp: string }
         if (payload.swarmId === swarmId) {
-          const evt: ElectionEvent = { id: `evt-${Date.now()}`, type: 'backup_activated', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.timestamp }
+          const evt: ElectionEvent = { id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, type: 'backup_activated', swarmId: payload.swarmId, queenId: payload.queenId, timestamp: payload.timestamp }
           setElectionHistory((prev) => [evt, ...prev].slice(0, 5))
         }
       }),

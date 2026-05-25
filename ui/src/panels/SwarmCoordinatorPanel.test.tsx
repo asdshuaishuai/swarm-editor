@@ -2119,7 +2119,7 @@ describe('Polling fallback for active swarm', () => {
 
     // Backend still has running tasks
     vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([
-      { id: 'poll-task-2', status: 'running' } as CoordinationTask,
+      { id: 'poll-task-2', title: '', description: '', status: 'running', priority: 'medium', createdAt: new Date().toISOString() },
     ])
 
     render(<SwarmCoordinatorPanel initialTasks={tasks} />)

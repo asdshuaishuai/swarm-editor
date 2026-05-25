@@ -74,6 +74,9 @@ func TestAgentHandler_ScanSkills(t *testing.T) {
 }
 
 func TestAgentHandler_AddAgent(t *testing.T) {
+	restore := setupConfigDir(t)
+	defer restore()
+
 	dir := t.TempDir()
 	// Create agents.json so config can be saved
 	configDir := filepath.Join(dir, ".swarm-editor")

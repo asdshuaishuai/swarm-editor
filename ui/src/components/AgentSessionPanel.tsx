@@ -16,6 +16,47 @@ interface AgentSessionPanelProps {
   onSessionSelect?: (sessionId: string) => void
 }
 
+export function getStatusColor(status: string) {
+  switch (status) {
+    case 'active':
+      return 'bg-success'
+    case 'idle':
+      return 'bg-info'
+    case 'completed':
+      return 'bg-text-muted'
+    case 'error':
+      return 'bg-error'
+    default:
+      return 'bg-text-muted'
+  }
+}
+
+export function getStatusText(status: string) {
+  switch (status) {
+    case 'active':
+      return '活跃'
+    case 'idle':
+      return '空闲'
+    case 'completed':
+      return '完成'
+    case 'error':
+      return '错误'
+    default:
+      return '未知'
+  }
+}
+
+export function formatTime(isoString: string) {
+  const date = new Date(isoString)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+  return `${Math.floor(diff / 86400000)} 天前`
+}
+
 export function AgentSessionPanel({ onSessionSelect }: AgentSessionPanelProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,47 +87,6 @@ export function AgentSessionPanel({ onSessionSelect }: AgentSessionPanelProps) {
   useEffect(() => {
     fetchSessions()
   }, [fetchSessions])
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-success'
-      case 'idle':
-        return 'bg-info'
-      case 'completed':
-        return 'bg-text-muted'
-      case 'error':
-        return 'bg-error'
-      default:
-        return 'bg-text-muted'
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'active':
-        return '活跃'
-      case 'idle':
-        return '空闲'
-      case 'completed':
-        return '完成'
-      case 'error':
-        return '错误'
-      default:
-        return '未知'
-    }
-  }
-
-  const formatTime = (isoString: string) => {
-    const date = new Date(isoString)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-
-    if (diff < 60000) return '刚刚'
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
-    return `${Math.floor(diff / 86400000)} 天前`
-  }
 
   if (loading) {
     return (
