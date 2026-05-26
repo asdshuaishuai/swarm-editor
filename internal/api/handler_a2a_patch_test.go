@@ -4,29 +4,47 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/swarm-editor/swarm-editor/internal/a2a"
 )
 
 func newPatchTestServer(t *testing.T) *WebSocketServer {
 	t.Helper()
-	router := a2a.NewRouter(a2a.RouterConfig{})
+	router := a2a.NewRouter(a2a.RouterConfig{
+		QueueSize:   100,
+		SendTimeout: time.Second,
+		RetryCount:  1,
+		RetryDelay:  10 * time.Millisecond,
+	})
 	if err := router.Start(context.Background()); err != nil {
 		t.Fatalf("start router: %v", err)
 	}
 	t.Cleanup(func() { router.Stop() })
-	return &WebSocketServer{
+	server := &WebSocketServer{
 		workspacePath: t.TempDir(),
 		shadowBuffer:  NewShadowBuffer(),
 		a2aRouter:     router,
+	}
+	server.RegisterCodePatchHandler()
+	return server
+}
+
+// waitForPatch polls the shadow buffer until a patch appears for agentID
+// or the deadline expires. Needed because Enqueue → processQueue is async.
+func waitForPatch(t *testing.T, sb *ShadowBuffer, agentID string) {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(sb.List(agentID)) > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
 func TestHandleA2ASendPatch_Success(t *testing.T) {
 	server := newPatchTestServer(t)
-	noop := func(*a2a.Message) error { return nil }
-	server.a2aRouter.RegisterAgent("gemini", noop, nil)
-	server.a2aRouter.RegisterAgent("claude-code", noop, nil)
 	handler := NewCommandHandler(server)
 
 	result, err := handler.HandleCommand("a2a_send_patch", json.RawMessage(`{
@@ -44,7 +62,8 @@ func TestHandleA2ASendPatch_Success(t *testing.T) {
 		t.Error("expected non-empty messageId")
 	}
 
-	// Receiver's shadow buffer should have the patch
+	// Receiver's shadow buffer should have the patch — staged via handler
+	waitForPatch(t, server.shadowBuffer, "claude-code")
 	patches := server.shadowBuffer.List("claude-code")
 	if len(patches) != 1 {
 		t.Fatalf("expected 1 patch in shadow buffer, got %d", len(patches))
@@ -99,9 +118,6 @@ func TestHandleA2ASendPatch_NoRouter(t *testing.T) {
 
 func TestHandleA2ASendPatch_StagesInReceiverBuffer(t *testing.T) {
 	server := newPatchTestServer(t)
-	noop := func(*a2a.Message) error { return nil }
-	server.a2aRouter.RegisterAgent("a1", noop, nil)
-	server.a2aRouter.RegisterAgent("a2", noop, nil)
 	handler := NewCommandHandler(server)
 	_, err := handler.HandleCommand("a2a_send_patch", json.RawMessage(`{
 		"from":"a1","to":"a2","path":"f.go","oldContent":"old","newContent":"new"
@@ -109,11 +125,40 @@ func TestHandleA2ASendPatch_StagesInReceiverBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForPatch(t, server.shadowBuffer, "a2")
 	// Sender should NOT see it (it's the receiver's buffer)
 	if got := server.shadowBuffer.List("a1"); len(got) != 0 {
 		t.Errorf("sender should have 0 patches, got %d", len(got))
 	}
 	if got := server.shadowBuffer.List("a2"); len(got) != 1 {
 		t.Errorf("receiver should have 1 patch, got %d", len(got))
+	}
+}
+
+func TestHandleA2ASendPatch_SingleStageNotDouble(t *testing.T) {
+	// Regression test for Fix #10: ensure we don't double-stage when both
+	// the handler path and the (former) direct stage path are active.
+	server := newPatchTestServer(t)
+	handler := NewCommandHandler(server)
+
+	for i := 0; i < 3; i++ {
+		_, err := handler.HandleCommand("a2a_send_patch", json.RawMessage(`{
+			"from":"a","to":"b","path":"file.go","oldContent":"o","newContent":"n"
+		}`), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	waitForPatch(t, server.shadowBuffer, "b")
+	// 3 sends → 3 patches, not 6
+	got := server.shadowBuffer.List("b")
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) && len(got) < 3 {
+		time.Sleep(10 * time.Millisecond)
+		got = server.shadowBuffer.List("b")
+	}
+	if len(got) != 3 {
+		t.Errorf("expected 3 patches (no double stage), got %d", len(got))
 	}
 }

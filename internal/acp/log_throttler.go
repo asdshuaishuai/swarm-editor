@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// MaxPendingEntries caps the throttler's in-memory buffer so a slow flush
+// callback can't cause unbounded growth under burst load.
+const MaxPendingEntries = 10000
+
 // LogThrottler batches log entries and flushes them at a maximum rate.
 // Design Doc Section 2: throttle log pushes to ~30Hz to prevent client overload.
 type LogThrottler struct {
@@ -14,6 +18,7 @@ type LogThrottler struct {
 	timer    *time.Timer
 	flush    func([]LogEntry)
 	stopped  bool
+	dropped  int // count of entries dropped due to overflow
 }
 
 // NewLogThrottler creates a throttler that flushes batches at most once per interval.
@@ -28,10 +33,17 @@ func NewLogThrottler(interval time.Duration, flush func([]LogEntry)) *LogThrottl
 	}
 }
 
-// Push adds an entry and schedules a flush.
+// Push adds an entry and schedules a flush. Entries beyond MaxPendingEntries
+// are dropped (oldest preserved) — the dropped count is queryable via Dropped().
 func (t *LogThrottler) Push(entry LogEntry) {
 	t.mu.Lock()
 	if t.stopped {
+		t.mu.Unlock()
+		return
+	}
+	if len(t.pending) >= MaxPendingEntries {
+		// Buffer full — drop newest to avoid OOM under sustained burst.
+		t.dropped++
 		t.mu.Unlock()
 		return
 	}
@@ -40,6 +52,14 @@ func (t *LogThrottler) Push(entry LogEntry) {
 		t.timer = time.AfterFunc(t.interval, t.doFlush)
 	}
 	t.mu.Unlock()
+}
+
+// Dropped returns the count of entries dropped due to overflow since
+// the throttler was created. Useful for surfacing back-pressure metrics.
+func (t *LogThrottler) Dropped() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.dropped
 }
 
 func (t *LogThrottler) doFlush() {

@@ -91,6 +91,7 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 
 		case "verify_patch":
 			return h.handleVerifyPatch(ctx, params)
+
 	// A2A protocol
 	case "get_agent_cards":
 		return h.handleGetAgentCards(ctx, params)

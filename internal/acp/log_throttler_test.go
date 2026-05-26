@@ -90,3 +90,36 @@ func TestLogThrottler_StopIsIdempotent(t *testing.T) {
 	tr.Stop()
 	tr.Stop() // should not panic
 }
+
+func TestLogThrottler_OverflowDropsEntries(t *testing.T) {
+	// Use a long interval so nothing flushes during the burst
+	tr := NewLogThrottler(time.Hour, func([]LogEntry) {})
+	defer tr.Stop()
+
+	for i := 0; i < MaxPendingEntries+500; i++ {
+		tr.Push(LogEntry{Line: "x", Stream: "stderr"})
+	}
+
+	if tr.Pending() != MaxPendingEntries {
+		t.Errorf("expected pending=%d (capped), got %d", MaxPendingEntries, tr.Pending())
+	}
+	if tr.Dropped() != 500 {
+		t.Errorf("expected 500 dropped, got %d", tr.Dropped())
+	}
+}
+
+func TestLogThrottler_DroppedAccumulates(t *testing.T) {
+	tr := NewLogThrottler(time.Hour, func([]LogEntry) {})
+	defer tr.Stop()
+	// Fill to cap
+	for i := 0; i < MaxPendingEntries; i++ {
+		tr.Push(LogEntry{Line: "x"})
+	}
+	// Now every push is dropped
+	for i := 0; i < 7; i++ {
+		tr.Push(LogEntry{Line: "y"})
+	}
+	if tr.Dropped() != 7 {
+		t.Errorf("expected 7 dropped, got %d", tr.Dropped())
+	}
+}

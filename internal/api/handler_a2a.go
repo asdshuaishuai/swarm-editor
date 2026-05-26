@@ -256,6 +256,9 @@ func (h *CommandHandler) handleA2ASendPatch(ctx context.Context, params json.Raw
 		return nil, NewAPIError(CodeInternalError, "a2a router not available")
 	}
 
+	// Stage happens once on the receiving side via the router-registered
+	// code_patch handler (see websocket_server.go). Sending here just
+	// enqueues the message — no duplicate Stage.
 	msgID, err := a2a.SendCodePatch(router, req.From, req.To, a2a.CodePatchPayload{
 		PatchID:    req.PatchID,
 		Path:       req.Path,
@@ -266,12 +269,6 @@ func (h *CommandHandler) handleA2ASendPatch(ctx context.Context, params json.Raw
 	})
 	if err != nil {
 		return nil, safeError("send code patch failed", err)
-	}
-
-	// Also stage the patch in the receiver-visible shadow buffer for the
-	// recipient so the editor can preview/commit it.
-	if sb := h.server.ShadowBuffer(); sb != nil {
-		sb.Stage(req.To, req.Path, req.OldContent, req.NewContent)
 	}
 
 	return map[string]any{

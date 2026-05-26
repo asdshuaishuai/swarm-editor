@@ -99,6 +99,11 @@ type AgentConnection struct {
 	// Log throttler for real-time push (Design Doc Section 2: ~30Hz throttling)
 	logThrottler *LogThrottler
 
+	// Sensitive-command interceptor wiring (Design Doc S6). Set once per
+	// connection; subsequent calls to SetSensitiveInterceptor are no-ops
+	// to prevent OnUpdate callback chain growth on reconnect.
+	sensitiveInterceptorWired bool
+
 	// ACP communication
 	transport Transport
 	client    *Client
@@ -586,6 +591,9 @@ func (m *ConnectionManager) Disconnect(agentID string) error {
 		conn.logThrottler = nil
 	}
 
+	// Reset interceptor flag so a fresh wiring happens on next Connect.
+	conn.sensitiveInterceptorWired = false
+
 	// Clear sessions to prevent memory leak
 	// Close done channels first to unblock any waiting goroutines
 	for id, session := range conn.sessions {
@@ -905,6 +913,23 @@ func (c *AgentConnection) AppendLog(line, stream string) {
 	if throttler != nil {
 		throttler.Push(LogEntry{Line: line, Stream: stream, Timestamp: time.Now()})
 	}
+}
+
+// IsSensitiveInterceptorWired reports whether the sensitive command
+// interceptor has already been attached. Used by api layer to skip
+// re-wiring on reconnect.
+func (c *AgentConnection) IsSensitiveInterceptorWired() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sensitiveInterceptorWired
+}
+
+// MarkSensitiveInterceptorWired sets the flag indicating the interceptor
+// has been attached for this connection's lifetime.
+func (c *AgentConnection) MarkSensitiveInterceptorWired() {
+	c.mu.Lock()
+	c.sensitiveInterceptorWired = true
+	c.mu.Unlock()
 }
 
 // SetLogFlush registers a callback invoked with batched log entries.

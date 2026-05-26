@@ -91,8 +91,15 @@ func ParseCodePatchAckPayload(msg *Message) (*CodePatchAckPayload, error) {
 	return &p, nil
 }
 
-// SendCodePatch is a convenience wrapper to send a patch via the router.
+// SendCodePatch is a convenience wrapper to enqueue a patch via the router.
 // It returns the message ID assigned to the transfer.
+//
+// The patch is routed through the message queue so registered handlers
+// (e.g. shadow buffer stagers) consume it exactly once. If the receiver
+// agent has a registered SendFunc, the router will additionally deliver
+// the message to that endpoint via Send. For purely in-process patch
+// staging, registering a code_patch handler on the router is sufficient
+// — no SendFunc registration required.
 func SendCodePatch(r *Router, from, to string, patch CodePatchPayload) (string, error) {
 	if r == nil {
 		return "", fmt.Errorf("nil router")
@@ -104,7 +111,11 @@ func SendCodePatch(r *Router, from, to string, patch CodePatchPayload) (string, 
 		return "", fmt.Errorf("patch path required")
 	}
 	msg := NewCodePatchMessage(from, to, patch)
-	if err := r.Send(msg); err != nil {
+	// Enqueue triggers all RegisterHandler(MessageTypeCodePatch) handlers.
+	// We deliberately do not call Send here — that path requires the
+	// receiver to have a SendFunc registered, which not every in-process
+	// agent does. The handler-based ingestion is the canonical path.
+	if err := r.Enqueue(msg); err != nil {
 		return "", err
 	}
 	return msg.ID, nil

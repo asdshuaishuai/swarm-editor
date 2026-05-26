@@ -706,9 +706,12 @@ func (h *CommandHandler) handleCommitPatch(ctx context.Context, params json.RawM
 		return nil, errNotFound("patch not found")
 	}
 
-	// Write new content to disk
+	// Write new content to disk (path traversal-safe)
 	if h.server.WorkspacePath() != "" && patch.NewContent != "" {
-		fullPath := filepath.Join(h.server.WorkspacePath(), patch.Path)
+		fullPath, err := h.safePath(patch.Path)
+		if err != nil {
+			return nil, err
+		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			return nil, NewAPIError(CodeInternalError, "failed to create directory: "+err.Error())
 		}
@@ -899,6 +902,14 @@ func (h *CommandHandler) wireSensitiveInterceptor(conn *acp.AgentConnection) {
 	if detector == nil {
 		return
 	}
+	// Idempotency: each connection instance only wires once. Repeated
+	// start_agent calls reuse the same connection (or get a fresh one
+	// after Disconnect which resets the flag).
+	if conn.IsSensitiveInterceptorWired() {
+		return
+	}
+	conn.MarkSensitiveInterceptorWired()
+
 	hub := h.server.Hub()
 	registry := h.server.Registry()
 	agentID := conn.ID

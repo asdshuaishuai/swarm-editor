@@ -269,6 +269,31 @@ describe('useCommandPaletteEvents', () => {
     renderHook(() => useCommandPaletteEvents(baseOptions))
     await eventHandlers['open-file']()
     expect(mockOpenDialog).toHaveBeenCalledWith(expect.objectContaining({ multiple: false, directory: false }))
+    expect(mockOpenFile).toHaveBeenCalledWith('src/main.ts')
+  })
+
+  it('open-file strips workspace prefix on Unix paths', async () => {
+    mockOpenDialog.mockResolvedValueOnce('/workspace/deep/sub/file.go')
+    renderHook(() => useCommandPaletteEvents(baseOptions))
+    await eventHandlers['open-file']()
+    expect(mockOpenFile).toHaveBeenCalledWith('deep/sub/file.go')
+  })
+
+  it('open-file strips workspace prefix on Windows paths', async () => {
+    // Tauri returns Windows-native separators; workspace mock uses /workspace
+    // so we simulate a backslash-style path that should still be normalized
+    mockOpenDialog.mockResolvedValueOnce('\\workspace\\src\\main.ts')
+    renderHook(() => useCommandPaletteEvents(baseOptions))
+    await eventHandlers['open-file']()
+    expect(mockOpenFile).toHaveBeenCalledWith('src/main.ts')
+  })
+
+  it('open-file rejects files outside workspace', async () => {
+    mockOpenDialog.mockResolvedValueOnce('/elsewhere/foreign.txt')
+    renderHook(() => useCommandPaletteEvents(baseOptions))
+    await eventHandlers['open-file']()
+    expect(mockOpenFile).not.toHaveBeenCalled()
+    expect(mockAddToast).toHaveBeenCalledWith('warning', 'File outside workspace', expect.any(String))
   })
 
   it('open-file handles cancellation', async () => {

@@ -70,9 +70,19 @@ export function useCommandPaletteEvents(options: UseCommandPaletteEventsOptions)
     try {
       const selected = await openDialog({ multiple: false, directory: false, title: 'Open File' })
       if (typeof selected === 'string' && selected) {
-        const { workspacePath } = useWorkspaceStore.getState()
-        const path = workspacePath ? selected.replace(workspacePath + '/', '') : selected
-        useWorkspaceStore.getState().openFile(path)
+        const { workspacePath, openFile } = useWorkspaceStore.getState()
+        // Normalize path separators (Tauri returns native separators)
+        const normalizedSelected = selected.replace(/\\/g, '/')
+        const normalizedWorkspace = workspacePath ? workspacePath.replace(/\\/g, '/') : ''
+        let path = normalizedSelected
+        if (normalizedWorkspace && normalizedSelected.startsWith(normalizedWorkspace + '/')) {
+          path = normalizedSelected.slice(normalizedWorkspace.length + 1)
+        } else if (normalizedWorkspace && normalizedSelected !== normalizedWorkspace) {
+          // File outside workspace — warn user and skip
+          optsRef.current.addToast('warning', 'File outside workspace', 'Selected file is not within the current workspace')
+          return
+        }
+        openFile(path)
       }
     } catch (err) {
       logger.debug('CommandPalette', 'File dialog cancelled or failed:', err)

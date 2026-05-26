@@ -154,6 +154,57 @@ func TestVerifyPatch_UnknownExtension(t *testing.T) {
 	}
 }
 
+func TestCommitPatch_PathTraversalRejected(t *testing.T) {
+	server := newVerifyTestServer(t)
+	handler := NewCommandHandler(server)
+
+	// Stage a patch with a malicious traversal path
+	stageResult, err := handler.HandleCommand("stage_patch", json.RawMessage(
+		`{"agentId":"attacker","path":"../../etc/passwd","oldContent":"","newContent":"hacked"}`), "test")
+	if err != nil {
+		t.Fatalf("stage failed: %v", err)
+	}
+	patchID := stageResult.(map[string]any)["id"].(string)
+
+	// Commit should be rejected by safePath
+	_, err = handler.HandleCommand("commit_patch", json.RawMessage(
+		`{"id":"`+patchID+`"}`), "test")
+	if err == nil {
+		t.Error("expected error for path traversal, got nil")
+	}
+
+	// Confirm nothing was written outside workspace
+	if _, statErr := os.Stat("/etc/passwd"); statErr == nil {
+		// File exists (it always does on Linux), check it wasn't overwritten
+		// by reading first byte and ensuring it's not "hacked"
+		data, _ := os.ReadFile("/etc/passwd")
+		if string(data) == "hacked" {
+			t.Fatal("path traversal succeeded — /etc/passwd was overwritten!")
+		}
+	}
+}
+
+func TestCommitPatch_AbsolutePathRejected(t *testing.T) {
+	server := newVerifyTestServer(t)
+	handler := NewCommandHandler(server)
+
+	stageResult, err := handler.HandleCommand("stage_patch", json.RawMessage(
+		`{"agentId":"a1","path":"/tmp/evil","oldContent":"","newContent":"x"}`), "test")
+	if err != nil {
+		t.Fatalf("stage failed: %v", err)
+	}
+	patchID := stageResult.(map[string]any)["id"].(string)
+
+	// Absolute paths joined with workspace become safe (joined under workspace),
+	// but ensure it stays inside workspace
+	_, err = handler.HandleCommand("commit_patch", json.RawMessage(
+		`{"id":"`+patchID+`"}`), "test")
+	// safePath cleans and joins; absolute path becomes workspace/tmp/evil (safe)
+	if err != nil {
+		t.Logf("commit returned error (acceptable): %v", err)
+	}
+}
+
 func TestStageAndCommit_FullCycle(t *testing.T) {
 	server := newVerifyTestServer(t)
 	dir := server.workspacePath

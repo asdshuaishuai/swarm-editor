@@ -813,13 +813,16 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
+    // Helper: generate collision-resistant audit event IDs.
+    const eventId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
     // Verification events (auto lint feedback loop)
     for (const evt of ['verification_started', 'verification_passed', 'verification_failed', 'verification_escalated'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { patchId?: string; agentId?: string; path?: string; errors?: unknown[]; retryCount?: number }
           get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'verification',
             actor: p?.agentId || 'verifier',
@@ -838,7 +841,7 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       events.subscribe('sensitive_command_intercepted', (payload: unknown) => {
         const p = payload as { agentId?: string; sessionId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
         get().addAuditEvent({
-          id: `sensitive_${Date.now()}`,
+          id: eventId('sensitive'),
           timestamp: new Date().toISOString(),
           eventType: 'security_gate',
           actor: p?.agentId || 'agent',

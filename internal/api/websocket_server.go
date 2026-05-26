@@ -627,6 +627,8 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 	if err := s.a2aRouter.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start A2A router: %w", err)
 	}
+
+	s.RegisterCodePatchHandler()
 	if err := s.a2aCoordinator.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start A2A coordinator: %w", err)
 	}
@@ -792,6 +794,35 @@ func (s *WebSocketServer) Verifier() *Verifier {
 // WorkspacePath returns the root workspace directory.
 func (s *WebSocketServer) WorkspacePath() string {
 	return s.workspacePath
+}
+
+// RegisterCodePatchHandler installs the in-process code_patch ingestion
+// handler on the A2A router. When a peer agent emits a code_patch
+// message, the receiving side stages it in the shadow buffer so the
+// editor can preview and the user can commit. Single source of truth
+// for patch ingestion (Design Doc S5). Safe to call multiple times.
+func (s *WebSocketServer) RegisterCodePatchHandler() {
+	if s.a2aRouter == nil {
+		return
+	}
+	s.a2aRouter.RegisterHandler(a2a.MessageTypeCodePatch, func(msg *a2a.Message) error {
+		payload, err := a2a.ParseCodePatchPayload(msg)
+		if err != nil {
+			return err
+		}
+		if sb := s.ShadowBuffer(); sb != nil {
+			sb.Stage(msg.To, payload.Path, payload.OldContent, payload.NewContent)
+		}
+		if s.hub != nil {
+			s.hub.Broadcast("a2a_patch_received", map[string]any{
+				"from":      msg.From,
+				"to":        msg.To,
+				"path":      payload.Path,
+				"messageId": msg.ID,
+			})
+		}
+		return nil
+	})
 }
 
 // SensitiveDetector returns the lazy-initialized sensitive command detector.

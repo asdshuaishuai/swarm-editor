@@ -85,3 +85,19 @@ func TestSensitiveDetector_FullCheck_RawInputCommand(t *testing.T) {
 		t.Errorf("expected sudo match, got %+v", m)
 	}
 }
+
+func TestAgentConnection_SensitiveInterceptorIdempotent(t *testing.T) {
+	conn := &acp.AgentConnection{ID: "test-agent"}
+	if conn.IsSensitiveInterceptorWired() {
+		t.Error("fresh connection should not be wired")
+	}
+	conn.MarkSensitiveInterceptorWired()
+	if !conn.IsSensitiveInterceptorWired() {
+		t.Error("after marking, should report wired")
+	}
+	// Marking twice is safe
+	conn.MarkSensitiveInterceptorWired()
+	if !conn.IsSensitiveInterceptorWired() {
+		t.Error("double-marking should remain wired")
+	}
+}

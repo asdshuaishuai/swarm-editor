@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,13 +54,15 @@ func NewShadowBuffer() *ShadowBuffer {
 	}
 }
 
-// Stage adds a pending patch and returns its ID.
+// Stage adds a pending patch and returns its ID. Uses a monotonic counter
+// to guarantee uniqueness even when multiple patches arrive in the same
+// timestamp tick.
 func (sb *ShadowBuffer) Stage(agentID, path, oldContent, newContent string) string {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
 	sb.nextID++
-	id := agentID + "-" + path + "-" + time.Now().Format("20060102-150405")
+	id := agentID + "-" + path + "-" + time.Now().Format("20060102-150405.000000") + "-" + strconv.Itoa(sb.nextID)
 
 	sb.patches[id] = &PendingPatch{
 		ID:         id,

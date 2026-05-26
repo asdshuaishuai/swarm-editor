@@ -3,6 +3,7 @@ package acp
 import (
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // SensitiveMatch describes a sensitive operation detection result.
@@ -24,7 +25,9 @@ type SensitivePattern struct {
 
 // SensitiveDetector classifies tool calls and prompt text against a list of
 // regex-based rules. Zero value is unusable — use NewSensitiveDetector.
+// Safe for concurrent Check/CheckAll and AddPattern via RWMutex.
 type SensitiveDetector struct {
+	mu       sync.RWMutex
 	patterns []SensitivePattern
 }
 
@@ -68,6 +71,8 @@ func (d *SensitiveDetector) Check(text string) SensitiveMatch {
 	if d == nil || text == "" {
 		return SensitiveMatch{}
 	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	for _, p := range d.patterns {
 		if loc := p.Regex.FindStringIndex(text); loc != nil {
 			snippet := strings.TrimSpace(text[loc[0]:loc[1]])
@@ -87,6 +92,8 @@ func (d *SensitiveDetector) CheckAll(text string) []SensitiveMatch {
 	if d == nil || text == "" {
 		return nil
 	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	var matches []SensitiveMatch
 	for _, p := range d.patterns {
 		if loc := p.Regex.FindStringIndex(text); loc != nil {
@@ -107,11 +114,13 @@ func (d *SensitiveDetector) AddPattern(name, severity, expr string) error {
 	if err != nil {
 		return err
 	}
+	d.mu.Lock()
 	d.patterns = append(d.patterns, SensitivePattern{
 		Name:     name,
 		Severity: severity,
 		Regex:    re,
 	})
+	d.mu.Unlock()
 	return nil
 }
 
@@ -120,5 +129,7 @@ func (d *SensitiveDetector) PatternCount() int {
 	if d == nil {
 		return 0
 	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return len(d.patterns)
 }
