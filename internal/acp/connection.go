@@ -96,6 +96,9 @@ type AgentConnection struct {
 	// Log ring buffer (Design Doc Section 2: 5000-line stdout/stderr capture)
 	logs *LogRingBuffer
 
+	// Log throttler for real-time push (Design Doc Section 2: ~30Hz throttling)
+	logThrottler *LogThrottler
+
 	// ACP communication
 	transport Transport
 	client    *Client
@@ -577,6 +580,12 @@ func (m *ConnectionManager) Disconnect(agentID string) error {
 	}
 	conn.State = StateDisconnected
 
+	// Stop log throttler to release timer resources
+	if conn.logThrottler != nil {
+		conn.logThrottler.Stop()
+		conn.logThrottler = nil
+	}
+
 	// Clear sessions to prevent memory leak
 	// Close done channels first to unblock any waiting goroutines
 	for id, session := range conn.sessions {
@@ -883,12 +892,35 @@ func (c *AgentConnection) RecentLogs(n int) []LogEntry {
 	return logs.Recent(n)
 }
 
-// AppendLog adds a log line to the connection's ring buffer.
+// AppendLog adds a log line to the connection's ring buffer and pushes it
+// through the throttler for real-time client streaming.
 func (c *AgentConnection) AppendLog(line, stream string) {
 	c.mu.RLock()
 	logs := c.logs
+	throttler := c.logThrottler
 	c.mu.RUnlock()
 	if logs != nil {
 		logs.Append(line, stream)
 	}
+	if throttler != nil {
+		throttler.Push(LogEntry{Line: line, Stream: stream, Timestamp: time.Now()})
+	}
+}
+
+// SetLogFlush registers a callback invoked with batched log entries.
+// The throttler caps the batch rate to prevent client overload (Design Doc S2).
+// Pass nil flush to disable streaming. Safe to call multiple times.
+func (c *AgentConnection) SetLogFlush(flush func(agentID string, batch []LogEntry)) {
+	c.mu.Lock()
+	if c.logThrottler != nil {
+		c.logThrottler.Stop()
+		c.logThrottler = nil
+	}
+	if flush != nil {
+		agentID := c.ID
+		c.logThrottler = NewLogThrottler(33*time.Millisecond, func(batch []LogEntry) {
+			flush(agentID, batch)
+		})
+	}
+	c.mu.Unlock()
 }

@@ -154,8 +154,10 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 		if ag, ok := registry.Get(acp.AgentID(req.ID)); ok {
 			var connWarning string
 			if connMgr := h.server.ConnManager(); connMgr != nil {
-				if _, err := connMgr.Connect(ctx, req.ID); err != nil {
+				if conn, err := connMgr.Connect(ctx, req.ID); err != nil {
 					connWarning = fmt.Sprintf("ACP connection failed: %v", err)
+				} else {
+					h.wireAgentLogStream(conn)
 				}
 			}
 			ag.SetState(agent.StateIdle)
@@ -174,9 +176,11 @@ func (h *CommandHandler) handleStartAgent(ctx context.Context, params json.RawMe
 			if cli.ID == req.ID {
 				var connWarning string
 				if connMgr := h.server.ConnManager(); connMgr != nil {
-					if _, err := connMgr.Connect(ctx, req.ID); err != nil {
+					if conn, err := connMgr.Connect(ctx, req.ID); err != nil {
 						connWarning = fmt.Sprintf("ACP connection failed: %v", err)
 						return map[string]string{"status": StatusError, "warning": connWarning}, nil
+					} else {
+						h.wireAgentLogStream(conn)
 					}
 				}
 				result := map[string]string{"status": StatusStarted}
@@ -864,4 +868,22 @@ func (h *CommandHandler) handleVerifyPatch(ctx context.Context, params json.RawM
 		"verifyState": string(result.State),
 		"errors":      result.Errors,
 	}, nil
+}
+
+// wireAgentLogStream registers a throttled log broadcaster for an agent
+// connection so stderr lines stream to clients at ~30Hz (Design Doc S2).
+func (h *CommandHandler) wireAgentLogStream(conn *acp.AgentConnection) {
+	if conn == nil {
+		return
+	}
+	hub := h.server.Hub()
+	if hub == nil {
+		return
+	}
+	conn.SetLogFlush(func(agentID string, batch []acp.LogEntry) {
+		hub.Broadcast("agent_log_chunk", map[string]any{
+			"agentId": agentID,
+			"entries": batch,
+		})
+	})
 }

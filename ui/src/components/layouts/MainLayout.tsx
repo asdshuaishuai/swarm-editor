@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { useMonitoringStore } from '../../stores/monitoringStore'
 import { useAgentLifecycleStore } from '../../stores/agentLifecycleStore'
 import { useTaskFlowStore } from '../../stores/taskFlowStore'
+import { useAgentLogStore } from '../../stores/agentLogStore'
 import { api } from '../../services'
 import { logger } from '../../utils'
 import { gitApi } from '../../services/api'
@@ -110,10 +111,12 @@ export default function MainLayout() {
     const unsubMonitoring = useMonitoringStore.getState().subscribeToEvents()
     const unsubLifecycle = useAgentLifecycleStore.getState().subscribe()
     const unsubTaskFlow = useTaskFlowStore.getState().subscribe()
+    const unsubAgentLog = useAgentLogStore.getState().subscribe()
     return () => {
       unsubMonitoring()
       unsubLifecycle()
       unsubTaskFlow()
+      unsubAgentLog()
     }
   }, [])
 
