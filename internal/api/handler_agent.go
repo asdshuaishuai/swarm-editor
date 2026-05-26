@@ -872,6 +872,7 @@ func (h *CommandHandler) handleVerifyPatch(ctx context.Context, params json.RawM
 
 // wireAgentLogStream registers a throttled log broadcaster for an agent
 // connection so stderr lines stream to clients at ~30Hz (Design Doc S2).
+// It also installs the sensitive-command interceptor (Design Doc S6).
 func (h *CommandHandler) wireAgentLogStream(conn *acp.AgentConnection) {
 	if conn == nil {
 		return
@@ -886,4 +887,86 @@ func (h *CommandHandler) wireAgentLogStream(conn *acp.AgentConnection) {
 			"entries": batch,
 		})
 	})
+	h.wireSensitiveInterceptor(conn)
+}
+
+// wireSensitiveInterceptor inspects every session update from the agent for
+// risky operations (rm -rf, sudo, curl|sh, etc). On match, transitions the
+// agent to Blocked state and broadcasts an interception event to clients.
+// Design Doc Section 6: HITL interception and exception gateway.
+func (h *CommandHandler) wireSensitiveInterceptor(conn *acp.AgentConnection) {
+	detector := h.server.SensitiveDetector()
+	if detector == nil {
+		return
+	}
+	hub := h.server.Hub()
+	registry := h.server.Registry()
+	agentID := conn.ID
+
+	prev := conn.OnUpdateFunc()
+	conn.OnUpdate(func(sessionID acp.SessionID, update *acp.Update) {
+		if prev != nil {
+			prev(sessionID, update)
+		}
+		text := extractUpdateText(update)
+		if text == "" {
+			return
+		}
+		match := detector.Check(text)
+		if !match.Matched {
+			return
+		}
+		if registry != nil {
+			if ag, ok := registry.Get(acp.AgentID(agentID)); ok {
+				ag.Block()
+			}
+		}
+		if hub != nil {
+			hub.Broadcast("sensitive_command_intercepted", map[string]any{
+				"agentId":   agentID,
+				"sessionId": string(sessionID),
+				"pattern":   match.Pattern,
+				"severity":  match.Severity,
+				"reason":    match.Reason,
+				"snippet":   truncateForBroadcast(text, 500),
+			})
+		}
+		apiLog.Warn("sensitive command intercepted",
+			"agentId", agentID,
+			"pattern", match.Pattern,
+			"severity", match.Severity,
+			"reason", match.Reason)
+	})
+}
+
+// extractUpdateText concatenates inspectable fields from an ACP Update.
+// Tool call titles and content blocks are the primary signal for shell-like
+// agent actions.
+func extractUpdateText(update *acp.Update) string {
+	if update == nil {
+		return ""
+	}
+	var parts []string
+	if update.Title != "" {
+		parts = append(parts, update.Title)
+	}
+	if update.Content != nil && update.Content.Text != "" {
+		parts = append(parts, update.Content.Text)
+	}
+	for _, cb := range update.ContentBlocks {
+		if cb.Content != nil && cb.Content.Text != "" {
+			parts = append(parts, cb.Content.Text)
+		}
+	}
+	if len(update.RawInput) > 0 {
+		parts = append(parts, string(update.RawInput))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func truncateForBroadcast(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }

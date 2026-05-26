@@ -448,6 +448,9 @@ type WebSocketServer struct {
 	// Verifier runs lint/compile checks after patch commit
 	verifier *Verifier
 
+	// Sensitive command detector (Design Doc S6: HITL interception)
+	sensitiveDetector *acp.SensitiveDetector
+
 	// Terminal
 	terminalMgr *terminal.Manager
 
@@ -789,6 +792,15 @@ func (s *WebSocketServer) Verifier() *Verifier {
 // WorkspacePath returns the root workspace directory.
 func (s *WebSocketServer) WorkspacePath() string {
 	return s.workspacePath
+}
+
+// SensitiveDetector returns the lazy-initialized sensitive command detector.
+// Design Doc Section 6: HITL interception of risky commands.
+func (s *WebSocketServer) SensitiveDetector() *acp.SensitiveDetector {
+	if s.sensitiveDetector == nil {
+		s.sensitiveDetector = acp.NewSensitiveDetector()
+	}
+	return s.sensitiveDetector
 }
 
 // A2ARouter returns the A2A protocol router

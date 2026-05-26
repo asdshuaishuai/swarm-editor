@@ -833,6 +833,24 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       )
     }
 
+    // Sensitive command interception (Design Doc S6: HITL gateway)
+    cleanups.push(
+      events.subscribe('sensitive_command_intercepted', (payload: unknown) => {
+        const p = payload as { agentId?: string; sessionId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
+        get().addAuditEvent({
+          id: `sensitive_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          eventType: 'security_gate',
+          actor: p?.agentId || 'agent',
+          action: `intercepted: ${p?.pattern || 'unknown'} (${p?.severity || 'medium'})`,
+          resourceType: 'agent',
+          resourceId: p?.agentId || 'unknown',
+          success: false,
+          details: { pattern: p?.pattern, severity: p?.severity, reason: p?.reason, snippet: p?.snippet },
+        })
+      }),
+    )
+
     // Combine all cleanups into one
     return () => {
       for (const cleanup of cleanups) {
