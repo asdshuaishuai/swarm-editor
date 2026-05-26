@@ -100,6 +100,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleA2AStatus(ctx, params)
 	case "a2a_message_log":
 		return h.handleA2AMessageLog(ctx, params)
+	case "a2a_send_patch":
+		return h.handleA2ASendPatch(ctx, params)
 
 	// Session management
 	case "create_session":

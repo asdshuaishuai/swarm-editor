@@ -753,6 +753,19 @@ const a2aApi = {
     return getClient().invoke<A2ALogEntry[]>('a2a_message_log', { limit })
   },
 
+  async sendPatch(req: {
+    from: string
+    to: string
+    path: string
+    oldContent: string
+    newContent: string
+    patchId?: string
+    language?: string
+    reason?: string
+  }): Promise<{ messageId: string; status: string }> {
+    return getClient().invoke('a2a_send_patch', req)
+  },
+
   async getAgentCards(): Promise<AgentCard[]> {
     return getClient().invoke<AgentCard[]>('get_agent_cards')
   },

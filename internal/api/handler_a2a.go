@@ -223,3 +223,59 @@ func (h *CommandHandler) handleA2AMessageLog(ctx context.Context, params json.Ra
 
 	return ml.Recent(req.Limit), nil
 }
+
+// handleA2ASendPatch transports a code patch between two agents using the
+// dedicated A2A patch channel. The receiver should consume code_patch
+// messages via its registered Router handler (Design Doc S5: peer transport).
+func (h *CommandHandler) handleA2ASendPatch(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		From       string `json:"from"`
+		To         string `json:"to"`
+		PatchID    string `json:"patchId"`
+		Path       string `json:"path"`
+		OldContent string `json:"oldContent"`
+		NewContent string `json:"newContent"`
+		Language   string `json:"language"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+	if strings.TrimSpace(req.From) == "" {
+		return nil, errValidation("from agent id is required")
+	}
+	if strings.TrimSpace(req.To) == "" {
+		return nil, errValidation("to agent id is required")
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return nil, errValidation("path is required")
+	}
+
+	router := h.server.A2ARouter()
+	if router == nil {
+		return nil, NewAPIError(CodeInternalError, "a2a router not available")
+	}
+
+	msgID, err := a2a.SendCodePatch(router, req.From, req.To, a2a.CodePatchPayload{
+		PatchID:    req.PatchID,
+		Path:       req.Path,
+		OldContent: req.OldContent,
+		NewContent: req.NewContent,
+		Language:   req.Language,
+		Reason:     req.Reason,
+	})
+	if err != nil {
+		return nil, safeError("send code patch failed", err)
+	}
+
+	// Also stage the patch in the receiver-visible shadow buffer for the
+	// recipient so the editor can preview/commit it.
+	if sb := h.server.ShadowBuffer(); sb != nil {
+		sb.Stage(req.To, req.Path, req.OldContent, req.NewContent)
+	}
+
+	return map[string]any{
+		"messageId": msgID,
+		"status":    "sent",
+	}, nil
+}
