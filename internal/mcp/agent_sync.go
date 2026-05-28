@@ -103,7 +103,7 @@ func (w *kimiWriter) RemoveMCPServer(name string) error {
 
 // --- OpenCode Writer ---
 // Config: ~/.config/opencode/opencode.json
-// Format: { "mcp": { "mcpServers": { "name": { "type": "local", "command": ["npx", "-y", "pkg"], "environment": {} } } } }
+// Format: { "mcp": { "name": { "type": "local", "command": ["npx", "-y", "pkg"], "environment": {} } } }
 // Mappings: stdio→"local", http/sse→"remote", command=[cmd+args], env→environment
 
 type openCodeWriter struct {

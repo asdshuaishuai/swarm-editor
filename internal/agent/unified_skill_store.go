@@ -231,6 +231,7 @@ func (s *UnifiedSkillStore) ToggleApp(id string, app string, enabled bool) error
 }
 
 // ImportFromScanned imports discovered skills into the unified store.
+// It auto-detects which agent directories the skill already exists in.
 func (s *UnifiedSkillStore) ImportFromScanned(scanned []SkillInfo) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -241,7 +242,7 @@ func (s *UnifiedSkillStore) ImportFromScanned(scanned []SkillInfo) int {
 		if _, ok := s.Skills[id]; ok {
 			continue // Already exists
 		}
-		s.Skills[id] = &UnifiedSkill{
+		skill := &UnifiedSkill{
 			ID:          sc.ID,
 			Name:        sc.Name,
 			Description: sc.Description,
@@ -251,6 +252,23 @@ func (s *UnifiedSkillStore) ImportFromScanned(scanned []SkillInfo) int {
 			AgentID:     sc.AgentID,
 			Tags:        sc.Tags,
 		}
+
+		// Auto-detect which agent dirs this skill is already present in
+		if sc.Path != "" {
+			for _, app := range []string{"claude", "opencode", "qwen", "kimi"} {
+				skillDir := s.agentSkillDir(app)
+				if skillDir == "" {
+					continue
+				}
+				linkPath := filepath.Join(skillDir, sc.Name)
+				// Check if symlink or directory exists in agent's skill dir
+				if _, err := os.Stat(linkPath); err == nil {
+					skill.Apps.SetEnabled(app, true)
+				}
+			}
+		}
+
+		s.Skills[id] = skill
 		imported++
 	}
 
