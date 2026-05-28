@@ -18,6 +18,7 @@ const mockRemoveMCPServer = vi.fn()
 const mockUpdateMCPServer = vi.fn()
 const mockUpdateSetting = vi.fn()
 const mockAddToast = vi.fn()
+const mockScanSkills = vi.fn()
 
 vi.mock('../services', () => ({
   api: {
@@ -29,6 +30,9 @@ vi.mock('../services', () => ({
       scanServers: (...args: unknown[]) => mockScanServers(...args),
       startServer: (...args: unknown[]) => mockStartServer(...args),
       stopServer: (...args: unknown[]) => mockStopServer(...args),
+    },
+    agent: {
+      scanSkills: (...args: unknown[]) => mockScanSkills(...args),
     },
   },
 }))
@@ -129,6 +133,11 @@ describe('MCPPanel', () => {
     mockStopServer.mockResolvedValue({ status: 'disconnected' })
     mockScanServers.mockResolvedValue([])
     mockCallTool.mockResolvedValue({ ok: true })
+    mockScanSkills.mockResolvedValue([
+      { id: 's1', name: 'Go Vet', description: 'Go static analysis', source: 'filesystem', path: '~/.claude/skills/go-vet', tags: ['go', 'lint'] },
+      { id: 's2', name: 'Filesystem Tools', description: 'Read/write files', source: 'mcp', tags: ['files'] },
+      { id: 's3', name: 'Claude Code Skills', description: 'Code generation', source: 'agent', agentId: 'claude-code', tags: ['coding'] },
+    ])
   })
 
   // ---------------------------------------------------------------
@@ -184,7 +193,8 @@ describe('MCPPanel', () => {
 
     it('does not show server count > 0 in empty state', () => {
       renderWithDefaults({ servers: [] })
-      expect(screen.getByText('0')).toBeInTheDocument()
+      // Both configured and discovered counts should be 0
+      expect(screen.getByText((content) => content.includes('已配置:'))).toBeInTheDocument()
     })
   })
 
@@ -567,63 +577,14 @@ describe('MCPPanel', () => {
   // Scan servers
   // ---------------------------------------------------------------
   describe('scan servers', () => {
-    it('calls scanServers API when refresh button clicked', async () => {
-      mockScanServers.mockResolvedValue([{ id: 's1', name: 'scanned' }])
+    it('triggers scan and shows info toast when refresh button clicked', async () => {
       const user = userEvent.setup()
       renderWithDefaults()
 
       await user.click(screen.getByTitle('扫描 MCP 伺服器'))
 
       expect(mockScanServers).toHaveBeenCalled()
-      await waitFor(() => {
-        expect(mockAddToast).toHaveBeenCalledWith('success', '扫描完成', '发现 1 个 MCP 伺服器')
-      })
-    })
-
-    it('shows info toast when scan starts', async () => {
-      mockScanServers.mockResolvedValue([])
-      const user = userEvent.setup()
-      renderWithDefaults()
-
-      await user.click(screen.getByTitle('扫描 MCP 伺服器'))
-
       expect(mockAddToast).toHaveBeenCalledWith('info', '扫描中', '正在扫描 MCP 伺服器...')
-    })
-
-    it('shows 0 count when scan returns empty', async () => {
-      mockScanServers.mockResolvedValue([])
-      const user = userEvent.setup()
-      renderWithDefaults()
-
-      await user.click(screen.getByTitle('扫描 MCP 伺服器'))
-
-      await waitFor(() => {
-        expect(mockAddToast).toHaveBeenCalledWith('success', '扫描完成', '发现 0 个 MCP 伺服器')
-      })
-    })
-
-    it('shows error toast when scan fails', async () => {
-      mockScanServers.mockRejectedValue(new Error('network down'))
-      const user = userEvent.setup()
-      renderWithDefaults()
-
-      await user.click(screen.getByTitle('扫描 MCP 伺服器'))
-
-      await waitFor(() => {
-        expect(mockAddToast).toHaveBeenCalledWith('error', '扫描失败', 'network down')
-      })
-    })
-
-    it('shows unknown error when scan fails with non-Error', async () => {
-      mockScanServers.mockRejectedValue('fail')
-      const user = userEvent.setup()
-      renderWithDefaults()
-
-      await user.click(screen.getByTitle('扫描 MCP 伺服器'))
-
-      await waitFor(() => {
-        expect(mockAddToast).toHaveBeenCalledWith('error', '扫描失败', 'Unknown error')
-      })
     })
   })
 
@@ -1217,47 +1178,48 @@ describe('MCPPanel', () => {
   })
 
   // ---------------------------------------------------------------
-  // Skills section (static rendering)
+  // Skills section (real scanned data)
   // ---------------------------------------------------------------
   describe('skills section', () => {
-    it('renders all four skills', () => {
+    it('renders scanned skills from backend', async () => {
       renderWithDefaults()
-      expect(screen.getByText(/AST 语义分析器/)).toBeInTheDocument()
-      expect(screen.getByText(/单元测试自动生成/)).toBeInTheDocument()
-      expect(screen.getByText(/安全漏洞沙箱拦截/)).toBeInTheDocument()
-      expect(screen.getByText(/云端运算代码预估/)).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Go Vet')).toBeInTheDocument()
+        expect(screen.getByText('Filesystem Tools')).toBeInTheDocument()
+        expect(screen.getByText('Claude Code Skills')).toBeInTheDocument()
+      })
     })
 
-    it('renders enabled count', () => {
+    it('renders discovered count', async () => {
       renderWithDefaults()
-      expect(screen.getByText('已激活: 3/4')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('已发现: 3')).toBeInTheDocument()
+      })
     })
 
-    it('renders enabled skill checkboxes as checked', () => {
+    it('renders skill source badges', async () => {
       renderWithDefaults()
-      const checkboxes = screen.getAllByRole('checkbox')
-      // First 3 skills are enabled, last is disabled
-      expect(checkboxes[0]).toBeChecked()
-      expect(checkboxes[1]).toBeChecked()
-      expect(checkboxes[2]).toBeChecked()
-      expect(checkboxes[3]).not.toBeChecked()
+      await waitFor(() => {
+        expect(screen.getByText('FS')).toBeInTheDocument()
+        expect(screen.getByText('MCP')).toBeInTheDocument()
+        expect(screen.getByText('AGENT')).toBeInTheDocument()
+      })
     })
 
-    it('renders skill status labels', () => {
+    it('renders skill descriptions', async () => {
       renderWithDefaults()
-      // Two skills have STATUS: ENABLED, so use getAllByText
-      const enabledLabels = screen.getAllByText(/STATUS: ENABLED/)
-      expect(enabledLabels.length).toBe(2)
-      expect(screen.getByText(/STATUS: HIGH_ALERT/)).toBeInTheDocument()
-      expect(screen.getByText(/STATUS: DISABLED/)).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Go static analysis')).toBeInTheDocument()
+        expect(screen.getByText('Read/write files')).toBeInTheDocument()
+      })
     })
 
-    it('renders skill binary names', () => {
+    it('renders empty state when no skills found', async () => {
+      mockScanSkills.mockResolvedValue([])
       renderWithDefaults()
-      expect(screen.getByText(/BINARY: ast-v2/)).toBeInTheDocument()
-      expect(screen.getByText(/BINARY: jest-gen/)).toBeInTheDocument()
-      expect(screen.getByText(/BINARY: sec-gate/)).toBeInTheDocument()
-      expect(screen.getByText(/BINARY: billing-v1/)).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText(/未发现技能/)).toBeInTheDocument()
+      })
     })
   })
 

@@ -233,25 +233,29 @@ func (h *CommandHandler) handleRemoveMCPServer(ctx context.Context, params json.
 }
 
 func (h *CommandHandler) handleScanMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
+	// Return empty immediately, trigger background scan
+	go h.backgroundScanMCPServers()
+	return map[string]any{"status": "scanning"}, nil
+}
+
+func (h *CommandHandler) backgroundScanMCPServers() {
 	scanner := h.server.Scanner()
 	if scanner == nil {
-		return []MCPServerInfo{}, nil
+		return
 	}
 
-	// Ensure scanner has results
 	if len(scanner.GetAgents()) == 0 {
-		if _, err := scanner.Scan(ctx); err != nil {
-			return nil, safeError("agent scan failed", err)
+		if _, err := scanner.Scan(context.Background()); err != nil {
+			apiLog.Warn("agent scan for MCP discovery failed", "error", err)
 		}
 	}
 
 	discovery := agent.NewMCPDiscovery(scanner)
-
-	// Use scope-aware discovery: agents + global configs + project configs
 	workspaceDir := h.server.workspacePath
 	discovered, err := discovery.DiscoverAllWithScope(workspaceDir)
 	if err != nil {
-		return nil, safeError("MCP discovery failed", err)
+		apiLog.Warn("MCP discovery failed", "error", err)
+		return
 	}
 
 	result := make([]MCPServerInfo, 0, len(discovered))
@@ -271,7 +275,14 @@ func (h *CommandHandler) handleScanMCPServers(ctx context.Context, params json.R
 		})
 	}
 
-	return result, nil
+	apiLog.Info("background MCP scan completed", "count", len(result))
+
+	if h.server.hub != nil {
+		h.server.hub.Broadcast("mcp_servers_scanned", map[string]any{
+			"servers": result,
+			"count":   len(result),
+		})
+	}
 }
 
 func (h *CommandHandler) handleListMCPTools(ctx context.Context, params json.RawMessage) (any, error) {
@@ -302,5 +313,143 @@ func (h *CommandHandler) handleListMCPTools(ctx context.Context, params json.Raw
 	}
 
 	return result, nil
+}
+
+// --- Unified MCP Management ---
+
+func (h *CommandHandler) unifiedMCPStore() *mcp.UnifiedMCPStore {
+	if h.server == nil {
+		return nil
+	}
+	return h.server.unifiedMCPStore
+}
+
+func (h *CommandHandler) handleGetUnifiedMCPServers(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+	return store.GetAll(), nil
+}
+
+func (h *CommandHandler) handleUpsertMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+
+	var server mcp.UnifiedMCPServer
+	if err := json.Unmarshal(params, &server); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(server.ID) == "" {
+		return nil, errValidation("server id is required")
+	}
+	if strings.TrimSpace(server.Name) == "" {
+		server.Name = server.ID
+	}
+
+	if err := store.Upsert(&server); err != nil {
+		return nil, safeError("failed to upsert MCP server", err)
+	}
+
+	return map[string]any{"success": true, "id": server.ID}, nil
+}
+
+func (h *CommandHandler) handleDeleteMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errValidation("server id is required")
+	}
+
+	if err := store.Delete(req.ID); err != nil {
+		return nil, safeError("failed to delete MCP server", err)
+	}
+
+	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleToggleMCPApp(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+
+	var req struct {
+		ID      string `json:"id"`
+		App     string `json:"app"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errValidation("server id is required")
+	}
+	if strings.TrimSpace(req.App) == "" {
+		return nil, errValidation("app is required")
+	}
+
+	if err := store.ToggleApp(req.ID, req.App, req.Enabled); err != nil {
+		return nil, safeError("failed to toggle MCP app", err)
+	}
+
+	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleImportMCPFromApps(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+
+	// Scan all agent configs for MCP servers
+	scanner := h.server.Scanner()
+	if scanner == nil {
+		return nil, errNotFound("agent scanner not available")
+	}
+
+	discovery := agent.NewMCPDiscovery(scanner)
+	workspaceDir := h.server.workspacePath
+	discovered, err := discovery.DiscoverAllWithScope(workspaceDir)
+	if err != nil {
+		return nil, safeError("MCP discovery failed", err)
+	}
+
+	// Convert to ScannedServer format
+	scanned := make([]mcp.ScannedServer, 0, len(discovered))
+	for _, s := range discovered {
+		scanned = append(scanned, mcp.ScannedServer{
+			Name:    s.Name,
+			Type:    s.Type,
+			Command: s.Command,
+			Args:    s.Args,
+			Env:     s.Env,
+			URL:     s.URL,
+			Headers: s.Headers,
+			Source:  s.Source,
+		})
+	}
+
+	imported := store.ImportFromScanned(scanned)
+
+	return map[string]any{
+		"success":  true,
+		"imported": imported,
+		"total":    len(scanned),
+	}, nil
 }
 

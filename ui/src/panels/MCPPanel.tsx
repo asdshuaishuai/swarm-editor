@@ -8,11 +8,13 @@ import {
   X,
   Server,
   Power,
+  Download,
 } from 'lucide-react'
-import type { MCPToolInfo } from '../services/api'
+import type { MCPToolInfo, MCPServerInfo, UnifiedMCPServer } from '../services/api'
 import { useSettings, MCPServerSetting } from '../hooks/useSettings'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useAppStore } from '../store/appStore'
+import { useMonitoringStore } from '../stores/monitoringStore'
 import { api } from '../services'
 import { logger } from '../utils'
 
@@ -31,6 +33,55 @@ export default function MCPPanel() {
     autoStart: true,
   })
   const [loading, setLoading] = useState(false)
+  const [unifiedServers, setUnifiedServers] = useState<Record<string, UnifiedMCPServer>>({})
+  const [importing, setImporting] = useState(false)
+
+  // 从 monitoringStore 获取扫描结果
+  const scannedServers = useMonitoringStore(state => state.mcpServers)
+  const skills = useMonitoringStore(state => state.skills)
+  const refreshMCPServers = useMonitoringStore(state => state.refreshMCPServers)
+  const refreshSkills = useMonitoringStore(state => state.refreshSkills)
+
+  // Trigger skill scan on mount
+  useEffect(() => { refreshSkills() }, [refreshSkills])
+
+  // Fetch unified MCP servers on mount
+  const fetchUnified = useCallback(async () => {
+    try {
+      const servers = await api.mcp.getUnifiedServers()
+      setUnifiedServers(servers)
+    } catch (err) {
+      logger.warn('MCP', 'Failed to fetch unified servers:', err)
+    }
+  }, [])
+  useEffect(() => { fetchUnified() }, [fetchUnified])
+
+  // Import MCP servers from agent configs
+  const handleImport = async () => {
+    setImporting(true)
+    try {
+      await api.mcp.importFromApps()
+      await fetchUnified()
+      addToast('success', '导入完成', '已从 Agent 配置导入 MCP 伺服器')
+    } catch (err) {
+      logger.error('MCP', 'Import failed:', err)
+      addToast('error', '导入失败', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // Toggle MCP server for a specific agent
+  const handleToggleApp = async (serverId: string, app: string, enabled: boolean) => {
+    try {
+      await api.mcp.toggleApp(serverId, app, enabled)
+      await fetchUnified()
+      addToast('success', '已更新', `${app} ${enabled ? '启用' : '禁用'} MCP 伺服器`)
+    } catch (err) {
+      logger.error('MCP', 'Toggle failed:', err)
+      addToast('error', '切换失败', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
 
   const handleAddServer = async () => {
     if (!newServer.name || !newServer.command) {
@@ -151,15 +202,9 @@ export default function MCPPanel() {
           </span>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={async () => {
+              onClick={() => {
                 addToast('info', '扫描中', '正在扫描 MCP 伺服器...')
-                try {
-                  const discovered = await api.mcp.scanServers()
-                  addToast('success', '扫描完成', `发现 ${discovered.length} 个 MCP 伺服器`)
-                  logger.info('MCP', 'Scan completed', discovered)
-                } catch (e) {
-                  addToast('error', '扫描失败', e instanceof Error ? e.message : 'Unknown error')
-                }
+                refreshMCPServers()
               }}
               className="flex items-center gap-0.5 font-normal hover:underline"
               style={{ color: '#58a6ff', fontSize: '12px' }}
@@ -168,6 +213,16 @@ export default function MCPPanel() {
             >
               <RefreshCw size={11} />
               刷新
+            </button>
+            <button
+              onClick={handleImport}
+              disabled={importing}
+              className="flex items-center gap-0.5 font-normal hover:underline disabled:opacity-50"
+              style={{ color: '#58a6ff', fontSize: '12px' }}
+              title="从 Agent 配置导入 MCP 伺服器"
+            >
+              <Download size={11} />
+              导入
             </button>
             <button
               onClick={() => setShowAddModal(true)}
@@ -183,7 +238,7 @@ export default function MCPPanel() {
 
       {/* MCP enabled count indicator */}
       <div className="px-3 py-1.5 text-[10px] font-mono flex items-center justify-between" style={{ color: '#6b7280', borderBottom: '1px solid #30363d' }}>
-        <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 伺服器</span>
+        <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 伺服器 | 已发现: <strong style={{ color: '#9ca3af' }}>{scannedServers.length}</strong> 伺服器</span>
         <button
           role="switch"
           aria-checked={settings.mcpEnabled}
@@ -199,9 +254,9 @@ export default function MCPPanel() {
         </button>
       </div>
 
-      {/* Server List */}
+      {/* Server List - 显示扫描发现的服务器 */}
       <div className="flex-1 overflow-y-auto">
-        {settings.mcpServers.length === 0 ? (
+        {scannedServers.length === 0 && settings.mcpServers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64" style={{ color: '#6b7280' }}>
             <div className="p-4 rounded-xl mb-4" style={{ background: 'rgba(33,38,45,0.5)' }}>
               <Server size={48} className="opacity-50" />
@@ -211,6 +266,26 @@ export default function MCPPanel() {
           </div>
         ) : (
           <div className="space-y-2.5 p-3">
+            {/* 统一管理的 MCP 服务器（per-agent toggle） */}
+            {Object.values(unifiedServers).length > 0 && (
+              <>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#6b7280' }}>
+                  统一管理 ({Object.values(unifiedServers).length})
+                </div>
+                {Object.values(unifiedServers).map((server) => (
+                  <UnifiedServerCard
+                    key={server.id}
+                    server={server}
+                    onToggleApp={(app, enabled) => handleToggleApp(server.id, app, enabled)}
+                  />
+                ))}
+              </>
+            )}
+            {/* 扫描发现的服务器 */}
+            {scannedServers.map((server) => (
+              <ScannedServerCard key={server.id} server={server} />
+            ))}
+            {/* 手动配置的服务器 */}
             {settings.mcpServers.map((server) => (
               <MCPServerCard
                 key={server.id}
@@ -224,7 +299,7 @@ export default function MCPPanel() {
         )}
       </div>
 
-      {/* Skills Section — matching design: 蜂群可加载技能库 */}
+      {/* Skills Section — real scanned skills from backend */}
       <div style={{ borderTop: '1px solid #30363d' }}>
         <div className="p-3">
           <div className="flex items-center justify-between mb-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: '#9ca3af' }}>
@@ -234,58 +309,61 @@ export default function MCPPanel() {
               </svg>
               蜂群可加载技能库 (Skills)
             </span>
-            <span className="text-[10px] font-mono font-normal" style={{ color: '#6b7280' }}>
-              已激活: 3/4
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono font-normal" style={{ color: '#6b7280' }}>
+                已发现: {skills.length}
+              </span>
+              <button
+                onClick={refreshSkills}
+                className="hover:underline font-normal"
+                style={{ color: '#58a6ff', fontSize: '12px' }}
+                aria-label="刷新技能"
+              >
+                <RefreshCw size={11} />
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
-            {([
-              { name: 'AST 语义分析器 (Semantic AST)', icon: 'chart', color: '#22d3ee', status: 'ENABLED', binary: 'ast-v2', enabled: true, pulse: false },
-              { name: '单元测试自动生成 (Test Generator)', icon: 'vial', color: '#c084fc', status: 'ENABLED', binary: 'jest-gen', enabled: true, pulse: false },
-              { name: '安全漏洞沙箱拦截 (Shell Sandbox)', icon: 'shield', color: '#fb923c', status: 'HIGH_ALERT', binary: 'sec-gate', enabled: true, pulse: true },
-              { name: '云端运算代码预估 (Cost Estimator)', icon: 'dollar', color: '#9ca3af', status: 'DISABLED', binary: 'billing-v1', enabled: false, pulse: false },
-            ] as const).map((skill, i) => (
-              <div
-                key={i}
-                className={`flex items-center justify-between p-2 rounded-md transition ${!skill.enabled ? 'hover:opacity-100 transition-opacity' : 'hover:bg-[#21262d]'}`}
-                style={{
-                  background: skill.enabled ? 'rgba(33,38,45,0.5)' : 'rgba(33,38,45,0.3)',
-                  border: '1px solid #30363d',
-                  opacity: skill.enabled ? 1 : 0.45,
-                }}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  {skill.icon === 'chart' ? (
-                    <svg className={`w-3.5 h-3.5 shrink-0 ${skill.pulse ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke={skill.color} strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                    </svg>
-                  ) : skill.icon === 'vial' ? (
-                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke={skill.color} strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-                    </svg>
-                  ) : skill.icon === 'shield' ? (
-                    <svg className={`w-3.5 h-3.5 shrink-0 ${skill.pulse ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke={skill.color} strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke={skill.color} strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-                    </svg>
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold truncate" style={{ color: skill.enabled ? '#e5e7eb' : '#d1d5db' }}>{skill.name}</div>
-                    <div className="text-[9px] font-mono" style={{ color: '#6b7280' }}>STATUS: {skill.status} // BINARY: {skill.binary}</div>
-                  </div>
-                </div>
-                {/* 复选框 — 匹配设计稿: 右侧 accent-editor-accent */}
-                <input
-                  type="checkbox"
-                  checked={skill.enabled}
-                  readOnly
-                  className="w-3.5 h-3.5 rounded accent-[#58a6ff] cursor-pointer shrink-0"
-                />
+            {skills.length === 0 ? (
+              <div className="text-center py-4 text-[10px]" style={{ color: '#6b7280' }}>
+                未发现技能。安装 skills 到 ~/.claude/skills/ 或配置 MCP 服务器。
               </div>
-            ))}
+            ) : (
+              skills.map((skill) => {
+                const sourceMeta: Record<string, { color: string; label: string }> = {
+                  filesystem: { color: '#58a6ff', label: 'FS' },
+                  mcp: { color: '#3fb950', label: 'MCP' },
+                  agent: { color: '#c084fc', label: 'AGENT' },
+                }
+                const meta = sourceMeta[skill.source] || { color: '#6b7280', label: skill.source.toUpperCase() }
+                return (
+                  <div
+                    key={skill.id}
+                    className="flex items-center justify-between p-2 rounded-md transition hover:bg-[#21262d]"
+                    style={{ background: 'rgba(33,38,45,0.5)', border: '1px solid #30363d' }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[9px] font-mono font-bold px-1 rounded shrink-0" style={{ background: `${meta.color}22`, color: meta.color, border: `1px solid ${meta.color}44` }}>
+                        {meta.label}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate" style={{ color: '#e5e7eb' }}>{skill.name}</div>
+                        <div className="text-[9px] font-mono truncate" style={{ color: '#6b7280' }}>
+                          {skill.description || skill.path || skill.agentId || ''}
+                        </div>
+                      </div>
+                    </div>
+                    {skill.tags && skill.tags.length > 0 && (
+                      <div className="flex gap-0.5 shrink-0">
+                        {skill.tags.slice(0, 2).map(tag => (
+                          <span key={tag} className="text-[8px] font-mono px-1 rounded" style={{ background: '#21262d', color: '#6b7280' }}>{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
       </div>
@@ -521,6 +599,109 @@ interface MCPServerCardProps {
   onEdit: () => void
   onDelete: () => void
   onToggle: () => void
+}
+
+// 扫描发现的 MCP 服务器卡片（只读显示）
+function ScannedServerCard({ server }: { server: MCPServerInfo }) {
+  const statusColors: Record<string, string> = {
+    connected: 'bg-emerald-500',
+    discovered: 'bg-blue-500',
+    disconnected: 'bg-text-tertiary',
+    error: 'bg-error',
+  }
+
+  return (
+    <div className="p-2.5 rounded-lg space-y-2" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusColors[server.status] || 'bg-gray-500'}`} />
+          <strong className="text-xs text-white font-mono">{server.name}</strong>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] font-mono px-1 py-0.2 rounded" style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}>
+            {server.source || 'scan'}
+          </span>
+          {server.type && (
+            <span className="text-[9px] font-mono px-1 py-0.2 rounded" style={{ background: 'rgba(139,92,246,0.2)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
+              {server.type}
+            </span>
+          )}
+        </div>
+      </div>
+      {server.command && (
+        <p className="text-[10px] font-sans leading-normal" style={{ color: '#9ca3af' }}>
+          {server.command}
+        </p>
+      )}
+      {server.url && (
+        <p className="text-[10px] font-mono truncate" style={{ color: '#6b7280' }}>
+          {server.url}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// 统一管理的 MCP 服务器卡片（per-agent toggle）
+function UnifiedServerCard({ server, onToggleApp }: {
+  server: UnifiedMCPServer
+  onToggleApp: (app: string, enabled: boolean) => void
+}) {
+  const apps = [
+    { key: 'claude', label: 'Claude', color: '#fb923c' },
+    { key: 'kimi', label: 'Kimi', color: '#22d3ee' },
+    { key: 'opencode', label: 'OpenCode', color: '#a78bfa' },
+    { key: 'qwen', label: 'Qwen', color: '#34d399' },
+  ]
+
+  return (
+    <div className="p-2.5 rounded-lg space-y-2" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-blue-500" />
+          <strong className="text-xs text-white font-mono">{server.name}</strong>
+        </div>
+        {server.tags && server.tags.length > 0 && (
+          <div className="flex gap-0.5">
+            {server.tags.slice(0, 2).map(tag => (
+              <span key={tag} className="text-[8px] font-mono px-1 rounded" style={{ background: '#21262d', color: '#6b7280' }}>{tag}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      {server.server.command && (
+        <p className="text-[10px] font-sans leading-normal" style={{ color: '#9ca3af' }}>
+          {server.server.command}
+        </p>
+      )}
+      {server.server.url && (
+        <p className="text-[10px] font-mono truncate" style={{ color: '#6b7280' }}>
+          {server.server.url}
+        </p>
+      )}
+      {/* Per-agent toggle pills */}
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {apps.map(({ key, label, color }) => {
+          const enabled = server.apps[key as keyof typeof server.apps]
+          return (
+            <button
+              key={key}
+              onClick={() => onToggleApp(key, !enabled)}
+              className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
+              style={{
+                background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
+                color: enabled ? color : '#6b7280',
+                border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
+              }}
+              title={`${label}: ${enabled ? '已启用' : '已禁用'}`}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function MCPServerCard({ server, onEdit, onDelete, onToggle }: MCPServerCardProps) {

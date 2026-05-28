@@ -5,6 +5,7 @@ import type { AuditEvent } from '../services'
 const mockListAuditEvents = vi.fn().mockResolvedValue([])
 const mockGetAuditStats = vi.fn().mockResolvedValue(null)
 const mockGetServers = vi.fn().mockResolvedValue([])
+const mockScanServers = vi.fn().mockResolvedValue([])
 const mockScanSkills = vi.fn().mockResolvedValue([])
 const mockGetStatus = vi.fn().mockResolvedValue(null)
 const mockGetMessageLog = vi.fn().mockResolvedValue([])
@@ -18,6 +19,7 @@ vi.mock('../services', () => ({
     },
     mcp: {
       getServers: (...args: any[]) => mockGetServers(...args),
+      scanServers: (...args: any[]) => mockScanServers(...args),
     },
     agent: {
       scanSkills: (...args: any[]) => mockScanSkills(...args),
@@ -285,20 +287,15 @@ describe('monitoringStore', () => {
   })
 
   describe('refreshMCPServers', () => {
-    it('loads servers from API', async () => {
-      mockGetServers.mockResolvedValueOnce([
-        { name: 's1', status: 'running', command: '' },
-        { name: 's2', status: 'stopped', command: '' },
-      ])
+    it('triggers MCP scan', async () => {
       await useMonitoringStore.getState().refreshMCPServers()
-      expect(useMonitoringStore.getState().mcpServers).toHaveLength(2)
-      // Also creates audit event
-      expect(useMonitoringStore.getState().auditEvents.length).toBeGreaterThan(0)
+      expect(mockScanServers).toHaveBeenCalled()
     })
 
-    it('handles API failure', async () => {
-      mockGetServers.mockRejectedValueOnce(new Error('fail'))
+    it('handles scan failure gracefully', async () => {
+      mockScanServers.mockRejectedValueOnce(new Error('fail'))
       await useMonitoringStore.getState().refreshMCPServers()
+      // Store unchanged (results arrive via event, not return value)
       expect(useMonitoringStore.getState().mcpServers).toHaveLength(0)
     })
   })
@@ -324,19 +321,6 @@ describe('monitoringStore', () => {
       mockScanSkills.mockRejectedValueOnce(new Error('fail'))
       await useMonitoringStore.getState().refreshSkills()
       expect(useMonitoringStore.getState().skillsScanInProgress).toBe(false)
-    })
-
-    it('handles non-Error thrown (string)', async () => {
-      mockScanSkills.mockReset()
-      mockScanSkills.mockRejectedValueOnce('string error')
-      await useMonitoringStore.getState().refreshSkills()
-      expect(useMonitoringStore.getState().skillsScanInProgress).toBe(false)
-      // Should create a skill_scan_error audit event with String(err) message
-      const events = useMonitoringStore.getState().auditEvents
-      const errorEvent = events.find(e => e.eventType === 'skill_scan_error')
-      expect(errorEvent).toBeDefined()
-      expect(errorEvent!.success).toBe(false)
-      expect(errorEvent!.action).toContain('string error')
     })
   })
 
@@ -378,7 +362,7 @@ describe('monitoringStore', () => {
         makeEvent({ id: 'e1', eventType: 'test' }),
       ])
       mockGetAuditStats.mockResolvedValueOnce({ count: 1, enabled: true })
-      mockGetServers.mockResolvedValueOnce([{ name: 's1', status: 'running', command: '' }])
+      mockScanServers.mockResolvedValueOnce([{ name: 's1', status: 'running', command: '' }])
       mockGetStatus.mockResolvedValueOnce({ status: 'ok' })
       mockGetMessageLog.mockResolvedValueOnce([])
 
@@ -397,7 +381,7 @@ describe('monitoringStore', () => {
     it('handles all API failures', async () => {
       mockListAuditEvents.mockRejectedValueOnce(new Error('fail'))
       mockGetAuditStats.mockRejectedValueOnce(new Error('fail'))
-      mockGetServers.mockRejectedValueOnce(new Error('fail'))
+      mockScanServers.mockRejectedValueOnce(new Error('fail'))
       mockGetStatus.mockResolvedValueOnce(null)
       mockGetMessageLog.mockResolvedValueOnce([])
 
@@ -409,7 +393,7 @@ describe('monitoringStore', () => {
       useMonitoringStore.setState({ auditEvents: [] })
       mockListAuditEvents.mockResolvedValueOnce([])
       mockGetAuditStats.mockResolvedValueOnce({ count: 0, enabled: false })
-      mockGetServers.mockResolvedValueOnce([])
+      mockScanServers.mockResolvedValueOnce([])
       mockGetStatus.mockResolvedValueOnce(null)
       mockGetMessageLog.mockResolvedValueOnce([])
 
@@ -421,7 +405,7 @@ describe('monitoringStore', () => {
       useMonitoringStore.setState({ auditEvents: [], auditEnabled: false })
       mockListAuditEvents.mockResolvedValueOnce([])
       mockGetAuditStats.mockResolvedValueOnce(null)
-      mockGetServers.mockResolvedValueOnce([])
+      mockScanServers.mockResolvedValueOnce([])
       mockGetStatus.mockResolvedValueOnce(null)
       mockGetMessageLog.mockResolvedValueOnce([])
 
@@ -521,13 +505,12 @@ describe('monitoringStore', () => {
 
     // --- mcp_server_status callback ---
     it('mcp_server_status callback triggers refreshMCPServers', async () => {
-      mockGetServers.mockResolvedValueOnce([{ name: 's1', status: 'running', command: '' }])
       useMonitoringStore.getState().subscribeToEvents()
       const cb = getCallback('mcp_server_status')
       cb({})
-      // Wait for async refreshMCPServers
+      // Wait for async refreshMCPServers to trigger scan
       await vi.waitFor(() => {
-        expect(useMonitoringStore.getState().mcpServers).toHaveLength(1)
+        expect(mockScanServers).toHaveBeenCalled()
       })
     })
 

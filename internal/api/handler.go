@@ -72,6 +72,10 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleGetConfigPath(ctx, params)
 	case "scan_skills":
 		return h.handleScanSkills(ctx, params)
+	case "get_agent_config":
+		return h.handleGetAgentConfig(ctx, params)
+	case "update_agent_config":
+		return h.handleUpdateAgentConfig(ctx, params)
 	case "test_agent":
 		return h.handleTestAgent(ctx, params)
 		case "get_process_metrics":
@@ -197,6 +201,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleScanMCPServers(ctx, params)
 	case "list_mcp_tools":
 		return h.handleListMCPTools(ctx, params)
+	case "get_unified_mcp_servers":
+		return h.handleGetUnifiedMCPServers(ctx, params)
+	case "upsert_mcp_server":
+		return h.handleUpsertMCPServer(ctx, params)
+	case "delete_mcp_server":
+		return h.handleDeleteMCPServer(ctx, params)
+	case "toggle_mcp_app":
+		return h.handleToggleMCPApp(ctx, params)
+	case "import_mcp_from_apps":
+		return h.handleImportMCPFromApps(ctx, params)
 
 	// Code execution
 	case "execute_code":

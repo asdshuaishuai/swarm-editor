@@ -15,6 +15,7 @@ import {
   CATEGORY_COLORS,
   type AuditCategory,
 } from '../utils/auditEventUtils'
+import { useAppStore, agentInfoToAgent } from '../store/appStore'
 
 // ---------------------------------------------------------------------------
 // Re-exported / inline types previously owned by individual components
@@ -312,68 +313,25 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
 
   refreshMCPServers: async () => {
     try {
-      const servers = await api.mcp.getServers()
-      set({ mcpServers: servers })
-      // Inject synthetic audit event for MCP server refresh
-      const running = servers.filter((s) => s.status === 'running').length
-      get().addAuditEvent({
-        id: `mcp_refresh_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        eventType: 'mcp_server_refresh',
-        actor: 'System',
-        action: `刷新 MCP 服务器列表，${running} 个运行中`,
-        resourceType: 'mcp',
-        resourceId: `${servers.length} servers`,
-        success: true,
-        details: { total: servers.length, running },
-      })
+      // Trigger scan; results arrive via mcp_servers_scanned event
+      await api.mcp.scanServers()
     } catch (err) {
-      logger.warn('MonitoringStore', 'Failed to refresh MCP servers:', err)
+      logger.warn('MonitoringStore', 'Failed to trigger MCP scan:', err)
     }
   },
 
   refreshSkills: async () => {
     if (get().skillsScanInProgress) return
     set({ skillsScanInProgress: true })
-    // Inject synthetic audit event for skill scan start
-    get().addAuditEvent({
-      id: `skill_scan_start_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      eventType: 'skill_scan_start',
-      actor: 'System',
-      action: '开始扫描技能库...',
-      resourceType: 'skill',
-      resourceId: 'scan',
-      success: true,
-    })
     try {
       const skills = await api.agent.scanSkills()
-      set({ skills })
-      // Inject synthetic audit event for skill scan complete
-      get().addAuditEvent({
-        id: `skill_scan_complete_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        eventType: 'skill_scan_complete',
-        actor: 'System',
-        action: `技能扫描完成，发现 ${skills.length} 个技能`,
-        resourceType: 'skill',
-        resourceId: `${skills.length} skills`,
-        success: true,
-        details: { count: skills.length, sources: [...new Set(skills.map((s) => s.source))] },
-      })
+      // Update store if scan returned valid data (synchronous path)
+      if (Array.isArray(skills)) {
+        set({ skills })
+      }
+      // Also listen for skills_scanned event (async background scan path)
     } catch (err) {
-      logger.warn('MonitoringStore', 'Failed to refresh skills:', err)
-      // Inject failure event
-      get().addAuditEvent({
-        id: `skill_scan_error_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        eventType: 'skill_scan_error',
-        actor: 'System',
-        action: `技能扫描失败: ${err instanceof Error ? err.message : String(err)}`,
-        resourceType: 'skill',
-        resourceId: 'scan',
-        success: false,
-      })
+      logger.warn('MonitoringStore', 'Failed to trigger skill scan:', err)
     } finally {
       set({ skillsScanInProgress: false })
     }
@@ -437,8 +395,8 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
           logger.warn('MonitoringStore', 'Initial stats load failed:', err)
           return null as AuditStats | null
         }),
-        api.mcp.getServers().catch((err) => {
-          logger.warn('MonitoringStore', 'Initial MCP servers load failed:', err)
+        api.mcp.scanServers().catch((err) => {
+          logger.warn('MonitoringStore', 'Initial MCP scan failed:', err)
           return [] as MCPServerInfo[]
         }),
       ])
@@ -850,6 +808,98 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
           resourceId: p?.agentId || 'unknown',
           success: false,
           details: { pattern: p?.pattern, severity: p?.severity, reason: p?.reason, snippet: p?.snippet },
+        })
+      }),
+    )
+
+    // ===== Periodic scan events (push from backend background scanner) =====
+
+    // agents_scanned — update appStore.agents with discovered agents
+    cleanups.push(
+      events.subscribe('agents_scanned', (payload: unknown) => {
+        const p = payload as { agents?: Array<{ id: string; name: string; type: string; state: string; command?: string; description?: string; capabilities?: string[] }> }
+        if (!p?.agents) return
+
+        // 使用 agentInfoToAgent 转换扫描结果
+        const agents = p.agents.map(a => agentInfoToAgent({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          state: a.state,
+          status: a.state,
+          command: a.command,
+          description: a.description,
+          capabilities: a.capabilities,
+        }))
+
+        const appStore = useAppStore.getState()
+        const existingIds = new Set(appStore.agents.map(a => a.id))
+
+        // 合并：保留已注册的，更新已存在的，添加新的
+        const merged = [...appStore.agents]
+        for (const agent of agents) {
+          if (existingIds.has(agent.id)) {
+            // 更新已存在的 agent 状态
+            const idx = merged.findIndex(a => a.id === agent.id)
+            if (idx >= 0) {
+              merged[idx] = { ...merged[idx], ...agent }
+            }
+          } else {
+            merged.push(agent)
+            existingIds.add(agent.id)
+          }
+        }
+        appStore.setAgents(merged)
+
+        get().addAuditEvent({
+          id: eventId('agents_scanned'),
+          timestamp: new Date().toISOString(),
+          eventType: 'agent_scan',
+          actor: 'scanner',
+          action: `agent scan complete: ${p.agents.length} agents`,
+          resourceType: 'agent',
+          resourceId: `${p.agents.length} agents`,
+          success: true,
+        })
+      }),
+    )
+
+    // mcp_servers_scanned — update mcpServers directly
+    cleanups.push(
+      events.subscribe('mcp_servers_scanned', (payload: unknown) => {
+        const p = payload as { servers?: MCPServerInfo[]; count?: number }
+        if (!p?.servers) return
+        set({ mcpServers: p.servers })
+
+        get().addAuditEvent({
+          id: eventId('mcp_scanned'),
+          timestamp: new Date().toISOString(),
+          eventType: 'mcp_scan',
+          actor: 'scanner',
+          action: `MCP scan complete: ${p.count ?? p.servers.length} servers`,
+          resourceType: 'mcp',
+          resourceId: `${p.count ?? p.servers.length} servers`,
+          success: true,
+        })
+      }),
+    )
+
+    // skills_scanned — update skills directly
+    cleanups.push(
+      events.subscribe('skills_scanned', (payload: unknown) => {
+        const p = payload as { skills?: SkillInfo[]; count?: number }
+        if (!p?.skills) return
+        set({ skills: p.skills })
+
+        get().addAuditEvent({
+          id: eventId('skills_scanned'),
+          timestamp: new Date().toISOString(),
+          eventType: 'skill_scan',
+          actor: 'scanner',
+          action: `skill scan complete: ${p.count ?? p.skills.length} skills`,
+          resourceType: 'skill',
+          resourceId: `${p.count ?? p.skills.length} skills`,
+          success: true,
         })
       }),
     )

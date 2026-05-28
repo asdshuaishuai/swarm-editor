@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import {
   Radar,
   RefreshCw,
@@ -14,8 +14,9 @@ import {
   Settings,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { useMonitoringStore } from '../stores/monitoringStore'
 import { useSettings } from '../hooks/useSettings'
-import { api, type SkillInfo, type MCPServerInfo } from '../services'
+import { api, type MCPServerInfo } from '../services'
 import { logger } from '../utils'
 import AgentConfigModal from '../components/AgentConfigModal'
 import type { AgentConfig } from '../types'
@@ -38,130 +39,49 @@ export default function AgentScannerPanel() {
   const addToast = useAppStore(state => state.addToast)
   const { settings, updateSetting } = useSettings()
   const [activeTab, setActiveTab] = useState<ScanTab>('agents')
-  const [discoveredAgents, setDiscoveredAgents] = useState<DiscoveredAgent[]>([])
-  const [discoveredMCP, setDiscoveredMCP] = useState<MCPServerInfo[]>([])
-  const [discoveredSkills, setDiscoveredSkills] = useState<SkillInfo[]>([])
-  const [scanning, setScanning] = useState(false)
-  const [lastScan, setLastScan] = useState<Date | null>(null)
   const [configTarget, setConfigTarget] = useState<{ agent?: AgentConfig; defaults?: Partial<AgentConfig> } | null>(null)
+
+  // 从 monitoringStore 获取扫描结果（由后端周期性扫描自动更新）
+  const scannedServers = useMonitoringStore(state => state.mcpServers)
+  const skills = useMonitoringStore(state => state.skills)
+  const refreshMCPServers = useMonitoringStore(state => state.refreshMCPServers)
+  const refreshSkills = useMonitoringStore(state => state.refreshSkills)
 
   // Use settings for auto-scan configuration
   const autoScan = settings.agentAutoScan
-  const scanInterval = settings.agentScanInterval / 1000 // Convert ms to seconds
 
-  // Scan for available agents
-  const scanAgents = useCallback(async () => {
-    setScanning(true)
-    try {
-      logger.info('AgentScanner', 'Starting agent scan...')
-
-      const result = await api.agent.refreshAgents()
-      const discovered: DiscoveredAgent[] = result.map(agent => ({
-        id: agent.id,
-        name: agent.name,
-        type: agent.type,
-        endpoint: agent.command || '',
-        capabilities: agent.capabilities || [],
-        lastSeen: agent.lastActive || new Date().toISOString(),
-        status: agent.status && agent.status !== 'error' ? 'available' : 'unreachable',
-      }))
-      setDiscoveredAgents(discovered)
-      setLastScan(new Date())
-      addToast('success', 'Scan complete', `Found ${discovered.length} agents`)
-    } catch (err) {
-      logger.error('AgentScanner', 'Scan failed:', err)
-      addToast('error', 'Scan failed', err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setScanning(false)
+  // 转换 agents 为 DiscoveredAgent 格式
+  const discoveredAgents: DiscoveredAgent[] = agents.map(agent => {
+    const agentAny = agent as any
+    return {
+      id: agent.id,
+      name: agent.name,
+      type: agent.type || 'unknown',
+      endpoint: agentAny.command || '',
+      capabilities: Array.isArray(agentAny.capabilities)
+        ? agentAny.capabilities
+        : agent.capabilities ? Object.entries(agent.capabilities)
+          .filter(([_, v]) => v === true)
+          .map(([k]) => k) : [],
+      lastSeen: agent.lastActive || new Date().toISOString(),
+      status: (agent.status === 'error' || agent.state === 'error') ? 'unreachable' : 'available',
     }
-  }, [addToast])
+  })
 
-  // Scan for MCP servers
-  const scanMCP = useCallback(async () => {
-    setScanning(true)
+  // 手动刷新所有数据
+  const handleRefresh = useCallback(async () => {
     try {
-      logger.info('AgentScanner', 'Starting MCP scan...')
-      const result = await api.mcp.scanServers()
-      setDiscoveredMCP(result)
-      setLastScan(new Date())
-      addToast('success', 'MCP scan complete', `Found ${result.length} MCP servers`)
-    } catch (err) {
-      logger.error('AgentScanner', 'MCP scan failed:', err)
-      addToast('error', 'MCP scan failed', err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setScanning(false)
-    }
-  }, [addToast])
-
-  // Scan for skills
-  const scanSkills = useCallback(async () => {
-    setScanning(true)
-    try {
-      logger.info('AgentScanner', 'Starting skill scan...')
-      const result = await api.agent.scanSkills()
-      setDiscoveredSkills(result)
-      setLastScan(new Date())
-      addToast('success', 'Skill scan complete', `Found ${result.length} skills`)
-    } catch (err) {
-      logger.error('AgentScanner', 'Skill scan failed:', err)
-      addToast('error', 'Skill scan failed', err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setScanning(false)
-    }
-  }, [addToast])
-
-  // Scan all
-  const scanAll = useCallback(async () => {
-    setScanning(true)
-    try {
-      const [agents, mcp, skills] = await Promise.all([
-        api.agent.refreshAgents(),
-        api.mcp.scanServers(),
-        api.agent.scanSkills(),
+      await Promise.all([
+        useAppStore.getState().loadAgents(),
+        refreshMCPServers(),
+        refreshSkills(),
       ])
-      setDiscoveredAgents(agents.map(a => ({
-        id: a.id,
-        name: a.name,
-        type: a.type,
-        endpoint: a.command || '',
-        capabilities: a.capabilities || [],
-        lastSeen: a.lastActive || new Date().toISOString(),
-        status: a.status && a.status !== 'error' ? 'available' : 'unreachable',
-      })))
-      setDiscoveredMCP(mcp)
-      setDiscoveredSkills(skills)
-      setLastScan(new Date())
-      addToast('success', 'Scan complete', `Found ${agents.length} agents, ${mcp.length} MCP servers, ${skills.length} skills`)
+      addToast('success', '刷新完成', '数据已更新')
     } catch (err) {
-      logger.error('AgentScanner', 'Scan failed:', err)
-      addToast('error', 'Scan failed', err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setScanning(false)
+      logger.error('AgentScanner', 'Refresh failed:', err)
+      addToast('error', '刷新失败', err instanceof Error ? err.message : 'Unknown error')
     }
-  }, [addToast])
-
-  // Scan active tab
-  const handleScan = useCallback(() => {
-    switch (activeTab) {
-      case 'agents': return scanAgents()
-      case 'mcp': return scanMCP()
-      case 'skills': return scanSkills()
-    }
-  }, [activeTab, scanAgents, scanMCP, scanSkills])
-
-  // Auto-scan on interval
-  useEffect(() => {
-    if (!autoScan) return
-
-    const interval = setInterval(scanAll, scanInterval * 1000)
-    return () => clearInterval(interval)
-  }, [autoScan, scanInterval, scanAll])
-
-  // Initial scan - only run once on mount
-  useEffect(() => {
-    scanAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [addToast, refreshMCPServers, refreshSkills])
 
   // Connect to agent
   const handleConnect = async (agent: DiscoveredAgent) => {
@@ -169,7 +89,7 @@ export default function AgentScannerPanel() {
       logger.info('AgentScanner', `Connecting to agent: ${agent.name}`)
       await api.agent.startAgent(agent.id)
       addToast('success', 'Agent Connected', `Successfully connected to ${agent.name}`)
-      scanAgents()
+      useAppStore.getState().loadAgents()
     } catch (err) {
       logger.error('AgentScanner', 'Connection failed:', err)
       addToast('error', 'Connection Failed', err instanceof Error ? err.message : 'Unknown error')
@@ -197,8 +117,8 @@ export default function AgentScannerPanel() {
 
   const tabs: { id: ScanTab; label: string; icon: typeof Radar; count: number }[] = [
     { id: 'agents', label: 'Agents', icon: Cpu, count: discoveredAgents.length },
-    { id: 'mcp', label: 'MCP Servers', icon: Plug, count: discoveredMCP.length },
-    { id: 'skills', label: 'Skills', icon: Wrench, count: discoveredSkills.length },
+    { id: 'mcp', label: 'MCP Servers', icon: Plug, count: scannedServers.length },
+    { id: 'skills', label: 'Skills', icon: Wrench, count: skills.length },
   ]
 
   return (
@@ -215,19 +135,16 @@ export default function AgentScannerPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {lastScan && (
-            <span className="text-xs text-text-tertiary flex items-center gap-1">
-              <Clock size={12} />
-              {lastScan.toLocaleTimeString()}
-            </span>
-          )}
+          <span className="text-xs text-text-tertiary flex items-center gap-1">
+            <Clock size={12} />
+            自动刷新中
+          </span>
           <button
-            onClick={handleScan}
-            disabled={scanning}
+            onClick={handleRefresh}
             className="btn-secondary"
           >
-            <RefreshCw size={16} className={scanning ? 'animate-spin' : ''} />
-            <span>{scanning ? 'Scanning...' : 'Scan'}</span>
+            <RefreshCw size={16} />
+            <span>刷新</span>
           </button>
         </div>
       </div>
@@ -276,17 +193,7 @@ export default function AgentScannerPanel() {
         </div>
         {autoScan && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-text-secondary">Every</span>
-            <select
-              value={scanInterval}
-              onChange={(e) => updateSetting('agentScanInterval', (parseInt(e.target.value) || 30) * 1000)}
-              className="input-mac text-xs py-1"
-            >
-              <option value={10}>10s</option>
-              <option value={30}>30s</option>
-              <option value={60}>1m</option>
-              <option value={300}>5m</option>
-            </select>
+            <span className="text-xs text-text-secondary">后端自动扫描 (30s)</span>
           </div>
         )}
       </div>
@@ -354,11 +261,11 @@ export default function AgentScannerPanel() {
 
         {/* MCP Tab */}
         {activeTab === 'mcp' && (
-          discoveredMCP.length === 0 ? (
+          scannedServers.length === 0 ? (
             <EmptyState icon={<Plug size={48} className="opacity-50" />} title="No MCP servers discovered" subtitle="MCP servers are found from agent config files" />
           ) : (
             <div className="space-y-3">
-              {discoveredMCP.map((server) => (
+              {scannedServers.map((server) => (
                 <div key={server.id} className="p-4 rounded-mac-xl bg-glass border border-glass-border hover:border-accent/50 transition-all duration-200">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2.5">
@@ -368,7 +275,12 @@ export default function AgentScannerPanel() {
                         <p className="text-xs text-text-tertiary font-mono">{server.command}</p>
                       </div>
                     </div>
-                    <span className="text-xs px-2 py-0.5 bg-glass/50 rounded-mac text-text-secondary">{server.status}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs px-2 py-0.5 bg-glass/50 rounded-mac text-text-secondary">{server.status}</span>
+                      {server.source && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-accent/10 rounded-mac text-accent">{server.source}</span>
+                      )}
+                    </div>
                   </div>
                   {server.args && server.args.length > 0 && (
                     <p className="text-xs text-text-tertiary mb-2 ml-8">Args: {server.args.join(' ')}</p>
@@ -384,11 +296,11 @@ export default function AgentScannerPanel() {
 
         {/* Skills Tab */}
         {activeTab === 'skills' && (
-          discoveredSkills.length === 0 ? (
+          skills.length === 0 ? (
             <EmptyState icon={<Wrench size={48} className="opacity-50" />} title="No skills discovered" subtitle="Skills come from ~/.claude/skills/ and agent capabilities" />
           ) : (
             <div className="space-y-3">
-              {discoveredSkills.map((skill) => (
+              {skills.map((skill) => (
                 <div key={skill.id} className="p-4 rounded-mac-xl bg-glass border border-glass-border hover:border-accent/50 transition-all duration-200">
                   <div className="flex items-center gap-2.5 mb-2">
                     <div className="p-1.5 bg-accent/10 rounded-mac"><Wrench size={16} className="text-accent" /></div>
@@ -421,7 +333,7 @@ export default function AgentScannerPanel() {
           onClose={() => setConfigTarget(null)}
           onSaved={() => {
             setConfigTarget(null)
-            scanAll()
+            handleRefresh()
           }}
         />
       )}

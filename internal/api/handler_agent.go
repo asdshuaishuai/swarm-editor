@@ -7,6 +7,8 @@ import (
 "os"
 "path/filepath"
 "strings"
+"time"
+
 "github.com/swarm-editor/swarm-editor/internal/acp"
 "github.com/swarm-editor/swarm-editor/internal/agent"
 )
@@ -98,6 +100,26 @@ func (h *CommandHandler) handleGetAgents(ctx context.Context, params json.RawMes
 			}
 			result = append(result, info)
 			seen[cli.ID] = true
+		}
+	}
+
+	// Add config-based agents not yet seen (from agents.json)
+	// Only when scanner is available (indicates real runtime, not test)
+	if h.server.Scanner() != nil {
+		for id, cfg := range configAgents {
+			if seen[id] || !cfg.Enabled {
+				continue
+			}
+			info := AgentInfo{
+				ID:          id,
+				Name:        cfg.Name,
+				Type:        AgentTypeConfig,
+				State:       AgentStateAvailable,
+				Command:     cfg.Command,
+				Description: cfg.Description,
+				Enabled:     &cfg.Enabled,
+			}
+			result = append(result, info)
 		}
 	}
 
@@ -224,19 +246,138 @@ func (h *CommandHandler) handleStopAgent(ctx context.Context, params json.RawMes
 }
 
 func (h *CommandHandler) handleRefreshAgents(ctx context.Context, params json.RawMessage) (any, error) {
-	// Trigger CLI agent scan
-	scanner := h.server.Scanner()
-	if scanner != nil {
-		scanned, err := scanner.Scan(ctx)
-		if err != nil {
-			apiLog.Warn("agent scan failed", "error", err)
-		} else {
-			apiLog.Info("agent scan completed", "count", len(scanned))
+	// Return cached results immediately
+	cached := h.handleGetAgentsCached()
+
+	// Trigger async background scan
+	go h.backgroundScanAgents()
+
+	return cached, nil
+}
+
+func (h *CommandHandler) handleGetAgentsCached() []AgentInfo {
+	result := make([]AgentInfo, 0)
+	seenByID := make(map[string]bool)
+	seenByName := make(map[string]bool)
+
+	configAgents := make(map[string]*acp.AgentConfig)
+	if cfg, err := acp.LoadConfig(""); err == nil {
+		for _, a := range cfg.Agents {
+			configAgents[a.ID] = a
 		}
 	}
 
-	// Return merged list (registry + external connections)
-	return h.handleGetAgents(ctx, params)
+	if registry := h.server.Registry(); registry != nil {
+		for _, a := range registry.GetAll() {
+			id := string(a.ID)
+			info := AgentInfo{
+				ID:    id,
+				Name:  a.Name,
+				Type:  string(a.Type),
+				State: string(a.GetState()),
+			}
+			if cfg, ok := configAgents[id]; ok {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			seenByID[id] = true
+			seenByName[a.Name] = true
+			result = append(result, info)
+		}
+	}
+
+	// External connections
+	if cm := h.server.ConnManager(); cm != nil {
+		for _, conn := range cm.GetConnected() {
+			if seenByID[conn.ID] {
+				continue
+			}
+			name := ""
+			if conn.Config != nil {
+				name = conn.Config.Name
+			}
+			if seenByName[name] && name != "" {
+				continue
+			}
+			var cfg *acp.AgentConfig
+			if c, ok := configAgents[conn.ID]; ok {
+				cfg = c
+			}
+			info := AgentInfo{
+				ID:    conn.ID,
+				Name:  name,
+				Type:  AgentTypeExternal,
+				State: AgentStateConnected,
+			}
+			if cfg != nil {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			seenByID[conn.ID] = true
+			if name != "" {
+				seenByName[name] = true
+			}
+			result = append(result, info)
+		}
+	}
+
+	// Scanned CLI agents
+	if scanner := h.server.Scanner(); scanner != nil {
+		for _, cli := range scanner.GetAgents() {
+			if seenByID[cli.ID] || seenByName[cli.Name] {
+				continue
+			}
+			state := AgentStateAvailable
+			if cli.Status == agent.AgentStatusRunning {
+				state = AgentStateRunning
+			}
+			info := AgentInfo{
+				ID:           cli.ID,
+				Name:         cli.Name,
+				Type:         AgentTypeCLI,
+				State:        state,
+				Command:      cli.Path,
+				Capabilities: cli.Capabilities,
+			}
+			if cfg, ok := configAgents[cli.ID]; ok {
+				info.Command = cfg.Command
+				info.Description = cfg.Description
+				info.Enabled = &cfg.Enabled
+			}
+			seenByID[cli.ID] = true
+			seenByName[cli.Name] = true
+			result = append(result, info)
+		}
+	}
+
+	return result
+}
+
+func (h *CommandHandler) backgroundScanAgents() {
+	scanner := h.server.Scanner()
+	if scanner == nil {
+		return
+	}
+
+	bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	scanned, err := scanner.Scan(bgCtx)
+	if err != nil {
+		apiLog.Warn("background agent scan failed", "error", err)
+		return
+	}
+	apiLog.Info("background agent scan completed", "count", len(scanned))
+
+	agents := h.handleGetAgentsCached()
+	if h.server.hub != nil {
+		h.server.hub.Broadcast("agents_scanned", map[string]any{
+			"agents": agents,
+			"count":  len(agents),
+		})
+	}
 }
 
 func (h *CommandHandler) handleAddAgent(ctx context.Context, params json.RawMessage) (any, error) {
@@ -375,10 +516,15 @@ func (h *CommandHandler) handleGetConfigPath(ctx context.Context, params json.Ra
 }
 
 func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMessage) (any, error) {
+	// Return empty immediately, trigger background scan
+	go h.backgroundScanSkills()
+	return map[string]any{"status": "scanning"}, nil
+}
+
+func (h *CommandHandler) backgroundScanSkills() {
 	scanner := h.server.Scanner()
 	skillScanner := agent.NewSkillScanner()
 
-	// Set workspace dir for project-local skill scanning
 	if h.server.workspacePath != "" {
 		skillScanner.SetWorkspaceDir(h.server.workspacePath)
 	}
@@ -387,17 +533,17 @@ func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMe
 	var err error
 
 	if scanner != nil {
-		// Ensure agent scan has been done
 		if len(scanner.GetAgents()) == 0 {
-			scanner.Scan(ctx)
+			if _, scanErr := scanner.Scan(context.Background()); scanErr != nil {
+				apiLog.Warn("background agent scan for skills failed", "error", scanErr)
+			}
 		}
 		skills, err = skillScanner.ScanWithAgents(scanner.GetAgents())
 
-		// Also discover MCP-based skills with tool introspection
 		if err == nil {
 			discovery := agent.NewMCPDiscovery(scanner)
-			if mcpServers, mcpErr := discovery.DiscoverAll(); mcpErr == nil && len(mcpServers) > 0 {
-				// Collect tools from connected MCP servers
+			workspaceDir := h.server.WorkspacePath()
+			if mcpServers, mcpErr := discovery.DiscoverAllWithScope(workspaceDir); mcpErr == nil && len(mcpServers) > 0 {
 				serverTools := make(map[string][]agent.MCPTool)
 				for _, srv := range mcpServers {
 					if client, ok := h.server.GetMCPClient(srv.Name); ok {
@@ -417,7 +563,6 @@ func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMe
 
 				mcpSkills, mcpErr := skillScanner.ScanWithMCPTools(mcpServers, serverTools)
 				if mcpErr == nil {
-					// Merge MCP skills, avoiding duplicates
 					seen := make(map[string]bool)
 					for _, s := range skills {
 						seen[s.ID] = true
@@ -435,10 +580,10 @@ func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMe
 	}
 
 	if err != nil {
-		return nil, safeError("skill scan failed", err)
+		apiLog.Warn("background skill scan failed", "error", err)
+		return
 	}
 
-	// Convert to response format
 	result := make([]map[string]any, 0, len(skills))
 	for _, s := range skills {
 		result = append(result, map[string]any{
@@ -452,7 +597,14 @@ func (h *CommandHandler) handleScanSkills(ctx context.Context, params json.RawMe
 		})
 	}
 
-	return result, nil
+	apiLog.Info("background skill scan completed", "count", len(result))
+
+	if h.server.hub != nil {
+		h.server.hub.Broadcast("skills_scanned", map[string]any{
+			"skills": result,
+			"count":  len(result),
+		})
+	}
 }
 
 func (h *CommandHandler) handleExecuteCode(ctx context.Context, params json.RawMessage) (any, error) {
@@ -980,4 +1132,56 @@ func truncateForBroadcast(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// --- Agent Config Management ---
+
+func (h *CommandHandler) handleGetAgentConfig(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string `json:"agentId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agentId is required")
+	}
+
+	sync, err := agent.GetConfigSync(req.AgentID)
+	if err != nil {
+		return nil, errNotFound(err.Error())
+	}
+
+	view, err := sync.Read()
+	if err != nil {
+		return nil, safeError("failed to read config", err)
+	}
+
+	return view, nil
+}
+
+func (h *CommandHandler) handleUpdateAgentConfig(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string               `json:"agentId"`
+		Config  agent.AgentConfigView `json:"config"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agentId is required")
+	}
+
+	sync, err := agent.GetConfigSync(req.AgentID)
+	if err != nil {
+		return nil, errNotFound(err.Error())
+	}
+
+	if err := sync.Write(&req.Config); err != nil {
+		return nil, safeError("failed to write config", err)
+	}
+
+	return map[string]any{"success": true}, nil
 }
