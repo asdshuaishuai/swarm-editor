@@ -177,6 +177,11 @@ func (ss *SkillScanner) scanFilesystem() ([]SkillInfo, error) {
 		filepath.Join(home, ".claude", "mcp.json"),
 		filepath.Join(home, ".config", "claude-code", "mcp.json"),
 		filepath.Join(home, ".swarm-editor", "mcp.json"),
+		// Agent primary configs with mcpServers key
+		filepath.Join(home, ".claude.json"),
+		filepath.Join(home, ".config", "opencode", "opencode.json"),
+		filepath.Join(home, ".factory", "mcp.json"),
+		filepath.Join(home, ".gemini", "antigravity", "mcp_config.json"),
 	}
 	for _, cfgPath := range globalMCPConfigs {
 		if mcpSkills, err := ss.ScanMCPSkillsFromConfig(cfgPath); err == nil {
@@ -233,6 +238,10 @@ func (ss *SkillScanner) skillDirsScoped() (projectDirs []string, globalDirs []st
 			filepath.Join(ss.homeDir, ".agents", "skills"),
 			filepath.Join(ss.homeDir, ".config", "cursor", "skills"),
 			filepath.Join(ss.homeDir, ".swarm-editor", "skills"),
+			filepath.Join(ss.homeDir, ".cline", "skills"),
+			filepath.Join(ss.homeDir, ".qwen", "skills"),
+			filepath.Join(ss.homeDir, ".kimi", "skills"),
+			filepath.Join(ss.homeDir, ".config", "opencode", "skills"),
 		)
 	}
 
@@ -316,20 +325,17 @@ func (ss *SkillScanner) ScanMCPSkillsFromConfig(configPath string) ([]SkillInfo,
 		return nil, err
 	}
 
-	var config struct {
-		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-			Type    string   `json:"type"`
-		} `json:"mcpServers"`
-	}
-
-	if err := json.Unmarshal(data, &config); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 
 	var skills []SkillInfo
-	for name, srv := range config.MCPServers {
+	addServer := func(name string, srv struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Type    string   `json:"type"`
+	}) {
 		skills = append(skills, SkillInfo{
 			ID:     "mcp:" + name,
 			Name:   name,
@@ -337,6 +343,36 @@ func (ss *SkillScanner) ScanMCPSkillsFromConfig(configPath string) ([]SkillInfo,
 			Path:   srv.Command,
 			Tags:   []string{"mcp", srv.Type},
 		})
+	}
+
+	// Standard format: {"mcpServers": {...}}
+	if rawServers, ok := raw["mcpServers"]; ok {
+		var servers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+			Type    string   `json:"type"`
+		}
+		if err := json.Unmarshal(rawServers, &servers); err == nil {
+			for name, srv := range servers {
+				addServer(name, srv)
+			}
+		}
+	}
+
+	// Nested format (e.g., opencode): {"mcp": {"mcpServers": {...}}}
+	if rawMcp, ok := raw["mcp"]; ok {
+		var mcp struct {
+			MCPServers map[string]struct {
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
+				Type    string   `json:"type"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(rawMcp, &mcp); err == nil {
+			for name, srv := range mcp.MCPServers {
+				addServer(name, srv)
+			}
+		}
 	}
 
 	return skills, nil

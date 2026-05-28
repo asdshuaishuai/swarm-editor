@@ -151,12 +151,13 @@ func TestHandleScanMCPServers_NoScanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	servers, ok := result.([]MCPServerInfo)
+	// Async: returns {"status": "scanning"}
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []MCPServerInfo, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	if len(servers) != 0 {
-		t.Errorf("expected 0 servers without scanner, got %d", len(servers))
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
 	}
 }
 

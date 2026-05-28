@@ -350,15 +350,15 @@ func TestHandleScanSkills_NoScanner2(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	skills, ok := result.([]map[string]any)
+	// Async: returns {"status": "scanning"} immediately
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []map[string]any, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	// With no scanner, the fallback Scan() is called — may return filesystem skills or empty
-	_ = skills
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
+	}
 }
-
-
 
 func TestHandleScanSkills_ResultFormat(t *testing.T) {
 	handler, server := newTestHandler()
@@ -369,18 +369,13 @@ func TestHandleScanSkills_ResultFormat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	skills := result.([]map[string]any)
-	for _, s := range skills {
-		// Each skill should have standard fields
-		if _, ok := s["id"]; !ok {
-			t.Error("skill missing 'id' field")
-		}
-		if _, ok := s["name"]; !ok {
-			t.Error("skill missing 'name' field")
-		}
-		if _, ok := s["source"]; !ok {
-			t.Error("skill missing 'source' field")
-		}
+	// Async: returns {"status": "scanning"} immediately
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
 	}
 }
 

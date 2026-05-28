@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -460,6 +462,12 @@ type WebSocketServer struct {
 	// Schedule
 	scheduleRunner *swarm.ScheduleRunner // Cron-based schedule runner
 
+	// Unified MCP store
+	unifiedMCPStore *mcp.UnifiedMCPStore
+
+	// Unified Skill store
+	unifiedSkillStore *agent.UnifiedSkillStore
+
 	// File watcher
 	fileWatcher *FileWatcher
 
@@ -611,6 +619,21 @@ func NewWebSocketServer(cfg *WebSocketConfig) *WebSocketServer {
 		})
 	})
 
+	// Initialize unified MCP store
+	configDir := filepath.Join(os.Getenv("HOME"), ".swarm-editor")
+	if configDir == "" {
+		configDir = ".swarm-editor"
+	}
+	s.unifiedMCPStore = mcp.NewUnifiedMCPStore(configDir)
+	if err := s.unifiedMCPStore.Load(); err != nil {
+		wsLog.Warn("Failed to load unified MCP store", "error", err)
+	}
+
+	s.unifiedSkillStore = agent.NewUnifiedSkillStore(configDir)
+	if err := s.unifiedSkillStore.Load(); err != nil {
+		wsLog.Warn("Failed to load unified skill store", "error", err)
+	}
+
 	return s
 }
 
@@ -703,6 +726,12 @@ func (s *WebSocketServer) Start(ctx context.Context) error {
 		}
 	}
 
+
+	// Start periodic background scanner for agents/MCP/skills
+	if s.handler != nil && s.scanner != nil {
+		s.wg.Add(1)
+		go s.periodicScan(s.ctx)
+	}
 	wsLog.Info("Server starting", "addr", s.addr)
 	return server.ListenAndServe()
 }
@@ -948,6 +977,36 @@ func (s *WebSocketServer) LSPManager() *lsp.Manager {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lspManager
+}
+
+// periodicScan runs background agent/MCP/skill discovery on a 30s interval.
+// Results are pushed to all connected clients via WebSocket events.
+func (s *WebSocketServer) periodicScan(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			wsLog.Error("periodicScan panic", "panic", r)
+		}
+		s.wg.Done()
+	}()
+
+	// Initial scan immediately
+	s.handler.backgroundScanAgents()
+	s.handler.backgroundScanMCPServers()
+	s.handler.backgroundScanSkills()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.handler.backgroundScanAgents()
+			s.handler.backgroundScanMCPServers()
+			s.handler.backgroundScanSkills()
+		}
+	}
 }
 
 // SetWorkspace sets the workspace path and starts watching the directory for

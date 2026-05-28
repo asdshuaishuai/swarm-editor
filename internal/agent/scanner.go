@@ -283,6 +283,9 @@ func (s *Scanner) OnStatusChange(fn func(string, AgentStatus)) {
 func (s *Scanner) Scan(ctx context.Context) ([]*AgentCLI, error) {
 	s.mu.Lock()
 
+	// Clear previous scan results to avoid accumulation
+	s.agents = make(map[string]*AgentCLI)
+
 	var detected []*AgentCLI
 	var wg sync.WaitGroup
 	results := make(chan *AgentCLI, len(KnownAgents))
@@ -340,7 +343,7 @@ func (s *Scanner) scanAgent(ctx context.Context, known KnownAgent) *AgentCLI {
 		}
 
 		agent := &AgentCLI{
-			ID:           fmt.Sprintf("%s-%d", known.Name, time.Now().UnixNano()),
+			ID:           known.Name,
 			Name:         known.Name,
 			Executable:   execName,
 			Path:         execPath,
@@ -398,7 +401,7 @@ func (s *Scanner) findExecutable(name string) (string, error) {
 
 // getVersion gets the version of an agent
 func (s *Scanner) getVersion(ctx context.Context, execPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	// Try common version flags
@@ -407,6 +410,9 @@ func (s *Scanner) getVersion(ctx context.Context, execPath string) (string, erro
 
 	for _, flag := range flags {
 		cmd := exec.CommandContext(ctx, execPath, flag)
+		// Force-kill process and don't wait for IO goroutines beyond 1s
+		cmd.Cancel = func() error { return cmd.Process.Kill() }
+		cmd.WaitDelay = time.Second
 		output, err := cmd.CombinedOutput()
 		if err == nil && len(output) > 0 {
 			if len(output) > maxVersionOutput {

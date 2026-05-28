@@ -607,6 +607,113 @@ func (h *CommandHandler) backgroundScanSkills() {
 	}
 }
 
+// unifiedSkillStore returns the unified skill store
+func (h *CommandHandler) unifiedSkillStore() *agent.UnifiedSkillStore {
+	if h.server == nil {
+		return nil
+	}
+	return h.server.unifiedSkillStore
+}
+
+func (h *CommandHandler) handleGetUnifiedSkills(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedSkillStore()
+	if store == nil {
+		return map[string]any{"skills": []any{}}, nil
+	}
+
+	skills := store.GetAll()
+	result := make([]any, 0, len(skills))
+	for _, s := range skills {
+		result = append(result, s)
+	}
+	return map[string]any{"skills": result}, nil
+}
+
+func (h *CommandHandler) handleUpsertSkill(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedSkillStore()
+	if store == nil {
+		return nil, errNotFound("unified skill store not initialized")
+	}
+
+	var skill agent.UnifiedSkill
+	if err := json.Unmarshal(params, &skill); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if skill.ID == "" {
+		return nil, errValidation("skill id is required")
+	}
+
+	if err := store.Upsert(&skill); err != nil {
+		return nil, safeError("failed to upsert skill", err)
+	}
+
+	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleDeleteSkill(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedSkillStore()
+	if store == nil {
+		return nil, errNotFound("unified skill store not initialized")
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if err := store.Delete(req.ID); err != nil {
+		return nil, safeError("failed to delete skill", err)
+	}
+
+	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleToggleSkillApp(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedSkillStore()
+	if store == nil {
+		return nil, errNotFound("unified skill store not initialized")
+	}
+
+	var req struct {
+		ID      string `json:"id"`
+		App     string `json:"app"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if err := store.ToggleApp(req.ID, req.App, req.Enabled); err != nil {
+		return nil, safeError("failed to toggle skill app", err)
+	}
+
+	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleImportSkillsFromScanned(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedSkillStore()
+	if store == nil {
+		return nil, errNotFound("unified skill store not initialized")
+	}
+
+	// Trigger a fresh scan and import results
+	scanner := agent.NewSkillScanner()
+	if h.server.workspacePath != "" {
+		scanner.SetWorkspaceDir(h.server.workspacePath)
+	}
+
+	skills, err := scanner.Scan()
+	if err != nil {
+		return nil, safeError("skill scan failed", err)
+	}
+
+	imported := store.ImportFromScanned(skills)
+	return map[string]any{"imported": imported}, nil
+}
+
 func (h *CommandHandler) handleExecuteCode(ctx context.Context, params json.RawMessage) (any, error) {
 	var req struct {
 		FilePath string `json:"filePath"`

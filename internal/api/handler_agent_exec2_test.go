@@ -59,12 +59,14 @@ func TestHandleScanSkills_NoScanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	skills, ok := result.([]map[string]any)
+	// Async: returns {"status": "scanning"} immediately
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []map[string]any, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	// Without scanner, should do basic scan (may return empty)
-	t.Logf("got %d skills", len(skills))
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
+	}
 }
 
 func TestHandleScanSkills_WithWorkspace(t *testing.T) {
@@ -76,8 +78,14 @@ func TestHandleScanSkills_WithWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	skills := result.([]map[string]any)
-	t.Logf("got %d skills with workspace", len(skills))
+	// Async: returns {"status": "scanning"} immediately
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
+	}
 }
 
 func TestHandleTestAgent_NoScanner(t *testing.T) {

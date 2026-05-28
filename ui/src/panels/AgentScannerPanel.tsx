@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Radar,
   RefreshCw,
@@ -12,11 +12,12 @@ import {
   Plug,
   Wrench,
   Settings,
+  Download,
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
 import { useSettings } from '../hooks/useSettings'
-import { api, type MCPServerInfo } from '../services'
+import { api, type MCPServerInfo, type UnifiedSkill } from '../services'
 import { logger } from '../utils'
 import AgentConfigModal from '../components/AgentConfigModal'
 import type { AgentConfig } from '../types'
@@ -46,6 +47,45 @@ export default function AgentScannerPanel() {
   const skills = useMonitoringStore(state => state.skills)
   const refreshMCPServers = useMonitoringStore(state => state.refreshMCPServers)
   const refreshSkills = useMonitoringStore(state => state.refreshSkills)
+
+  // Unified skills state
+  const [unifiedSkills, setUnifiedSkills] = useState<UnifiedSkill[]>([])
+  const [importingSkills, setImportingSkills] = useState(false)
+
+  const fetchUnifiedSkills = useCallback(async () => {
+    try {
+      const result = await api.agent.getUnifiedSkills()
+      setUnifiedSkills(result.skills || [])
+    } catch (err) {
+      logger.warn('AgentScanner', 'Failed to fetch unified skills:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchUnifiedSkills()
+  }, [fetchUnifiedSkills])
+
+  const handleToggleSkillApp = useCallback(async (id: string, app: string, enabled: boolean) => {
+    try {
+      await api.agent.toggleSkillApp(id, app, enabled)
+      await fetchUnifiedSkills()
+    } catch (err) {
+      addToast('error', 'Toggle failed', err instanceof Error ? err.message : 'Unknown error')
+    }
+  }, [addToast, fetchUnifiedSkills])
+
+  const handleImportSkills = useCallback(async () => {
+    setImportingSkills(true)
+    try {
+      const result = await api.agent.importSkillsFromScanned()
+      await fetchUnifiedSkills()
+      addToast('success', 'Skills imported', `${result.imported} skills imported`)
+    } catch (err) {
+      addToast('error', 'Import failed', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setImportingSkills(false)
+    }
+  }, [addToast, fetchUnifiedSkills])
 
   // Use settings for auto-scan configuration
   const autoScan = settings.agentAutoScan
@@ -296,32 +336,94 @@ export default function AgentScannerPanel() {
 
         {/* Skills Tab */}
         {activeTab === 'skills' && (
-          skills.length === 0 ? (
-            <EmptyState icon={<Wrench size={48} className="opacity-50" />} title="No skills discovered" subtitle="Skills come from ~/.claude/skills/ and agent capabilities" />
-          ) : (
-            <div className="space-y-3">
-              {skills.map((skill) => (
-                <div key={skill.id} className="p-4 rounded-mac-xl bg-glass border border-glass-border hover:border-accent/50 transition-all duration-200">
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <div className="p-1.5 bg-accent/10 rounded-mac"><Wrench size={16} className="text-accent" /></div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-text-primary">{skill.name}</h4>
-                      {skill.description && <p className="text-xs text-text-tertiary truncate">{skill.description}</p>}
-                    </div>
-                    <span className="text-[10px] px-1.5 py-0.5 bg-glass/50 rounded-mac text-text-tertiary capitalize">{skill.source}</span>
-                  </div>
-                  {skill.tags && skill.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 ml-8">
-                      {skill.tags.map((tag) => (
-                        <span key={tag} className="px-1.5 py-0.5 bg-glass/30 rounded-mac text-[10px] text-text-tertiary">{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                  {skill.agentId && <p className="text-[10px] text-text-tertiary ml-8 mt-1">Agent: {skill.agentId}</p>}
-                </div>
-              ))}
+          <>
+            {/* Import button */}
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={handleImportSkills}
+                disabled={importingSkills}
+                className="btn-secondary text-xs"
+              >
+                <Download size={14} className={importingSkills ? 'animate-spin' : ''} />
+                <span>Import from Scan</span>
+              </button>
             </div>
-          )
+
+            {skills.length === 0 && unifiedSkills.length === 0 ? (
+              <EmptyState icon={<Wrench size={48} className="opacity-50" />} title="No skills discovered" subtitle="Skills come from ~/.claude/skills/ and agent capabilities" />
+            ) : (
+              <div className="space-y-3">
+                {/* Unified skills with per-agent toggle */}
+                {unifiedSkills.map((skill) => (
+                  <div key={skill.id} className="p-4 rounded-mac-xl bg-glass border border-glass-border hover:border-accent/50 transition-all duration-200">
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <div className="p-1.5 bg-accent/10 rounded-mac"><Wrench size={16} className="text-accent" /></div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-text-primary">{skill.name}</h4>
+                        {skill.description && <p className="text-xs text-text-tertiary truncate">{skill.description}</p>}
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 bg-glass/50 rounded-mac text-text-tertiary capitalize">{skill.source}</span>
+                    </div>
+                    {skill.tags && skill.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 ml-8 mb-2">
+                        {skill.tags.map((tag) => (
+                          <span key={tag} className="px-1.5 py-0.5 bg-glass/30 rounded-mac text-[10px] text-text-tertiary">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Per-agent toggle pills */}
+                    <div className="flex gap-1.5 ml-8 mt-2">
+                      {[
+                        { key: 'claude', label: 'Claude', color: '#fb923c' },
+                        { key: 'kimi', label: 'Kimi', color: '#22d3ee' },
+                        { key: 'opencode', label: 'OpenCode', color: '#a78bfa' },
+                        { key: 'qwen', label: 'Qwen', color: '#34d399' },
+                      ].map(({ key, label, color }) => {
+                        const enabled = skill.apps?.[key as keyof typeof skill.apps] ?? false
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => handleToggleSkillApp(skill.id, key, !enabled)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-mac text-[11px] font-medium transition-colors border"
+                            style={{
+                              borderColor: enabled ? color : 'var(--glass-border, #30363d)',
+                              backgroundColor: enabled ? `${color}15` : 'transparent',
+                              color: enabled ? color : 'var(--text-tertiary, #8b949e)',
+                            }}
+                          >
+                            {enabled && <Check size={10} />}
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Scanned skills (not in unified store) */}
+                {skills.filter(s => !unifiedSkills.some(u => u.id === s.id)).map((skill) => (
+                  <div key={skill.id} className="p-4 rounded-mac-xl bg-glass/50 border border-glass-border">
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <div className="p-1.5 bg-accent/5 rounded-mac"><Wrench size={16} className="text-text-tertiary" /></div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-text-secondary">{skill.name}</h4>
+                        {skill.description && <p className="text-xs text-text-tertiary truncate">{skill.description}</p>}
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 bg-glass/50 rounded-mac text-text-tertiary capitalize">{skill.source}</span>
+                    </div>
+                    {skill.tags && skill.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 ml-8">
+                        {skill.tags.map((tag) => (
+                          <span key={tag} className="px-1.5 py-0.5 bg-glass/30 rounded-mac text-[10px] text-text-tertiary">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                    {skill.agentId && <p className="text-[10px] text-text-tertiary ml-8 mt-1">Agent: {skill.agentId}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

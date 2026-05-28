@@ -9,6 +9,9 @@ const mockUpdateSetting = vi.fn()
 const mockLoadAgents = vi.fn().mockResolvedValue(undefined)
 const mockScanServers = vi.fn().mockResolvedValue([])
 const mockScanSkills = vi.fn().mockResolvedValue([])
+const mockGetUnifiedSkills = vi.fn().mockResolvedValue({ skills: [] })
+const mockToggleSkillApp = vi.fn().mockResolvedValue({ success: true })
+const mockImportSkillsFromScanned = vi.fn().mockResolvedValue({ imported: 0 })
 
 // Mutable store agents (connected agents in the store)
 let storeAgents: any[] = []
@@ -18,6 +21,9 @@ vi.mock('../services', () => ({
     agent: {
       scanSkills: (...args: any[]) => mockScanSkills(...args),
       startAgent: (...args: any[]) => mockStartAgent(...args),
+      getUnifiedSkills: (...args: any[]) => mockGetUnifiedSkills(...args),
+      toggleSkillApp: (...args: any[]) => mockToggleSkillApp(...args),
+      importSkillsFromScanned: (...args: any[]) => mockImportSkillsFromScanned(...args),
     },
     mcp: {
       scanServers: (...args: any[]) => mockScanServers(...args),
@@ -99,6 +105,7 @@ vi.mock('lucide-react', () => ({
   Plug: () => '',
   Wrench: () => '',
   Settings: () => '',
+  Download: () => '',
 }))
 
 // Mock scrollIntoView for jsdom
@@ -795,5 +802,87 @@ describe('AgentScannerPanel', () => {
     await renderAndWait()
     fireEvent.click(screen.getByText('Skills'))
     expect(screen.getByText('Skills come from ~/.claude/skills/ and agent capabilities')).toBeInTheDocument()
+  })
+
+  // ── Unified Skills ────────────────────────────────────────────
+
+  it('shows Import button in Skills tab', async () => {
+    await renderAndWait()
+    fireEvent.click(screen.getByText('Skills'))
+    expect(screen.getByText('Import from Scan')).toBeInTheDocument()
+  })
+
+  it('shows unified skills with per-agent toggle pills', async () => {
+    mockGetUnifiedSkills.mockResolvedValue({
+      skills: [{
+        id: 'fs:test-skill',
+        name: 'test-skill',
+        source: 'filesystem',
+        apps: { claude: true, opencode: false, qwen: false, kimi: false },
+      }],
+    })
+    await renderAndWait()
+    fireEvent.click(screen.getByText('Skills'))
+    await waitFor(() => {
+      expect(screen.getByText('test-skill')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Claude')).toBeInTheDocument()
+    expect(screen.getByText('Kimi')).toBeInTheDocument()
+    expect(screen.getByText('OpenCode')).toBeInTheDocument()
+    expect(screen.getByText('Qwen')).toBeInTheDocument()
+  })
+
+  it('calls toggleSkillApp when agent pill clicked', async () => {
+    mockGetUnifiedSkills.mockResolvedValue({
+      skills: [{
+        id: 'fs:test-skill',
+        name: 'test-skill',
+        source: 'filesystem',
+        apps: { claude: true, opencode: false, qwen: false, kimi: false },
+      }],
+    })
+    await renderAndWait()
+    fireEvent.click(screen.getByText('Skills'))
+    await waitFor(() => expect(screen.getByText('test-skill')).toBeInTheDocument())
+
+    mockGetUnifiedSkills.mockResolvedValue({
+      skills: [{
+        id: 'fs:test-skill',
+        name: 'test-skill',
+        source: 'filesystem',
+        apps: { claude: true, opencode: true, qwen: false, kimi: false },
+      }],
+    })
+    fireEvent.click(screen.getByText('OpenCode'))
+    await waitFor(() => {
+      expect(mockToggleSkillApp).toHaveBeenCalledWith('fs:test-skill', 'opencode', true)
+    })
+  })
+
+  it('calls importSkillsFromScanned when Import clicked', async () => {
+    await renderAndWait()
+    fireEvent.click(screen.getByText('Skills'))
+    mockImportSkillsFromScanned.mockResolvedValue({ imported: 3 })
+    fireEvent.click(screen.getByText('Import from Scan'))
+    await waitFor(() => {
+      expect(mockImportSkillsFromScanned).toHaveBeenCalled()
+      expect(mockAddToast).toHaveBeenCalledWith('success', 'Skills imported', '3 skills imported')
+    })
+  })
+
+  it('shows scanned skills without toggle pills', async () => {
+    monitoredSkills = [{
+      id: 'fs:scanned-only',
+      name: 'scanned-only',
+      source: 'filesystem',
+      tags: ['local'],
+    }]
+    await renderAndWait()
+    fireEvent.click(screen.getByText('Skills'))
+    await waitFor(() => {
+      expect(screen.getByText('scanned-only')).toBeInTheDocument()
+    })
+    // Scanned-only skills should not have agent toggle pills
+    expect(screen.queryByText('Import from Scan')).toBeInTheDocument()
   })
 })

@@ -577,8 +577,8 @@ describe('AgentConfigPanel agent management', () => {
     // Click edit button
     const editButton = screen.getByTitle('Edit')
     fireEvent.click(editButton)
-    // Modal should show Edit Agent title
-    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    // Modal should show Edit: {name} title
+    expect(screen.getByText('Edit: Original Name')).toBeInTheDocument()
     // Args input should show existing args
     const argsInput = screen.getByPlaceholderText('acp, --mode=swarm')
     expect(argsInput).toHaveValue('--arg1, --arg2')
@@ -914,8 +914,8 @@ describe('AgentConfigPanel edit modal pre-population', () => {
     const editButton = screen.getByTitle('Edit')
     fireEvent.click(editButton)
 
-    // Modal should show Edit Agent title
-    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    // Modal should show Edit: {name} title
+    expect(screen.getByText('Edit: Edit Tags Agent')).toBeInTheDocument()
 
     // Form should be pre-populated
     expect(screen.getByPlaceholderText('claude-code')).toHaveValue('edit-tags-agent')
@@ -1062,8 +1062,8 @@ describe('AgentConfigPanel modal interactions', () => {
     const editButton = screen.getByTitle('Edit')
     fireEvent.click(editButton)
 
-    // Modal should show Edit Agent title
-    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    // Modal should show Edit: {name} title
+    expect(screen.getByText('Edit: Edit Modal Agent')).toBeInTheDocument()
 
     // Form should be pre-populated with agent data
     expect(screen.getByPlaceholderText('claude-code')).toHaveValue('edit-modal-agent')
@@ -1091,11 +1091,11 @@ describe('AgentConfigPanel modal interactions', () => {
 
     // Open edit modal
     fireEvent.click(screen.getByTitle('Edit'))
-    expect(screen.getByText('Edit Agent')).toBeInTheDocument()
+    expect(screen.getByText('Edit: Close Edit Agent')).toBeInTheDocument()
 
     // Close modal
     fireEvent.click(screen.getByText('Cancel'))
-    expect(screen.queryByText('Edit Agent')).not.toBeInTheDocument()
+    expect(screen.queryByText('Edit: Close Edit Agent')).not.toBeInTheDocument()
 
     // Open add modal - should be add mode
     fireEvent.click(screen.getByText('Add Agent'))

@@ -183,11 +183,44 @@ func LoadMCPConfig(path string) ([]MCPServerInfo, error) {
 
 	var servers []MCPServerInfo
 
+	// Standard format: {"mcpServers": {"name": {...}}}
 	if mcpServers, ok := raw["mcpServers"].(map[string]any); ok {
 		for name, s := range mcpServers {
 			if serverData, ok := s.(map[string]any); ok {
 				server := parseMCPServerFromMap(name, serverData, "mcp.json")
 				servers = append(servers, server)
+			}
+		}
+	}
+
+	// Nested format (e.g., opencode): {"mcp": {"mcpServers": {"name": {...}}}}
+	if mcp, ok := raw["mcp"].(map[string]any); ok {
+		if mcpServers, ok := mcp["mcpServers"].(map[string]any); ok {
+			for name, s := range mcpServers {
+				if serverData, ok := s.(map[string]any); ok {
+					server := parseMCPServerFromMap(name, serverData, "mcp.json")
+					servers = append(servers, server)
+				}
+			}
+		}
+		// Also handle flat mcp keys: {"mcp": {"name": {...}}}
+		for name, s := range mcp {
+			if name == "mcpServers" {
+				continue
+			}
+			if serverData, ok := s.(map[string]any); ok {
+				// Only treat as server if it has command or url field
+				if _, hasCmd := serverData["command"]; hasCmd {
+					if _, isStr := serverData["command"].(string); isStr {
+						server := parseMCPServerFromMap(name, serverData, "mcp.json")
+						servers = append(servers, server)
+					}
+				} else if _, hasURL := serverData["url"]; hasURL {
+					if _, isStr := serverData["url"].(string); isStr {
+						server := parseMCPServerFromMap(name, serverData, "mcp.json")
+						servers = append(servers, server)
+					}
+				}
 			}
 		}
 	}
@@ -240,12 +273,17 @@ func (d *MCPDiscovery) DiscoverGlobal() ([]MCPServerInfo, error) {
 		return nil, err
 	}
 
-	// Global config paths
+	// Global config paths (dedicated mcp.json files)
 	globalPaths := []string{
 		filepath.Join(home, ".claude", "mcp.json"),
 		filepath.Join(home, ".config", "claude-code", "mcp.json"),
 		filepath.Join(home, ".config", "cursor", "mcp.json"),
 		filepath.Join(home, ".swarm-editor", "mcp.json"),
+		// Agent primary configs with mcpServers key
+		filepath.Join(home, ".claude.json"),
+		filepath.Join(home, ".config", "opencode", "opencode.json"),
+		filepath.Join(home, ".factory", "mcp.json"),
+		filepath.Join(home, ".gemini", "antigravity", "mcp_config.json"),
 	}
 
 	for _, p := range globalPaths {

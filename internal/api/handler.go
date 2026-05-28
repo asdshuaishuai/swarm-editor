@@ -72,6 +72,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleGetConfigPath(ctx, params)
 	case "scan_skills":
 		return h.handleScanSkills(ctx, params)
+	case "get_unified_skills":
+		return h.handleGetUnifiedSkills(ctx, params)
+	case "upsert_skill":
+		return h.handleUpsertSkill(ctx, params)
+	case "delete_skill":
+		return h.handleDeleteSkill(ctx, params)
+	case "toggle_skill_app":
+		return h.handleToggleSkillApp(ctx, params)
+	case "import_skills_from_scanned":
+		return h.handleImportSkillsFromScanned(ctx, params)
 	case "get_agent_config":
 		return h.handleGetAgentConfig(ctx, params)
 	case "update_agent_config":

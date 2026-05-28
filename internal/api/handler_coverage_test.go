@@ -17,7 +17,7 @@ func TestHandleScanSkills_Cov_WithWorkspacePath(t *testing.T) {
 	s := &WebSocketServer{
 		workspacePath: t.TempDir(),
 		swarms:        make(map[string]*swarm.Swarm),
-		scanner:       nil, // no scanner → fallback Scan()
+		scanner:       nil,
 	}
 	h := NewCommandHandler(s)
 
@@ -26,12 +26,13 @@ func TestHandleScanSkills_Cov_WithWorkspacePath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	skills, ok := result.([]map[string]any)
+	// Async: returns {"status": "scanning"}
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []map[string]any, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	if skills == nil {
-		t.Error("expected non-nil slice")
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
 	}
 }
 
@@ -48,11 +49,13 @@ func TestHandleScanSkills_Cov_EmptyWorkspacePath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	skills, ok := result.([]map[string]any)
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []map[string]any, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	_ = skills
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
+	}
 }
 
 func TestHandleScanSkills_Cov_WithParams(t *testing.T) {
@@ -67,8 +70,13 @@ func TestHandleScanSkills_Cov_WithParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	skills := result.([]map[string]any)
-	_ = skills
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", result)
+	}
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
+	}
 }
 
 // ==================== handleRefreshAgents coverage ====================

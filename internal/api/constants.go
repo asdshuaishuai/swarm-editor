@@ -23,6 +23,7 @@ const (
 const (
 	AgentTypeCLI      = "cli"
 	AgentTypeExternal = "external"
+	AgentTypeConfig   = "config"
 )
 
 // Agent state constants — runtime states reported to the UI.

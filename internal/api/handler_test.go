@@ -1050,12 +1050,13 @@ func TestCommandHandler_HandleScanMCPServers_NilScanner(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	servers, ok := result.([]MCPServerInfo)
+	// Async: returns {"status": "scanning"}
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected []MCPServerInfo, got %T", result)
+		t.Fatalf("expected map[string]any, got %T", result)
 	}
-	if len(servers) != 0 {
-		t.Errorf("expected empty list for nil scanner, got %d", len(servers))
+	if m["status"] != "scanning" {
+		t.Fatalf("expected status=scanning, got %v", m["status"])
 	}
 }
 

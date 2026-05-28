@@ -34,6 +34,31 @@ export interface AgentInfo {
 
 export type { AgentConfig } from '../types'
 
+export interface ProviderPreset {
+  name: string
+  category: 'first_party' | 'third_party'
+  description?: string
+  websiteUrl?: string
+  envVars?: Record<string, string>
+  providerType?: string
+  baseUrl?: string
+  models?: string[]
+}
+
+export interface AgentConfigView {
+  agentId: string
+  agentName: string
+  configPath: string
+  providerCategory: 'first_party' | 'third_party'
+  providerPreset: string
+  providerPresets: ProviderPreset[]
+  model?: string
+  smallModel?: string
+  apiKey?: string
+  baseUrl?: string
+  raw?: Record<string, unknown>
+}
+
 export interface SkillInfo {
   id: string
   name: string
@@ -42,6 +67,25 @@ export interface SkillInfo {
   path?: string
   agentId?: string
   tags?: string[]
+}
+
+export interface SkillApps {
+  claude: boolean
+  opencode: boolean
+  qwen: boolean
+  kimi: boolean
+}
+
+export interface UnifiedSkill {
+  id: string
+  name: string
+  description?: string
+  source: string
+  scope?: string
+  path?: string
+  agentId?: string
+  tags?: string[]
+  apps: SkillApps
 }
 
 export interface LogEntry {
@@ -212,6 +256,31 @@ export interface MCPToolInfo {
   inputSchema?: Record<string, unknown>
 }
 
+export interface McpApps {
+  claude: boolean
+  opencode: boolean
+  qwen: boolean
+  kimi: boolean
+}
+
+export interface McpServerSpec {
+  type?: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+}
+
+export interface UnifiedMCPServer {
+  id: string
+  name: string
+  server: McpServerSpec
+  apps: McpApps
+  description?: string
+  tags?: string[]
+}
+
 export interface EmergenceData {
   health: SwarmHealth
   signals: EmergentSignal[]
@@ -341,6 +410,27 @@ export const agentApi = {
     return getClient().invoke<SkillInfo[]>('scan_skills')
   },
 
+  // Unified skill management
+  async getUnifiedSkills(): Promise<{ skills: UnifiedSkill[] }> {
+    return getClient().invoke<{ skills: UnifiedSkill[] }>('get_unified_skills')
+  },
+
+  async upsertSkill(skill: UnifiedSkill): Promise<{ success: boolean }> {
+    return getClient().invoke('upsert_skill', skill)
+  },
+
+  async deleteSkill(id: string): Promise<{ success: boolean }> {
+    return getClient().invoke('delete_skill', { id })
+  },
+
+  async toggleSkillApp(id: string, app: string, enabled: boolean): Promise<{ success: boolean }> {
+    return getClient().invoke('toggle_skill_app', { id, app, enabled })
+  },
+
+  async importSkillsFromScanned(): Promise<{ imported: number }> {
+    return getClient().invoke('import_skills_from_scanned')
+  },
+
   async testAgent(id: string): Promise<{ id: string; status: string }> {
     return getClient().invoke('test_agent', { id })
   },
@@ -371,6 +461,15 @@ export const agentApi = {
 
   async verifyPatch(path: string): Promise<{ path: string; verifyState: string; errors?: VerificationErrorInfo[] }> {
     return getClient().invoke('verify_patch', { path })
+  },
+
+  // Agent config management
+  async getAgentConfig(agentId: string): Promise<AgentConfigView> {
+    return getClient().invoke<AgentConfigView>('get_agent_config', { agentId })
+  },
+
+  async updateAgentConfig(agentId: string, config: Partial<AgentConfigView>): Promise<{ success: boolean }> {
+    return getClient().invoke('update_agent_config', { agentId, config })
   },
 }
 
@@ -608,6 +707,27 @@ export const mcpApi = {
 
   async listTools(serverId: string): Promise<MCPToolInfo[]> {
     return getClient().invoke<MCPToolInfo[]>('list_mcp_tools', { serverId })
+  },
+
+  // Unified MCP management
+  async getUnifiedServers(): Promise<Record<string, UnifiedMCPServer>> {
+    return getClient().invoke<Record<string, UnifiedMCPServer>>('get_unified_mcp_servers')
+  },
+
+  async upsertServer(server: UnifiedMCPServer): Promise<{ success: boolean; id: string }> {
+    return getClient().invoke('upsert_mcp_server', server)
+  },
+
+  async deleteUnifiedServer(id: string): Promise<{ success: boolean }> {
+    return getClient().invoke('delete_mcp_server', { id })
+  },
+
+  async toggleApp(id: string, app: string, enabled: boolean): Promise<{ success: boolean }> {
+    return getClient().invoke('toggle_mcp_app', { id, app, enabled })
+  },
+
+  async importFromApps(): Promise<{ success: boolean; imported: number; total: number }> {
+    return getClient().invoke('import_mcp_from_apps')
   },
 }
 
