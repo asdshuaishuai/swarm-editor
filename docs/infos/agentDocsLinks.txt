@@ -1,0 +1,4 @@
+https://qwenlm.github.io/qwen-code-docs/zh/users/overview/
+https://opencodeai.cn/docs.html#mcp
+https://www.kimi-cli.com/zh/
+https://code.claude.com/docs/zh-CN/overview

@@ -268,38 +268,6 @@ export interface ACPError {
   data?: unknown
 }
 
-export interface InitializeParams {
-  protocolVersion: number
-  clientCapabilities: ClientCapabilities
-  clientInfo: ImplementationInfo
-}
-
-export interface InitializeResult {
-  protocolVersion: number
-  agentCapabilities: AgentCapabilities
-  agentInfo: ImplementationInfo
-  authMethods: AuthMethod[]
-}
-
-export interface ClientCapabilities {
-  fs?: {
-    readTextFile?: boolean
-    writeTextFile?: boolean
-  }
-  terminal?: boolean
-}
-
-export interface ImplementationInfo {
-  name: string
-  title?: string
-  version: string
-}
-
-export interface AuthMethod {
-  type: string
-  name?: string
-}
-
 // Agent Configuration types
 export interface AgentConfig {
   id: string
@@ -386,29 +354,6 @@ export interface ConsensusResult {
   finalResult?: CoordinationTaskResult
 }
 
-export interface CoordinatorMessage {
-  type: 'task_assign' | 'task_cancel' | 'query' | 'broadcast'
-  taskId?: string
-  content?: string
-  metadata?: Record<string, unknown>
-}
-
-export interface CoordinationUpdate {
-  agentId: string
-  taskId?: string
-  type: 'progress' | 'result' | 'error' | 'query'
-  progress?: number
-  content?: string
-  error?: string
-}
-
-export interface CoordinatorStats {
-  workerCount: number
-  pendingTasks: number
-  activeTasks: number
-  completedTasks: number
-  maxConcurrent: number
-}
 // Scheduling Algorithm types
 export interface SchedulingConfig {
   dynamicPriority: boolean

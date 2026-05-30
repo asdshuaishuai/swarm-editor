@@ -347,7 +347,7 @@ describe('monitoringStore', () => {
       expect(useMonitoringStore.getState().a2aMessages).toHaveLength(1)
     })
 
-    it('handles API failure', async () => {
+    it('handles A2A API failure', async () => {
       mockGetStatus.mockRejectedValueOnce(new Error('fail'))
       mockGetMessageLog.mockRejectedValueOnce(new Error('fail'))
       await useMonitoringStore.getState().refreshA2A()

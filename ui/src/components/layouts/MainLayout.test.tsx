@@ -309,6 +309,8 @@ describe('MainLayout', () => {
   it('updates selectedNodeLabel when QueenSandbox onNodeSelect fires', async () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     await act(async () => { fireEvent.click(screen.getByTestId('queen-sandbox')) })
+    // Component should still render after event (no crash)
+    expect(screen.getByTestId('queen-sandbox')).toBeInTheDocument()
   })
 
   // --- Right sidebar ---
@@ -435,7 +437,8 @@ describe('MainLayout', () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     const fileMenu = screen.getByText(/文件 \(File\)/)
     await act(async () => { fireEvent.click(fileMenu) })
-    // Should not crash
+    // Component should still be rendered after error (no crash)
+    expect(fileMenu).toBeInTheDocument()
   })
 
   // --- Git sync button ---
@@ -453,7 +456,9 @@ describe('MainLayout', () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     const syncButton = screen.getByTitle('Git 同步')
     await act(async () => { fireEvent.click(syncButton) })
-    // Toast call happens via addToast
+    expect(gitApi.pull).toHaveBeenCalled()
+    // addToast is called in the catch block — component should not crash
+    expect(syncButton).toBeInTheDocument()
   })
 
   // --- Settings button ---
@@ -461,8 +466,7 @@ describe('MainLayout', () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     const settingsButton = screen.getByTitle('设置')
     await act(async () => { fireEvent.click(settingsButton) })
-    // Verify the button was clicked and hash was set
-    expect(settingsButton).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings')
   })
 
   // --- Daemon status line ---
@@ -550,7 +554,7 @@ describe('MainLayout', () => {
     const { gitApi } = await import('../../services/api')
     vi.mocked(gitApi.getBranch).mockRejectedValueOnce(new Error('Not a git repo'))
     await act(async () => { renderWithRouter(<MainLayout />) })
-    // Should still show main as default
+    expect(screen.getByText(/main/)).toBeInTheDocument()
   })
 
   it('updates branch when git returns different branch', async () => {
@@ -565,6 +569,7 @@ describe('MainLayout', () => {
     const { api } = await import('../../services')
     vi.mocked(api.agent.scanSkills).mockRejectedValueOnce(new Error('Scan failed'))
     await act(async () => { renderWithRouter(<MainLayout />) })
-    // Should not crash; defaults to 0 skills
+    // Component should still render with 0 skills
+    expect(screen.getByText(/MCP 与技能/)).toBeInTheDocument()
   })
 })

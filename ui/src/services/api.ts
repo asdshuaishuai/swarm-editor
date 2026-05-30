@@ -780,31 +780,6 @@ export interface ScheduleRunnerStatus {
   }>
 }
 
-export interface ScheduleConfig {
-  id: string
-  name: string
-  workflowId: string
-  cron: string
-  input?: Record<string, unknown>
-  enabled: boolean
-  overlap: boolean
-  overlapPolicy?: 'skip' | 'allow' | 'queue_one'
-  catchUp: boolean
-  catchUpWindow?: number
-  timezone?: string
-  maxRetries?: number
-  retryDelay?: number
-  state: {
-    lastRun: string
-    nextRun: string
-    lastResult: string
-    lastError?: string
-    runCount: number
-    skipCount: number
-    isRunning: boolean
-    queuedRuns: number
-  }
-}
 export const monitoringApi = {
   async getSupervisorStats(): Promise<SupervisorStats> {
     return getClient().invoke<SupervisorStats>('get_supervisor_stats')
@@ -1354,93 +1329,6 @@ export interface InterruptAction {
   id: string
   label: string
   style?: 'primary' | 'danger' | 'warning' | 'default'
-}
-
-// HTTP Request Node (Dify/n8n pattern)
-export interface HTTPRequestResult {
-  statusCode: number
-  status: string
-  headers: Record<string, string>
-  body: string
-  durationMs: number
-  url: string
-  method: string
-  json?: unknown
-}
-
-// Iterator Node (Dify Iterator pattern)
-export interface IteratorResult {
-  outputs: Record<string, unknown>[]
-  errors: { index: number; item: unknown; error: string }[]
-  totalItems: number
-  failed: number
-  succeeded: number
-  skipped: number
-}
-
-// Condition/IF Node (Dify IF node pattern)
-export interface ConditionResult {
-  result: boolean
-  left: unknown
-  right: unknown
-  operator: string
-}
-
-// Template/Transform Node (Dify Template Transform / n8n Set node pattern)
-export interface TemplateResult {
-  output: Record<string, unknown>
-  variables?: Record<string, string>
-  raw?: string
-}
-
-// Merge Node (n8n Merge Node pattern)
-export interface MergeResult {
-  mode: 'append' | 'combine' | 'choose_branch' | 'wait_all'
-  results: unknown[]
-  merged: unknown
-  count: number
-}
-
-// Switch Node (n8n Switch Node pattern)
-export interface SwitchResult {
-  branch: string
-  matched: boolean
-  rules: number
-  evaluated: number
-}
-
-// Wait/Delay Node (n8n Wait Node pattern)
-export interface WaitResult {
-  waitedMs: number
-  waited: string
-  deadline?: string
-  cancelled?: boolean
-}
-
-// Aggregator Node (Dify Variable Aggregator pattern)
-export interface AggregatorResult {
-  strategy: 'concat' | 'first' | 'last' | 'merge_maps' | 'count' | 'join' | 'sum' | 'avg' | 'min' | 'max'
-  count: number
-  result: unknown
-  items?: unknown[]
-}
-
-// Code Node (Dify/n8n Code Node pattern)
-export interface CodeResult {
-  output: unknown
-  type?: 'null' | 'boolean' | 'number' | 'string' | 'array' | 'object' | 'error'
-  error?: string
-}
-
-// Automation Types (Prefect 3 Automations pattern)
-export interface AutomationTrigger {
-  events: string[]
-  match?: Record<string, string>
-}
-
-export interface AutomationAction {
-  type: string
-  params?: Record<string, unknown>
 }
 
 export interface WorkflowEdge {

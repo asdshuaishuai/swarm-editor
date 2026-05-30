@@ -359,7 +359,7 @@ describe('ActivityLog', () => {
 
   it('HITL_PASSED border style is green', () => {
     defaultStore.activityEntries = [
-      createEntry({ id: '90', activityType: 'HITL_PASSED' }),
+      createEntry({ id: '95', activityType: 'HITL_PASSED' }),
     ]
     render(<ActivityLog />)
     const card = getCard('[HITL_PASSED]')
@@ -368,7 +368,7 @@ describe('ActivityLog', () => {
 
   it('HITL_DENIED border style is rose', () => {
     defaultStore.activityEntries = [
-      createEntry({ id: '91', activityType: 'HITL_DENIED' }),
+      createEntry({ id: '96', activityType: 'HITL_DENIED' }),
     ]
     render(<ActivityLog />)
     const card = getCard('[HITL_DENIED]')

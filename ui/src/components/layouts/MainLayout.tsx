@@ -73,8 +73,8 @@ export default function MainLayout() {
   const [rightTab, setRightTab] = useState<RightTab>('command')
   const [bottomTab, setBottomTab] = useState<BottomTab>('cli')
 
-  const [leftCollapsed] = useState(false)
-  const [rightCollapsed] = useState(false)
+  const leftCollapsed = false  // placeholder for future collapse toggle
+  const rightCollapsed = false
   const [selectedNodeLabel, setSelectedNodeLabel] = useState<string | null>(null)
   const [skillCount, setSkillCount] = useState(0)
   const [currentBranch, setCurrentBranch] = useState('main')

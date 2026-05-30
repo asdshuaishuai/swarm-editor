@@ -4,6 +4,9 @@ import { useAutoScroll } from '../hooks/useAutoScroll'
 
 type ActivityFilter = '全部' | 'MCP' | '工具' | 'Agent' | '协定' | 'Skill' | '系统'
 
+// Filter categories for the activity log.
+// "MCP" = MCP protocol calls only; "工具" = all tool invocations (MCP + exec + tests).
+// "协定" covers the HITL security gate lifecycle (blueprint → gate → pass/deny).
 const FILTER_MAP: Record<ActivityFilter, ActivityType[]> = {
   '全部': [],
   'MCP': ['MCP_CALL', 'TEST_SUCCESS'],
