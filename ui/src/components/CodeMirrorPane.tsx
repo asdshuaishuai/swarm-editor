@@ -7,6 +7,7 @@ import { EditorState, StateEffect } from '@codemirror/state'
 import { EditorView, keymap, highlightWhitespace, highlightTrailingWhitespace } from '@codemirror/view'
 import { createEditorExtensions, languageCompartment, getLanguageExtension, tabSizeCompartment, themeCompartment, wrapCompartment, gutterCompartment, whitespaceCompartment } from '../utils/codemirrorSetup'
 import type { EditorSettingsInput } from '../utils/codemirrorSetup'
+import { lspDidOpen, lspDidChange, lspDidClose } from '../utils/codemirrorLSP'
 
 export interface CodeMirrorPaneRef {
   view: EditorView | null
@@ -119,7 +120,12 @@ export const CodeMirrorPane = forwardRef<CodeMirrorPaneRef, CodeMirrorPaneProps>
 
       viewRef.current = view
 
+      // Notify LSP server that document is open
+      const lang = filename.split('.').pop()?.toLowerCase() || 'text'
+      lspDidOpen(filename, lang, value)
+
       return () => {
+        lspDidClose(filename)
         view.destroy()
         viewRef.current = null
       }
@@ -140,6 +146,7 @@ export const CodeMirrorPane = forwardRef<CodeMirrorPaneRef, CodeMirrorPaneProps>
         changes: { from: 0, to: view.state.doc.length, insert: value },
       })
       isExternalUpdate.current = false
+      lspDidChange(filename, value)
     }, [value])
 
     // Reconfigure language extensions when filename changes

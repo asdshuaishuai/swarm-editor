@@ -2006,21 +2006,31 @@ fn remove_mcp_server(server_id: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Determine the Go backend binary path
-    let binary_path = if cfg!(debug_assertions) {
+    // Determine the Go backend binary paths
+    let (binary_path, ws_server_path) = if cfg!(debug_assertions) {
         // Development: use relative path from project root
-        let manifest_dir = std::env::current_dir()
+        // cwd is ui/src-tauri, so go up two levels to reach project root
+        let project_root = std::env::current_dir()
             .expect("Failed to get current directory")
-            .parent()
+            .parent()  // ui/
             .expect("Failed to get parent directory")
-            .join("bin/swarm-editor");
-        manifest_dir.to_string_lossy().to_string()
+            .parent()  // project root
+            .expect("Failed to get project root")
+            .to_path_buf();
+        (
+            project_root.join("bin/swarm-editor").to_string_lossy().to_string(),
+            project_root.join("bin/ws-server").to_string_lossy().to_string(),
+        )
     } else {
         // Production: use sidecar path
-        "binaries/swarm-editor".to_string()
+        (
+            "binaries/swarm-editor".to_string(),
+            "binaries/ws-server".to_string(),
+        )
     };
 
     log::info!("Go backend binary path: {}", binary_path);
+    log::info!("WebSocket server binary path: {}", ws_server_path);
 
     let swarm_bridge = std::sync::Arc::new(swarm::SwarmBridge::new(&binary_path));
     let swarm_bridge = std::sync::Arc::new(swarm::SwarmBridge::new(&binary_path));
@@ -2036,7 +2046,7 @@ pub fn run() {
         .manage(swarm_bridge)
         .manage(connection_manager)
         .manage(session_manager)
-        .setup(|app| {
+        .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -2055,6 +2065,29 @@ pub fn run() {
                 }
             }
 
+            // Start the WebSocket server (ws-server) as a background process
+            let ws_server_path_clone = ws_server_path.clone();
+            tauri::async_runtime::spawn(async move {
+                log::info!("Starting WebSocket server: {}", ws_server_path_clone);
+                match TokioCommand::new(&ws_server_path_clone)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(mut child) => {
+                        log::info!("WebSocket server started, PID: {:?}", child.id());
+                        // Wait for the process to exit
+                        match child.wait().await {
+                            Ok(status) => log::info!("WebSocket server exited: {}", status),
+                            Err(e) => log::error!("WebSocket server wait error: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to start WebSocket server: {}", e);
+                    }
+                }
+            });
+
             // Get the app handle for event emission
             let app_handle = app.handle().clone();
 
@@ -2062,6 +2095,8 @@ pub fn run() {
             // Note: Actual connection is deferred to frontend calling connect_backend
             // This allows the frontend to be ready before we start receiving events
             tauri::async_runtime::spawn(async move {
+                // Give ws-server a moment to start
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 // Emit initial connecting event
                 let _ = app_handle.emit("backend-connecting", serde_json::json!({
                     "message": "Ready to connect. Frontend should call connect_backend to establish connection."

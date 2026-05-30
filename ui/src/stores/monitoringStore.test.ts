@@ -362,13 +362,15 @@ describe('monitoringStore', () => {
         makeEvent({ id: 'e1', eventType: 'test' }),
       ])
       mockGetAuditStats.mockResolvedValueOnce({ count: 1, enabled: true })
-      mockScanServers.mockResolvedValueOnce([{ name: 's1', status: 'running', command: '' }])
+      mockScanServers.mockResolvedValueOnce({ status: 'scanning' })
+      mockScanSkills.mockResolvedValueOnce({ status: 'scanning' })
       mockGetStatus.mockResolvedValueOnce({ status: 'ok' })
       mockGetMessageLog.mockResolvedValueOnce([])
 
       await useMonitoringStore.getState().initialLoad()
       expect(useMonitoringStore.getState().auditEvents).toHaveLength(1)
-      expect(useMonitoringStore.getState().mcpServers).toHaveLength(1)
+      // MCP servers arrive via mcp_servers_scanned event, not directly from scanServers
+      expect(useMonitoringStore.getState().mcpServers).toHaveLength(0)
       expect(useMonitoringStore.getState().acpPackets).toHaveLength(1)
     })
 

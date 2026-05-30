@@ -350,11 +350,83 @@ func (h *CommandHandler) handleUpsertMCPServer(ctx context.Context, params json.
 		server.Name = server.ID
 	}
 
-	if err := store.Upsert(&server); err != nil {
-		return nil, safeError("failed to upsert MCP server", err)
+	// Save to disk synchronously, then async sync to agents
+	if err := store.UpsertSync(&server); err != nil {
+		return nil, safeError("failed to save MCP server", err)
 	}
 
-	return map[string]any{"success": true, "id": server.ID}, nil
+	go h.backgroundSyncMCPServer(&server)
+
+	return map[string]any{"success": true, "id": server.ID, "status": "processing"}, nil
+}
+
+func (h *CommandHandler) handleUpdateMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return nil, errNotFound("unified MCP store not initialized")
+	}
+
+	var req struct {
+		ID          string            `json:"id"`
+		Name        string            `json:"name,omitempty"`
+		Command     string            `json:"command,omitempty"`
+		Args        []string          `json:"args,omitempty"`
+		Env         map[string]string `json:"env,omitempty"`
+		Type        string            `json:"type,omitempty"`
+		URL         string            `json:"url,omitempty"`
+		Headers     map[string]string `json:"headers,omitempty"`
+		Description string            `json:"description,omitempty"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errValidation("server id is required")
+	}
+
+	existing, ok := store.Get(req.ID)
+	if !ok {
+		return nil, errNotFound(fmt.Sprintf("MCP server %s not found", req.ID))
+	}
+
+	// Copy to avoid mutating the store's pointer outside the lock
+	updated := *existing
+	updated.Server = existing.Server // copy struct
+
+	// Merge fields — only overwrite non-zero values
+	if req.Name != "" {
+		updated.Name = req.Name
+	}
+	if req.Command != "" {
+		updated.Server.Command = req.Command
+	}
+	if req.Args != nil {
+		updated.Server.Args = req.Args
+	}
+	if req.Env != nil {
+		updated.Server.Env = req.Env
+	}
+	if req.Type != "" {
+		updated.Server.Type = req.Type
+	}
+	if req.URL != "" {
+		updated.Server.URL = req.URL
+	}
+	if req.Headers != nil {
+		updated.Server.Headers = req.Headers
+	}
+	if req.Description != "" {
+		updated.Description = req.Description
+	}
+
+	if err := store.UpsertSync(&updated); err != nil {
+		return nil, safeError("failed to update MCP server", err)
+	}
+
+	go h.backgroundSyncMCPServer(&updated)
+
+	return map[string]any{"success": true, "id": updated.ID, "status": "processing"}, nil
 }
 
 func (h *CommandHandler) handleDeleteMCPServer(ctx context.Context, params json.RawMessage) (any, error) {
@@ -374,11 +446,14 @@ func (h *CommandHandler) handleDeleteMCPServer(ctx context.Context, params json.
 		return nil, errValidation("server id is required")
 	}
 
-	if err := store.Delete(req.ID); err != nil {
+	server, err := store.DeleteSync(req.ID)
+	if err != nil {
 		return nil, safeError("failed to delete MCP server", err)
 	}
 
-	return map[string]any{"success": true}, nil
+	go h.backgroundRemoveMCPServer(server)
+
+	return map[string]any{"success": true, "status": "processing"}, nil
 }
 
 func (h *CommandHandler) handleToggleMCPApp(ctx context.Context, params json.RawMessage) (any, error) {
@@ -403,11 +478,106 @@ func (h *CommandHandler) handleToggleMCPApp(ctx context.Context, params json.Raw
 		return nil, errValidation("app is required")
 	}
 
-	if err := store.ToggleApp(req.ID, req.App, req.Enabled); err != nil {
+	// Save toggle to disk synchronously
+	if err := store.ToggleAppSync(req.ID, req.App, req.Enabled); err != nil {
 		return nil, safeError("failed to toggle MCP app", err)
 	}
 
-	return map[string]any{"success": true}, nil
+	go h.backgroundToggleMCPApp(req.ID, req.App, req.Enabled)
+
+	return map[string]any{"success": true, "status": "processing"}, nil
+}
+
+// --- Background sync functions with goroutine concurrency ---
+
+func (h *CommandHandler) backgroundSyncMCPServer(server *mcp.UnifiedMCPServer) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return
+	}
+
+	results := store.SyncToEnabledAgents(server)
+
+	var errs []string
+	for _, r := range results {
+		if r.Error != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.App, r.Error))
+		}
+	}
+
+	if h.server.hub != nil {
+		h.server.hub.Broadcast("mcp_config_synced", map[string]any{
+			"serverId": server.ID,
+			"action":   "upsert",
+			"results":  results,
+			"errors":   errs,
+			"success":  len(errs) == 0,
+		})
+	}
+}
+
+func (h *CommandHandler) backgroundRemoveMCPServer(server *mcp.UnifiedMCPServer) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return
+	}
+
+	apps := server.Apps.EnabledApps()
+	results := store.RemoveFromAllAgents(server.Name, apps)
+
+	var errs []string
+	for _, r := range results {
+		if r.Error != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.App, r.Error))
+		}
+	}
+
+	if h.server.hub != nil {
+		h.server.hub.Broadcast("mcp_config_synced", map[string]any{
+			"serverId": server.ID,
+			"action":   "delete",
+			"results":  results,
+			"errors":   errs,
+			"success":  len(errs) == 0,
+		})
+	}
+}
+
+func (h *CommandHandler) backgroundToggleMCPApp(serverID string, app string, enabled bool) {
+	store := h.unifiedMCPStore()
+	if store == nil {
+		return
+	}
+
+	server, ok := store.Get(serverID)
+	if !ok {
+		return
+	}
+
+	var err error
+	if enabled {
+		err = mcp.SyncToAgent(server, app)
+	} else {
+		err = mcp.RemoveFromAgent(server.Name, app)
+	}
+
+	result := mcp.NewSyncResult(app, err)
+
+	if h.server.hub != nil {
+		errs := make([]string, 0)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", app, err))
+		}
+		h.server.hub.Broadcast("mcp_config_synced", map[string]any{
+			"serverId": serverID,
+			"action":   "toggle",
+			"app":      app,
+			"enabled":  enabled,
+			"results":  []mcp.SyncResult{result},
+			"errors":   errs,
+			"success":  err == nil,
+		})
+	}
 }
 
 func (h *CommandHandler) handleImportMCPFromApps(ctx context.Context, params json.RawMessage) (any, error) {

@@ -13,6 +13,7 @@ import {
 import type { MCPToolInfo, MCPServerInfo, UnifiedMCPServer } from '../services/api'
 import { useSettings, MCPServerSetting } from '../hooks/useSettings'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import MCPConfigModal from '../components/MCPConfigModal'
 import { useAppStore } from '../store/appStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
 import { api } from '../services'
@@ -35,6 +36,7 @@ export default function MCPPanel() {
   const [loading, setLoading] = useState(false)
   const [unifiedServers, setUnifiedServers] = useState<Record<string, UnifiedMCPServer>>({})
   const [importing, setImporting] = useState(false)
+  const [configServer, setConfigServer] = useState<UnifiedMCPServer | null>(null)
 
   // 从 monitoringStore 获取扫描结果
   const scannedServers = useMonitoringStore(state => state.mcpServers)
@@ -55,6 +57,14 @@ export default function MCPPanel() {
     }
   }, [])
   useEffect(() => { fetchUnified() }, [fetchUnified])
+
+  // Listen for async sync completion to refresh unified servers
+  useEffect(() => {
+    const unsub = api.events.onMCPConfigSynced(() => {
+      fetchUnified()
+    })
+    return unsub
+  }, [fetchUnified])
 
   // Import MCP servers from agent configs
   const handleImport = async () => {
@@ -191,8 +201,8 @@ export default function MCPPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header — 匹配设计稿: 作用中 MCP 伺服器 */}
-      <div className="p-3" style={{ background: 'rgba(13,17,23,0.5)', borderBottom: '1px solid #30363d' }}>
+      {/* MCP Header — fixed at top */}
+      <div className="p-3 shrink-0" style={{ background: 'rgba(13,17,23,0.5)', borderBottom: '1px solid #30363d' }}>
         <div className="flex items-center justify-between mb-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: '#9ca3af' }}>
           <span className="flex items-center gap-1.5" style={{ color: '#c084fc' }}>
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -236,71 +246,73 @@ export default function MCPPanel() {
         </div>
       </div>
 
-      {/* MCP enabled count indicator */}
-      <div className="px-3 py-1.5 text-[10px] font-mono flex items-center justify-between" style={{ color: '#6b7280', borderBottom: '1px solid #30363d' }}>
-        <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 伺服器 | 已发现: <strong style={{ color: '#9ca3af' }}>{scannedServers.length}</strong> 伺服器</span>
-        <button
-          role="switch"
-          aria-checked={settings.mcpEnabled}
-          onClick={() => {
-            const newState = !settings.mcpEnabled
-            updateSetting('mcpEnabled', newState)
-            addToast('info', 'MCP 设置', `MCP 已${newState ? '启用' : '禁用'}`)
-          }}
-          className="flex items-center gap-1 hover:text-white transition-colors"
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${settings.mcpEnabled ? 'bg-emerald-500' : 'bg-gray-600'}`} />
-          {settings.mcpEnabled ? '已启用' : '已禁用'}
-        </button>
-      </div>
-
-      {/* Server List - 显示扫描发现的服务器 */}
+      {/* Scrollable content — MCP + Skills in one container */}
       <div className="flex-1 overflow-y-auto">
-        {scannedServers.length === 0 && settings.mcpServers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64" style={{ color: '#6b7280' }}>
-            <div className="p-4 rounded-xl mb-4" style={{ background: 'rgba(33,38,45,0.5)' }}>
-              <Server size={48} className="opacity-50" />
-            </div>
-            <p className="text-base font-medium mb-1" style={{ color: '#9ca3af' }}>无 MCP 伺服器配置</p>
-            <p className="text-sm">注册 MCP 伺服器以扩展 Agent 能力</p>
-          </div>
-        ) : (
-          <div className="space-y-2.5 p-3">
-            {/* 统一管理的 MCP 服务器（per-agent toggle） */}
-            {Object.values(unifiedServers).length > 0 && (
-              <>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#6b7280' }}>
-                  统一管理 ({Object.values(unifiedServers).length})
-                </div>
-                {Object.values(unifiedServers).map((server) => (
-                  <UnifiedServerCard
-                    key={server.id}
-                    server={server}
-                    onToggleApp={(app, enabled) => handleToggleApp(server.id, app, enabled)}
-                  />
-                ))}
-              </>
-            )}
-            {/* 扫描发现的服务器 */}
-            {scannedServers.map((server) => (
-              <ScannedServerCard key={server.id} server={server} />
-            ))}
-            {/* 手动配置的服务器 */}
-            {settings.mcpServers.map((server) => (
-              <MCPServerCard
-                key={server.id}
-                server={server}
-                onEdit={() => setEditingServer(server)}
-                onDelete={() => setDeleteTarget(server)}
-                onToggle={() => handleToggleServer(server)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+        {/* MCP enabled count indicator */}
+        <div className="px-3 py-1.5 text-[10px] font-mono flex items-center justify-between" style={{ color: '#6b7280', borderBottom: '1px solid #30363d' }}>
+          <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 伺服器 | 已发现: <strong style={{ color: '#9ca3af' }}>{scannedServers.length}</strong> 伺服器</span>
+          <button
+            role="switch"
+            aria-checked={settings.mcpEnabled}
+            onClick={() => {
+              const newState = !settings.mcpEnabled
+              updateSetting('mcpEnabled', newState)
+              addToast('info', 'MCP 设置', `MCP 已${newState ? '启用' : '禁用'}`)
+            }}
+            className="flex items-center gap-1 hover:text-white transition-colors"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${settings.mcpEnabled ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+            {settings.mcpEnabled ? '已启用' : '已禁用'}
+          </button>
+        </div>
 
-      {/* Skills Section — real scanned skills from backend */}
-      <div style={{ borderTop: '1px solid #30363d' }}>
+        {/* Server List */}
+        <div className="p-3" style={{ borderBottom: '1px solid #30363d' }}>
+          {scannedServers.length === 0 && settings.mcpServers.length === 0 && Object.keys(unifiedServers).length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12" style={{ color: '#6b7280' }}>
+              <div className="p-4 rounded-xl mb-4" style={{ background: 'rgba(33,38,45,0.5)' }}>
+                <Server size={48} className="opacity-50" />
+              </div>
+              <p className="text-base font-medium mb-1" style={{ color: '#9ca3af' }}>无 MCP 伺服器配置</p>
+              <p className="text-sm">注册 MCP 伺服器以扩展 Agent 能力</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {/* 统一管理的 MCP 服务器（per-agent toggle） */}
+              {Object.values(unifiedServers).length > 0 && (
+                <>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#6b7280' }}>
+                    统一管理 ({Object.values(unifiedServers).length})
+                  </div>
+                  {Object.values(unifiedServers).map((server) => (
+                    <UnifiedServerCard
+                      key={server.id}
+                      server={server}
+                      onToggleApp={(app, enabled) => handleToggleApp(server.id, app, enabled)}
+                      onEdit={() => setConfigServer(server)}
+                    />
+                  ))}
+                </>
+              )}
+              {/* 扫描发现的服务器 */}
+              {scannedServers.map((server) => (
+                <ScannedServerCard key={server.id} server={server} />
+              ))}
+              {/* 手动配置的服务器 */}
+              {settings.mcpServers.map((server) => (
+                <MCPServerCard
+                  key={server.id}
+                  server={server}
+                  onEdit={() => setEditingServer(server)}
+                  onDelete={() => setDeleteTarget(server)}
+                  onToggle={() => handleToggleServer(server)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Skills Section — below MCP */}
         <div className="p-3">
           <div className="flex items-center justify-between mb-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: '#9ca3af' }}>
             <span className="flex items-center gap-1.5" style={{ color: '#22d3ee' }}>
@@ -311,7 +323,7 @@ export default function MCPPanel() {
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono font-normal" style={{ color: '#6b7280' }}>
-                已发现: {skills.length}
+                已发现: {skills.filter(s => s.source !== 'mcp' && !(s.tags && s.tags.includes('mcp'))).length}
               </span>
               <button
                 onClick={refreshSkills}
@@ -324,18 +336,20 @@ export default function MCPPanel() {
             </div>
           </div>
           <div className="space-y-2">
-            {skills.length === 0 ? (
+            {/* Filter out MCP-sourced skills and skills with mcp tags */}
+            {skills.filter(s => s.source !== 'mcp' && !(s.tags && s.tags.includes('mcp'))).length === 0 ? (
               <div className="text-center py-4 text-[10px]" style={{ color: '#6b7280' }}>
-                未发现技能。安装 skills 到 ~/.claude/skills/ 或配置 MCP 服务器。
+                未发现技能。安装 skills 到 ~/.claude/skills/。
               </div>
             ) : (
-              skills.map((skill) => {
+              skills.filter(s => s.source !== 'mcp' && !(s.tags && s.tags.includes('mcp'))).map((skill) => {
                 const sourceMeta: Record<string, { color: string; label: string }> = {
                   filesystem: { color: '#58a6ff', label: 'FS' },
-                  mcp: { color: '#3fb950', label: 'MCP' },
                   agent: { color: '#c084fc', label: 'AGENT' },
                 }
                 const meta = sourceMeta[skill.source] || { color: '#6b7280', label: skill.source.toUpperCase() }
+                // Filter out mcp from tags
+                const filteredTags = skill.tags?.filter(tag => tag !== 'mcp') || []
                 return (
                   <div
                     key={skill.id}
@@ -353,9 +367,9 @@ export default function MCPPanel() {
                         </div>
                       </div>
                     </div>
-                    {skill.tags && skill.tags.length > 0 && (
+                    {filteredTags.length > 0 && (
                       <div className="flex gap-0.5 shrink-0">
-                        {skill.tags.slice(0, 2).map(tag => (
+                        {filteredTags.slice(0, 2).map(tag => (
                           <span key={tag} className="text-[8px] font-mono px-1 rounded" style={{ background: '#21262d', color: '#6b7280' }}>{tag}</span>
                         ))}
                       </div>
@@ -590,6 +604,25 @@ export default function MCPPanel() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
+
+      {configServer && (
+        <MCPConfigModal
+          server={configServer}
+          onClose={() => setConfigServer(null)}
+          onSaved={(updated) => {
+            setUnifiedServers(prev => ({ ...prev, [updated.id]: updated }))
+            setConfigServer(null)
+          }}
+          onDeleted={(id) => {
+            setUnifiedServers(prev => {
+              const next = { ...prev }
+              delete next[id]
+              return next
+            })
+            setConfigServer(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -643,9 +676,10 @@ function ScannedServerCard({ server }: { server: MCPServerInfo }) {
 }
 
 // 统一管理的 MCP 服务器卡片（per-agent toggle）
-function UnifiedServerCard({ server, onToggleApp }: {
+function UnifiedServerCard({ server, onToggleApp, onEdit }: {
   server: UnifiedMCPServer
   onToggleApp: (app: string, enabled: boolean) => void
+  onEdit: () => void
 }) {
   const apps = [
     { key: 'claude', label: 'Claude', color: '#fb923c' },
@@ -655,7 +689,7 @@ function UnifiedServerCard({ server, onToggleApp }: {
   ]
 
   return (
-    <div className="p-2.5 rounded-lg space-y-2" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
+    <div className="p-2.5 rounded-lg space-y-2 cursor-pointer transition hover:bg-[#21262d]" style={{ background: '#1a1f26', border: '1px solid #30363d' }} onClick={onEdit}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-blue-500" />
@@ -686,7 +720,7 @@ function UnifiedServerCard({ server, onToggleApp }: {
           return (
             <button
               key={key}
-              onClick={() => onToggleApp(key, !enabled)}
+              onClick={e => { e.stopPropagation(); onToggleApp(key, !enabled) }}
               className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
               style={{
                 background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',

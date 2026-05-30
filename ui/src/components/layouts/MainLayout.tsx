@@ -22,7 +22,7 @@ import SymbolOutline from '../SymbolOutline'
 const ExplorerPanel = lazy(() => import('../../panels/ExplorerPanel'))
 
 // Standalone wrapper for ExplorerPanel that provides real workspace data
-function StandaloneExplorer() {
+function StandaloneExplorer({ gitStatusMap: parentGitStatusMap }: { gitStatusMap: Record<string, import('../../services').GitFileStatus> }) {
   const addToast = useAppStore(state => state.addToast)
   const workspace = useWorkspaceStore(state => state.workspacePath)
   const currentFile = useWorkspaceStore(state => state.currentFile)
@@ -37,7 +37,7 @@ function StandaloneExplorer() {
     <ExplorerPanel
       workspace={workspace || ''}
       currentFile={currentFile}
-      gitStatusMap={{}}
+      gitStatusMap={parentGitStatusMap}
       openFiles={openFiles || []}
       dirtyFiles={dirtyFiles || new Set()}
       onOpenFile={(path, opts) => openFile(path, opts)}
@@ -53,9 +53,6 @@ const EditorPanel = lazy(() => import('../../panels/EditorPanel'))
 const TerminalPanel = lazy(() => import('../../panels/TerminalPanel'))
 const ProblemsPanel = lazy(() => import('../../panels/ProblemsPanel'))
 const SupervisorPanel = lazy(() => import('../../panels/SupervisorPanel'))
-const WorkflowPanel = lazy(() => import('../../panels/WorkflowPanel'))
-const SwarmPanel = lazy(() => import('../../panels/SwarmPanel'))
-const WorktreePanel = lazy(() => import('../../panels/WorktreePanel'))
 
 function PanelLoader() {
   return (
@@ -67,13 +64,13 @@ function PanelLoader() {
 
 type LeftTab = 'files' | 'mcp' | 'capabilities'
 type CenterTab = 'sandbox' | 'editor'
-type RightTab = 'protocol' | 'activity'
-type BottomTab = 'cli' | 'terminal' | 'problems' | 'daemon' | 'supervisor' | 'workflow' | 'swarm' | 'worktree'
+type RightTab = 'command' | 'activity'
+type BottomTab = 'cli' | 'terminal' | 'problems' | 'daemon' | 'supervisor'
 
 export default function MainLayout() {
   const [leftTab, setLeftTab] = useState<LeftTab>('files')
   const [centerTab, setCenterTab] = useState<CenterTab>('sandbox')
-  const [rightTab, setRightTab] = useState<RightTab>('protocol')
+  const [rightTab, setRightTab] = useState<RightTab>('command')
   const [bottomTab, setBottomTab] = useState<BottomTab>('cli')
 
   const [leftCollapsed] = useState(false)
@@ -81,6 +78,7 @@ export default function MainLayout() {
   const [selectedNodeLabel, setSelectedNodeLabel] = useState<string | null>(null)
   const [skillCount, setSkillCount] = useState(0)
   const [currentBranch, setCurrentBranch] = useState('main')
+  const [gitStatusMap, setGitStatusMap] = useState<Record<string, import('../../services').GitFileStatus>>({})
   const zenMode = useAppStore(state => state.zenMode)
   const addToast = useAppStore(state => state.addToast)
   const agents = useAppStore(state => state.agents)
@@ -90,9 +88,17 @@ export default function MainLayout() {
     api.agent.scanSkills().then(skills => setSkillCount(skills.length)).catch(() => logger.debug('MainLayout', 'Failed to scan skills'))
   }, [])
 
+  // Refresh git status when workspace changes
+  const workspace = useWorkspaceStore(state => state.workspacePath)
   useEffect(() => {
+    if (!workspace) return
     gitApi.getBranch().then(b => setCurrentBranch(b || 'main')).catch(() => logger.debug('MainLayout', 'Failed to get git branch'))
-  }, [])
+    gitApi.getStatus().then(status => {
+      const map: Record<string, import('../../services').GitFileStatus> = {}
+      for (const f of status) { map[f.path] = f }
+      setGitStatusMap(map)
+    }).catch(() => logger.debug('MainLayout', 'Failed to get git status'))
+  }, [workspace])
 
   // Listen for sandbox:node-selected custom events from QueenSandbox and CLIProcessWorkshop
   useEffect(() => {
@@ -246,7 +252,7 @@ export default function MainLayout() {
                 {leftTab === 'files' && (
                   <>
                     <div className="flex-1 overflow-hidden min-h-0">
-                      <StandaloneExplorer />
+                      <StandaloneExplorer gitStatusMap={gitStatusMap} />
                     </div>
                     <div
                       className="shrink-0 overflow-hidden"
@@ -328,23 +334,22 @@ export default function MainLayout() {
           >
             {/* Right Tab Header */}
             <div className="flex bg-[#0f141a] shrink-0" style={{ borderBottom: '1px solid #30363d' }}>
-              <button className={rightTabBtn(rightTab === 'protocol')} onClick={() => setRightTab('protocol')}>
-                <svg className="w-3.5 h-3.5 animate-pulse" style={{ color: '#f59e0b' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6a2 2 0 100-4 2 2 0 000 4zM6 20a2 2 0 100-4 2 2 0 000 4zM18 20a2 2 0 100-4 2 2 0 000 4M12 8v2M7.5 16L10.5 10M16.5 16L13.5 10" />
+              <button className={rightTabBtn(rightTab === 'command')} onClick={() => setRightTab('command')}>
+                <svg className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                📡 协定封包
+                指令交互
               </button>
               <button className={rightTabBtn(rightTab === 'activity')} onClick={() => setRightTab('activity')}>
                 <svg className="w-3.5 h-3.5" style={{ color: '#22d3ee' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.5 6h11M8.5 12h11M8.5 18h11M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
-                📝 活动日志
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                活动日志
               </button>
             </div>
             {/* Right Tab Content */}
             <div className="flex-1 overflow-hidden">
-              {rightTab === 'protocol' ? <ProtocolMonitor contextLabel={selectedNodeLabel} /> : <ActivityLog />}
+              {rightTab === 'command' ? <ProtocolMonitor contextLabel={selectedNodeLabel} mode="command" /> : <ActivityLog />}
             </div>
             {/* Queen Dispatcher - 固定底部 */}
             <QueenDispatcher />
@@ -426,42 +431,6 @@ export default function MainLayout() {
                 </svg>
                 🛡️ 监督面板 (Supervisor)
               </button>
-              <button
-                className={`px-4 py-2 text-xs font-semibold flex items-center ${bottomTab === 'workflow' ? 'gap-2' : 'gap-1.5'} transition ${
-                  bottomTab === 'workflow' ? 'text-white border-t-2 border-t-[#58a6ff] bg-[#0d1117]' : 'text-gray-400 hover:text-white border-t-2 border-t-transparent'
-                }`}
-                style={{ borderRight: '1px solid #30363d' }}
-                onClick={() => setBottomTab('workflow')}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                </svg>
-                🔧 工作流 (Workflow)
-              </button>
-              <button
-                className={`px-4 py-2 text-xs font-semibold flex items-center ${bottomTab === 'swarm' ? 'gap-2' : 'gap-1.5'} transition ${
-                  bottomTab === 'swarm' ? 'text-white border-t-2 border-t-[#58a6ff] bg-[#0d1117]' : 'text-gray-400 hover:text-white border-t-2 border-t-transparent'
-                }`}
-                style={{ borderRight: '1px solid #30363d' }}
-                onClick={() => setBottomTab('swarm')}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                🐝 蜂群 (Swarm)
-              </button>
-              <button
-                className={`px-4 py-2 text-xs font-semibold flex items-center ${bottomTab === 'worktree' ? 'gap-2' : 'gap-1.5'} transition ${
-                  bottomTab === 'worktree' ? 'text-white border-t-2 border-t-[#58a6ff] bg-[#0d1117]' : 'text-gray-400 hover:text-white border-t-2 border-t-transparent'
-                }`}
-                style={{ borderRight: '1px solid #30363d' }}
-                onClick={() => setBottomTab('worktree')}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
-                🌳 工作树 (Worktree)
-              </button>
             </div>
             {/* Protocol label */}
             <div className="px-3 text-gray-500 text-[10px] font-mono">
@@ -487,21 +456,6 @@ export default function MainLayout() {
                   <SupervisorPanel />
                 </Suspense>
               )}
-              {bottomTab === 'workflow' && (
-                <Suspense fallback={<PanelLoader />}>
-                  <WorkflowPanel />
-                </Suspense>
-              )}
-              {bottomTab === 'swarm' && (
-                <Suspense fallback={<PanelLoader />}>
-                  <SwarmPanel />
-                </Suspense>
-              )}
-              {bottomTab === 'worktree' && (
-                <Suspense fallback={<PanelLoader />}>
-                  <WorktreePanel />
-                </Suspense>
-              )}
             </div>
         </div>
       )}
@@ -518,10 +472,9 @@ export default function MainLayout() {
               daemon 守护进程已就绪
             </span>
             <span>|</span>
-            <span>蜂王 MCP Schema: <strong style={{ color: '#9ca3af' }}>{skillCount || 14} 实体能力运作中</strong></span>
+            <span>蜂王 MCP Schema: <strong style={{ color: '#9ca3af' }}>{skillCount} 实体能力运作中</strong></span>
           </div>
           <div className="flex items-center gap-4">
-            <span>CPU: 4.2%</span>
             <span>UTF-8</span>
             <span>作用中 Worktree 分支: {currentBranch}</span>
           </div>

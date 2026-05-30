@@ -8,11 +8,17 @@ import { useAutoScroll } from '../hooks/useAutoScroll'
 
 type FilterTab = 'all' | 'ACP' | 'A2A' | 'MCP'
 
-const FILTER_TABS: { key: FilterTab; label: string }[] = [
+const FILTER_TABS_FULL: { key: FilterTab; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'ACP', label: 'ACP' },
   { key: 'A2A', label: 'A2A' },
   { key: 'MCP', label: 'MCP' },
+]
+
+const FILTER_TABS_COMMAND: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'ACP', label: 'ACP' },
+  { key: 'A2A', label: 'A2A' },
 ]
 
 const TAB_MATCH: Record<FilterTab, null | Set<PacketType>> = {
@@ -265,8 +271,25 @@ function DeepPacketDetails({ p }: { p: ProtocolPacket }) {
   return null
 }
 
-function PacketBody({ p }: { p: ProtocolPacket }) {
-  // Special MCP header style (existing behavior)
+function PacketBody({ p, mode }: { p: ProtocolPacket; mode?: 'command' | 'full' }) {
+  // In command mode, MCP packets show as simple invocation records only
+  if (p.type === 'MCP_TOOL_INVOKED' && mode === 'command') {
+    const parsed = parseMCPTool(p.details)
+    return (
+      <div className="px-2.5 py-1.5 flex items-center gap-1.5 text-[10px] font-mono">
+        <PacketIcon type={p.type} color={p.color} />
+        <span style={{ color: '#c084fc' }}>{parsed?.toolName || 'tool'}</span>
+        {parsed?.serverId && <span style={{ color: '#6b7280' }}>@{parsed.serverId}</span>}
+        {parsed?.resultStatus && (
+          <span style={{ color: parsed.resultStatus === 'OK' ? '#3fb950' : parsed.resultStatus === 'FAIL' ? '#fb7185' : '#9ca3af' }}>
+            [{parsed.resultStatus}]
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // Special MCP header style (full mode)
   if (p.type === 'MCP_TOOL_INVOKED') {
     return (
       <div className="p-2.5 space-y-1">
@@ -423,9 +446,11 @@ function TimelineView({ packets }: { packets: ProtocolPacket[] }) {
 
 interface ProtocolMonitorProps {
   contextLabel?: string | null
+  /** 'command' = 指令交互 (agent行为+人类指令, MCP只显示调用记录); 'full' = 完整视图 */
+  mode?: 'command' | 'full'
 }
 
-export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) {
+export default function ProtocolMonitor({ contextLabel, mode = 'full' }: ProtocolMonitorProps) {
   const acpPackets = useMonitoringStore((s) => s.acpPackets)
   const auditEnabled = useMonitoringStore((s) => s.auditEnabled)
   const toggleAudit = useMonitoringStore((s) => s.toggleAudit)
@@ -433,6 +458,8 @@ export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) 
   const [filter, setFilter] = useState<FilterTab>('all')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [searchText, setSearchText] = useState('')
+
+  const filterTabs = mode === 'command' ? FILTER_TABS_COMMAND : FILTER_TABS_FULL
 
   // Filter by context label (agent name) when provided
   const contextFiltered = useMemo(() => {
@@ -497,7 +524,13 @@ export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-3 py-1 text-[10px] font-mono shrink-0 text-center tracking-wider uppercase border-y border-dashed" style={{ color: '#6b7280', borderColor: '#1f2937' }}>
-        {contextLabel ? (
+        {mode === 'command' ? (
+          contextLabel ? (
+            <span>[ 指令交互: {contextLabel} ]</span>
+          ) : (
+            <span>[ 指令交互 — Agent 行为 & 人类指令 ]</span>
+          )
+        ) : contextLabel ? (
           <span>[ Protocol Monitor: {contextLabel} ]</span>
         ) : (
           <span>[ ACP & A2A Protocol Packet Monitor ]</span>
@@ -520,7 +553,7 @@ export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) 
         <span style={{ color: '#6b7280' }}>{counts.total} pkts</span>
         <StatDot color="#fbbf24" count={counts.acp} label="ACP" />
         <StatDot color="#22d3ee" count={counts.a2a} label="A2A" />
-        <StatDot color="#c084fc" count={counts.mcp} label="MCP" />
+        {mode !== 'command' && <StatDot color="#c084fc" count={counts.mcp} label="MCP" />}
       </div>
 
       {/* Search bar */}
@@ -541,7 +574,7 @@ export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) 
 
       {/* Sub-filter tabs + view toggle */}
       <div className="px-3 py-1 flex items-center gap-1 shrink-0 border-b" style={{ borderColor: '#1f2937' }}>
-        {FILTER_TABS.map((tab) => (
+        {filterTabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setFilter(tab.key)}
@@ -599,7 +632,7 @@ export default function ProtocolMonitor({ contextLabel }: ProtocolMonitorProps) 
                 className="rounded text-[10px] font-mono leading-normal"
                 style={{ background: packet.bgTint, border: `1px solid ${packet.borderColor}` }}
               >
-                <PacketBody p={packet} />
+                <PacketBody p={packet} mode={mode} />
               </div>
             </div>
           ))}

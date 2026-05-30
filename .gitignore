@@ -65,8 +65,20 @@ badger/
 *.bak
 *.old
 *.orig
-# Test binaries
+
+# Test binaries and coverage outputs
 *.test
 *.out
-api_cover.out
-swarm_cover.out
+
+# Root-level npm (only ui/ has a real package.json)
+/package.json
+/package-lock.json
+/node_modules/
+
+# Stale UI coverage dirs (only ui/coverage/ is kept)
+ui/coverage[0-9]*/
+
+# Misc build artifacts at root
+ws-server
+swarm-editor
+test_compile

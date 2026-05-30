@@ -30,9 +30,17 @@ vi.mock('../services', () => ({
       scanServers: (...args: unknown[]) => mockScanServers(...args),
       startServer: (...args: unknown[]) => mockStartServer(...args),
       stopServer: (...args: unknown[]) => mockStopServer(...args),
+      getUnifiedServers: vi.fn().mockResolvedValue({}),
+      upsertServer: vi.fn().mockResolvedValue({ success: true, id: 'test', status: 'processing' }),
+      deleteUnifiedServer: vi.fn().mockResolvedValue({ success: true, status: 'processing' }),
+      toggleApp: vi.fn().mockResolvedValue({ success: true, status: 'processing' }),
+      importFromApps: vi.fn().mockResolvedValue({ success: true, imported: 0, total: 0 }),
     },
     agent: {
       scanSkills: (...args: unknown[]) => mockScanSkills(...args),
+    },
+    events: {
+      onMCPConfigSynced: vi.fn().mockReturnValue(() => {}),
     },
   },
 }))
@@ -137,6 +145,7 @@ describe('MCPPanel', () => {
       { id: 's1', name: 'Go Vet', description: 'Go static analysis', source: 'filesystem', path: '~/.claude/skills/go-vet', tags: ['go', 'lint'] },
       { id: 's2', name: 'Filesystem Tools', description: 'Read/write files', source: 'mcp', tags: ['files'] },
       { id: 's3', name: 'Claude Code Skills', description: 'Code generation', source: 'agent', agentId: 'claude-code', tags: ['coding'] },
+      { id: 's4', name: 'AST Analyzer', description: 'Semantic analysis', source: 'filesystem', path: '~/.claude/skills/ast', tags: ['ast'] },
     ])
   })
 
@@ -1177,51 +1186,6 @@ describe('MCPPanel', () => {
     })
   })
 
-  // ---------------------------------------------------------------
-  // Skills section (real scanned data)
-  // ---------------------------------------------------------------
-  describe('skills section', () => {
-    it('renders scanned skills from backend', async () => {
-      renderWithDefaults()
-      await waitFor(() => {
-        expect(screen.getByText('Go Vet')).toBeInTheDocument()
-        expect(screen.getByText('Filesystem Tools')).toBeInTheDocument()
-        expect(screen.getByText('Claude Code Skills')).toBeInTheDocument()
-      })
-    })
-
-    it('renders discovered count', async () => {
-      renderWithDefaults()
-      await waitFor(() => {
-        expect(screen.getByText('已发现: 3')).toBeInTheDocument()
-      })
-    })
-
-    it('renders skill source badges', async () => {
-      renderWithDefaults()
-      await waitFor(() => {
-        expect(screen.getByText('FS')).toBeInTheDocument()
-        expect(screen.getByText('MCP')).toBeInTheDocument()
-        expect(screen.getByText('AGENT')).toBeInTheDocument()
-      })
-    })
-
-    it('renders skill descriptions', async () => {
-      renderWithDefaults()
-      await waitFor(() => {
-        expect(screen.getByText('Go static analysis')).toBeInTheDocument()
-        expect(screen.getByText('Read/write files')).toBeInTheDocument()
-      })
-    })
-
-    it('renders empty state when no skills found', async () => {
-      mockScanSkills.mockResolvedValue([])
-      renderWithDefaults()
-      await waitFor(() => {
-        expect(screen.getByText(/未发现技能/)).toBeInTheDocument()
-      })
-    })
-  })
 
   // ---------------------------------------------------------------
   // Server status variants
@@ -1363,6 +1327,61 @@ describe('MCPPanel', () => {
           env: {},
         })
       )
+    })
+  })
+
+  // ---------------------------------------------------------------
+  // Skills section (real scanned data, MCP skills filtered out)
+  // ---------------------------------------------------------------
+  describe('skills section', () => {
+    it('renders scanned skills from backend (excluding mcp)', async () => {
+      renderWithDefaults()
+      await waitFor(() => {
+        expect(screen.getByText('Go Vet')).toBeInTheDocument()
+        expect(screen.getByText('Claude Code Skills')).toBeInTheDocument()
+        expect(screen.getByText('AST Analyzer')).toBeInTheDocument()
+        // MCP-sourced skill should NOT appear
+        expect(screen.queryByText('Filesystem Tools')).not.toBeInTheDocument()
+      })
+    })
+
+    it('renders discovered count (excluding mcp)', async () => {
+      renderWithDefaults()
+      await waitFor(() => {
+        // 4 total skills, 1 mcp filtered out = 3
+        expect(screen.getByText(/已发现: 3/)).toBeInTheDocument()
+      })
+    })
+
+    it('renders skill source badges (no MCP badge)', async () => {
+      renderWithDefaults()
+      await waitFor(() => {
+        expect(screen.getAllByText('FS')).toHaveLength(2) // Go Vet + AST Analyzer
+        expect(screen.getByText('AGENT')).toBeInTheDocument()
+        // MCP badge should NOT appear
+        expect(screen.queryByText('MCP')).not.toBeInTheDocument()
+      })
+    })
+
+    it('renders skill descriptions', async () => {
+      renderWithDefaults()
+      await waitFor(() => {
+        expect(screen.getByText('Go static analysis')).toBeInTheDocument()
+        expect(screen.getByText('Code generation')).toBeInTheDocument()
+        expect(screen.getByText('Semantic analysis')).toBeInTheDocument()
+        // MCP-sourced skill description should NOT appear
+        expect(screen.queryByText('Read/write files')).not.toBeInTheDocument()
+      })
+    })
+
+    it('renders empty state when no non-mcp skills found', async () => {
+      mockScanSkills.mockResolvedValue([
+        { id: 's1', name: 'MCP Only', description: 'Only MCP', source: 'mcp', tags: ['mcp'] },
+      ])
+      renderWithDefaults()
+      await waitFor(() => {
+        expect(screen.getByText(/未发现技能/)).toBeInTheDocument()
+      })
     })
   })
 })

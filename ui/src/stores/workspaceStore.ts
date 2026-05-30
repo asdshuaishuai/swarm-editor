@@ -79,6 +79,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     fsApi.setWorkspace(path).catch((err) => {
       logger.debug('Workspace', 'Failed to sync workspace to backend:', err)
     })
+    // Refresh file tree after workspace is set
+    get().refreshFileTree()
   },
 
   loadWorkspace: async () => {

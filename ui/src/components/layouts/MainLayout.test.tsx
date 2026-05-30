@@ -131,6 +131,7 @@ vi.mock('../../services/api', () => ({
   gitApi: {
     getBranch: vi.fn().mockResolvedValue('main'),
     pull: vi.fn().mockResolvedValue({ output: 'Already up to date.' }),
+    getStatus: vi.fn().mockResolvedValue([]),
   },
   workspaceApi: {
     openFolderDialog: vi.fn().mockResolvedValue(null),
@@ -198,15 +199,6 @@ vi.mock('../SymbolOutline', () => ({
 }))
 vi.mock('../../panels/SupervisorPanel', () => ({
   default: () => <div data-testid="supervisor-panel">Supervisor</div>,
-}))
-vi.mock('../../panels/WorkflowPanel', () => ({
-  default: () => <div data-testid="workflow-panel">Workflow</div>,
-}))
-vi.mock('../../panels/SwarmPanel', () => ({
-  default: () => <div data-testid="swarm-panel">Swarm</div>,
-}))
-vi.mock('../../panels/WorktreePanel', () => ({
-  default: () => <div data-testid="worktree-panel">Worktree</div>,
 }))
 
 // Helper to render with Router
@@ -322,7 +314,7 @@ describe('MainLayout', () => {
   // --- Right sidebar ---
   it('renders right sidebar tabs', () => {
     renderWithRouter(<MainLayout />)
-    expect(screen.getAllByText(/协定封包/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/指令交互/).length).toBeGreaterThan(0)
     expect(screen.getByText(/活动日志/)).toBeInTheDocument()
   })
 
@@ -379,27 +371,6 @@ describe('MainLayout', () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     await act(async () => { fireEvent.click(screen.getByText(/监督面板/)) })
     expect(screen.getByTestId('supervisor-panel')).toBeInTheDocument()
-  })
-
-  it('switches bottom tab to Workflow', async () => {
-    await act(async () => { renderWithRouter(<MainLayout />) })
-    await act(async () => { fireEvent.click(screen.getByText(/工作流/)) })
-    expect(screen.getByTestId('workflow-panel')).toBeInTheDocument()
-  })
-
-  it('switches bottom tab to Swarm', async () => {
-    await act(async () => { renderWithRouter(<MainLayout />) })
-    const swarmButtons = screen.getAllByText(/蜂群/)
-    // The bottom panel button is the second one (has "Swarm" in it)
-    const bottomSwarmBtn = swarmButtons.find(el => el.textContent?.includes('(Swarm)'))
-    await act(async () => { fireEvent.click(bottomSwarmBtn!) })
-    expect(screen.getByTestId('swarm-panel')).toBeInTheDocument()
-  })
-
-  it('switches bottom tab to Worktree', async () => {
-    await act(async () => { renderWithRouter(<MainLayout />) })
-    await act(async () => { fireEvent.click(screen.getByText(/工作树/)) })
-    expect(screen.getByTestId('worktree-panel')).toBeInTheDocument()
   })
 
   // --- Status bar ---

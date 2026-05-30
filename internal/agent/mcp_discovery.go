@@ -211,7 +211,10 @@ func LoadMCPConfig(path string) ([]MCPServerInfo, error) {
 			if serverData, ok := s.(map[string]any); ok {
 				// Only treat as server if it has command or url field
 				if _, hasCmd := serverData["command"]; hasCmd {
-					if _, isStr := serverData["command"].(string); isStr {
+					// Accept both string and array command formats
+					_, isStr := serverData["command"].(string)
+					_, isArr := serverData["command"].([]any)
+					if isStr || isArr {
 						server := parseMCPServerFromMap(name, serverData, "mcp.json")
 						servers = append(servers, server)
 					}

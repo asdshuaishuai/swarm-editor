@@ -386,7 +386,7 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
     if (get().auditEvents.length > 0) return
 
     try {
-      const [auditEvents, stats, servers] = await Promise.all([
+      const [auditEvents, stats] = await Promise.all([
         api.monitoring.listAuditEvents({ limit: 80 }).catch((err) => {
           logger.warn('MonitoringStore', 'Initial audit load failed:', err)
           return [] as AuditEvent[]
@@ -395,11 +395,17 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
           logger.warn('MonitoringStore', 'Initial stats load failed:', err)
           return null as AuditStats | null
         }),
-        api.mcp.scanServers().catch((err) => {
-          logger.warn('MonitoringStore', 'Initial MCP scan failed:', err)
-          return [] as MCPServerInfo[]
-        }),
       ])
+
+      // Trigger MCP scan (results arrive via mcp_servers_scanned event)
+      api.mcp.scanServers().catch((err) => {
+        logger.warn('MonitoringStore', 'Initial MCP scan failed:', err)
+      })
+
+      // Trigger skills scan (results arrive via skills_scanned event)
+      api.agent.scanSkills().catch((err) => {
+        logger.warn('MonitoringStore', 'Initial skills scan failed:', err)
+      })
 
       const { acpPackets, activityEntries, daemonLogs } = computeDerived(auditEvents)
 
@@ -409,7 +415,6 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
         acpPackets,
         activityEntries,
         daemonLogs,
-        mcpServers: servers,
         auditEnabled: stats?.enabled ?? true,
       })
 

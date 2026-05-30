@@ -215,6 +215,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleGetUnifiedMCPServers(ctx, params)
 	case "upsert_mcp_server":
 		return h.handleUpsertMCPServer(ctx, params)
+	case "update_mcp_server":
+		return h.handleUpdateMCPServer(ctx, params)
 	case "delete_mcp_server":
 		return h.handleDeleteMCPServer(ctx, params)
 	case "toggle_mcp_app":

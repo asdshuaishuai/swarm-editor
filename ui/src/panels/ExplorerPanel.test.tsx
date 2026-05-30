@@ -1925,13 +1925,13 @@ describe('ExplorerPanel', () => {
 
   // ─── Worktree card shows fallback workspace ───
 
-  it('shows /workspace fallback when workspace is empty in worktree card', async () => {
+  it('shows open folder prompt when workspace is empty', async () => {
     mockListDir.mockResolvedValue([])
     render(<ExplorerPanel {...defaultProps} workspace="" />)
 
     await act(async () => { await new Promise(r => setTimeout(r, 10)) })
 
-    expect(screen.getByText('/workspace')).toBeInTheDocument()
+    expect(screen.getByText('尚未打开工作区')).toBeInTheDocument()
   })
 
   // ─── Non-directory entry creates new file in parent dir ───

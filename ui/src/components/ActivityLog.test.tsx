@@ -43,13 +43,14 @@ describe('ActivityLog', () => {
 
   it('renders audit header', () => {
     render(<ActivityLog />)
-    expect(screen.getByText(/蜂群运作活动审计流/)).toBeInTheDocument()
+    expect(screen.getByText(/活动日志/)).toBeInTheDocument()
   })
 
   it('renders all filter buttons', () => {
     render(<ActivityLog />)
     expect(screen.getByText('全部')).toBeInTheDocument()
     expect(screen.getByText('MCP')).toBeInTheDocument()
+    expect(screen.getByText('工具')).toBeInTheDocument()
     expect(screen.getByText('Agent')).toBeInTheDocument()
     expect(screen.getByText('协定')).toBeInTheDocument()
     expect(screen.getByText('Skill')).toBeInTheDocument()
@@ -324,7 +325,7 @@ describe('ActivityLog', () => {
     expect(screen.queryByText('[GOAL_INIT]')).toBeNull()
   })
 
-  it('Agent filter includes EXEC, GOAL_INIT, AGENT_START, AGENT_STOP', () => {
+  it('Agent filter includes GOAL_INIT, AGENT_START, AGENT_STOP', () => {
     defaultStore.activityEntries = [
       createEntry({ id: '80', activityType: 'EXEC' }),
       createEntry({ id: '81', activityType: 'GOAL_INIT' }),
@@ -334,11 +335,26 @@ describe('ActivityLog', () => {
     ]
     render(<ActivityLog />)
     fireEvent.click(screen.getByText('Agent'))
-    expect(screen.getByText('[EXEC]')).toBeInTheDocument()
+    expect(screen.queryByText('[EXEC]')).toBeNull()
     expect(screen.getByText('[GOAL_INIT]')).toBeInTheDocument()
     expect(screen.getByText('[AGENT_START]')).toBeInTheDocument()
     expect(screen.getByText('[AGENT_STOP]')).toBeInTheDocument()
     expect(screen.queryByText('[MCP_CALL]')).toBeNull()
+  })
+
+  it('工具 filter includes MCP_CALL, EXEC, TEST_SUCCESS', () => {
+    defaultStore.activityEntries = [
+      createEntry({ id: '90', activityType: 'MCP_CALL' }),
+      createEntry({ id: '91', activityType: 'EXEC' }),
+      createEntry({ id: '92', activityType: 'TEST_SUCCESS' }),
+      createEntry({ id: '93', activityType: 'GOAL_INIT' }),
+    ]
+    render(<ActivityLog />)
+    fireEvent.click(screen.getByText('工具'))
+    expect(screen.getByText('[MCP_CALL]')).toBeInTheDocument()
+    expect(screen.getByText('[EXEC]')).toBeInTheDocument()
+    expect(screen.getByText('[TEST_SUCCESS]')).toBeInTheDocument()
+    expect(screen.queryByText('[GOAL_INIT]')).toBeNull()
   })
 
   it('HITL_PASSED border style is green', () => {

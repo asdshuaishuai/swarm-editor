@@ -714,11 +714,15 @@ export const mcpApi = {
     return getClient().invoke<Record<string, UnifiedMCPServer>>('get_unified_mcp_servers')
   },
 
-  async upsertServer(server: UnifiedMCPServer): Promise<{ success: boolean; id: string }> {
+  async upsertServer(server: UnifiedMCPServer): Promise<{ success: boolean; id: string; status: string }> {
     return getClient().invoke('upsert_mcp_server', server)
   },
 
-  async deleteUnifiedServer(id: string): Promise<{ success: boolean }> {
+  async updateServer(id: string, updates: Partial<UnifiedMCPServer>): Promise<{ success: boolean; id: string; status: string }> {
+    return getClient().invoke('update_mcp_server', { id, ...updates })
+  },
+
+  async deleteUnifiedServer(id: string): Promise<{ success: boolean; status: string }> {
     return getClient().invoke('delete_mcp_server', { id })
   },
 
@@ -1291,6 +1295,10 @@ export const events = {
   },
   onWorkflowNodeHeartbeat(handler: (payload: { workflowId: string; nodeId: string; progress: number }) => void): () => void {
     return getClient().subscribe('workflow_node_heartbeat', handler as (payload: unknown) => void)
+  },
+
+  onMCPConfigSynced(handler: (payload: { serverId: string; action: string; results: { app: string; error?: string }[]; errors: string[]; success: boolean }) => void): () => void {
+    return getClient().subscribe('mcp_config_synced', handler as (payload: unknown) => void)
   },
 }
 

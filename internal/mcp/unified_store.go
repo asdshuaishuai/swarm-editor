@@ -88,6 +88,22 @@ type UnifiedMCPServer struct {
 	Tags        []string     `json:"tags,omitempty"`
 }
 
+// SyncResult records the outcome of syncing to a single agent
+type SyncResult struct {
+	App      string `json:"app"`
+	Error    error  `json:"-"`
+	ErrorMsg string `json:"error,omitempty"`
+}
+
+// NewSyncResult creates a SyncResult with both Error and ErrorMsg populated
+func NewSyncResult(app string, err error) SyncResult {
+	r := SyncResult{App: app, Error: err}
+	if err != nil {
+		r.ErrorMsg = err.Error()
+	}
+	return r
+}
+
 // Supported agent IDs
 const (
 	AgentClaude   = "claude"
@@ -144,10 +160,15 @@ func (s *UnifiedMCPStore) Load() error {
 	return nil
 }
 
-// Save writes the store to disk atomically
+// Save writes the store to disk atomically.
+// Snapshot the map under lock, then write to disk without holding the lock.
 func (s *UnifiedMCPStore) Save() error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	snapshot := make(map[string]*UnifiedMCPServer, len(s.Servers))
+	for k, v := range s.Servers {
+		snapshot[k] = v
+	}
+	s.mu.RUnlock()
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -155,7 +176,7 @@ func (s *UnifiedMCPStore) Save() error {
 
 	store := struct {
 		Servers map[string]*UnifiedMCPServer `json:"servers"`
-	}{Servers: s.Servers}
+	}{Servers: snapshot}
 
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
@@ -191,40 +212,83 @@ func (s *UnifiedMCPStore) Get(id string) (*UnifiedMCPServer, bool) {
 	return srv, ok
 }
 
-// Upsert adds or updates a server and syncs to enabled agents
+// Upsert adds or updates a server and syncs to enabled agents (blocking)
 func (s *UnifiedMCPStore) Upsert(server *UnifiedMCPServer) error {
+	if err := s.UpsertSync(server); err != nil {
+		return err
+	}
+	results := s.SyncToEnabledAgents(server)
+	for _, r := range results {
+		if r.Error != nil {
+			return r.Error
+		}
+	}
+	return nil
+}
+
+// UpsertSync saves a server to disk without syncing to agent configs
+func (s *UnifiedMCPStore) UpsertSync(server *UnifiedMCPServer) error {
 	s.mu.Lock()
 	s.Servers[server.ID] = server
 	s.mu.Unlock()
-
-	if err := s.Save(); err != nil {
-		return err
-	}
-
-	return s.syncToEnabledAgents(server)
+	return s.Save()
 }
 
-// Delete removes a server from the store and all agent configs
+// SyncToEnabledAgents concurrently syncs a server to all enabled agent configs
+func (s *UnifiedMCPStore) SyncToEnabledAgents(server *UnifiedMCPServer) []SyncResult {
+	apps := server.Apps.EnabledApps()
+	if len(apps) == 0 {
+		return nil
+	}
+
+	results := make([]SyncResult, len(apps))
+	var wg sync.WaitGroup
+
+	for i, app := range apps {
+		wg.Add(1)
+		go func(idx int, appName string) {
+			defer wg.Done()
+			err := SyncToAgent(server, appName)
+			results[idx] = NewSyncResult(appName, err)
+		}(i, app)
+	}
+
+	wg.Wait()
+
+	for _, r := range results {
+		if r.Error != nil {
+			mcpLog.Warn("agent sync failed", "server", server.ID, "app", r.App, "error", r.Error)
+		}
+	}
+
+	return results
+}
+
+// Delete removes a server from the store and all agent configs (blocking)
 func (s *UnifiedMCPStore) Delete(id string) error {
+	server, err := s.DeleteSync(id)
+	if err != nil {
+		return err
+	}
+	_ = s.RemoveFromAllAgents(server.Name, server.Apps.EnabledApps())
+	return nil
+}
+
+// DeleteSync removes a server from disk without touching agent configs
+func (s *UnifiedMCPStore) DeleteSync(id string) (*UnifiedMCPServer, error) {
 	s.mu.Lock()
 	server, exists := s.Servers[id]
 	if !exists {
 		s.mu.Unlock()
-		return fmt.Errorf("server %s not found", id)
+		return nil, fmt.Errorf("server %s not found", id)
 	}
 	delete(s.Servers, id)
 	s.mu.Unlock()
 
 	if err := s.Save(); err != nil {
-		return err
+		return nil, err
 	}
-
-	// Remove from all agent configs
-	for _, app := range server.Apps.EnabledApps() {
-		_ = RemoveFromAgent(server.Name, app)
-	}
-
-	return nil
+	return server, nil
 }
 
 // ToggleApp enables or disables a server for a specific agent
@@ -294,15 +358,39 @@ func (s *UnifiedMCPStore) ImportFromScanned(scanned []ScannedServer) int {
 	return imported
 }
 
-// syncToEnabledAgents syncs a server to all its enabled agent configs
-func (s *UnifiedMCPStore) syncToEnabledAgents(server *UnifiedMCPServer) error {
-	var firstErr error
-	for _, app := range server.Apps.EnabledApps() {
-		if err := SyncToAgent(server, app); err != nil && firstErr == nil {
-			firstErr = err
-		}
+// RemoveFromAllAgents concurrently removes a server from all agent configs
+func (s *UnifiedMCPStore) RemoveFromAllAgents(serverName string, apps []string) []SyncResult {
+	if len(apps) == 0 {
+		return nil
 	}
-	return firstErr
+
+	results := make([]SyncResult, len(apps))
+	var wg sync.WaitGroup
+
+	for i, app := range apps {
+		wg.Add(1)
+		go func(idx int, appName string) {
+			defer wg.Done()
+			err := RemoveFromAgent(serverName, appName)
+			results[idx] = NewSyncResult(appName, err)
+		}(i, app)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// ToggleAppSync updates the app toggle on disk without syncing
+func (s *UnifiedMCPStore) ToggleAppSync(id string, app string, enabled bool) error {
+	s.mu.Lock()
+	server, exists := s.Servers[id]
+	if !exists {
+		s.mu.Unlock()
+		return fmt.Errorf("server %s not found", id)
+	}
+	server.Apps.SetEnabled(app, enabled)
+	s.mu.Unlock()
+	return s.Save()
 }
 
 // ScannedServer is a lightweight type for import from discovery results

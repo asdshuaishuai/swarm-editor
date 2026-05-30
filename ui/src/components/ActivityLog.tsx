@@ -2,18 +2,19 @@ import { useState, type ReactNode } from 'react'
 import { useMonitoringStore, type ActivityEntry, type ActivityType } from '../stores/monitoringStore'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 
-type ActivityFilter = '全部' | 'MCP' | 'Agent' | '协定' | 'Skill' | '系统'
+type ActivityFilter = '全部' | 'MCP' | '工具' | 'Agent' | '协定' | 'Skill' | '系统'
 
 const FILTER_MAP: Record<ActivityFilter, ActivityType[]> = {
   '全部': [],
   'MCP': ['MCP_CALL', 'TEST_SUCCESS'],
-  'Agent': ['GOAL_INIT', 'EXEC', 'AGENT_START', 'AGENT_STOP'],
+  '工具': ['MCP_CALL', 'EXEC', 'TEST_SUCCESS'],
+  'Agent': ['GOAL_INIT', 'AGENT_START', 'AGENT_STOP'],
   '协定': ['BLUEPRINT', 'SECURITY_GATE', 'HITL_PASSED', 'HITL_DENIED'],
   'Skill': ['SKILL_SCAN'],
   '系统': ['INFO'],
 }
 
-const FILTERS: ActivityFilter[] = ['全部', 'MCP', 'Agent', '协定', 'Skill', '系统']
+const FILTERS: ActivityFilter[] = ['全部', 'MCP', '工具', 'Agent', '协定', 'Skill', '系统']
 
 const Cd = ({ children, color = '#d1d5db' }: { children: ReactNode; color?: string }) => (
   <code style={{ color, fontSize: 'inherit' }}>{children}</code>
@@ -62,7 +63,7 @@ export default function ActivityLog() {
     <div className="flex flex-col h-full font-sans">
       {/* 审计标题 */}
       <div className="py-1 text-[10px] font-mono shrink-0 text-center tracking-wider uppercase border-y border-dashed" style={{ color: '#6b7280', borderColor: '#1f2937' }}>
-        [ 蜂群运作活动审计流 (Audit) ]
+        [ 活动日志 — MCP / Skills / Tools / Function Calling ]
       </div>
       {/* Filter buttons */}
       <div className="flex items-center gap-1 px-3 py-1.5 shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>

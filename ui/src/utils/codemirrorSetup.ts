@@ -17,6 +17,7 @@ import { lintKeymap, lintGutter } from '@codemirror/lint'
 import { indentUnit } from '@codemirror/language'
 
 import { swarmDarkTheme } from './codemirrorTheme'
+import { createLSPExtensions } from './codemirrorLSP'
 
 // ---------------------------------------------------------------------------
 // Language packages
@@ -345,6 +346,9 @@ export function createEditorExtensions(
 
   // 9. Lint gutter (for diagnostic markers)
   extensions.push(lintGutter())
+
+  // 10. LSP extensions (completion, hover, diagnostics)
+  extensions.push(...createLSPExtensions(filename))
 
   return extensions
 }

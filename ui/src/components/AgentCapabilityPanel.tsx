@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useAppStore } from '../store/appStore'
 import { useAgentLifecycleStore } from '../stores/agentLifecycleStore'
 import { useTaskFlowStore } from '../stores/taskFlowStore'
 
@@ -6,8 +7,8 @@ type FilterTab = 'all' | 'active' | 'idle' | 'alert'
 
 const STATUS_COLORS: Record<string, string> = {
   idle: '#3fb950',
-  thinking: '#58a6ff',
   executing: '#f0883e',
+  thinking: '#58a6ff',
   stuck: '#fb7185',
   error: '#fb7185',
   offline: '#6b7280',
@@ -25,27 +26,68 @@ const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'alert', label: '告警' },
 ]
 
+interface AgentEntry {
+  agentId: string
+  name: string
+  state: string
+  capabilities: string[]
+  type?: string
+  registered: boolean
+}
+
 export default function AgentCapabilityPanel() {
   const [filter, setFilter] = useState<FilterTab>('all')
-  const agents = useAgentLifecycleStore((s) => s.agents)
+
+  // Real registered/scanned agents from appStore
+  const registeredAgents = useAppStore((s) => s.agents)
+  // Live lifecycle state from monitoring
+  const lifecycleAgents = useAgentLifecycleStore((s) => s.agents)
   const agentCards = useAgentLifecycleStore((s) => s.agentCards)
   const getAgentAlerts = useAgentLifecycleStore((s) => s.getAgentAlerts)
   const toolInvocations = useTaskFlowStore((s) => s.toolInvocations)
   const handoffChain = useTaskFlowStore((s) => s.handoffChain)
 
-  const agentList = useMemo(() => {
-    const list: { agentId: string; name: string; state: string; capabilities: string[] }[] = []
-    for (const agent of agents.values()) {
-      list.push(agent)
+  // Merge registered agents with lifecycle state
+  const agentList = useMemo<AgentEntry[]>(() => {
+    const seen = new Set<string>()
+    const list: AgentEntry[] = []
+
+    // Primary source: registered agents from appStore (real scanned agents)
+    for (const agent of registeredAgents) {
+      seen.add(agent.id)
+      const lifecycle = lifecycleAgents.get(agent.id)
+      list.push({
+        agentId: agent.id,
+        name: agent.name,
+        state: lifecycle?.state || agent.state,
+        capabilities: lifecycle?.capabilities || [],
+        type: agent.type,
+        registered: true,
+      })
     }
+
+    // Secondary: lifecycle agents not yet in registered list
+    for (const [id, agent] of lifecycleAgents.entries()) {
+      if (!seen.has(id)) {
+        seen.add(id)
+        list.push({
+          agentId: id,
+          name: agent.name,
+          state: agent.state,
+          capabilities: agent.capabilities || [],
+          registered: false,
+        })
+      }
+    }
+
     return list
-  }, [agents])
+  }, [registeredAgents, lifecycleAgents])
 
   const filteredAgents = useMemo(() => {
     if (filter === 'all') return agentList
     if (filter === 'active') return agentList.filter((a) => a.state === 'executing' || a.state === 'thinking')
     if (filter === 'idle') return agentList.filter((a) => a.state === 'idle')
-    if (filter === 'alert') return agentList.filter((a) => getAgentAlerts(a.agentId).length > 0)
+    if (filter === 'alert') return agentList.filter((a) => getAgentAlerts(a.agentId).length > 0 || a.state === 'error')
     return agentList
   }, [agentList, filter, getAgentAlerts])
 
@@ -103,7 +145,7 @@ export default function AgentCapabilityPanel() {
           const card = agentCards.get(agent.agentId)
           const capabilities = card?.capabilities || agent.capabilities || []
           const alerts = getAgentAlerts(agent.agentId)
-          const hasAlert = alerts.length > 0
+          const hasAlert = alerts.length > 0 || agent.state === 'error'
           const activeTools = getActiveTools(agent.agentId)
           const latestHandoff = getLatestHandoff(agent.agentId)
           const statusColor = STATUS_COLORS[agent.state] || '#6b7280'
@@ -124,6 +166,11 @@ export default function AgentCapabilityPanel() {
                   style={{ background: statusColor }}
                 />
                 <span className="text-xs font-bold text-white truncate">{agent.name}</span>
+                {agent.type && (
+                  <span className="text-[9px] px-1 rounded" style={{ background: '#30363d', color: '#8b949e' }}>
+                    {agent.type}
+                  </span>
+                )}
                 {hasAlert && (
                   <svg
                     className="w-3.5 h-3.5 shrink-0 ml-auto"

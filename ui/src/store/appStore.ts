@@ -161,24 +161,26 @@ export function agentInfoToAgent(info: AgentInfo): Agent {
     'orchestrator': 'orchestrator',
   }
 
+  const caps = info.capabilities || []
+
   return {
     id: info.id,
     name: info.name,
     type: typeMap[info.type] || 'coder',
     state: stateMap[info.state || info.status || 'unknown'] || 'idle',
     capabilities: {
-      loadSession: info.capabilities?.includes('load_session') ?? false,
+      loadSession: caps.includes('load_session') || caps.includes('session'),
       promptCapabilities: {
-        image: false,
-        audio: false,
-        embeddedContext: false,
+        image: caps.includes('prompt_image'),
+        audio: caps.includes('prompt_audio'),
+        embeddedContext: caps.includes('prompt_embedded_context'),
       },
       mcp: {
-        http: false,
-        sse: false,
+        http: caps.includes('mcp_http'),
+        sse: caps.includes('mcp_sse'),
       },
-      pairProgramming: info.capabilities?.includes('pair_programming') ?? false,
-      teamCollaboration: info.capabilities?.includes('team_collaboration') ?? false,
+      pairProgramming: caps.includes('pair_programming'),
+      teamCollaboration: caps.includes('team_collaboration'),
     },
     createdAt: new Date().toISOString(),
     lastActive: info.lastActive || new Date().toISOString(),
@@ -255,13 +257,37 @@ export const useAppStore = create<AppState>()((set) => ({
         throw new Error('Simulated initialization error')
       }
 
+      // Connect to WebSocket backend first
+      try {
+        await api.backend.connect()
+      } catch (connErr) {
+        logger.warn('Init', 'WebSocket connect failed (will retry via queue):', connErr)
+      }
+
       // Load persisted data
       const persisted = loadPersistedData()
 
-      // Load agents from backend
+      // Load agents from backend: first get registered agents, then auto-scan CLI
       try {
         const agentInfos = await api.agent.getAgents()
-        const agents = agentInfos.map(agentInfoToAgent)
+        let agents = agentInfos.map(agentInfoToAgent)
+
+        // Auto-scan local CLI agents and merge discovered ones
+        try {
+          const scanned = await api.agent.refreshAgents()
+          const scannedAgents = scanned.map(agentInfoToAgent)
+          // Merge: keep existing registered agents, add discovered CLI agents not yet in list
+          const existingIds = new Set(agents.map(a => a.id))
+          for (const sa of scannedAgents) {
+            if (!existingIds.has(sa.id)) {
+              agents.push(sa)
+              existingIds.add(sa.id)
+            }
+          }
+        } catch (scanErr) {
+          logger.warn('Agents', 'CLI auto-scan failed (non-fatal):', scanErr)
+        }
+
         set({
           connected: true,
           connecting: false,
