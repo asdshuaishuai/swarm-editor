@@ -155,7 +155,7 @@ describe('MCPPanel', () => {
   describe('basic rendering', () => {
     it('renders the MCP servers header', () => {
       renderWithDefaults()
-      expect(screen.getByText('作用中 MCP 伺服器')).toBeInTheDocument()
+      expect(screen.getByText('MCP 服务器')).toBeInTheDocument()
     })
 
     it('renders the skills section header', () => {
@@ -165,7 +165,7 @@ describe('MCPPanel', () => {
 
     it('renders scan and register buttons', () => {
       renderWithDefaults()
-      expect(screen.getByTitle('扫描 MCP 伺服器')).toBeInTheDocument()
+      expect(screen.getByTitle('扫描并导入 MCP 服务器')).toBeInTheDocument()
       expect(screen.getByText('注册')).toBeInTheDocument()
     })
 
@@ -196,8 +196,8 @@ describe('MCPPanel', () => {
   describe('empty state', () => {
     it('renders empty state when no servers configured', () => {
       renderWithDefaults({ servers: [] })
-      expect(screen.getByText('无 MCP 伺服器配置')).toBeInTheDocument()
-      expect(screen.getByText('注册 MCP 伺服器以扩展 Agent 能力')).toBeInTheDocument()
+      expect(screen.getByText('无 MCP 服务器配置')).toBeInTheDocument()
+      expect(screen.getByText('注册 MCP 服务器以扩展 Agent 能力')).toBeInTheDocument()
     })
 
     it('does not show server count > 0 in empty state', () => {
@@ -586,14 +586,14 @@ describe('MCPPanel', () => {
   // Scan servers
   // ---------------------------------------------------------------
   describe('scan servers', () => {
-    it('triggers scan and shows info toast when refresh button clicked', async () => {
+    it('triggers scan and shows success toast when refresh button clicked', async () => {
       const user = userEvent.setup()
       renderWithDefaults()
 
-      await user.click(screen.getByTitle('扫描 MCP 伺服器'))
+      await user.click(screen.getByTitle('扫描并导入 MCP 服务器'))
 
       expect(mockScanServers).toHaveBeenCalled()
-      expect(mockAddToast).toHaveBeenCalledWith('info', '扫描中', '正在扫描 MCP 伺服器...')
+      expect(mockAddToast).toHaveBeenCalledWith('success', '刷新完成', '已扫描并导入 MCP 服务器')
     })
   })
 
@@ -606,7 +606,7 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      expect(screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: /添加 MCP 服务器/ })).toBeInTheDocument()
     })
 
     it('closes add modal when close button clicked', async () => {
@@ -614,16 +614,16 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      expect(screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: /添加 MCP 服务器/ })).toBeInTheDocument()
 
       // Close via the X button inside the modal
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const closeBtn = within(dialog).getAllByRole('button').find(b => b.textContent === '')
       expect(closeBtn).toBeTruthy()
       await user.click(closeBtn!)
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: /添加 MCP 伺服器/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: /添加 MCP 服务器/ })).not.toBeInTheDocument()
       })
     })
 
@@ -635,7 +635,7 @@ describe('MCPPanel', () => {
       await user.click(screen.getByText('取消'))
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: /添加 MCP 伺服器/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: /添加 MCP 服务器/ })).not.toBeInTheDocument()
       })
     })
 
@@ -644,12 +644,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       // Only fill command, leave name empty
       await user.type(inputs[1], 'some-command')
 
-      const addBtn = within(dialog).getByText('添加伺服器').closest('button')!
+      const addBtn = within(dialog).getByText('添加服务器').closest('button')!
       expect(addBtn).toBeDisabled()
       expect(mockAddServer).not.toHaveBeenCalled()
     })
@@ -659,12 +659,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       // Only fill name, leave command empty
       await user.type(inputs[0], 'some-name')
 
-      const addBtn = within(dialog).getByText('添加伺服器').closest('button')!
+      const addBtn = within(dialog).getByText('添加服务器').closest('button')!
       expect(addBtn).toBeDisabled()
       expect(mockAddServer).not.toHaveBeenCalled()
     })
@@ -675,8 +675,8 @@ describe('MCPPanel', () => {
 
       await user.click(screen.getByText('注册'))
       // The button is disabled when name/command empty
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
-      const addBtn = within(dialog).getByText('添加伺服器').closest('button')!
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
+      const addBtn = within(dialog).getByText('添加服务器').closest('button')!
       expect(addBtn).toBeDisabled()
     })
 
@@ -685,7 +685,7 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
 
       const inputs = within(dialog).getAllByRole('textbox')
       const nameInput = inputs[0]
@@ -693,7 +693,7 @@ describe('MCPPanel', () => {
       await user.type(nameInput, 'my-server')
       await user.type(commandInput, 'npx serve')
 
-      const addBtn = within(dialog).getByText('添加伺服器').closest('button')!
+      const addBtn = within(dialog).getByText('添加服务器').closest('button')!
       expect(addBtn).not.toBeDisabled()
     })
 
@@ -702,13 +702,13 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
 
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'my-new-server')
       await user.type(inputs[1], 'npx my-mcp')
 
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith({
         name: 'my-new-server',
@@ -730,11 +730,11 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'new-srv')
       await user.type(inputs[1], 'cmd')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       await waitFor(() => {
         expect(mockAddToast).toHaveBeenCalledWith('success', 'MCP Server Added', expect.stringContaining('new-srv'))
@@ -746,14 +746,14 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: /添加 MCP 伺服器/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: /添加 MCP 服务器/ })).not.toBeInTheDocument()
       })
     })
 
@@ -763,11 +763,11 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       await waitFor(() => {
         expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to Add Server', 'duplicate name')
@@ -780,11 +780,11 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       await waitFor(() => {
         expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to Add Server', 'Unknown error')
@@ -796,13 +796,13 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       // The args input is the 3rd textbox
       await user.type(inputs[2], '/path --readonly --verbose')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -816,13 +816,13 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       // The env textarea
       await user.type(inputs[3], 'API_KEY=abc123{enter}DEBUG=true')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -836,7 +836,7 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       // Find the autoStart switch inside the dialog
       const switches = within(dialog).getAllByRole('switch')
       expect(switches.length).toBeGreaterThan(0)
@@ -867,7 +867,7 @@ describe('MCPPanel', () => {
       await user.click(editButtons[0])
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
     })
 
@@ -885,7 +885,7 @@ describe('MCPPanel', () => {
       await user.click(editButtons[0])
 
       await waitFor(() => {
-        const dialog = screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })
+        const dialog = screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })
         const nameInput = within(dialog).getAllByRole('textbox')[0] as HTMLInputElement
         expect(nameInput.value).toBe('test-server')
       })
@@ -905,14 +905,14 @@ describe('MCPPanel', () => {
       await user.click(editButtons[0])
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
 
       await user.click(screen.getByText('保存修改'))
 
       await waitFor(() => {
         expect(mockUpdateMCPServer).toHaveBeenCalled()
-        expect(screen.queryByRole('dialog', { name: /编辑 MCP 伺服器/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: /编辑 MCP 服务器/ })).not.toBeInTheDocument()
       })
     })
 
@@ -929,7 +929,7 @@ describe('MCPPanel', () => {
       })
       await user.click(editButtons[0])
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
       await user.click(screen.getByText('保存修改'))
 
@@ -952,7 +952,7 @@ describe('MCPPanel', () => {
       })
       await user.click(editButtons[0])
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
       await user.click(screen.getByText('保存修改'))
 
@@ -974,16 +974,16 @@ describe('MCPPanel', () => {
       })
       await user.click(editButtons[0])
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
 
       // Click cancel inside the edit dialog
-      const dialog = screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })
       const cancelBtn = within(dialog).getByText('取消')
       await user.click(cancelBtn)
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: /编辑 MCP 伺服器/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: /编辑 MCP 服务器/ })).not.toBeInTheDocument()
       })
     })
 
@@ -1000,10 +1000,10 @@ describe('MCPPanel', () => {
       })
       await user.click(editButtons[0])
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })).toBeInTheDocument()
       })
 
-      const dialog = screen.getByRole('dialog', { name: /编辑 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /编辑 MCP 服务器/ })
       const switchEl = within(dialog).getByRole('switch')
       expect(switchEl).toHaveAttribute('aria-checked', 'true')
       await user.click(switchEl)
@@ -1233,13 +1233,13 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       // Type double spaces - should filter empties
       await user.type(inputs[2], 'a  b   c')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1253,12 +1253,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       // Leave args empty
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1277,12 +1277,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       await user.type(inputs[3], 'KEY=value=with=equals')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1296,12 +1296,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       await user.type(inputs[3], 'NOEQUALSSIGN{enter}VALID=yes')
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1315,12 +1315,12 @@ describe('MCPPanel', () => {
       renderWithDefaults()
 
       await user.click(screen.getByText('注册'))
-      const dialog = screen.getByRole('dialog', { name: /添加 MCP 伺服器/ })
+      const dialog = screen.getByRole('dialog', { name: /添加 MCP 服务器/ })
       const inputs = within(dialog).getAllByRole('textbox')
       await user.type(inputs[0], 'srv')
       await user.type(inputs[1], 'cmd')
       // Leave env empty
-      await user.click(within(dialog).getByText('添加伺服器'))
+      await user.click(within(dialog).getByText('添加服务器'))
 
       expect(mockAddServer).toHaveBeenCalledWith(
         expect.objectContaining({

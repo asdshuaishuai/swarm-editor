@@ -8,12 +8,13 @@ import {
   X,
   Server,
   Power,
-  Download,
+  ChevronDown,
+  ChevronRight,
+  Save,
 } from 'lucide-react'
 import type { MCPToolInfo, MCPServerInfo, UnifiedMCPServer } from '../services/api'
 import { useSettings, MCPServerSetting } from '../hooks/useSettings'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import MCPConfigModal from '../components/MCPConfigModal'
 import { useAppStore } from '../store/appStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
 import { api } from '../services'
@@ -36,7 +37,7 @@ export default function MCPPanel() {
   const [loading, setLoading] = useState(false)
   const [unifiedServers, setUnifiedServers] = useState<Record<string, UnifiedMCPServer>>({})
   const [importing, setImporting] = useState(false)
-  const [configServer, setConfigServer] = useState<UnifiedMCPServer | null>(null)
+  const [expandedServer, setExpandedServer] = useState<string | null>(null)
 
   // 从 monitoringStore 获取扫描结果
   const scannedServers = useMonitoringStore(state => state.mcpServers)
@@ -66,16 +67,19 @@ export default function MCPPanel() {
     return unsub
   }, [fetchUnified])
 
-  // Import MCP servers from agent configs
-  const handleImport = async () => {
+  // 刷新 + 导入合并：扫描 Agent 配置 + 导入到统一存储
+  const handleRefreshAndImport = async () => {
     setImporting(true)
     try {
-      await api.mcp.importFromApps()
+      await Promise.all([
+        refreshMCPServers(),
+        api.mcp.importFromApps(),
+      ])
       await fetchUnified()
-      addToast('success', '导入完成', '已从 Agent 配置导入 MCP 伺服器')
+      addToast('success', '刷新完成', '已扫描并导入 MCP 服务器')
     } catch (err) {
-      logger.error('MCP', 'Import failed:', err)
-      addToast('error', '导入失败', err instanceof Error ? err.message : 'Unknown error')
+      logger.error('MCP', 'Refresh/import failed:', err)
+      addToast('error', '刷新失败', err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setImporting(false)
     }
@@ -86,7 +90,7 @@ export default function MCPPanel() {
     try {
       await api.mcp.toggleApp(serverId, app, enabled)
       await fetchUnified()
-      addToast('success', '已更新', `${app} ${enabled ? '启用' : '禁用'} MCP 伺服器`)
+      addToast('success', '已更新', `${app} ${enabled ? '启用' : '禁用'} MCP 服务器`)
     } catch (err) {
       logger.error('MCP', 'Toggle failed:', err)
       addToast('error', '切换失败', err instanceof Error ? err.message : 'Unknown error')
@@ -208,31 +212,19 @@ export default function MCPPanel() {
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6a2 2 0 100-4 2 2 0 000 4zM6 20a2 2 0 100-4 2 2 0 000 4zM18 20a2 2 0 100-4 2 2 0 000 4M12 8v2M7.5 16L10.5 10M16.5 16L13.5 10" />
             </svg>
-            作用中 MCP 伺服器
+            MCP 服务器
           </span>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => {
-                addToast('info', '扫描中', '正在扫描 MCP 伺服器...')
-                refreshMCPServers()
-              }}
-              className="flex items-center gap-0.5 font-normal hover:underline"
-              style={{ color: '#58a6ff', fontSize: '12px' }}
-              title="扫描 MCP 伺服器"
-              aria-label="扫描 MCP 伺服器"
-            >
-              <RefreshCw size={11} />
-              刷新
-            </button>
-            <button
-              onClick={handleImport}
+              onClick={handleRefreshAndImport}
               disabled={importing}
               className="flex items-center gap-0.5 font-normal hover:underline disabled:opacity-50"
               style={{ color: '#58a6ff', fontSize: '12px' }}
-              title="从 Agent 配置导入 MCP 伺服器"
+              title="扫描并导入 MCP 服务器"
+              aria-label="刷新 MCP 服务器"
             >
-              <Download size={11} />
-              导入
+              <RefreshCw size={11} className={importing ? 'animate-spin' : ''} />
+              刷新
             </button>
             <button
               onClick={() => setShowAddModal(true)}
@@ -250,7 +242,7 @@ export default function MCPPanel() {
       <div className="flex-1 overflow-y-auto">
         {/* MCP enabled count indicator */}
         <div className="px-3 py-1.5 text-[10px] font-mono flex items-center justify-between" style={{ color: '#6b7280', borderBottom: '1px solid #30363d' }}>
-          <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 伺服器 | 已发现: <strong style={{ color: '#9ca3af' }}>{scannedServers.length}</strong> 伺服器</span>
+          <span>已配置: <strong style={{ color: '#9ca3af' }}>{settings.mcpServers.length}</strong> 服务器 | 已发现: <strong style={{ color: '#9ca3af' }}>{scannedServers.length}</strong> 服务器</span>
           <button
             role="switch"
             aria-checked={settings.mcpEnabled}
@@ -273,8 +265,8 @@ export default function MCPPanel() {
               <div className="p-4 rounded-xl mb-4" style={{ background: 'rgba(33,38,45,0.5)' }}>
                 <Server size={48} className="opacity-50" />
               </div>
-              <p className="text-base font-medium mb-1" style={{ color: '#9ca3af' }}>无 MCP 伺服器配置</p>
-              <p className="text-sm">注册 MCP 伺服器以扩展 Agent 能力</p>
+              <p className="text-base font-medium mb-1" style={{ color: '#9ca3af' }}>无 MCP 服务器配置</p>
+              <p className="text-sm">注册 MCP 服务器以扩展 Agent 能力</p>
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -288,8 +280,11 @@ export default function MCPPanel() {
                     <UnifiedServerCard
                       key={server.id}
                       server={server}
+                      expanded={expandedServer === server.id}
+                      onToggleExpand={() => setExpandedServer(expandedServer === server.id ? null : server.id)}
                       onToggleApp={(app, enabled) => handleToggleApp(server.id, app, enabled)}
-                      onEdit={() => setConfigServer(server)}
+                      onUpdated={(updated) => setUnifiedServers(prev => ({ ...prev, [updated.id]: updated }))}
+                      onDeleted={(id) => setUnifiedServers(prev => { const next = { ...prev }; delete next[id]; return next })}
                     />
                   ))}
                 </>
@@ -385,11 +380,11 @@ export default function MCPPanel() {
       {/* Add Server Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="rounded-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true" aria-label="添加 MCP 伺服器">
+          <div className="rounded-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true" aria-label="添加 MCP 服务器">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#d0d7de' }}>
                 <Plus size={18} style={{ color: '#58a6ff' }} />
-                添加 MCP 伺服器
+                添加 MCP 服务器
               </h3>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -402,7 +397,7 @@ export default function MCPPanel() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm mb-1.5 font-medium" style={{ color: '#9ca3af' }}>
-                  伺服器名称 *
+                  服务器名称 *
                 </label>
                 <input
                   type="text"
@@ -490,7 +485,7 @@ export default function MCPPanel() {
                 style={{ background: '#58a6ff', color: '#fff' }}
               >
                 {loading ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
-                <span>添加伺服器</span>
+                <span>添加服务器</span>
               </button>
             </div>
           </div>
@@ -500,11 +495,11 @@ export default function MCPPanel() {
       {/* Edit Server Modal */}
       {editingServer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="rounded-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true" aria-label="编辑 MCP 伺服器">
+          <div className="rounded-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true" aria-label="编辑 MCP 服务器">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#d0d7de' }}>
                 <Edit2 size={18} style={{ color: '#58a6ff' }} />
-                编辑 MCP 伺服器
+                编辑 MCP 服务器
               </h3>
               <button
                 onClick={() => setEditingServer(null)}
@@ -605,24 +600,6 @@ export default function MCPPanel() {
         />
       )}
 
-      {configServer && (
-        <MCPConfigModal
-          server={configServer}
-          onClose={() => setConfigServer(null)}
-          onSaved={(updated) => {
-            setUnifiedServers(prev => ({ ...prev, [updated.id]: updated }))
-            setConfigServer(null)
-          }}
-          onDeleted={(id) => {
-            setUnifiedServers(prev => {
-              const next = { ...prev }
-              delete next[id]
-              return next
-            })
-            setConfigServer(null)
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -675,12 +652,62 @@ function ScannedServerCard({ server }: { server: MCPServerInfo }) {
   )
 }
 
-// 统一管理的 MCP 服务器卡片（per-agent toggle）
-function UnifiedServerCard({ server, onToggleApp, onEdit }: {
+// 统一管理的 MCP 服务器卡片（per-agent toggle + 内联配置编辑）
+function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUpdated, onDeleted }: {
   server: UnifiedMCPServer
+  expanded: boolean
+  onToggleExpand: () => void
   onToggleApp: (app: string, enabled: boolean) => void
-  onEdit: () => void
+  onUpdated: (updated: UnifiedMCPServer) => void
+  onDeleted: (id: string) => void
 }) {
+  const addToast = useAppStore(state => state.addToast)
+  const [editDraft, setEditDraft] = useState(server)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // Reset draft when server changes or expand
+  useEffect(() => {
+    if (expanded) setEditDraft(server)
+  }, [expanded, server])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await api.mcp.updateServer(editDraft.id, {
+        name: editDraft.name,
+        server: {
+          type: editDraft.server.type,
+          command: editDraft.server.command,
+          args: editDraft.server.args,
+          url: editDraft.server.url,
+          env: editDraft.server.env,
+          headers: editDraft.server.headers,
+        },
+        description: editDraft.description,
+      })
+      onUpdated(editDraft)
+      addToast('success', '已保存', `${editDraft.name} 配置已更新`)
+    } catch (err) {
+      addToast('error', '保存失败', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await api.mcp.deleteUnifiedServer(editDraft.id)
+      onDeleted(editDraft.id)
+      addToast('success', '已删除', `${editDraft.name} 已移除`)
+    } catch (err) {
+      addToast('error', '删除失败', err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const apps = [
     { key: 'claude', label: 'Claude', color: '#fb923c' },
     { key: 'kimi', label: 'Kimi', color: '#22d3ee' },
@@ -688,10 +715,15 @@ function UnifiedServerCard({ server, onToggleApp, onEdit }: {
     { key: 'qwen', label: 'Qwen', color: '#34d399' },
   ]
 
+  const inputCls = "w-full rounded px-2 py-1 text-[11px] font-mono outline-none"
+  const inputStyle = { background: '#0d1117', border: '1px solid #30363d', color: '#d0d7de' }
+
   return (
-    <div className="p-2.5 rounded-lg space-y-2 cursor-pointer transition hover:bg-[#21262d]" style={{ background: '#1a1f26', border: '1px solid #30363d' }} onClick={onEdit}>
-      <div className="flex items-center justify-between">
+    <div className="rounded-lg transition" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
+      {/* Header row — click to expand/collapse */}
+      <div className="flex items-center justify-between p-2.5 cursor-pointer hover:bg-[#21262d] rounded-lg" onClick={onToggleExpand}>
         <div className="flex items-center gap-1.5">
+          {expanded ? <ChevronDown size={12} style={{ color: '#6b7280' }} /> : <ChevronRight size={12} style={{ color: '#6b7280' }} />}
           <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-blue-500" />
           <strong className="text-xs text-white font-mono">{server.name}</strong>
         </div>
@@ -703,37 +735,157 @@ function UnifiedServerCard({ server, onToggleApp, onEdit }: {
           </div>
         )}
       </div>
-      {server.server.command && (
-        <p className="text-[10px] font-sans leading-normal" style={{ color: '#9ca3af' }}>
-          {server.server.command}
-        </p>
+
+      {/* Collapsed: command + url + agent pills */}
+      {!expanded && (
+        <div className="px-2.5 pb-2.5 space-y-1.5">
+          {server.server.command && (
+            <p className="text-[10px] font-mono truncate" style={{ color: '#9ca3af' }}>{server.server.command}</p>
+          )}
+          {server.server.url && (
+            <p className="text-[10px] font-mono truncate" style={{ color: '#6b7280' }}>{server.server.url}</p>
+          )}
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {apps.map(({ key, label, color }) => {
+              const enabled = server.apps[key as keyof typeof server.apps]
+              return (
+                <button
+                  key={key}
+                  onClick={e => { e.stopPropagation(); onToggleApp(key, !enabled) }}
+                  className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
+                  style={{
+                    background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
+                    color: enabled ? color : '#6b7280',
+                    border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
-      {server.server.url && (
-        <p className="text-[10px] font-mono truncate" style={{ color: '#6b7280' }}>
-          {server.server.url}
-        </p>
-      )}
-      {/* Per-agent toggle pills */}
-      <div className="flex flex-wrap gap-1.5 pt-1">
-        {apps.map(({ key, label, color }) => {
-          const enabled = server.apps[key as keyof typeof server.apps]
-          return (
+
+      {/* Expanded: inline config editing */}
+      {expanded && (
+        <div className="px-2.5 pb-2.5 space-y-2 border-t" style={{ borderColor: '#30363d' }}>
+          {/* Agent toggles */}
+          <div className="pt-2">
+            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>Agent 启用</label>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {apps.map(({ key, label, color }) => {
+                const enabled = server.apps[key as keyof typeof server.apps]
+                return (
+                  <button
+                    key={key}
+                    onClick={() => onToggleApp(key, !enabled)}
+                    className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
+                    style={{
+                      background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
+                      color: enabled ? color : '#6b7280',
+                      border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
+                    }}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Type selector */}
+          <div>
+            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>类型</label>
+            <div className="flex gap-1 mt-1">
+              {['stdio', 'http', 'sse'].map(t => (
+                <button
+                  key={t}
+                  onClick={() => setEditDraft(d => ({ ...d, server: { ...d.server, type: t } }))}
+                  className="text-[9px] font-mono px-2 py-0.5 rounded transition-colors"
+                  style={{
+                    background: editDraft.server.type === t ? 'rgba(88,166,255,0.15)' : '#21262d',
+                    color: editDraft.server.type === t ? '#58a6ff' : '#6b7280',
+                    border: `1px solid ${editDraft.server.type === t ? '#58a6ff33' : '#30363d'}`,
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Command (stdio) */}
+          {(editDraft.server.type === 'stdio' || !editDraft.server.type) && (
+            <div>
+              <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>命令</label>
+              <input
+                value={editDraft.server.command || ''}
+                onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, command: e.target.value } }))}
+                className={inputCls} style={inputStyle}
+                placeholder="npx -y @modelcontextprotocol/server-filesystem"
+              />
+            </div>
+          )}
+
+          {/* URL (http/sse) */}
+          {(editDraft.server.type === 'http' || editDraft.server.type === 'sse') && (
+            <div>
+              <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>URL</label>
+              <input
+                value={editDraft.server.url || ''}
+                onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, url: e.target.value } }))}
+                className={inputCls} style={inputStyle}
+                placeholder="https://mcp.example.com/sse"
+              />
+            </div>
+          )}
+
+          {/* Args */}
+          <div>
+            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>参数</label>
+            <input
+              value={(editDraft.server.args || []).join(' ')}
+              onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, args: e.target.value.split(' ').filter(Boolean) } }))}
+              className={inputCls} style={inputStyle}
+              placeholder="/path --readonly"
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>描述</label>
+            <input
+              value={editDraft.description || ''}
+              onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))}
+              className={inputCls} style={inputStyle}
+              placeholder="服务器用途说明"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-1">
             <button
-              key={key}
-              onClick={e => { e.stopPropagation(); onToggleApp(key, !enabled) }}
-              className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
-              style={{
-                background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
-                color: enabled ? color : '#6b7280',
-                border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
-              }}
-              title={`${label}: ${enabled ? '已启用' : '已禁用'}`}
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded text-[11px] font-medium transition-colors"
+              style={{ background: '#238636', color: '#fff' }}
             >
-              {label}
+              {saving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+              保存
             </button>
-          )
-        })}
-      </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 rounded text-[11px] font-medium transition-colors"
+              style={{ background: 'rgba(127,29,29,0.2)', color: '#f85149', border: '1px solid rgba(248,81,73,0.2)' }}
+            >
+              {deleting ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              删除
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
