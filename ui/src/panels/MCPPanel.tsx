@@ -8,8 +8,7 @@ import {
   X,
   Server,
   Power,
-  ChevronDown,
-  ChevronRight,
+  Settings,
   Save,
 } from 'lucide-react'
 import type { MCPToolInfo, MCPServerInfo, UnifiedMCPServer } from '../services/api'
@@ -37,7 +36,7 @@ export default function MCPPanel() {
   const [loading, setLoading] = useState(false)
   const [unifiedServers, setUnifiedServers] = useState<Record<string, UnifiedMCPServer>>({})
   const [importing, setImporting] = useState(false)
-  const [expandedServer, setExpandedServer] = useState<string | null>(null)
+  const [configServer, setConfigServer] = useState<UnifiedMCPServer | null>(null)
 
   // 从 monitoringStore 获取扫描结果
   const scannedServers = useMonitoringStore(state => state.mcpServers)
@@ -280,11 +279,8 @@ export default function MCPPanel() {
                     <UnifiedServerCard
                       key={server.id}
                       server={server}
-                      expanded={expandedServer === server.id}
-                      onToggleExpand={() => setExpandedServer(expandedServer === server.id ? null : server.id)}
                       onToggleApp={(app, enabled) => handleToggleApp(server.id, app, enabled)}
-                      onUpdated={(updated) => setUnifiedServers(prev => ({ ...prev, [updated.id]: updated }))}
-                      onDeleted={(id) => setUnifiedServers(prev => { const next = { ...prev }; delete next[id]; return next })}
+                      onConfigure={() => setConfigServer(server)}
                     />
                   ))}
                 </>
@@ -600,6 +596,16 @@ export default function MCPPanel() {
         />
       )}
 
+      {/* MCP Config Modal */}
+      {configServer && (
+        <MCPConfigModal
+          server={configServer}
+          onClose={() => setConfigServer(null)}
+          onSaved={(updated) => setUnifiedServers(prev => ({ ...prev, [updated.id]: updated }))}
+          onDeleted={(id) => setUnifiedServers(prev => { const next = { ...prev }; delete next[id]; return next })}
+        />
+      )}
+
     </div>
   )
 }
@@ -652,42 +658,137 @@ function ScannedServerCard({ server }: { server: MCPServerInfo }) {
   )
 }
 
-// 统一管理的 MCP 服务器卡片（per-agent toggle + 内联配置编辑）
-function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUpdated, onDeleted }: {
+// 统一管理的 MCP 服务器卡片（开关 + 设置按钮）
+function UnifiedServerCard({ server, onToggleApp, onConfigure }: {
   server: UnifiedMCPServer
-  expanded: boolean
-  onToggleExpand: () => void
   onToggleApp: (app: string, enabled: boolean) => void
-  onUpdated: (updated: UnifiedMCPServer) => void
+  onConfigure: () => void
+}) {
+  const apps = [
+    { key: 'claude', label: 'Claude', color: '#fb923c' },
+    { key: 'kimi', label: 'Kimi', color: '#22d3ee' },
+    { key: 'opencode', label: 'OpenCode', color: '#a78bfa' },
+    { key: 'qwen', label: 'Qwen', color: '#34d399' },
+  ]
+
+  // Check if any agent has this server enabled
+  const anyEnabled = apps.some(({ key }) => server.apps[key as keyof typeof server.apps])
+
+  return (
+    <div className="p-2.5 rounded-lg transition" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
+      {/* 顶部行：开关 + 名称 + 设置按钮 */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {/* 开关 */}
+          <button
+            role="switch"
+            aria-checked={anyEnabled}
+            onClick={() => {
+              // Toggle all apps
+              const newState = !anyEnabled
+              apps.forEach(({ key }) => onToggleApp(key, newState))
+            }}
+            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${anyEnabled ? 'bg-emerald-500/30' : 'bg-gray-600/30'}`}
+            style={{ border: `1px solid ${anyEnabled ? '#34d39955' : '#30363d'}` }}
+          >
+            <div
+              className="absolute top-0.5 w-3 h-3 rounded-full transition-transform duration-200"
+              style={{
+                transform: anyEnabled ? 'translateX(16px)' : 'translateX(2px)',
+                background: anyEnabled ? '#34d399' : '#6b7280',
+              }}
+            />
+          </button>
+          {/* 名称 */}
+          <strong className="text-xs text-white font-mono">{server.name}</strong>
+        </div>
+        <div className="flex items-center gap-1">
+          {/* 标签 */}
+          {server.tags && server.tags.length > 0 && (
+            <div className="flex gap-0.5 mr-1">
+              {server.tags.slice(0, 2).map(tag => (
+                <span key={tag} className="text-[8px] font-mono px-1 rounded" style={{ background: '#21262d', color: '#6b7280' }}>{tag}</span>
+              ))}
+            </div>
+          )}
+          {/* 设置按钮 */}
+          <button
+            onClick={onConfigure}
+            className="p-1 rounded hover:bg-[#21262d] transition-colors"
+            style={{ color: '#6b7280' }}
+            title="配置服务器"
+          >
+            <Settings size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* 命令/URL */}
+      {server.server.command && (
+        <p className="text-[10px] font-mono truncate mb-1.5" style={{ color: '#9ca3af' }}>{server.server.command}</p>
+      )}
+      {server.server.url && (
+        <p className="text-[10px] font-mono truncate mb-1.5" style={{ color: '#6b7280' }}>{server.server.url}</p>
+      )}
+
+      {/* Agent 启用状态 pills */}
+      <div className="flex flex-wrap gap-1.5">
+        {apps.map(({ key, label, color }) => {
+          const enabled = server.apps[key as keyof typeof server.apps]
+          return (
+            <button
+              key={key}
+              onClick={() => onToggleApp(key, !enabled)}
+              className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
+              style={{
+                background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
+                color: enabled ? color : '#6b7280',
+                border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// MCP 配置 Modal（UI 化设置窗口）
+function MCPConfigModal({ server, onClose, onSaved, onDeleted }: {
+  server: UnifiedMCPServer
+  onClose: () => void
+  onSaved: (updated: UnifiedMCPServer) => void
   onDeleted: (id: string) => void
 }) {
   const addToast = useAppStore(state => state.addToast)
-  const [editDraft, setEditDraft] = useState(server)
+  const [draft, setDraft] = useState(server)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // Reset draft when server changes or expand
-  useEffect(() => {
-    if (expanded) setEditDraft(server)
-  }, [expanded, server])
+  const inputCls = "w-full rounded px-2.5 py-1.5 text-[11px] font-mono outline-none focus:border-blue-500/50"
+  const inputStyle = { background: '#0d1117', border: '1px solid #30363d', color: '#d0d7de' }
+  const labelCls = "block text-[10px] font-mono uppercase mb-1"
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await api.mcp.updateServer(editDraft.id, {
-        name: editDraft.name,
+      await api.mcp.updateServer(draft.id, {
+        name: draft.name,
         server: {
-          type: editDraft.server.type,
-          command: editDraft.server.command,
-          args: editDraft.server.args,
-          url: editDraft.server.url,
-          env: editDraft.server.env,
-          headers: editDraft.server.headers,
+          type: draft.server.type,
+          command: draft.server.command,
+          args: draft.server.args,
+          url: draft.server.url,
+          env: draft.server.env,
+          headers: draft.server.headers,
         },
-        description: editDraft.description,
+        description: draft.description,
       })
-      onUpdated(editDraft)
-      addToast('success', '已保存', `${editDraft.name} 配置已更新`)
+      onSaved(draft)
+      addToast('success', '已保存', `${draft.name} 配置已更新`)
+      onClose()
     } catch (err) {
       addToast('error', '保存失败', err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -698,9 +799,10 @@ function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUp
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      await api.mcp.deleteUnifiedServer(editDraft.id)
-      onDeleted(editDraft.id)
-      addToast('success', '已删除', `${editDraft.name} 已移除`)
+      await api.mcp.deleteUnifiedServer(draft.id)
+      onDeleted(draft.id)
+      addToast('success', '已删除', `${draft.name} 已移除`)
+      onClose()
     } catch (err) {
       addToast('error', '删除失败', err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -708,105 +810,44 @@ function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUp
     }
   }
 
-  const apps = [
-    { key: 'claude', label: 'Claude', color: '#fb923c' },
-    { key: 'kimi', label: 'Kimi', color: '#22d3ee' },
-    { key: 'opencode', label: 'OpenCode', color: '#a78bfa' },
-    { key: 'qwen', label: 'Qwen', color: '#34d399' },
-  ]
-
-  const inputCls = "w-full rounded px-2 py-1 text-[11px] font-mono outline-none"
-  const inputStyle = { background: '#0d1117', border: '1px solid #30363d', color: '#d0d7de' }
-
   return (
-    <div className="rounded-lg transition" style={{ background: '#1a1f26', border: '1px solid #30363d' }}>
-      {/* Header row — click to expand/collapse */}
-      <div className="flex items-center justify-between p-2.5 cursor-pointer hover:bg-[#21262d] rounded-lg" onClick={onToggleExpand}>
-        <div className="flex items-center gap-1.5">
-          {expanded ? <ChevronDown size={12} style={{ color: '#6b7280' }} /> : <ChevronRight size={12} style={{ color: '#6b7280' }} />}
-          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-blue-500" />
-          <strong className="text-xs text-white font-mono">{server.name}</strong>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+      <div className="rounded-xl p-5 w-[480px] max-h-[85vh] overflow-y-auto shadow-2xl" style={{ background: '#1a1f26', border: '1px solid #30363d' }} role="dialog" aria-modal="true" aria-label={`配置 ${server.name}`}>
+        {/* Header */}
+        <div className="flex justify-between items-center mb-5">
+          <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#d0d7de' }}>
+            <Settings size={18} style={{ color: '#58a6ff' }} />
+            {server.name}
+          </h3>
+          <button onClick={onClose} className="p-1.5 rounded transition-colors hover:bg-[#21262d]">
+            <X size={18} style={{ color: '#9ca3af' }} />
+          </button>
         </div>
-        {server.tags && server.tags.length > 0 && (
-          <div className="flex gap-0.5">
-            {server.tags.slice(0, 2).map(tag => (
-              <span key={tag} className="text-[8px] font-mono px-1 rounded" style={{ background: '#21262d', color: '#6b7280' }}>{tag}</span>
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Collapsed: command + url + agent pills */}
-      {!expanded && (
-        <div className="px-2.5 pb-2.5 space-y-1.5">
-          {server.server.command && (
-            <p className="text-[10px] font-mono truncate" style={{ color: '#9ca3af' }}>{server.server.command}</p>
-          )}
-          {server.server.url && (
-            <p className="text-[10px] font-mono truncate" style={{ color: '#6b7280' }}>{server.server.url}</p>
-          )}
-          <div className="flex flex-wrap gap-1.5 pt-0.5">
-            {apps.map(({ key, label, color }) => {
-              const enabled = server.apps[key as keyof typeof server.apps]
-              return (
-                <button
-                  key={key}
-                  onClick={e => { e.stopPropagation(); onToggleApp(key, !enabled) }}
-                  className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
-                  style={{
-                    background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
-                    color: enabled ? color : '#6b7280',
-                    border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
-                  }}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Expanded: inline config editing */}
-      {expanded && (
-        <div className="px-2.5 pb-2.5 space-y-2 border-t" style={{ borderColor: '#30363d' }}>
-          {/* Agent toggles */}
-          <div className="pt-2">
-            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>Agent 启用</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {apps.map(({ key, label, color }) => {
-                const enabled = server.apps[key as keyof typeof server.apps]
-                return (
-                  <button
-                    key={key}
-                    onClick={() => onToggleApp(key, !enabled)}
-                    className="text-[9px] font-mono px-2 py-0.5 rounded-full transition-colors"
-                    style={{
-                      background: enabled ? `${color}22` : 'rgba(33,38,45,0.8)',
-                      color: enabled ? color : '#6b7280',
-                      border: `1px solid ${enabled ? `${color}44` : '#30363d'}`,
-                    }}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Type selector */}
+        <div className="space-y-4">
+          {/* 名称 */}
           <div>
-            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>类型</label>
-            <div className="flex gap-1 mt-1">
+            <label className={labelCls} style={{ color: '#9ca3af' }}>名称</label>
+            <input
+              value={draft.name}
+              onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+              className={inputCls} style={inputStyle}
+            />
+          </div>
+
+          {/* 类型选择 */}
+          <div>
+            <label className={labelCls} style={{ color: '#9ca3af' }}>类型</label>
+            <div className="flex gap-1.5">
               {['stdio', 'http', 'sse'].map(t => (
                 <button
                   key={t}
-                  onClick={() => setEditDraft(d => ({ ...d, server: { ...d.server, type: t } }))}
-                  className="text-[9px] font-mono px-2 py-0.5 rounded transition-colors"
+                  onClick={() => setDraft(d => ({ ...d, server: { ...d.server, type: t } }))}
+                  className="text-[10px] font-mono px-3 py-1 rounded transition-colors"
                   style={{
-                    background: editDraft.server.type === t ? 'rgba(88,166,255,0.15)' : '#21262d',
-                    color: editDraft.server.type === t ? '#58a6ff' : '#6b7280',
-                    border: `1px solid ${editDraft.server.type === t ? '#58a6ff33' : '#30363d'}`,
+                    background: draft.server.type === t ? 'rgba(88,166,255,0.15)' : '#21262d',
+                    color: draft.server.type === t ? '#58a6ff' : '#6b7280',
+                    border: `1px solid ${draft.server.type === t ? '#58a6ff33' : '#30363d'}`,
                   }}
                 >
                   {t}
@@ -815,13 +856,13 @@ function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUp
             </div>
           </div>
 
-          {/* Command (stdio) */}
-          {(editDraft.server.type === 'stdio' || !editDraft.server.type) && (
+          {/* 命令 (stdio) */}
+          {(draft.server.type === 'stdio' || !draft.server.type) && (
             <div>
-              <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>命令</label>
+              <label className={labelCls} style={{ color: '#9ca3af' }}>命令</label>
               <input
-                value={editDraft.server.command || ''}
-                onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, command: e.target.value } }))}
+                value={draft.server.command || ''}
+                onChange={e => setDraft(d => ({ ...d, server: { ...d.server, command: e.target.value } }))}
                 className={inputCls} style={inputStyle}
                 placeholder="npx -y @modelcontextprotocol/server-filesystem"
               />
@@ -829,63 +870,91 @@ function UnifiedServerCard({ server, expanded, onToggleExpand, onToggleApp, onUp
           )}
 
           {/* URL (http/sse) */}
-          {(editDraft.server.type === 'http' || editDraft.server.type === 'sse') && (
+          {(draft.server.type === 'http' || draft.server.type === 'sse') && (
             <div>
-              <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>URL</label>
+              <label className={labelCls} style={{ color: '#9ca3af' }}>URL</label>
               <input
-                value={editDraft.server.url || ''}
-                onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, url: e.target.value } }))}
+                value={draft.server.url || ''}
+                onChange={e => setDraft(d => ({ ...d, server: { ...d.server, url: e.target.value } }))}
                 className={inputCls} style={inputStyle}
                 placeholder="https://mcp.example.com/sse"
               />
             </div>
           )}
 
-          {/* Args */}
+          {/* 参数 */}
           <div>
-            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>参数</label>
+            <label className={labelCls} style={{ color: '#9ca3af' }}>参数</label>
             <input
-              value={(editDraft.server.args || []).join(' ')}
-              onChange={e => setEditDraft(d => ({ ...d, server: { ...d.server, args: e.target.value.split(' ').filter(Boolean) } }))}
+              value={(draft.server.args || []).join(' ')}
+              onChange={e => setDraft(d => ({ ...d, server: { ...d.server, args: e.target.value.split(' ').filter(Boolean) } }))}
               className={inputCls} style={inputStyle}
               placeholder="/path --readonly"
             />
           </div>
 
-          {/* Description */}
+          {/* 环境变量 */}
           <div>
-            <label className="text-[9px] font-mono uppercase" style={{ color: '#6b7280' }}>描述</label>
+            <label className={labelCls} style={{ color: '#9ca3af' }}>环境变量</label>
+            <textarea
+              rows={2}
+              value={Object.entries(draft.server.env || {}).map(([k, v]) => `${k}=${v}`).join('\n')}
+              onChange={e => {
+                const env: Record<string, string> = {}
+                e.target.value.split('\n').forEach(line => {
+                  const [key, ...vals] = line.split('=')
+                  if (key && vals.length > 0) env[key.trim()] = vals.join('=').trim()
+                })
+                setDraft(d => ({ ...d, server: { ...d.server, env } }))
+              }}
+              className="w-full rounded px-2.5 py-1.5 text-[11px] font-mono outline-none resize-none"
+              style={{ ...inputStyle, minHeight: '40px' }}
+              placeholder="KEY=value"
+            />
+          </div>
+
+          {/* 描述 */}
+          <div>
+            <label className={labelCls} style={{ color: '#9ca3af' }}>描述</label>
             <input
-              value={editDraft.description || ''}
-              onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))}
+              value={draft.description || ''}
+              onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
               className={inputCls} style={inputStyle}
               placeholder="服务器用途说明"
             />
           </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded text-[11px] font-medium transition-colors"
-              style={{ background: '#238636', color: '#fff' }}
-            >
-              {saving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
-              保存
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 rounded text-[11px] font-medium transition-colors"
-              style={{ background: 'rgba(127,29,29,0.2)', color: '#f85149', border: '1px solid rgba(248,81,73,0.2)' }}
-            >
-              {deleting ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={11} />}
-              删除
-            </button>
-          </div>
         </div>
-      )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 mt-6 pt-4" style={{ borderTop: '1px solid #30363d' }}>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-sm rounded hover:bg-[#21262d] transition-colors"
+            style={{ color: '#9ca3af' }}
+          >
+            取消
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors"
+            style={{ background: 'rgba(127,29,29,0.2)', color: '#f85149', border: '1px solid rgba(248,81,73,0.2)' }}
+          >
+            {deleting ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            删除
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-sm rounded transition-colors"
+            style={{ background: '#238636', color: '#fff' }}
+          >
+            {saving ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />}
+            保存
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
