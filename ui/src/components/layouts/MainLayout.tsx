@@ -301,7 +301,7 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
-                代码编辑器 & Diff (Monaco Editor)
+                代码编辑器 & Diff (CodeMirror)
                 <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.2 rounded font-mono">MainLayout.tsx</span>
               </button>
             </div>

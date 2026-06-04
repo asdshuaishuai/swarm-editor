@@ -253,6 +253,7 @@ interface MonitoringState {
   refreshA2A: () => Promise<void>
   refreshAuditStats: () => Promise<void>
   addAuditEvent: (event: AuditEvent) => void
+  addAuditEventBatched: (event: AuditEvent) => void
   addMCPInvocation: (inv: MCPInvocation) => void
   initialLoad: () => Promise<void>
   subscribeToEvents: () => () => void
@@ -275,6 +276,48 @@ function computeDerived(events: AuditEvent[]) {
   }
 
   return { acpPackets, activityEntries, daemonLogs }
+}
+
+// ---------------------------------------------------------------------------
+// Event batching — collect events and flush once per animation frame
+// ---------------------------------------------------------------------------
+
+let pendingAuditEvents: AuditEvent[] = []
+let flushScheduled = false
+
+function scheduleFlush(addAuditEvent: (e: AuditEvent) => void) {
+  if (flushScheduled) return
+  flushScheduled = true
+  requestAnimationFrame(() => {
+    const batch = pendingAuditEvents
+    pendingAuditEvents = []
+    flushScheduled = false
+    for (const event of batch) {
+      addAuditEvent(event)
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Throttle helper — drop duplicate calls within `ms` window
+// ---------------------------------------------------------------------------
+
+function throttle<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+  let last = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return ((...args: unknown[]) => {
+    const now = Date.now()
+    if (now - last >= ms) {
+      last = now
+      fn(...args)
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        last = Date.now()
+        timer = null
+        fn(...args)
+      }, ms - (now - last))
+    }
+  }) as T
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +418,12 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
     })
   },
 
+  // Batched version — queues event for next frame flush instead of immediate set()
+  addAuditEventBatched: (event: AuditEvent) => {
+    pendingAuditEvents.push(event)
+    scheduleFlush(get().addAuditEvent)
+  },
+
   addMCPInvocation: (inv: MCPInvocation) => {
     set((state) => ({
       mcpInvocations: [...state.mcpInvocations, inv].slice(-MAX_AUDIT_EVENTS),
@@ -427,24 +476,31 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
 
   subscribeToEvents: () => {
     const cleanups: Array<() => void> = []
+    const batched = get().addAuditEventBatched
+    const eventId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-    // Audit event stream (real-time push from backend)
+    // Throttled refresh functions — max once per 2s for high-frequency triggers
+    const throttledRefreshMCP = throttle(() => get().refreshMCPServers(), 2000)
+    const throttledRefreshA2A = throttle(() => get().refreshA2A(), 2000)
+    const throttledRefreshStats = throttle(() => get().refreshAuditStats(), 2000)
+
+    // --- Core data events (immediate, not audit-derived) ---
+
     cleanups.push(
       events.subscribe('audit_event', (payload: unknown) => {
         const event = payload as AuditEvent
         if (event?.id) {
-          get().addAuditEvent(event)
+          // Use batched — coalesces into one set() per animation frame
+          batched(event)
         }
       }),
     )
 
-    // A2A message log updates
     cleanups.push(
       events.subscribe('a2a_message', (payload: unknown) => {
         const entry = payload as A2ALogEntry
         if (entry?.id) {
           set((state) => {
-            // Deduplicate
             if (state.a2aMessages.some((m) => m.id === entry.id)) return state
             return {
               a2aMessages: [...state.a2aMessages, entry].slice(-MAX_AUDIT_EVENTS),
@@ -454,7 +510,6 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // MCP tool invocation events
     cleanups.push(
       events.subscribe('mcp_tool_invoked', (payload: unknown) => {
         const inv = payload as MCPInvocation
@@ -464,28 +519,14 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // MCP server status changes — refresh the full list
-    cleanups.push(
-      events.subscribe('mcp_server_status', () => {
-        get().refreshMCPServers()
-      }),
-    )
+    // --- Status refresh events (throttled) ---
 
-    // A2A status changes
-    cleanups.push(
-      events.subscribe('a2a_status_change', () => {
-        get().refreshA2A()
-      }),
-    )
+    cleanups.push(events.subscribe('mcp_server_status', throttledRefreshMCP))
+    cleanups.push(events.subscribe('a2a_status_change', throttledRefreshA2A))
+    cleanups.push(events.subscribe('audit_stats_changed', throttledRefreshStats))
 
-    // Audit stats refresh (e.g. after clear)
-    cleanups.push(
-      events.subscribe('audit_stats_changed', () => {
-        get().refreshAuditStats()
-      }),
-    )
+    // --- Agent lifecycle events (batched audit) ---
 
-    // Agent status changes — generate AGENT_START / AGENT_STOP activity entries
     cleanups.push(
       events.subscribe('agent_status_change', (payload: unknown) => {
         const p = payload as { agentId: string; state: string }
@@ -497,9 +538,9 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
         } else if (state === 'stopped' || state === 'offline' || state === 'terminated') {
           eventType = 'agent_stop'
         } else {
-          return // ignore intermediate states
+          return
         }
-        get().addAuditEvent({
+        batched({
           id: `agent_status_${p.agentId}_${Date.now()}`,
           timestamp: new Date().toISOString(),
           eventType,
@@ -512,97 +553,41 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Supervisor alerts — agent health issues
-    cleanups.push(
-      events.subscribe('supervisor_alert', (payload: unknown) => {
-        const p = payload as { agentId?: string; message?: string; severity?: string }
-        get().addAuditEvent({
-          id: `supervisor_alert_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'security_gate',
-          actor: 'supervisor',
-          action: p?.message || 'supervisor alert',
-          resourceType: 'agent',
-          resourceId: p?.agentId || 'unknown',
-          success: false,
-        })
-      }),
-    )
+    // --- Supervisor events (low frequency, immediate) ---
 
-    // Agent health degraded
-    cleanups.push(
-      events.subscribe('agent_health_degraded', (payload: unknown) => {
-        const p = payload as { agentId?: string }
-        get().addAuditEvent({
-          id: `health_degraded_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'security_gate',
-          actor: 'supervisor',
-          action: 'agent health degraded',
-          resourceType: 'agent',
-          resourceId: p?.agentId || 'unknown',
-          success: false,
-        })
-      }),
-    )
+    for (const [evt, eventType, actionTpl] of [
+      ['supervisor_alert', 'security_gate', (p: Record<string, unknown>) => (p?.message as string) || 'supervisor alert'],
+      ['agent_health_degraded', 'security_gate', () => 'agent health degraded'],
+      ['agent_stuck', 'security_gate', (p: Record<string, unknown>) => `agent stuck (${(p?.duration as string) || 'unknown duration'})`],
+      ['agent_recovered', 'agent_start', () => 'agent recovered'],
+    ] as const) {
+      cleanups.push(
+        events.subscribe(evt, (payload: unknown) => {
+          const p = payload as { agentId?: string; message?: string; duration?: string }
+          batched({
+            id: `${evt}_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            eventType,
+            actor: 'supervisor',
+            action: actionTpl(p || {}),
+            resourceType: 'agent',
+            resourceId: p?.agentId || 'unknown',
+            success: eventType === 'agent_start',
+          })
+        }),
+      )
+    }
 
-    // Agent recovered
-    cleanups.push(
-      events.subscribe('agent_recovered', (payload: unknown) => {
-        const p = payload as { agentId?: string }
-        get().addAuditEvent({
-          id: `agent_recovered_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'agent_start',
-          actor: 'supervisor',
-          action: 'agent recovered',
-          resourceType: 'agent',
-          resourceId: p?.agentId || 'unknown',
-          success: true,
-        })
-      }),
-    )
+    // --- Swarm events (HIGH FREQUENCY — batched, no individual audit for stats) ---
 
-    // Agent stuck
-    cleanups.push(
-      events.subscribe('agent_stuck', (payload: unknown) => {
-        const p = payload as { agentId?: string; duration?: string }
-        get().addAuditEvent({
-          id: `agent_stuck_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'security_gate',
-          actor: 'supervisor',
-          action: `agent stuck (${p?.duration || 'unknown duration'})`,
-          resourceType: 'agent',
-          resourceId: p?.agentId || 'unknown',
-          success: false,
-        })
-      }),
-    )
+    // swarm_stats: dropped as audit event — too noisy, only useful for UI panels directly
+    // Panels that need swarm_stats should subscribe to the event directly via events.subscribe
 
-    // Swarm stats updates
-    cleanups.push(
-      events.subscribe('swarm_stats', (payload: unknown) => {
-        const p = payload as { swarmId?: string }
-        get().addAuditEvent({
-          id: `swarm_stats_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'swarm_stats',
-          actor: 'swarm',
-          action: 'stats updated',
-          resourceType: 'swarm',
-          resourceId: p?.swarmId || 'unknown',
-          success: true,
-        })
-      }),
-    )
-
-    // Swarm status change (already wired elsewhere but also log as audit event)
     cleanups.push(
       events.subscribe('swarm_status_change', (payload: unknown) => {
         const p = payload as { swarmId?: string; status?: string }
-        get().addAuditEvent({
-          id: `swarm_status_${Date.now()}`,
+        batched({
+          id: eventId('swarm_status'),
           timestamp: new Date().toISOString(),
           eventType: 'swarm_status',
           actor: 'swarm',
@@ -614,12 +599,12 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Swarm task updates
+    // swarm_task_update: batched, dedup by taskId within same frame
     cleanups.push(
       events.subscribe('swarm_task_update', (payload: unknown) => {
         const p = payload as { taskId?: string; status?: string; swarmId?: string }
-        get().addAuditEvent({
-          id: `task_update_${Date.now()}`,
+        batched({
+          id: eventId('task_update'),
           timestamp: new Date().toISOString(),
           eventType: 'task_update',
           actor: 'swarm',
@@ -631,13 +616,14 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Handoff events
+    // --- Handoff events (batched) ---
+
     for (const evt of ['handoff_requested', 'handoff_accepted', 'handoff_rejected', 'handoff_completed'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { fromAgent?: string; toAgent?: string; taskId?: string }
-          get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+          batched({
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'handoff',
             actor: p?.fromAgent || 'unknown',
@@ -650,13 +636,14 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       )
     }
 
-    // Workflow events
+    // --- Workflow events (batched) ---
+
     for (const evt of ['workflow_status_change', 'workflow_node_start', 'workflow_node_complete', 'workflow_node_heartbeat', 'workflow_chain_completed', 'workflow_node_cached'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { workflowId?: string; nodeId?: string }
-          get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+          batched({
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'workflow',
             actor: 'workflow',
@@ -669,12 +656,13 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       )
     }
 
-    // Team messages
+    // --- Team/Automation/Turn events (batched) ---
+
     cleanups.push(
       events.subscribe('team_message', (payload: unknown) => {
-        const p = payload as { from?: string; teamId?: string; content?: string }
-        get().addAuditEvent({
-          id: `team_msg_${Date.now()}`,
+        const p = payload as { from?: string; teamId?: string }
+        batched({
+          id: eventId('team_msg'),
           timestamp: new Date().toISOString(),
           eventType: 'a2a_message',
           actor: p?.from || 'unknown',
@@ -686,12 +674,11 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Automation triggered
     cleanups.push(
       events.subscribe('automation_triggered', (payload: unknown) => {
         const p = payload as { rule?: string; trigger?: string }
-        get().addAuditEvent({
-          id: `automation_${Date.now()}`,
+        batched({
+          id: eventId('automation'),
           timestamp: new Date().toISOString(),
           eventType: 'exec',
           actor: 'automation',
@@ -703,13 +690,12 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Agent turn start/end
     for (const evt of ['agent_turn_start', 'agent_turn_end'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { agentId?: string }
-          get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+          batched({
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: evt === 'agent_turn_start' ? 'agent_start' : 'agent_stop',
             actor: p?.agentId || 'unknown',
@@ -722,13 +708,14 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       )
     }
 
-    // Swarm algorithm events (queen election, interrupts, recovery)
+    // --- Swarm algorithm events (batched) ---
+
     for (const evt of ['queen_elected', 'queen_abdicated', 'backup_activated'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { swarmId?: string; queenId?: string }
-          get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+          batched({
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'swarm_election',
             actor: p?.queenId || 'queen',
@@ -744,9 +731,9 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
     for (const evt of ['agent_interrupted', 'task_checkpointed', 'task_resumed', 'task_recovered'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { agentId?: string; taskId?: string; swarmId?: string; reason?: string }
-          get().addAuditEvent({
-            id: `${evt}_${Date.now()}`,
+          const p = payload as { agentId?: string; taskId?: string; reason?: string }
+          batched({
+            id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'task_interrupt',
             actor: p?.agentId || 'agent',
@@ -763,8 +750,8 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
     cleanups.push(
       events.subscribe('role_assigned', (payload: unknown) => {
         const p = payload as { agentId?: string; role?: string; taskId?: string }
-        get().addAuditEvent({
-          id: `role_assigned_${Date.now()}`,
+        batched({
+          id: eventId('role_assigned'),
           timestamp: new Date().toISOString(),
           eventType: 'role_assignment',
           actor: p?.agentId || 'agent',
@@ -776,15 +763,13 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Helper: generate collision-resistant audit event IDs.
-    const eventId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    // --- Verification events (batched) ---
 
-    // Verification events (auto lint feedback loop)
     for (const evt of ['verification_started', 'verification_passed', 'verification_failed', 'verification_escalated'] as const) {
       cleanups.push(
         events.subscribe(evt, (payload: unknown) => {
           const p = payload as { patchId?: string; agentId?: string; path?: string; errors?: unknown[]; retryCount?: number }
-          get().addAuditEvent({
+          batched({
             id: eventId(evt),
             timestamp: new Date().toISOString(),
             eventType: 'verification',
@@ -799,11 +784,10 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       )
     }
 
-    // Sensitive command interception (Design Doc S6: HITL gateway)
     cleanups.push(
       events.subscribe('sensitive_command_intercepted', (payload: unknown) => {
-        const p = payload as { agentId?: string; sessionId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
-        get().addAuditEvent({
+        const p = payload as { agentId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
+        batched({
           id: eventId('sensitive'),
           timestamp: new Date().toISOString(),
           eventType: 'security_gate',
@@ -817,15 +801,13 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // ===== Periodic scan events (push from backend background scanner) =====
+    // --- Scan result events (immediate data update + batched audit) ---
 
-    // agents_scanned — update appStore.agents with discovered agents
     cleanups.push(
       events.subscribe('agents_scanned', (payload: unknown) => {
         const p = payload as { agents?: Array<{ id: string; name: string; type: string; state: string; command?: string; description?: string; capabilities?: string[] }> }
         if (!p?.agents) return
 
-        // 使用 agentInfoToAgent 转换扫描结果
         const agents = p.agents.map(a => agentInfoToAgent({
           id: a.id,
           name: a.name,
@@ -839,16 +821,11 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
 
         const appStore = useAppStore.getState()
         const existingIds = new Set(appStore.agents.map(a => a.id))
-
-        // 合并：保留已注册的，更新已存在的，添加新的
         const merged = [...appStore.agents]
         for (const agent of agents) {
           if (existingIds.has(agent.id)) {
-            // 更新已存在的 agent 状态
             const idx = merged.findIndex(a => a.id === agent.id)
-            if (idx >= 0) {
-              merged[idx] = { ...merged[idx], ...agent }
-            }
+            if (idx >= 0) merged[idx] = { ...merged[idx], ...agent }
           } else {
             merged.push(agent)
             existingIds.add(agent.id)
@@ -856,7 +833,7 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
         }
         appStore.setAgents(merged)
 
-        get().addAuditEvent({
+        batched({
           id: eventId('agents_scanned'),
           timestamp: new Date().toISOString(),
           eventType: 'agent_scan',
@@ -869,14 +846,12 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // mcp_servers_scanned — update mcpServers directly
     cleanups.push(
       events.subscribe('mcp_servers_scanned', (payload: unknown) => {
         const p = payload as { servers?: MCPServerInfo[]; count?: number }
         if (!p?.servers) return
         set({ mcpServers: p.servers })
-
-        get().addAuditEvent({
+        batched({
           id: eventId('mcp_scanned'),
           timestamp: new Date().toISOString(),
           eventType: 'mcp_scan',
@@ -889,14 +864,12 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // skills_scanned — update skills directly
     cleanups.push(
       events.subscribe('skills_scanned', (payload: unknown) => {
         const p = payload as { skills?: SkillInfo[]; count?: number }
         if (!p?.skills) return
         set({ skills: p.skills })
-
-        get().addAuditEvent({
+        batched({
           id: eventId('skills_scanned'),
           timestamp: new Date().toISOString(),
           eventType: 'skill_scan',
@@ -909,11 +882,8 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       }),
     )
 
-    // Combine all cleanups into one
     return () => {
-      for (const cleanup of cleanups) {
-        cleanup()
-      }
+      for (const cleanup of cleanups) cleanup()
     }
   },
 }))

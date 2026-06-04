@@ -33,7 +33,7 @@ export function onTabFocusModeChange(fn: () => void): () => void {
  * Key Insight #44: Ctrl+M toggles Tab key behavior between inserting a tab character
  * and moving focus to the next UI element. This is a WCAG 2.1 essential pattern —
  * without it, keyboard-only users cannot Tab out of the editor. When active, the
- * Tab key is intercepted at the capture phase and prevented from reaching Monaco.
+ * Tab key is intercepted at the capture phase and prevented from reaching the editor.
  *
  * Key Insight #45: Ctrl+Shift+PgUp/PgDn moves the active tab left/right in the tab bar.
  * This is a VS Code standard for reorganizing tabs without a mouse. The reorderFiles
@@ -249,10 +249,10 @@ export function TabSwitcher() {
         return
       }
 
-      // When tabMovesFocus is active, intercept Tab to prevent Monaco from consuming it
+      // When tabMovesFocus is active, intercept Tab to prevent editor from consuming it
       if (tabMovesFocus && e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const target = e.target as HTMLElement
-        if (target.closest('.monaco-editor')) {
+        if (target.closest('.cm-editor')) {
           e.preventDefault()
           e.stopPropagation()
           // Find all focusable elements and move focus to next/prev outside editor
@@ -265,7 +265,7 @@ export function TabSwitcher() {
           const direction = e.shiftKey ? -1 : 1
           for (let i = 1; i < allFocusable.length; i++) {
             const checkIdx = ((currentIdx + i * direction) % allFocusable.length + allFocusable.length) % allFocusable.length
-            if (!allFocusable[checkIdx].closest('.monaco-editor')) {
+            if (!allFocusable[checkIdx].closest('.cm-editor')) {
               allFocusable[checkIdx].focus()
               return
             }
@@ -294,7 +294,7 @@ export function TabSwitcher() {
       }
     }
 
-    // All handlers in capture phase to reliably beat Monaco
+    // All handlers in capture phase to reliably beat editor Tab handling
     document.addEventListener('keydown', handleKeyDown, true)
     document.addEventListener('keyup', handleKeyUp)
 

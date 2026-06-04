@@ -54,6 +54,11 @@ function makeEvent(overrides: Partial<AuditEvent> & { id: string }): AuditEvent 
 describe('monitoringStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Mock requestAnimationFrame to fire synchronously for batched events
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    })
     useMonitoringStore.setState({
       auditEvents: [],
       auditStats: null,
@@ -670,23 +675,7 @@ describe('monitoringStore', () => {
       expect(useMonitoringStore.getState().auditEvents[0].action).toContain('unknown duration')
     })
 
-    // --- swarm_stats callback ---
-    it('swarm_stats creates audit event', () => {
-      useMonitoringStore.getState().subscribeToEvents()
-      const cb = getCallback('swarm_stats')
-      cb({ swarmId: 'sw1' })
-      const events = useMonitoringStore.getState().auditEvents
-      expect(events).toHaveLength(1)
-      expect(events[0].eventType).toBe('swarm_stats')
-      expect(events[0].resourceId).toBe('sw1')
-    })
-
-    it('swarm_stats with missing swarmId uses unknown', () => {
-      useMonitoringStore.getState().subscribeToEvents()
-      const cb = getCallback('swarm_stats')
-      cb({})
-      expect(useMonitoringStore.getState().auditEvents[0].resourceId).toBe('unknown')
-    })
+    // --- swarm_stats: no longer subscribed (too noisy for audit stream) ---
 
     // --- swarm_status_change callback ---
     it('swarm_status_change creates audit event with status', () => {
