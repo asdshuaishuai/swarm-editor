@@ -321,7 +321,7 @@ MCP:    mcp-servers.json       → sync → 各 agent 配置文件的 mcpServers
 Skills: skills.json            → sync → ~/.claude/skills/, ~/.kimi/skills/, ...
 ```
 
-每个都是：**统一存储 → per-agent 同步 → WebSocket API → UI 管理**
+每个都是：**统一存储 → per-agent 同步 → Tauri IPC API → UI 管理**
 
 **扫描架构**：
 - 扫描与连接解耦，独立触发
