@@ -1,0 +1,134 @@
+<h2>模块 13: MCP 导入 Modal</h2>
+<p class="subtitle">从 Agent 配置文件扫描并导入 MCP 服务器 — 来源展示 + 一键导入</p>
+
+<div class="mockup">
+  <div class="mockup-header">MCP 导入 Modal 详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:20px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:460px;margin:0 auto;background:#1a1f26;border:1px solid #30363d;border-radius:10px;overflow:hidden;">
+
+      <!-- Header -->
+      <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #30363d;">
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#d0d7de;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          导入 MCP 服务器
+        </span>
+        <span style="cursor:pointer;color:#6b7280;font-size:16px;">&times;</span>
+      </div>
+
+      <!-- 扫描状态 -->
+      <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;background:rgba(88,166,255,0.05);border-bottom:1px solid #30363d;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" style="animation:spin 1s linear infinite;"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span style="font-size:10px;color:#58a6ff;">正在扫描 Agent 配置文件...</span>
+      </div>
+
+      <!-- 扫描来源 -->
+      <div style="padding:12px 16px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">扫描来源</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <!-- Claude -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0;"></span>
+            <span style="font-size:10px;color:#d1d5db;flex:1;">Claude Code</span>
+            <span style="font-size:9px;color:#6b7280;font-family:monospace;">~/.claude.json</span>
+            <span style="font-size:9px;padding:1px 5px;background:rgba(63,185,80,0.15);color:#3fb950;border-radius:3px;">3 个服务器</span>
+          </div>
+          <!-- Kimi -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0;"></span>
+            <span style="font-size:10px;color:#d1d5db;flex:1;">Kimi Code</span>
+            <span style="font-size:9px;color:#6b7280;font-family:monospace;">~/.kimi/mcp.json</span>
+            <span style="font-size:9px;padding:1px 5px;background:rgba(63,185,80,0.15);color:#3fb950;border-radius:3px;">2 个服务器</span>
+          </div>
+          <!-- OpenCode -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0;"></span>
+            <span style="font-size:10px;color:#d1d5db;flex:1;">OpenCode</span>
+            <span style="font-size:9px;color:#6b7280;font-family:monospace;">~/.config/opencode/opencode.json</span>
+            <span style="font-size:9px;padding:1px 5px;background:rgba(63,185,80,0.15);color:#3fb950;border-radius:3px;">1 个服务器</span>
+          </div>
+          <!-- Qwen -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#f0883e;flex-shrink:0;"></span>
+            <span style="font-size:10px;color:#d1d5db;flex:1;">Qwen Code</span>
+            <span style="font-size:9px;color:#6b7280;font-family:monospace;">~/.qwen/settings.json</span>
+            <span style="font-size:9px;padding:1px 5px;background:rgba(240,136,62,0.15);color:#f0883e;border-radius:3px;">0 个服务器</span>
+          </div>
+          <!-- 全局配置 -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0;"></span>
+            <span style="font-size:10px;color:#d1d5db;flex:1;">全局配置</span>
+            <span style="font-size:9px;color:#6b7280;font-family:monospace;">~/.swarm-editor/mcp.json</span>
+            <span style="font-size:9px;padding:1px 5px;background:rgba(63,185,80,0.15);color:#3fb950;border-radius:3px;">2 个服务器</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 发现的服务器列表 -->
+      <div style="padding:0 16px 12px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">发现的服务器 (8)</div>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;">
+          <!-- Server 1 -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:4px;">
+            <input type="checkbox" checked style="accent-color:#58a6ff;width:14px;height:14px;"/>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;font-weight:600;color:#d1d5db;">filesystem</div>
+              <div style="font-size:8px;color:#6b7280;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">npx @anthropic/mcp-fs</div>
+            </div>
+            <span style="font-size:8px;padding:1px 4px;background:rgba(251,146,60,0.15);color:#fb923c;border-radius:2px;">Claude</span>
+          </div>
+          <!-- Server 2 -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:4px;">
+            <input type="checkbox" checked style="accent-color:#58a6ff;width:14px;height:14px;"/>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;font-weight:600;color:#d1d5db;">github</div>
+              <div style="font-size:8px;color:#6b7280;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">npx @anthropic/mcp-gh</div>
+            </div>
+            <span style="font-size:8px;padding:1px 4px;background:rgba(251,146,60,0.15);color:#fb923c;border-radius:2px;">Claude</span>
+          </div>
+          <!-- Server 3 -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:4px;">
+            <input type="checkbox" checked style="accent-color:#58a6ff;width:14px;height:14px;"/>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;font-weight:600;color:#d1d5db;">code-graph</div>
+              <div style="font-size:8px;color:#6b7280;font-family:monospace;">localhost:3100</div>
+            </div>
+            <span style="font-size:8px;padding:1px 4px;background:rgba(240,136,62,0.15);color:#f0883e;border-radius:2px;">HTTP</span>
+          </div>
+          <!-- Server 4 (unchecked) -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:4px;opacity:0.6;">
+            <input type="checkbox" style="accent-color:#58a6ff;width:14px;height:14px;"/>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;font-weight:600;color:#8b949e;">memory</div>
+              <div style="font-size:8px;color:#6b7280;font-family:monospace;">npx @anthropic/mcp-mem</div>
+            </div>
+            <span style="font-size:8px;padding:1px 4px;background:rgba(34,211,238,0.15);color:#22d3ee;border-radius:2px;">Kimi</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:12px 16px;border-top:1px solid #30363d;display:flex;align-items:center;gap:8px;">
+        <button style="padding:6px 14px;background:transparent;border:1px solid #30363d;border-radius:6px;font-size:10px;color:#9ca3af;cursor:pointer;">取消</button>
+        <div style="flex:1;"></div>
+        <span style="font-size:9px;color:#6b7280;">已选 3 / 8</span>
+        <button style="padding:6px 16px;background:#238636;border:1px solid #2ea043;border-radius:6px;font-size:10px;color:white;cursor:pointer;font-weight:600;">
+          导入选中
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>扫描来源</strong>：显示每个 Agent 的配置文件路径和发现数量，绿点=已扫描，橙点=无结果</li>
+  <li><strong>服务器列表</strong>：checkbox 多选，显示名称 + 命令/URL + 来源 Agent 标签</li>
+  <li><strong>全选/反选</strong>：顶部 checkbox 控制</li>
+  <li><strong>计数</strong>：底部显示已选数量</li>
+  <li><strong>触发方式</strong>：MCP 面板顶部的"导入"按钮</li>
+  <li><strong>去重</strong>：同名服务器合并来源标签</li>
+</ul>
+
+<style>
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>

@@ -33,7 +33,6 @@ const AGENT_ICONS: Record<string, string> = {
   'cline': '□',
   'qwen-code': '◆',
   'gemini-cli': '◇',
-  'soloncode': '◈',
   'default': '□',
 }
 

@@ -5,8 +5,8 @@ import { useAppStore } from '../store/appStore'
 import { api } from '../services'
 import type { CoordinationTask } from '../types'
 
-// Captured subscribe handlers so tests can fire WS events
-let capturedSubscribeHandler: ((data: unknown) => void) | null = null
+// Captured subscribe handlers by event type so tests can fire WS events
+let capturedHandlers: Record<string, (data: unknown) => void> = {}
 const mockUnsubscribe = vi.fn()
 
 vi.mock('../store/appStore', () => ({
@@ -68,8 +68,8 @@ vi.mock('../utils', () => ({
 // Mock WebSocket client
 vi.mock('../services/websocket', () => ({
   getWebSocketClient: () => ({
-    subscribe: (_eventType: string, handler: (data: unknown) => void) => {
-      capturedSubscribeHandler = handler
+    subscribe: (eventType: string, handler: (data: unknown) => void) => {
+      capturedHandlers[eventType] = handler
       return mockUnsubscribe
     },
   }),
@@ -1898,7 +1898,7 @@ describe('testSelectedTaskId invalid ID', () => {
 describe('WebSocket swarm_task_update event', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: 'swarm-1', name: 'Test Swarm' },
@@ -1936,7 +1936,7 @@ describe('WebSocket swarm_task_update event', () => {
 
     // Fire a WebSocket event to update the task
     act(() => {
-      capturedSubscribeHandler!({
+      capturedHandlers['swarm_task_update']!({
         taskId: 'ws-task-1',
         status: 'running',
         progress: 0.5,
@@ -1971,7 +1971,7 @@ describe('WebSocket swarm_task_update event', () => {
 
     // Update progress via WS
     act(() => {
-      capturedSubscribeHandler!({
+      capturedHandlers['swarm_task_update']!({
         taskId: 'ws-prog-task',
         status: 'running',
         progress: 0.75,
@@ -2003,7 +2003,7 @@ describe('WebSocket swarm_task_update event', () => {
 
     // Update without progress field
     act(() => {
-      capturedSubscribeHandler!({
+      capturedHandlers['swarm_task_update']!({
         taskId: 'ws-noprog',
         status: 'running',
       })
@@ -2033,7 +2033,7 @@ describe('WebSocket swarm_task_update event', () => {
 
     // Fire event for unknown task
     act(() => {
-      capturedSubscribeHandler!({
+      capturedHandlers['swarm_task_update']!({
         taskId: 'unknown-task-999',
         status: 'running',
         progress: 0.5,
@@ -2054,13 +2054,13 @@ describe('WebSocket swarm_task_update event', () => {
   })
 })
 
-describe('Polling fallback for active swarm', () => {
+describe('Task completion via events', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
-        activeSwarm: { id: 'swarm-1', name: 'Poll Swarm' },
+        activeSwarm: { id: 'swarm-1', name: 'Event Swarm' },
         addToast: vi.fn(),
       }
       return selector ? selector(state) : state
@@ -2071,11 +2071,11 @@ describe('Polling fallback for active swarm', () => {
     vi.useRealTimers()
   })
 
-  it('marks running tasks as completed when backend returns no running tasks', async () => {
+  it('marks running task as completed via swarm_task_completed event', () => {
     const tasks: CoordinationTask[] = [
       {
-        id: 'poll-task-1',
-        title: 'Poll Running Task',
+        id: 'evt-task-1',
+        title: 'Event Task',
         description: 'Running',
         prompt: 'Test',
         priority: 'medium',
@@ -2087,65 +2087,25 @@ describe('Polling fallback for active swarm', () => {
       },
     ]
 
-    // getSwarmTasks returns empty list (no running tasks)
-    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([])
-
     render(<SwarmCoordinatorPanel initialTasks={tasks} />)
 
-    // Advance by 10s to trigger polling
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000)
+    act(() => {
+      capturedHandlers['swarm_task_completed']!({ taskId: 'evt-task-1' })
     })
 
-    // The running task should be marked as completed
     expect(screen.getByText('Completed')).toBeInTheDocument()
   })
 
-  it('does not mark tasks completed when backend still has running tasks', async () => {
+  it('updates selectedTask to completed via swarm_task_completed event', () => {
     const tasks: CoordinationTask[] = [
       {
-        id: 'poll-task-2',
-        title: 'Still Running',
-        description: 'Still running',
+        id: 'sel-evt-task',
+        title: 'Selected Event Task',
+        description: 'Selected and running',
         prompt: 'Test',
         priority: 'medium',
         status: 'running',
-        progress: 0.5,
-        assignedTo: [],
-        results: {},
-        createdAt: new Date().toISOString(),
-      },
-    ]
-
-    // Backend still has running tasks
-    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([
-      { id: 'poll-task-2', title: '', description: '', status: 'running', priority: 'medium', createdAt: new Date().toISOString() },
-    ])
-
-    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000)
-    })
-
-    // Should still show Running stat (not completed)
-    const runningCards = screen.getAllByText('Running')
-    expect(runningCards.length).toBeGreaterThan(0)
-  })
-
-  it('handles polling error gracefully', async () => {
-    const { logger } = await import('../utils')
-    vi.mocked(api.swarm.getSwarmTasks).mockRejectedValue(new Error('Network error'))
-
-    const tasks: CoordinationTask[] = [
-      {
-        id: 'poll-error-task',
-        title: 'Poll Error Task',
-        description: 'Error test',
-        prompt: 'Test',
-        priority: 'medium',
-        status: 'running',
-        progress: 0.5,
+        progress: 0.6,
         assignedTo: [],
         results: {},
         createdAt: new Date().toISOString(),
@@ -2154,15 +2114,17 @@ describe('Polling fallback for active swarm', () => {
 
     render(<SwarmCoordinatorPanel initialTasks={tasks} />)
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000)
+    fireEvent.click(screen.getByText('Selected Event Task'))
+    expect(screen.getByText('Task Details')).toBeInTheDocument()
+
+    act(() => {
+      capturedHandlers['swarm_task_completed']!({ taskId: 'sel-evt-task' })
     })
 
-    // Logger.debug should have been called
-    expect(logger.debug).toHaveBeenCalled()
+    expect(screen.getByText('completed')).toBeInTheDocument()
   })
 
-  it('does not poll when there is no active swarm', async () => {
+  it('does not subscribe to swarm_task_completed when there is no active swarm', () => {
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: null,
@@ -2171,23 +2133,16 @@ describe('Polling fallback for active swarm', () => {
       return selector ? selector(state) : state
     })
 
-    vi.mocked(api.swarm.getSwarmTasks).mockClear()
-
     render(<SwarmCoordinatorPanel />)
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20000)
-    })
-
-    expect(api.swarm.getSwarmTasks).not.toHaveBeenCalled()
+    // No swarm_task_completed handler should be registered (only swarm_task_update from the first useEffect)
+    expect(capturedHandlers['swarm_task_completed']).toBeUndefined()
   })
 
-  it('stops polling on unmount', async () => {
-    vi.mocked(api.swarm.getSwarmTasks).mockClear()
-
+  it('unsubscribes from swarm_task_completed on unmount', () => {
     const tasks: CoordinationTask[] = [
       {
-        id: 'poll-unmount',
+        id: 'unmount-evt',
         title: 'Unmount Task',
         description: 'Test',
         prompt: 'Test',
@@ -2201,57 +2156,16 @@ describe('Polling fallback for active swarm', () => {
     ]
 
     const { unmount } = render(<SwarmCoordinatorPanel initialTasks={tasks} />)
-
     unmount()
 
-    const callCountBefore = vi.mocked(api.swarm.getSwarmTasks).mock.calls.length
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20000)
-    })
-
-    // No new calls after unmount
-    expect(vi.mocked(api.swarm.getSwarmTasks).mock.calls.length).toBe(callCountBefore)
-  })
-
-  it('updates selectedTask to completed when backend finishes running task', async () => {
-    const tasks: CoordinationTask[] = [
-      {
-        id: 'sel-poll-task',
-        title: 'Selected Poll Task',
-        description: 'Selected and running',
-        prompt: 'Test',
-        priority: 'medium',
-        status: 'running',
-        progress: 0.6,
-        assignedTo: [],
-        results: {},
-        createdAt: new Date().toISOString(),
-      },
-    ]
-
-    vi.mocked(api.swarm.getSwarmTasks).mockResolvedValue([])
-
-    render(<SwarmCoordinatorPanel initialTasks={tasks} />)
-
-    // Select the task
-    fireEvent.click(screen.getByText('Selected Poll Task'))
-    expect(screen.getByText('Task Details')).toBeInTheDocument()
-
-    // Advance polling
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000)
-    })
-
-    // Selected task details should show completed
-    expect(screen.getByText('completed')).toBeInTheDocument()
+    expect(mockUnsubscribe).toHaveBeenCalled()
   })
 })
 
 describe('New Task Modal - close and reset', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
@@ -2334,7 +2248,7 @@ describe('New Task Modal - close and reset', () => {
 describe('handleSubmitTask with constraints and acceptance', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: 'swarm-1', name: 'Submit Swarm' },
@@ -2450,7 +2364,7 @@ describe('handleSubmitTask with constraints and acceptance', () => {
 describe('handleStartTask success path - agent results', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
@@ -2562,7 +2476,7 @@ describe('handleStartTask success path - agent results', () => {
 describe('handleCancelTask via ConfirmDialog', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
@@ -3341,7 +3255,7 @@ describe('TaskDetails component - comprehensive', () => {
 describe('Scheduling stats display', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },
@@ -3434,7 +3348,7 @@ describe('Unmounted component protection', () => {
 describe('Refresh button', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    capturedSubscribeHandler = null
+    capturedHandlers = {}
     ;(useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((selector) => {
       const state = {
         activeSwarm: { id: '1', name: 'Test Swarm' },

@@ -2,8 +2,6 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useAgentLifecycleStore } from '../stores/agentLifecycleStore'
 import { api, type AgentInfo } from '../services'
 import { logger } from '../utils'
-import AgentConfigModal from './AgentConfigModal'
-import type { AgentConfig } from '../types'
 
 interface CLIProcess {
   id: string
@@ -51,7 +49,6 @@ function estimateMemory(name: string): number {
 export default function CLIProcessWorkshop() {
   const [agentInfos, setAgentInfos] = useState<AgentInfo[]>([])
   const [selectedRow, setSelectedRow] = useState<string | null>(null)
-  const [configModalAgent, setConfigModalAgent] = useState<AgentConfig | null>(null)
 
   // Read lifecycle state from store for real-time updates
   const lifecycleAgents = useAgentLifecycleStore(state => state.agents)
@@ -84,37 +81,21 @@ export default function CLIProcessWorkshop() {
     }))
   }, [])
 
-  const handleConfigClick = useCallback((e: React.MouseEvent, proc: CLIProcess) => {
-    e.stopPropagation()
-    // Build an AgentConfig from the process info for the modal
-    const config: AgentConfig = {
-      id: proc.id,
-      name: proc.name,
-      description: `${proc.role} agent`,
-      enabled: true,
-      command: proc.command || '',
-      args: [],
-      env: {},
-      tags: [],
-    }
-    setConfigModalAgent(config)
-  }, [])
-
-  const handleConfigSaved = useCallback((saved: AgentConfig) => {
-    logger.debug('CLIProcessWorkshop', 'Agent config saved:', saved.id)
-    // Refresh agent list after save
-    api.agent.getAgents()
-      .then(infos => setAgentInfos(infos))
-      .catch(err => logger.debug('CLIProcessWorkshop', 'Failed to refresh agents:', err))
-  }, [])
-
-  const nameColor = (name: string, status: CLIProcess['status']): string => {
+  const agentColor = (name: string): string => {
     const lower = name.toLowerCase()
-    if (lower.includes('gemini')) return '#22d3ee'
-    if (lower.includes('claude')) return '#fb923c'
+    if (lower.includes('claude')) return '#fb923c'      // orange
+    if (lower.includes('kimi')) return '#22d3ee'         // cyan
+    if (lower.includes('opencode')) return '#a78bfa'     // purple
+    if (lower.includes('qwen')) return '#f778ba'         // pink
+    if (lower.includes('gemini')) return '#22d3ee'       // cyan
+    if (lower.includes('cline')) return '#3fb950'        // green
     if (lower.includes('mcp') || lower.includes('validation')) return '#c084fc'
     if (lower.includes('aider')) return '#4ade80'
-    return status === 'running' ? '#22d3ee' : status === 'blocked' ? '#fb923c' : '#9ca3af'
+    return '#9ca3af'
+  }
+
+  const nameColor = (name: string): string => {
+    return agentColor(name)
   }
 
   const statusDotStyle = (proc: CLIProcess): React.CSSProperties => {
@@ -156,13 +137,12 @@ export default function CLIProcessWorkshop() {
             <th className="py-2">版本 (VERSION)</th>
             <th className="py-2">PID / 内存 (RESOURCES)</th>
             <th className="py-2">当前执行 CLI 指令 (RUNNING COMMAND)</th>
-            <th className="py-2 text-right pr-2">控制 (OPERATIONS)</th>
           </tr>
         </thead>
         <tbody style={{ color: '#d1d5db' }}>
           {processes.length === 0 ? (
             <tr>
-              <td colSpan={6} className="py-8 text-center" style={{ color: '#6b7280' }}>
+              <td colSpan={5} className="py-8 text-center" style={{ color: '#6b7280' }}>
                 暂无运行中的 CLI 进程
               </td>
             </tr>
@@ -174,12 +154,13 @@ export default function CLIProcessWorkshop() {
                 key={proc.id}
                 className="cursor-pointer transition-colors hover:bg-[#21262d]"
                 style={{
+                  borderLeft: `3px solid ${agentColor(proc.name)}`,
                   borderBottom: '1px solid #1f2937',
                   background: isSelected ? 'rgba(88,166,255,0.05)' : undefined,
                 }}
                 onClick={() => handleRowClick(proc)}
               >
-                <td className="py-2.5 pl-2 font-bold flex items-center gap-1.5" style={{ color: nameColor(proc.name, proc.status) }}>
+                <td className="py-2.5 pl-2 font-bold flex items-center gap-1.5" style={{ color: nameColor(proc.name) }}>
                   <span className="w-2 h-2 rounded-full shrink-0" style={statusDotStyle(proc)} />
                   {proc.name}
                 </td>
@@ -199,32 +180,11 @@ export default function CLIProcessWorkshop() {
                     <code className="text-[10px] px-1 rounded" style={{ color: '#64748b', background: '#020617' }}>{st.text}</code>
                   )}
                 </td>
-                <td className="text-right pr-2">
-                  <button
-                    onClick={e => handleConfigClick(e, proc)}
-                    className="px-2 py-0.5 rounded text-[10px] flex items-center gap-1 hover:bg-gray-700 transition-colors ml-auto"
-                    style={{ background: '#1f2937', color: '#d1d5db', border: '1px solid #374151' }}
-                  >
-                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-                    </svg>
-                    配置
-                  </button>
-                </td>
               </tr>
             )
           })}
         </tbody>
       </table>
-
-      {/* Agent Config Modal */}
-      {configModalAgent && (
-        <AgentConfigModal
-          agent={configModalAgent}
-          onClose={() => setConfigModalAgent(null)}
-          onSaved={handleConfigSaved}
-        />
-      )}
     </div>
   )
 }

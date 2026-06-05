@@ -406,6 +406,17 @@ export default function ExplorerPanel({
   const getIconComponent = (filename: string) => getFileIcon(filename)
   const getIconColor = (filename: string) => getFileIconColor(filename)
 
+  const getLanguageBadge = (filename: string): { label: string; color: string; bg: string } | null => {
+    const ext = filename.split('.').pop()?.toLowerCase()
+    const name = filename.toLowerCase()
+    if (name === 'makefile') return { label: 'MK', color: '#9ca3af', bg: 'rgba(107,114,128,0.2)' }
+    if (ext === 'ts' || ext === 'tsx') return { label: 'TS', color: '#58a6ff', bg: 'rgba(88,166,255,0.15)' }
+    if (ext === 'go') return { label: 'GO', color: '#22d3ee', bg: 'rgba(34,211,238,0.15)' }
+    if (ext === 'py') return { label: 'PY', color: '#58a6ff', bg: 'rgba(88,166,255,0.15)' }
+    if (ext === 'md') return { label: 'MD', color: '#9ca3af', bg: 'rgba(107,114,128,0.2)' }
+    return null
+  }
+
   const renderFileTree = (entries: FileEntry[], level: number = 0) => {
     return entries.map((entry) => {
       const isExpanded = expandedDirs.has(entry.path)
@@ -541,11 +552,18 @@ export default function ExplorerPanel({
               )}
               <Icon size={14} className={`mr-2 ${iconColor}`} />
               <span className="truncate flex-1">{entry.name}</span>
+              {!entry.isDirectory && !gitStatusMap[entry.path] && (() => {
+                const badge = getLanguageBadge(entry.name)
+                return badge ? (
+                  <span className="text-[9px] font-semibold font-mono px-1 rounded" style={{ color: badge.color, background: badge.bg }}>{badge.label}</span>
+                ) : null
+              })()}
               {!entry.isDirectory && gitStatusMap[entry.path] && (
-                <span className={`text-[9px] font-semibold font-sans ml-auto px-1 rounded ${
-                  gitStatusMap[entry.path].staged ? 'bg-[rgba(5,46,22,0.4)] text-green-400' : 'bg-[rgba(66,32,6,0.2)] text-yellow-400'
-                }`} style={{ opacity: 0.8 }} title={gitStatusMap[entry.path].status}>
-                  {gitStatusMap[entry.path].status === 'M' ? 'Modified' : gitStatusMap[entry.path].status === '??' ? 'Untracked' : gitStatusMap[entry.path].status === 'A' ? 'Added' : gitStatusMap[entry.path].status === 'D' ? 'Deleted' : gitStatusMap[entry.path].status}
+                <span className="text-[9px] font-bold font-mono px-1.5 rounded" style={{
+                  color: gitStatusMap[entry.path].status === 'M' ? '#f0883e' : gitStatusMap[entry.path].status === 'A' ? '#3fb950' : gitStatusMap[entry.path].status === 'D' ? '#f85149' : '#d29922',
+                  background: gitStatusMap[entry.path].status === 'M' ? 'rgba(240,136,62,0.15)' : gitStatusMap[entry.path].status === 'A' ? 'rgba(63,185,80,0.15)' : gitStatusMap[entry.path].status === 'D' ? 'rgba(248,81,73,0.15)' : 'rgba(210,153,34,0.15)',
+                }} title={gitStatusMap[entry.path].status}>
+                  {gitStatusMap[entry.path].status === '??' ? 'U' : gitStatusMap[entry.path].status}
                 </span>
               )}
             </button>

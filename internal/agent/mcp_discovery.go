@@ -302,6 +302,36 @@ func (d *MCPDiscovery) DiscoverGlobal() ([]MCPServerInfo, error) {
 	return servers, nil
 }
 
+// DiscoverConfigsOnly discovers MCP servers from global + project configs only (no agent scan dependency)
+func (d *MCPDiscovery) DiscoverConfigsOnly(workspaceDir string) ([]MCPServerInfo, error) {
+	var allServers []MCPServerInfo
+	seen := make(map[string]bool)
+
+	addUnique := func(servers []MCPServerInfo) {
+		for _, s := range servers {
+			key := s.Name + ":" + s.Command
+			if !seen[key] {
+				seen[key] = true
+				allServers = append(allServers, s)
+			}
+		}
+	}
+
+	// Global config files
+	if globalServers, err := d.DiscoverGlobal(); err == nil {
+		addUnique(globalServers)
+	}
+
+	// Project-level config files
+	if workspaceDir != "" {
+		if projectServers, err := d.DiscoverProject(workspaceDir); err == nil {
+			addUnique(projectServers)
+		}
+	}
+
+	return allServers, nil
+}
+
 // DiscoverAllWithScope discovers MCP servers from agents + global + project configs
 func (d *MCPDiscovery) DiscoverAllWithScope(workspaceDir string) ([]MCPServerInfo, error) {
 	var allServers []MCPServerInfo

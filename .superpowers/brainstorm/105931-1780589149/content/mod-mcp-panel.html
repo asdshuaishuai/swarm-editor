@@ -1,0 +1,147 @@
+<h2>模块 1: MCP 面板</h2>
+<p class="subtitle">每个 MCP 服务器独立开关 + per-agent pills + 配置入口</p>
+
+<div class="mockup">
+  <div class="mockup-header">MCP 面板设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:440px;margin:0 auto;">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2"><path d="M12 22V14M8 6V2M16 6V2M6 6H18V10C18 13.3 15.3 16 12 16C8.7 16 6 13.3 6 10V6Z"/></svg>
+        <span style="font-weight:bold;font-size:12px;color:#d1d5db;">MCP 服务器</span>
+        <span style="font-size:9px;color:#6b7280;margin-left:auto;">5 个 · 3 已启用</span>
+        <div style="padding:3px 8px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">扫描</div>
+        <div style="padding:3px 8px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">导入</div>
+        <div style="padding:3px 8px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">+ 添加</div>
+      </div>
+
+      <!-- Table -->
+      <div style="border:1px solid #30363d;border-radius:6px;overflow:hidden;">
+        <!-- Header row -->
+        <div style="display:flex;align-items:center;padding:5px 10px;background:#161b22;border-bottom:1px solid #30363d;font-size:8px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">
+          <span style="width:22px;"></span>
+          <span style="flex:1;">名称</span>
+          <span style="width:100px;">类型</span>
+          <span style="width:130px;">Agent</span>
+          <span style="width:24px;"></span>
+        </div>
+
+        <!-- Row 1: filesystem (active) -->
+        <div style="display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid #30363d20;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+          <div style="width:22px;margin-right:6px;">
+            <div style="width:26px;height:13px;background:#238636;border-radius:7px;position:relative;cursor:pointer;">
+              <div style="width:9px;height:9px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#d1d5db;font-size:10px;">filesystem</div>
+            <div style="font-size:8px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">npx @anthropic/mcp-fs</div>
+          </div>
+          <div style="width:100px;font-size:9px;color:#8b949e;">stdio</div>
+          <div style="width:130px;display:flex;flex-wrap:wrap;gap:2px;">
+            <span style="padding:1px 5px;background:#58a6ff18;color:#58a6ff;border:1px solid #58a6ff30;border-radius:8px;font-size:7px;cursor:pointer;">Claude</span>
+            <span style="padding:1px 5px;background:#3fb95018;color:#3fb950;border:1px solid #3fb95030;border-radius:8px;font-size:7px;cursor:pointer;">Kimi</span>
+            <span style="padding:1px 5px;background:#8b949e10;color:#8b949e;border:1px solid #30363d;border-radius:8px;font-size:7px;cursor:pointer;">OC</span>
+          </div>
+          <div style="width:24px;text-align:center;cursor:pointer;color:#6b7280;font-size:10px;">⚙</div>
+        </div>
+
+        <!-- Row 2: github -->
+        <div style="display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid #30363d20;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+          <div style="width:22px;margin-right:6px;">
+            <div style="width:26px;height:13px;background:#238636;border-radius:7px;position:relative;cursor:pointer;">
+              <div style="width:9px;height:9px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#d1d5db;font-size:10px;">github</div>
+            <div style="font-size:8px;color:#6b7280;">npx @anthropic/mcp-gh</div>
+          </div>
+          <div style="width:100px;font-size:9px;color:#8b949e;">stdio</div>
+          <div style="width:130px;display:flex;flex-wrap:wrap;gap:2px;">
+            <span style="padding:1px 5px;background:#58a6ff18;color:#58a6ff;border:1px solid #58a6ff30;border-radius:8px;font-size:7px;cursor:pointer;">Claude</span>
+          </div>
+          <div style="width:24px;text-align:center;cursor:pointer;color:#6b7280;font-size:10px;">⚙</div>
+        </div>
+
+        <!-- Row 3: web-search (disabled) -->
+        <div style="display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid #30363d20;opacity:0.5;" onmouseover="this.style.background='#21262d';this.style.opacity='0.8'" onmouseout="this.style.background='transparent';this.style.opacity='0.5'">
+          <div style="width:22px;margin-right:6px;">
+            <div style="width:26px;height:13px;background:#30363d;border-radius:7px;position:relative;cursor:pointer;">
+              <div style="width:9px;height:9px;background:#6b7280;border-radius:50%;position:absolute;top:2px;left:2px;"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#8b949e;font-size:10px;">web-search</div>
+            <div style="font-size:8px;color:#6b7280;">npx @anthropic/mcp-search</div>
+          </div>
+          <div style="width:100px;font-size:9px;color:#8b949e;">stdio</div>
+          <div style="width:130px;display:flex;flex-wrap:wrap;gap:2px;">
+            <span style="padding:1px 5px;background:#8b949e10;color:#8b949e;border:1px solid #30363d;border-radius:8px;font-size:7px;">Claude</span>
+          </div>
+          <div style="width:24px;text-align:center;cursor:pointer;color:#6b7280;font-size:10px;">⚙</div>
+        </div>
+
+        <!-- Row 4: code-graph (HTTP, all agents) -->
+        <div style="display:flex;align-items:center;padding:6px 10px;border-bottom:1px solid #30363d20;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+          <div style="width:22px;margin-right:6px;">
+            <div style="width:26px;height:13px;background:#238636;border-radius:7px;position:relative;cursor:pointer;">
+              <div style="width:9px;height:9px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="font-weight:600;color:#d1d5db;font-size:10px;">code-graph</span>
+              <span style="padding:1px 4px;background:#f0883e15;color:#f0883e;border:1px solid #f0883e30;border-radius:3px;font-size:7px;">HTTP</span>
+            </div>
+            <div style="font-size:8px;color:#6b7280;">localhost:3100</div>
+          </div>
+          <div style="width:100px;font-size:9px;color:#f0883e;">http</div>
+          <div style="width:130px;display:flex;flex-wrap:wrap;gap:2px;">
+            <span style="padding:1px 5px;background:#58a6ff18;color:#58a6ff;border:1px solid #58a6ff30;border-radius:8px;font-size:7px;cursor:pointer;">C</span>
+            <span style="padding:1px 5px;background:#3fb95018;color:#3fb950;border:1px solid #3fb95030;border-radius:8px;font-size:7px;cursor:pointer;">K</span>
+            <span style="padding:1px 5px;background:#bc8cff18;color:#bc8cff;border:1px solid #bc8cff30;border-radius:8px;font-size:7px;cursor:pointer;">O</span>
+            <span style="padding:1px 5px;background:#f778ba18;color:#f778ba;border:1px solid #f778ba30;border-radius:8px;font-size:7px;cursor:pointer;">Q</span>
+          </div>
+          <div style="width:24px;text-align:center;cursor:pointer;color:#6b7280;font-size:10px;">⚙</div>
+        </div>
+
+        <!-- Row 5: memory -->
+        <div style="display:flex;align-items:center;padding:6px 10px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+          <div style="width:22px;margin-right:6px;">
+            <div style="width:26px;height:13px;background:#238636;border-radius:7px;position:relative;cursor:pointer;">
+              <div style="width:9px;height:9px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:#d1d5db;font-size:10px;">memory</div>
+            <div style="font-size:8px;color:#6b7280;">npx @anthropic/mcp-mem</div>
+          </div>
+          <div style="width:100px;font-size:9px;color:#8b949e;">stdio</div>
+          <div style="width:130px;display:flex;flex-wrap:wrap;gap:2px;">
+            <span style="padding:1px 5px;background:#58a6ff18;color:#58a6ff;border:1px solid #58a6ff30;border-radius:8px;font-size:7px;cursor:pointer;">C</span>
+            <span style="padding:1px 5px;background:#3fb95018;color:#3fb950;border:1px solid #3fb95030;border-radius:8px;font-size:7px;cursor:pointer;">K</span>
+          </div>
+          <div style="width:24px;text-align:center;cursor:pointer;color:#6b7280;font-size:10px;">⚙</div>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div style="margin-top:6px;display:flex;gap:10px;font-size:8px;color:#6b7280;">
+        <span>● 启用</span>
+        <span>○ 禁用</span>
+        <span>C=Claude K=Kimi O=OpenCode Q=Qwen</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">交互说明</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>Toggle</strong>：点击切换全局启用/禁用</li>
+  <li><strong>Agent pill</strong>：彩色=已启用，灰色=未启用，点击切换</li>
+  <li><strong>⚙ 配置</strong>：打开单个 MCP 的配置 Modal（见 mod-mcp-config）</li>
+  <li><strong>扫描</strong>：触发 MCP 发现扫描</li>
+  <li><strong>导入</strong>：从 Agent 配置文件批量导入（见 mod-mcp-import）</li>
+</ul>

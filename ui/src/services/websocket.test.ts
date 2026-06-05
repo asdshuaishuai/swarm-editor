@@ -649,7 +649,7 @@ describe('WebSocketClient', () => {
       expect(handler).toHaveBeenCalled()
     })
 
-    it('overwrites previous connect handler', async () => {
+    it('calls all registered connect handlers (additive)', async () => {
       const handler1 = vi.fn()
       const handler2 = vi.fn()
 
@@ -661,11 +661,11 @@ describe('WebSocketClient', () => {
       mockWs!.simulateOpen()
       await connectPromise
 
-      expect(handler1).not.toHaveBeenCalled()
+      expect(handler1).toHaveBeenCalled()
       expect(handler2).toHaveBeenCalled()
     })
 
-    it('overwrites previous disconnect handler', async () => {
+    it('calls all registered disconnect handlers (additive)', async () => {
       const handler1 = vi.fn()
       const handler2 = vi.fn()
 
@@ -678,6 +678,23 @@ describe('WebSocketClient', () => {
       await connectPromise
 
       client.disconnect()
+
+      expect(handler1).toHaveBeenCalled()
+      expect(handler2).toHaveBeenCalled()
+    })
+
+    it('unsubscribes a specific connect handler', async () => {
+      const handler1 = vi.fn()
+      const handler2 = vi.fn()
+
+      const unsub1 = client.on('connect', handler1)
+      client.on('connect', handler2)
+      unsub1()
+
+      const connectPromise = client.connect()
+      const mockWs = MockWebSocket.getLatest()
+      mockWs!.simulateOpen()
+      await connectPromise
 
       expect(handler1).not.toHaveBeenCalled()
       expect(handler2).toHaveBeenCalled()

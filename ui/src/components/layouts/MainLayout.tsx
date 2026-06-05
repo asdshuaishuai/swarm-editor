@@ -168,19 +168,14 @@ export default function MainLayout() {
                 <path d="M6.5 2l4.5 2.6v5.2L6.5 12.4 2 9.8V4.6L6.5 2zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6V4.6L17.5 2zM6.5 13.6l4.5 2.6v5.2L6.5 24 2 21.4v-5.2l4.5-2.6zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6v-5.2l4.5-2.6z" />
               </svg>
               <span>Swarm Editor</span>
-              <span className="text-[9px] px-1 py-0.2 rounded font-normal font-sans" style={{ background: 'rgba(30,58,138,0.4)', color: '#93c5fd', border: '1px solid rgba(30,58,138,0.5)' }}>ACP/A2A ENGINE v2.5</span>
+              <span className="text-[9px] px-1 py-0.2 rounded font-normal font-sans" style={{ background: 'rgba(30,58,138,0.4)', color: '#93c5fd', border: '1px solid rgba(30,58,138,0.5)' }}>ACP/A2A 引擎 v2.5</span>
             </div>
             <nav className="hidden md:flex items-center gap-3 text-gray-400">
-              <span className="hover:text-white cursor-pointer transition" onClick={handleOpenFolder} title="Open Folder">文件 (File)</span>
-              <span className="hover:text-white cursor-pointer transition">工作区 (Workspace)</span>
-              <span className="hover:text-white cursor-pointer transition" onClick={() => setCenterTab('sandbox')}>蜂群架构 (Swarm Engine)</span>
-              <span className="hover:text-white cursor-pointer transition" onClick={() => setLeftTab('mcp')}>MCP 服务器 (MCP Servers)</span>
+              <span className="hover:text-white cursor-pointer transition" onClick={handleOpenFolder} title="打开文件夹">文件</span>
+              <span className="hover:text-white cursor-pointer transition">工作区</span>
+              <span className="hover:text-white cursor-pointer transition" onClick={() => setCenterTab('sandbox')}>蜂群架构</span>
+              <span className="hover:text-white cursor-pointer transition" onClick={() => setLeftTab('mcp')}>MCP 服务器</span>
             </nav>
-          </div>
-
-          {/* Center: daemon status line */}
-          <div className="text-gray-500 font-mono text-[10px] hidden sm:block">
-            QUEEN AGENT DEPLOYED // ACTIVE DAEMONS: {activeAgentCount > 0 ? agents!.map(a => a.name).join(', ') : 'standby'}
           </div>
 
           {/* Right: indicators */}
@@ -234,7 +229,7 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5 animate-pulse" style={{ color: '#c084fc' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 22V14M8 6V2M16 6V2M6 6H18V10C18 13.3 15.3 16 12 16C8.7 16 6 13.3 6 10V6Z" />
                 </svg>
-                MCP 与技能 (Skills)
+                MCP 与技能
                 {skillCount > 0 && (
                   <span className="text-[9px] px-1 rounded font-normal" style={{ background: 'rgba(88,28,135,0.5)', color: '#d8b4fe', border: '1px solid rgba(107,33,168,0.6)' }}>{skillCount}</span>
                 )}
@@ -286,7 +281,7 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" style={{ color: '#58a6ff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h5v5H3zM16 3h5v5h-5zM9 5.5h4M13.5 5.5h2.5M16.5 8v3.5M16.5 11.5L12 16M12 16L8 20M8 20h5M8 20v-5" />
                 </svg>
-                蜂王自动调度沙盘 (Queen Orchestration Sandbox)
+                蜂王自动调度沙盘
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
               </button>
               <button
@@ -301,7 +296,7 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
-                代码编辑器 & Diff (CodeMirror)
+                代码编辑器 & Diff
                 <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.2 rounded font-mono">MainLayout.tsx</span>
               </button>
             </div>
@@ -379,8 +374,8 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" style={{ color: '#58a6ff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3V5M15 3V5M9 19V21M15 19V21M5 9H3M5 15H3M21 9H19M21 15H19M7 19H17C18.1 19 19 18.1 19 17V7C19 5.9 18.1 5 17 5H7C5.9 5 5 5.9 5 7V17C5 18.1 5.9 19 7 19ZM9 9H15V15H9V9Z" />
                 </svg>
-                🛠️ 本地 CLI 进程工坊 (Local CLI Tools)
-                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-normal" style={{ background: '#172554', color: '#93c5fd', border: '1px solid #1e3a8a' }}>Active进程: {activeAgentCount}</span>
+                🛠️ 本地 CLI 进程工坊
+                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-normal" style={{ background: '#172554', color: '#93c5fd', border: '1px solid #1e3a8a' }}>活跃进程: {activeAgentCount}</span>
               </button>
               <button
                 className={`px-4 py-2 text-xs font-semibold flex items-center ${bottomTab === 'terminal' ? 'gap-2' : 'gap-1.5'} transition ${
@@ -392,7 +387,7 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                💻 交互终端 (System Bash)
+                💻 交互终端
               </button>
               <button
                 className={`px-4 py-2 text-xs font-semibold flex items-center ${bottomTab === 'problems' ? 'gap-2' : 'gap-1.5'} transition ${
@@ -429,12 +424,8 @@ export default function MainLayout() {
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
-                🛡️ 监督面板 (Supervisor)
+                🛡️ 监督面板
               </button>
-            </div>
-            {/* Protocol label */}
-            <div className="px-3 text-gray-500 text-[10px] font-mono">
-              <span className="hidden sm:inline">DAEMON PROTOCOL: ACP_V1_BRIDGE</span>
             </div>
           </div>
           {/* Bottom Tab Content */}

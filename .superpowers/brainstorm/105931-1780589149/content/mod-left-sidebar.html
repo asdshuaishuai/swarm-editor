@@ -1,0 +1,175 @@
+<h2>模块 10: 左侧边栏 (文件树 + 符号大纲)</h2>
+<p class="subtitle">文件浏览器 + Git 状态 + LSP 符号大纲 — 上下分割布局</p>
+
+<div class="mockup">
+  <div class="mockup-header">左侧边栏详细设计</div>
+  <div class="mockup-body" style="background:#161b22;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:280px;margin:0 auto;border:1px solid #30363d;border-radius:6px;overflow:hidden;">
+
+      <!-- Tab 栏 -->
+      <div style="display:flex;background:#0f141a;border-bottom:1px solid #30363d;">
+        <button style="flex:1;padding:8px 0;display:flex;align-items:center;justify-content:center;gap:4px;font-size:10px;font-weight:600;color:#fff;background:#161b22;border:none;border-top:2px solid #58a6ff;cursor:pointer;">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#58a6ff" stroke-width="2"><path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+          项目文件 &amp; Git
+        </button>
+        <button style="flex:1;padding:8px 0;display:flex;align-items:center;justify-content:center;gap:4px;font-size:10px;color:#8b949e;background:transparent;border:none;border-top:2px solid transparent;cursor:pointer;">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22V14M8 6V2M16 6V2M6 6H18V10C18 13.3 15.3 16 12 16C8.7 16 6 13.3 6 10V6Z"/></svg>
+          MCP 与技能
+        </button>
+        <button style="flex:1;padding:8px 0;display:flex;align-items:center;justify-content:center;gap:4px;font-size:10px;color:#8b949e;background:transparent;border:none;border-top:2px solid transparent;cursor:pointer;">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          Agent 能力
+        </button>
+      </div>
+
+      <!-- 文件树区域 (上半部分) -->
+      <div style="padding:8px;min-height:180px;">
+        <!-- 文件树 header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;">swarm-editor</span>
+          <div style="display:flex;gap:4px;">
+            <span style="cursor:pointer;color:#6b7280;" title="新建文件">
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
+            </span>
+            <span style="cursor:pointer;color:#6b7280;" title="刷新">
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 文件树 -->
+        <div style="font-size:10px;line-height:1.8;">
+          <!-- 根目录 -->
+          <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 0;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#58a6ff" opacity="0.6"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span style="color:#d1d5db;font-weight:600;">src</span>
+          </div>
+
+          <!-- 子目录 -->
+          <div style="padding-left:16px;">
+            <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 0;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="#58a6ff" opacity="0.4"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+              <span style="color:#8b949e;">components</span>
+            </div>
+
+            <!-- 文件: MainLayout.tsx (当前文件, 蓝色高亮) -->
+            <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px;background:rgba(88,166,255,0.12);border-radius:3px;" >
+              <span style="width:10px;"></span>
+              <span style="font-size:9px;padding:0 4px;background:#2563eb;color:#fff;border-radius:2px;font-weight:700;">TS</span>
+              <span style="color:#58a6ff;font-weight:600;">MainLayout.tsx</span>
+              <!-- Git modified indicator -->
+              <span style="margin-left:auto;font-size:9px;color:#f0883e;font-weight:700;">M</span>
+            </div>
+
+            <!-- 文件: QueenSandbox.tsx -->
+            <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <span style="width:10px;"></span>
+              <span style="font-size:9px;padding:0 4px;background:#2563eb;color:#fff;border-radius:2px;font-weight:700;">TS</span>
+              <span style="color:#d1d5db;">QueenSandbox.tsx</span>
+            </div>
+
+            <!-- 文件: ProtocolMonitor.tsx -->
+            <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <span style="width:10px;"></span>
+              <span style="font-size:9px;padding:0 4px;background:#2563eb;color:#fff;border-radius:2px;font-weight:700;">TS</span>
+              <span style="color:#d1d5db;">ProtocolMonitor.tsx</span>
+            </div>
+
+            <!-- 目录: layouts (展开) -->
+            <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 0;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="#58a6ff" opacity="0.4"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+              <span style="color:#8b949e;">layouts</span>
+            </div>
+          </div>
+
+          <!-- 根文件: go.mod -->
+          <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+            <span style="width:10px;"></span>
+            <span style="font-size:9px;padding:0 4px;background:#00add8;color:#fff;border-radius:2px;font-weight:700;">GO</span>
+            <span style="color:#d1d5db;">go.mod</span>
+            <!-- Git new indicator -->
+            <span style="margin-left:auto;font-size:9px;color:#3fb950;font-weight:700;">A</span>
+          </div>
+
+          <!-- 根文件: Makefile -->
+          <div style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+            <span style="width:10px;"></span>
+            <span style="font-size:9px;padding:0 4px;background:#6b7280;color:#fff;border-radius:2px;font-weight:700;">MK</span>
+            <span style="color:#d1d5db;">Makefile</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分割线 -->
+      <div style="height:1px;background:#30363d;"></div>
+
+      <!-- 符号大纲区域 (下半部分) -->
+      <div style="padding:8px;min-height:120px;">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;">Document Symbols</span>
+          <span style="font-size:8px;color:#8b949e;">24</span>
+        </div>
+
+        <!-- Search -->
+        <div style="display:flex;align-items:center;gap:4px;padding:3px 6px;background:#0d1117;border-radius:3px;margin-bottom:6px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span style="font-size:9px;color:#4b5563;">Filter symbols...</span>
+        </div>
+
+        <!-- Symbol tree -->
+        <div style="font-size:10px;line-height:1.7;">
+          <!-- Class: MainLayout -->
+          <div style="display:flex;align-items:center;gap:4px;padding:1px 2px;cursor:pointer;border-radius:3px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span style="font-size:8px;font-weight:700;padding:0 4px;background:rgba(88,166,255,0.15);color:#58a6ff;border:1px solid rgba(88,166,255,0.25);border-radius:2px;">C</span>
+            <span style="color:#d1d5db;">MainLayout</span>
+            <span style="margin-left:auto;font-size:8px;color:#8b949e;">1</span>
+          </div>
+
+          <!-- Function children (indented) -->
+          <div style="padding-left:20px;">
+            <div style="display:flex;align-items:center;gap:4px;padding:1px 2px;cursor:pointer;border-radius:3px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <span style="width:10px;"></span>
+              <span style="font-size:8px;font-weight:700;padding:0 4px;background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.25);border-radius:2px;">M</span>
+              <span style="color:#d1d5db;">handleOpenFolder</span>
+              <span style="margin-left:auto;font-size:8px;color:#8b949e;">136</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;padding:1px 2px;cursor:pointer;border-radius:3px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <span style="width:10px;"></span>
+              <span style="font-size:8px;font-weight:700;padding:0 4px;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);border-radius:2px;">F</span>
+              <span style="color:#d1d5db;">StandaloneExplorer</span>
+              <span style="margin-left:auto;font-size:8px;color:#8b949e;">25</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;padding:1px 2px;cursor:pointer;border-radius:3px;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+              <span style="width:10px;"></span>
+              <span style="font-size:8px;font-weight:700;padding:0 4px;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);border-radius:2px;">F</span>
+              <span style="color:#d1d5db;">PanelLoader</span>
+              <span style="margin-left:auto;font-size:8px;color:#8b949e;">57</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;padding:1px 2px;cursor:pointer;border-radius:3px;background:rgba(88,166,255,0.1);">
+              <span style="width:10px;"></span>
+              <span style="font-size:8px;font-weight:700;padding:0 4px;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);border-radius:2px;">F</span>
+              <span style="color:#58a6ff;font-weight:600;">default</span>
+              <span style="margin-left:auto;font-size:8px;color:#58a6ff;">70</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>Tab 栏</strong>：3 个 tab（项目文件 & Git / MCP 与技能 / Agent 能力），选中态蓝色上边框</li>
+  <li><strong>文件树</strong>：语言标签色块（TS=蓝, GO=青, MK=灰），Git 状态标记（M=修改, A=新增）</li>
+  <li><strong>当前文件高亮</strong>：蓝色背景 + 蓝色文件名</li>
+  <li><strong>符号大纲</strong>：LSP SymbolKind 标签（C=类/蓝, M=方法/紫, F=函数/黄, I=接口/青）</li>
+  <li><strong>搜索过滤</strong>：输入框实时过滤符号树</li>
+  <li><strong>行号</strong>：符号右侧灰色行号，点击跳转到编辑器对应行</li>
+  <li><strong>上下分割</strong>：文件树占上半部分，符号大纲占下半部分，中间分割线</li>
+</ul>

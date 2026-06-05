@@ -35,16 +35,6 @@ vi.mock('../stores/agentLifecycleStore', () => ({
     selector ? selector(mockStore) : mockStore,
 }))
 
-// AgentConfigModal mock - just renders a placeholder
-vi.mock('./AgentConfigModal', () => ({
-  default: ({ onClose, onSaved }: { onClose: () => void; onSaved: (config: Record<string, unknown>) => void }) => (
-    <div data-testid="config-modal">
-      <button data-testid="modal-close" onClick={onClose}>Close</button>
-      <button data-testid="modal-save" onClick={() => onSaved({ id: 'agent-1', name: 'Test' })}>Save</button>
-    </div>
-  ),
-}))
-
 describe('CLIProcessWorkshop', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -110,40 +100,6 @@ describe('CLIProcessWorkshop', () => {
     dispatchSpy.mockRestore()
   })
 
-  it('opens config modal when config button is clicked', async () => {
-    mockGetAgents.mockResolvedValue([
-      { id: 'agent-1', name: 'claude-code', type: 'worker', state: 'idle', command: '/usr/bin/claude' },
-    ])
-
-    render(<CLIProcessWorkshop />)
-
-    // Wait for agent to render, then click config button
-    await screen.findByText('claude-code')
-    const configButton = screen.getByText('配置')
-    expect(configButton).toBeInTheDocument()
-    fireEvent.click(configButton)
-
-    expect(screen.getByTestId('config-modal')).toBeInTheDocument()
-  })
-
-  it('closes config modal and refreshes agents on save', async () => {
-    mockGetAgents.mockResolvedValue([
-      { id: 'agent-1', name: 'claude-code', type: 'worker', state: 'idle', command: '/usr/bin/claude' },
-    ])
-
-    render(<CLIProcessWorkshop />)
-
-    await screen.findByText('claude-code')
-    // Open config modal
-    fireEvent.click(screen.getByText('配置'))
-    expect(screen.getByTestId('config-modal')).toBeInTheDocument()
-
-    // Click save
-    fireEvent.click(screen.getByTestId('modal-save'))
-    // getAgents is called again after save
-    expect(mockGetAgents).toHaveBeenCalledTimes(2) // initial load + refresh after save
-  })
-
   it('refreshes agent list periodically', async () => {
     vi.useFakeTimers()
     mockGetAgents.mockResolvedValue([])
@@ -202,25 +158,6 @@ describe('CLIProcessWorkshop', () => {
     render(<CLIProcessWorkshop />)
     // Should show empty state since no agents loaded
     expect(screen.getByText('暂无运行中的 CLI 进程')).toBeInTheDocument()
-  })
-
-  it('handles API error on refresh after save gracefully', async () => {
-    let callCount = 0
-    mockGetAgents.mockImplementation(() => {
-      callCount++
-      if (callCount === 1) {
-        return Promise.resolve([{ id: 'agent-1', name: 'claude-code', type: 'worker', state: 'idle' }])
-      }
-      return Promise.reject(new Error('Refresh error'))
-    })
-
-    render(<CLIProcessWorkshop />)
-    await screen.findByText('claude-code')
-
-    fireEvent.click(screen.getByText('配置'))
-    fireEvent.click(screen.getByTestId('modal-save'))
-    // Should not throw, error is caught
-    expect(mockGetAgents).toHaveBeenCalledTimes(2)
   })
 
   it('handles API error on periodic refresh', async () => {
@@ -398,7 +335,7 @@ describe('CLIProcessWorkshop', () => {
 
     render(<CLIProcessWorkshop />)
     const name = await screen.findByText('custom-agent')
-    expect(name.closest('td')?.style.color).toBe('rgb(34, 211, 238)')
+    expect(name.closest('td')?.style.color).toBe('rgb(156, 163, 175)')
   })
 
   it('shows name color for blocked unknown agent', async () => {
@@ -408,7 +345,7 @@ describe('CLIProcessWorkshop', () => {
 
     render(<CLIProcessWorkshop />)
     const name = await screen.findByText('custom-agent')
-    expect(name.closest('td')?.style.color).toBe('rgb(251, 146, 60)')
+    expect(name.closest('td')?.style.color).toBe('rgb(156, 163, 175)')
   })
 
   it('shows default name color for idle unknown agent', async () => {
@@ -436,35 +373,6 @@ describe('CLIProcessWorkshop', () => {
     expect(row?.style.background).toBe('rgba(88, 166, 255, 0.05)')
   })
 
-  it('config click stops propagation', async () => {
-    mockGetAgents.mockResolvedValue([
-      { id: 'agent-1', name: 'claude-code', type: 'worker', state: 'idle' },
-    ])
-    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
-
-    render(<CLIProcessWorkshop />)
-    await screen.findByText('claude-code')
-
-    // Config button click should NOT dispatch sandbox:node-selected
-    fireEvent.click(screen.getByText('配置'))
-    expect(dispatchSpy).not.toHaveBeenCalled()
-    dispatchSpy.mockRestore()
-  })
-
-  it('closes config modal via close button', async () => {
-    mockGetAgents.mockResolvedValue([
-      { id: 'agent-1', name: 'claude-code', type: 'worker', state: 'idle' },
-    ])
-
-    render(<CLIProcessWorkshop />)
-    await screen.findByText('claude-code')
-
-    fireEvent.click(screen.getByText('配置'))
-    expect(screen.getByTestId('config-modal')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('modal-close'))
-    expect(screen.queryByTestId('config-modal')).toBeNull()
-  })
 
   it('uses agent type for role when available', async () => {
     mockGetAgents.mockResolvedValue([
@@ -491,7 +399,6 @@ describe('CLIProcessWorkshop', () => {
     expect(screen.getByText('版本 (VERSION)')).toBeInTheDocument()
     expect(screen.getByText('PID / 内存 (RESOURCES)')).toBeInTheDocument()
     expect(screen.getByText('当前执行 CLI 指令 (RUNNING COMMAND)')).toBeInTheDocument()
-    expect(screen.getByText('控制 (OPERATIONS)')).toBeInTheDocument()
   })
 
   it('estimates memory correctly for known agents', async () => {
@@ -580,14 +487,4 @@ describe('CLIProcessWorkshop', () => {
     expect(blockedText.closest('span')?.style.color).toBe('rgb(249, 115, 22)')
   })
 
-  it('renders config button SVG icon', async () => {
-    mockGetAgents.mockResolvedValue([
-      { id: 'agent-1', name: 'test-agent', type: 'worker', state: 'idle' },
-    ])
-
-    render(<CLIProcessWorkshop />)
-    await screen.findByText('test-agent')
-    const svg = screen.getByText('配置').querySelector('svg')
-    expect(svg).toBeInTheDocument()
-  })
 })

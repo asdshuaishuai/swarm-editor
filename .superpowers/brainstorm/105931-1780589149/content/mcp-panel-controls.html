@@ -1,0 +1,186 @@
+<h2>MCP 面板 — Per-Item 控制</h2>
+<p class="subtitle">每个 MCP 服务器独立开关 + 配置按钮，选择布局风格</p>
+
+<div class="cards">
+  <!-- Option A: 表格式 -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+      <div style="max-width:520px;margin:0 auto;">
+        <!-- Header bar -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-weight:bold;font-size:13px;color:#d1d5db;">MCP 服务器</span>
+          <span style="font-size:10px;color:#6b7280;margin-left:auto;">5 个服务器</span>
+          <div style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#8b949e;">⟳ 扫描</div>
+          <div style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#8b949e;">+ 添加</div>
+        </div>
+        <!-- Table -->
+        <div style="border:1px solid #30363d;border-radius:6px;overflow:hidden;">
+          <!-- Row 1 -->
+          <div style="display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid #30363d;background:#161b22;">
+            <div style="width:16px;height:16px;background:#238636;border-radius:3px;margin-right:10px;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:10px;color:white;">✓</span>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:600;color:#d1d5db;">filesystem</div>
+              <div style="font-size:9px;color:#6b7280;">npx @anthropic/mcp-fs</div>
+            </div>
+            <!-- Agent pills -->
+            <div style="display:flex;gap:4px;margin-right:12px;">
+              <span style="padding:2px 6px;background:#58a6ff20;color:#58a6ff;border:1px solid #58a6ff30;border-radius:10px;font-size:9px;">Claude</span>
+              <span style="padding:2px 6px;background:#3fb95020;color:#3fb950;border:1px solid #3fb95030;border-radius:10px;font-size:9px;">Kimi</span>
+              <span style="padding:2px 6px;background:#8b949e15;color:#8b949e;border:1px solid #30363d;border-radius:10px;font-size:9px;">OpenCode</span>
+            </div>
+            <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">⚙</div>
+          </div>
+          <!-- Row 2 -->
+          <div style="display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid #30363d;">
+            <div style="width:16px;height:16px;background:#238636;border-radius:3px;margin-right:10px;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:10px;color:white;">✓</span>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:600;color:#d1d5db;">github</div>
+              <div style="font-size:9px;color:#6b7280;">npx @anthropic/mcp-gh</div>
+            </div>
+            <div style="display:flex;gap:4px;margin-right:12px;">
+              <span style="padding:2px 6px;background:#58a6ff20;color:#58a6ff;border:1px solid #58a6ff30;border-radius:10px;font-size:9px;">Claude</span>
+              <span style="padding:2px 6px;background:#8b949e15;color:#8b949e;border:1px solid #30363d;border-radius:10px;font-size:9px;">Kimi</span>
+            </div>
+            <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙</div>
+          </div>
+          <!-- Row 3 (disabled) -->
+          <div style="display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid #30363d;opacity:0.5;">
+            <div style="width:16px;height:16px;background:#30363d;border-radius:3px;margin-right:10px;"></div>
+            <div style="flex:1;">
+              <div style="font-weight:600;color:#8b949e;">web-search</div>
+              <div style="font-size:9px;color:#6b7280;">npx @anthropic/mcp-search</div>
+            </div>
+            <div style="display:flex;gap:4px;margin-right:12px;">
+              <span style="padding:2px 6px;background:#8b949e15;color:#8b949e;border:1px solid #30363d;border-radius:10px;font-size:9px;">Claude</span>
+            </div>
+            <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙</div>
+          </div>
+          <!-- Row 4 (HTTP type) -->
+          <div style="display:flex;align-items:center;padding:10px 12px;">
+            <div style="width:16px;height:16px;background:#238636;border-radius:3px;margin-right:10px;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:10px;color:white;">✓</span>
+            </div>
+            <div style="flex:1;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-weight:600;color:#d1d5db;">code-graph</span>
+                <span style="padding:1px 5px;background:#f0883e15;color:#f0883e;border:1px solid #f0883e30;border-radius:4px;font-size:8px;">HTTP</span>
+              </div>
+              <div style="font-size:9px;color:#6b7280;">localhost:3100</div>
+            </div>
+            <div style="display:flex;gap:4px;margin-right:12px;">
+              <span style="padding:2px 6px;background:#58a6ff20;color:#58a6ff;border:1px solid #58a6ff30;border-radius:10px;font-size:9px;">Claude</span>
+              <span style="padding:2px 6px;background:#3fb95020;color:#3fb950;border:1px solid #3fb95030;border-radius:10px;font-size:9px;">Kimi</span>
+              <span style="padding:2px 6px;background:#bc8cff20;color:#bc8cff;border:1px solid #bc8cff30;border-radius:10px;font-size:9px;">OpenCode</span>
+              <span style="padding:2px 6px;background:#f778ba20;color:#f778ba;border:1px solid #f778ba30;border-radius:10px;font-size:9px;">Qwen</span>
+            </div>
+            <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: 表格式</h3>
+      <p>每行一个 MCP 服务器。左侧开关 toggle，右侧 agent pills 标记哪些 agent 启用了该 MCP，末尾齿轮配置按钮。信息密度高。</p>
+    </div>
+  </div>
+
+  <!-- Option B: 卡片式 -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+      <div style="max-width:520px;margin:0 auto;">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-weight:bold;font-size:13px;color:#d1d5db;">MCP 服务器</span>
+          <span style="font-size:10px;color:#6b7280;margin-left:auto;">5 个服务器</span>
+          <div style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#8b949e;">⟳ 扫描</div>
+        </div>
+        <!-- Cards grid -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <!-- Card 1 -->
+          <div style="background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <div style="width:8px;height:8px;background:#3fb950;border-radius:50%;"></div>
+              <span style="font-weight:600;color:#d1d5db;font-size:12px;">filesystem</span>
+              <div style="margin-left:auto;width:28px;height:14px;background:#238636;border-radius:7px;position:relative;">
+                <div style="width:10px;height:10px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:#6b7280;margin-bottom:8px;">npx @anthropic/mcp-fs</div>
+            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+              <span style="padding:2px 6px;background:#58a6ff15;color:#58a6ff;border-radius:8px;font-size:8px;">Claude</span>
+              <span style="padding:2px 6px;background:#3fb95015;color:#3fb950;border-radius:8px;font-size:8px;">Kimi</span>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙ 配置</div>
+            </div>
+          </div>
+          <!-- Card 2 -->
+          <div style="background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <div style="width:8px;height:8px;background:#3fb950;border-radius:50%;"></div>
+              <span style="font-weight:600;color:#d1d5db;font-size:12px;">github</span>
+              <div style="margin-left:auto;width:28px;height:14px;background:#238636;border-radius:7px;position:relative;">
+                <div style="width:10px;height:10px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:#6b7280;margin-bottom:8px;">npx @anthropic/mcp-gh</div>
+            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+              <span style="padding:2px 6px;background:#58a6ff15;color:#58a6ff;border-radius:8px;font-size:8px;">Claude</span>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙ 配置</div>
+            </div>
+          </div>
+          <!-- Card 3 (disabled) -->
+          <div style="background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;opacity:0.5;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <div style="width:8px;height:8px;background:#6b7280;border-radius:50%;"></div>
+              <span style="font-weight:600;color:#8b949e;font-size:12px;">web-search</span>
+              <div style="margin-left:auto;width:28px;height:14px;background:#30363d;border-radius:7px;position:relative;">
+                <div style="width:10px;height:10px;background:#6b7280;border-radius:50%;position:absolute;top:2px;left:2px;"></div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:#6b7280;margin-bottom:8px;">npx @anthropic/mcp-search</div>
+            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+              <span style="padding:2px 6px;background:#8b949e10;color:#8b949e;border-radius:8px;font-size:8px;">Claude</span>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙ 配置</div>
+            </div>
+          </div>
+          <!-- Card 4 (HTTP) -->
+          <div style="background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <div style="width:8px;height:8px;background:#3fb950;border-radius:50%;"></div>
+              <span style="font-weight:600;color:#d1d5db;font-size:12px;">code-graph</span>
+              <span style="padding:1px 4px;background:#f0883e15;color:#f0883e;border-radius:3px;font-size:8px;">HTTP</span>
+              <div style="margin-left:auto;width:28px;height:14px;background:#238636;border-radius:7px;position:relative;">
+                <div style="width:10px;height:10px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;"></div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:#6b7280;margin-bottom:8px;">localhost:3100</div>
+            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+              <span style="padding:2px 6px;background:#58a6ff15;color:#58a6ff;border-radius:8px;font-size:8px;">Claude</span>
+              <span style="padding:2px 6px;background:#3fb95015;color:#3fb950;border-radius:8px;font-size:8px;">Kimi</span>
+              <span style="padding:2px 6px;background:#bc8cff15;color:#bc8cff;border-radius:8px;font-size:8px;">OpenCode</span>
+              <span style="padding:2px 6px;background:#f778ba15;color:#f778ba;border-radius:8px;font-size:8px;">Qwen</span>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <div style="padding:3px 8px;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;">⚙ 配置</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: 卡片式</h3>
+      <p>每个 MCP 服务器一张卡片。开关 toggle 做成 iOS 风格滑块，agent pills 和配置按钮在卡片内。视觉更丰富，但信息密度低。</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;color:#8b949e;font-size:12px;">关键功能：每个 MCP 独立开关、per-agent 启用/禁用、配置按钮（打开单个 MCP 的配置 modal）。</p>

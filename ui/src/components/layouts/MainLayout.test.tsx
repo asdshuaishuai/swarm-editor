@@ -244,7 +244,7 @@ describe('MainLayout', () => {
 
   it('renders ACP/A2A version tag', () => {
     renderWithRouter(<MainLayout />)
-    expect(screen.getByText(/ACP\/A2A ENGINE/)).toBeInTheDocument()
+    expect(screen.getByText(/ACP\/A2A 引擎/)).toBeInTheDocument()
   })
 
   // --- Left sidebar ---
@@ -416,7 +416,7 @@ describe('MainLayout', () => {
     const { workspaceApi } = await import('../../services/api')
     vi.mocked(workspaceApi.openFolderDialog).mockResolvedValueOnce('/new/folder')
     await act(async () => { renderWithRouter(<MainLayout />) })
-    const fileMenu = screen.getByText(/文件 \(File\)/)
+    const fileMenu = screen.getByText(/^文件$/)
     await act(async () => { fireEvent.click(fileMenu) })
     expect(workspaceApi.openFolderDialog).toHaveBeenCalled()
     expect(mockSetWorkspacePath).toHaveBeenCalledWith('/new/folder')
@@ -426,7 +426,7 @@ describe('MainLayout', () => {
     const { workspaceApi } = await import('../../services/api')
     vi.mocked(workspaceApi.openFolderDialog).mockResolvedValueOnce(null)
     await act(async () => { renderWithRouter(<MainLayout />) })
-    const fileMenu = screen.getByText(/文件 \(File\)/)
+    const fileMenu = screen.getByText(/^文件$/)
     await act(async () => { fireEvent.click(fileMenu) })
     expect(mockSetWorkspacePath).not.toHaveBeenCalled()
   })
@@ -435,7 +435,7 @@ describe('MainLayout', () => {
     const { workspaceApi } = await import('../../services/api')
     vi.mocked(workspaceApi.openFolderDialog).mockRejectedValueOnce(new Error('Dialog failed'))
     await act(async () => { renderWithRouter(<MainLayout />) })
-    const fileMenu = screen.getByText(/文件 \(File\)/)
+    const fileMenu = screen.getByText(/^文件$/)
     await act(async () => { fireEvent.click(fileMenu) })
     // Component should still be rendered after error (no crash)
     expect(fileMenu).toBeInTheDocument()
@@ -469,33 +469,13 @@ describe('MainLayout', () => {
     expect(window.location.hash).toBe('#/settings')
   })
 
-  // --- Daemon status line ---
-  it('displays agent names when agents exist', () => {
+  // --- Toolbar Chinese labels ---
+  it('displays Chinese-only toolbar labels', () => {
     renderWithRouter(<MainLayout />)
-    expect(screen.getByText(/Claude Code.*Kimi Code/)).toBeInTheDocument()
-  })
-
-  it('displays standby when no agents', async () => {
-    const { useAppStore } = await import('../../store/appStore')
-    vi.mocked(useAppStore).mockImplementation(((selector?: (state: Record<string, unknown>) => unknown) => {
-      const state = {
-        agents: [],
-        zenMode: false,
-        initialize: vi.fn(),
-        toasts: [],
-        removeToast: vi.fn(),
-        addToast: vi.fn(),
-      }
-      return selector ? selector(state) : state
-    }) as unknown as typeof useAppStore)
-    await act(async () => { renderWithRouter(<MainLayout />) })
-    expect(screen.getByText(/standby/)).toBeInTheDocument()
-  })
-
-  // --- Protocol label in bottom panel ---
-  it('renders DAEMON PROTOCOL label', () => {
-    renderWithRouter(<MainLayout />)
-    expect(screen.getByText(/DAEMON PROTOCOL: ACP_V1_BRIDGE/)).toBeInTheDocument()
+    expect(screen.getByText('文件')).toBeInTheDocument()
+    expect(screen.getByText('工作区')).toBeInTheDocument()
+    expect(screen.getByText('蜂群架构')).toBeInTheDocument()
+    expect(screen.getByText('MCP 服务器')).toBeInTheDocument()
   })
 
   // --- FLOW STATUS ---
@@ -508,7 +488,7 @@ describe('MainLayout', () => {
   it('shows active agent count in CLI tab', async () => {
     await act(async () => { renderWithRouter(<MainLayout />) })
     // The count text is inside a span within the button
-    const countText = screen.getByText(/Active进程/)
+    const countText = screen.getByText(/活跃进程/)
     expect(countText.textContent).toContain('2')
   })
 
@@ -527,7 +507,7 @@ describe('MainLayout', () => {
       return selector ? selector(state) : state
     }) as unknown as typeof useAppStore)
     await act(async () => { renderWithRouter(<MainLayout />) })
-    const countText = screen.getByText(/Active进程/)
+    const countText = screen.getByText(/活跃进程/)
     expect(countText.textContent).toContain('0')
   })
 

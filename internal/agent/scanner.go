@@ -169,16 +169,6 @@ var KnownAgents = []KnownAgent{
 		ModelEnvVar:  "CLINE_MODEL",
 		Capabilities: []string{"code", "edit", "test", "debug", "mcp"},
 	},
-	{
-		Name:         "soloncode",
-		Executables:  []string{"soloncode"},
-		ConfigFiles:  []string{"soloncode.json"},
-		ConfigPaths:  []string{"~/.soloncode"},
-		Provider:     "deepseek",
-		EnvPrefix:    "SOLONCODE",
-		ModelEnvVar:  "SOLONCODE_MODEL",
-		Capabilities: []string{"code", "edit", "chat", "debug"},
-	},
 }
 
 // Scanner scans for installed agent CLIs
@@ -241,7 +231,6 @@ func getPaths() []string {
 	homeDir, _ := os.UserHomeDir()
 	if homeDir != "" {
 		agentBins := []string{
-			filepath.Join(homeDir, ".soloncode", "bin"),
 			filepath.Join(homeDir, ".local", "bin"),
 			filepath.Join(homeDir, "bin"),
 			filepath.Join(homeDir, ".claude", "bin"),

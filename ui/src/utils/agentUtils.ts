@@ -9,7 +9,6 @@ export const AGENT_ICONS: Record<string, string> = {
   'cline': '□',
   'qwen-code': '◆',
   'gemini-cli': '◇',
-  'soloncode': '◈',
   'code-reviewer': '◈',
   'test-generator': '◈',
   'default': '□',

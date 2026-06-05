@@ -1,0 +1,85 @@
+<h2>模块 9: 标题栏 &amp; 状态栏</h2>
+<p class="subtitle">顶部导航 + 底部系统状态 — 简洁中文、无冗余文字</p>
+
+<div class="mockup">
+  <div class="mockup-header">标题栏 (Header) 详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:800px;margin:0 auto;">
+
+      <!-- 标题栏 -->
+      <div style="height:36px;background:#161b22;border:1px solid #30363d;border-radius:6px 6px 0 0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;">
+
+        <!-- 左侧: Logo + 导航 -->
+        <div style="display:flex;align-items:center;gap:16px;">
+          <!-- Logo -->
+          <div style="display:flex;align-items:center;gap:6px;color:#58a6ff;font-weight:700;font-size:12px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6.5 2l4.5 2.6v5.2L6.5 12.4 2 9.8V4.6L6.5 2zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6V4.6L17.5 2zM6.5 13.6l4.5 2.6v5.2L6.5 24 2 21.4v-5.2l4.5-2.6zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6v-5.2l4.5-2.6z"/>
+            </svg>
+            <span>Swarm Editor</span>
+            <span style="font-size:8px;padding:1px 5px;background:rgba(30,58,138,0.4);color:#93c5fd;border:1px solid rgba(30,58,138,0.5);border-radius:3px;font-weight:400;">v2.5</span>
+          </div>
+
+          <!-- 导航菜单 (纯中文) -->
+          <nav style="display:flex;gap:14px;font-size:11px;color:#8b949e;">
+            <span style="cursor:pointer;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#8b949e'">文件</span>
+            <span style="cursor:pointer;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#8b949e'">工作区</span>
+            <span style="cursor:pointer;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#8b949e'">蜂群架构</span>
+            <span style="cursor:pointer;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#8b949e'">MCP 服务器</span>
+          </nav>
+        </div>
+
+        <!-- 右侧: 状态指示器 -->
+        <div style="display:flex;align-items:center;gap:12px;">
+          <!-- 心跳指示 -->
+          <span style="color:#10b981;" title="系统活跃">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2 11.5h4l2-4 3 8 2-4h4l2-3 3 6h.5" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <!-- Git 同步 -->
+          <span style="cursor:pointer;color:#8b949e;" title="Git 同步">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 104 0 2 2 0 00-4 0zm0 14a2 2 0 104 0 2 2 0 00-4 0zm14-14a2 2 0 104 0 2 2 0 00-4 0M7 5v10m0 4l10-8"/></svg>
+          </span>
+          <!-- 设置 -->
+          <span style="cursor:pointer;color:#8b949e;" title="设置">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <!-- 间隔 -->
+      <div style="height:20px;"></div>
+
+      <!-- 状态栏 -->
+      <div style="height:22px;background:#161b22;border:1px solid #30363d;border-radius:0 0 6px 6px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:9px;font-family:monospace;color:#6b7280;">
+
+        <!-- 左侧 -->
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="display:flex;align-items:center;gap:4px;color:#10b981;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#10b981;"></span>
+            守护进程就绪
+          </span>
+          <span style="color:#30363d;">|</span>
+          <span>能力运作: <strong style="color:#9ca3af;">12 实体</strong></span>
+        </div>
+
+        <!-- 右侧 -->
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span>UTF-8</span>
+          <span>分支: <strong style="color:#9ca3af;">main</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计变更</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>已移除</strong>："QUEEN AGENT DEPLOYED // ACTIVE DAEMONS:..." 冗余文字</li>
+  <li><strong>已移除</strong>："DAEMON PROTOCOL: ACP_V1_BRIDGE" 无意义标签</li>
+  <li><strong>已移除</strong>：所有双语标签（英文 + 中文），只保留中文</li>
+  <li><strong>简化版本标签</strong>：去掉 "ACP/A2A 引擎" 前缀，只保留 "v2.5"</li>
+  <li><strong>状态栏</strong>：守护进程就绪 + 能力计数 + 编码 + 分支名</li>
+  <li><strong>心跳图标</strong>：绿色心形，表示系统活跃</li>
+</ul>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swarm Editor — UI 模块设计 Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; }
+  .header svg { width: 20px; height: 20px; }
+  .header h1 { font-size: 16px; font-weight: 700; color: #fff; }
+  .header .badge { font-size: 10px; padding: 2px 8px; background: rgba(30,58,138,0.4); color: #93c5fd; border: 1px solid rgba(30,58,138,0.5); border-radius: 4px; }
+  .header .desc { margin-left: auto; font-size: 12px; color: #8b949e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; transition: border-color 0.2s, transform 0.15s; cursor: pointer; text-decoration: none; color: inherit; display: block; }
+  .card:hover { border-color: #58a6ff; transform: translateY(-2px); }
+  .card-header { padding: 14px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #30363d20; }
+  .card-num { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .card-title { font-size: 13px; font-weight: 600; color: #d1d5db; }
+  .card-subtitle { font-size: 11px; color: #8b949e; padding: 0 16px 14px; line-height: 1.5; }
+  .card-tags { padding: 0 16px 14px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+  .nav { padding: 16px 24px 0; max-width: 1200px; margin: 0 auto; }
+  .nav-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .nav-links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .nav-link { font-size: 11px; padding: 4px 10px; background: #21262d; border: 1px solid #30363d; border-radius: 4px; color: #8b949e; text-decoration: none; transition: all 0.15s; }
+  .nav-link:hover { border-color: #58a6ff; color: #58a6ff; }
+  .nav-link.active { background: rgba(88,166,255,0.12); border-color: #58a6ff; color: #58a6ff; }
+  .section-title { font-size: 13px; font-weight: 600; color: #8b949e; padding: 8px 24px 0; max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 8px; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: #30363d; }
+  iframe { width: 100%; height: calc(100vh - 60px); border: none; background: #0d1117; }
+  .viewer { display: none; }
+  .viewer.active { display: block; }
+  .viewer-header { background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 16px; display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 100; }
+  .viewer-header button { font-size: 11px; padding: 4px 12px; background: #21262d; border: 1px solid #30363d; border-radius: 4px; color: #8b949e; cursor: pointer; transition: all 0.15s; }
+  .viewer-header button:hover { border-color: #58a6ff; color: #58a6ff; }
+  .viewer-header .title { font-size: 12px; font-weight: 600; color: #d1d5db; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Index View -->
+<div id="index-view">
+  <div class="header">
+    <svg viewBox="0 0 24 24" fill="#58a6ff"><path d="M6.5 2l4.5 2.6v5.2L6.5 12.4 2 9.8V4.6L6.5 2zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6V4.6L17.5 2zM6.5 13.6l4.5 2.6v5.2L6.5 24 2 21.4v-5.2l4.5-2.6zm11 0l4.5 2.6v5.2l-4.5 2.6-4.5-2.6v-5.2l4.5-2.6z"/></svg>
+    <h1>Swarm Editor — UI 模块设计</h1>
+    <span class="badge">10 Modules</span>
+    <span class="desc">蜂巢式多 Agent 协调编辑器</span>
+  </div>
+
+  <div class="nav">
+    <div class="nav-label">快速导航</div>
+    <div class="nav-links">
+      <a class="nav-link" href="#left-sidebar" onclick="showViewer('mod-left-sidebar.html','左侧边栏')">左侧边栏</a>
+      <a class="nav-link" href="#mcp" onclick="showViewer('mod-mcp-panel.html','MCP 面板')">MCP 面板</a>
+      <a class="nav-link" href="#agent-cap" onclick="showViewer('mod-agent-capability.html','Agent 能力')">Agent 能力</a>
+      <a class="nav-link" href="#agent-config" onclick="showViewer('mod-agent-config-modal.html','Agent 配置')">Agent 配置</a>
+      <a class="nav-link" href="#sandbox" onclick="showViewer('mod-queen-sandbox.html','蜂王沙盘')">蜂王沙盘</a>
+      <a class="nav-link" href="#protocol" onclick="showViewer('mod-protocol-monitor.html','指令交互')">指令交互</a>
+      <a class="nav-link" href="#activity" onclick="showViewer('mod-activity-log.html','活动日志')">活动日志</a>
+      <a class="nav-link" href="#dispatcher" onclick="showViewer('mod-queen-dispatcher.html','蜂王调度器')">蜂王调度器</a>
+      <a class="nav-link" href="#cli" onclick="showViewer('mod-cli-workshop.html','CLI 工坊')">CLI 工坊</a>
+      <a class="nav-link" href="#header" onclick="showViewer('mod-header-statusbar.html','标题栏')">标题栏 & 状态栏</a>
+      <a class="nav-link" href="#skill" onclick="showViewer('mod-skill-panel.html','技能面板')">技能面板</a>
+      <a class="nav-link" href="#mcp-config" onclick="showViewer('mod-mcp-config.html','MCP 配置')">MCP 配置</a>
+      <a class="nav-link" href="#mcp-import" onclick="showViewer('mod-mcp-import.html','MCP 导入')">MCP 导入</a>
+    </div>
+  </div>
+
+  <div class="section-title">左侧边栏</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-left-sidebar.html','左侧边栏')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(88,166,255,0.15);color:#58a6ff;">10</div>
+        <div class="card-title">左侧边栏</div>
+      </div>
+      <div class="card-subtitle">文件浏览器 + Git 状态 + LSP 符号大纲 — 上下分割布局</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">文件树</span>
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">符号大纲</span>
+        <span class="tag" style="background:rgba(63,185,80,0.12);color:#3fb950;">Git</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">中心区域</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-queen-sandbox.html','蜂王调度沙盘')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(251,191,36,0.15);color:#fbbf24;">7</div>
+        <div class="card-title">蜂王调度沙盘</div>
+      </div>
+      <div class="card-subtitle">Agent 拓扑可视化 — SVG 节点 + 流动粒子边 + HITL 授权弹窗</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(251,191,36,0.12);color:#fbbf24;">SVG</span>
+        <span class="tag" style="background:rgba(240,136,62,0.12);color:#f0883e;">HITL</span>
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">动画</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">右侧边栏</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-protocol-monitor.html','指令交互')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(251,191,36,0.15);color:#fbbf24;">5</div>
+        <div class="card-title">指令交互</div>
+      </div>
+      <div class="card-subtitle">ACP/A2A 协议包实时监控 — 列表/时间轴双视图 + 过滤 + 搜索</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(251,191,36,0.12);color:#fbbf24;">ACP</span>
+        <span class="tag" style="background:rgba(34,211,238,0.12);color:#22d3ee;">A2A</span>
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">MCP</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-activity-log.html','活动日志')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(34,211,238,0.15);color:#22d3ee;">6</div>
+        <div class="card-title">活动日志</div>
+      </div>
+      <div class="card-subtitle">MCP/Skills/Tools/Function Calling 活动审计 — 分类过滤 + 彩色卡片</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">MCP</span>
+        <span class="tag" style="background:rgba(249,115,22,0.12);color:#f97316;">Skill</span>
+        <span class="tag" style="background:rgba(63,185,80,0.12);color:#3fb950;">审计</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-queen-dispatcher.html','蜂王调度器')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(245,158,11,0.15);color:#f59e0b;">8</div>
+        <div class="card-title">蜂王调度器</div>
+      </div>
+      <div class="card-subtitle">底部目标输入区 — 策略选择 + 最近任务状态 + 目标下发</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(245,158,11,0.12);color:#f59e0b;">调度</span>
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">输入</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">左侧边栏子面板</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-mcp-panel.html','MCP 面板')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(192,132,252,0.15);color:#c084fc;">1</div>
+        <div class="card-title">MCP 面板</div>
+      </div>
+      <div class="card-subtitle">每个 MCP 服务器独立开关 + per-agent pills + 配置按钮</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">MCP</span>
+        <span class="tag" style="background:rgba(63,185,80,0.12);color:#3fb950;">Toggle</span>
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">Agent</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-agent-capability.html','Agent 能力面板')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(88,166,255,0.15);color:#58a6ff;">3</div>
+        <div class="card-title">Agent 能力面板</div>
+      </div>
+      <div class="card-subtitle">注册/扫描到的 Agent 列表，带配置按钮、能力标签、状态指示</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">Agent</span>
+        <span class="tag" style="background:rgba(63,185,80,0.12);color:#3fb950;">能力</span>
+        <span class="tag" style="background:rgba(240,136,62,0.12);color:#f0883e;">状态</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-agent-config-modal.html','Agent 配置 Modal')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(88,166,255,0.15);color:#58a6ff;">4</div>
+        <div class="card-title">Agent 配置 Modal</div>
+      </div>
+      <div class="card-subtitle">Provider 预设卡片式 — 第一方/第三方分类 + 模型/Key/URL 结构化输入</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">Provider</span>
+        <span class="tag" style="background:rgba(251,191,36,0.12);color:#fbbf24;">配置</span>
+        <span class="tag" style="background:rgba(118,200,147,0.12);color:#76c893;">Modal</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-skill-panel.html','技能面板')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(34,211,238,0.15);color:#22d3ee;">11</div>
+        <div class="card-title">技能面板</div>
+      </div>
+      <div class="card-subtitle">独立技能列表 — 来源标签 + Agent 启用状态 + 搜索过滤</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(34,211,238,0.12);color:#22d3ee;">Skill</span>
+        <span class="tag" style="background:rgba(88,166,255,0.12);color:#58a6ff;">Agent</span>
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">来源</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-mcp-config.html','MCP 配置')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(251,146,60,0.15);color:#fb923c;">12</div>
+        <div class="card-title">MCP 配置 Modal</div>
+      </div>
+      <div class="card-subtitle">单个 MCP 服务器详细配置 — 类型切换 + 命令/URL + 参数 + 环境变量</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;">配置</span>
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">MCP</span>
+        <span class="tag" style="background:rgba(118,200,147,0.12);color:#76c893;">Modal</span>
+      </div>
+    </a>
+    <a class="card" onclick="showViewer('mod-mcp-import.html','MCP 导入')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(63,185,80,0.15);color:#3fb950;">13</div>
+        <div class="card-title">MCP 导入 Modal</div>
+      </div>
+      <div class="card-subtitle">从 Agent 配置文件扫描并导入 MCP 服务器 — 来源展示 + 一键导入</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(63,185,80,0.12);color:#3fb950;">导入</span>
+        <span class="tag" style="background:rgba(192,132,252,0.12);color:#c084fc;">MCP</span>
+        <span class="tag" style="background:rgba(251,191,36,0.12);color:#fbbf24;">扫描</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">底部面板</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-cli-workshop.html','CLI 进程工坊')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(34,211,238,0.15);color:#22d3ee;">2</div>
+        <div class="card-title">CLI 进程工坊</div>
+      </div>
+      <div class="card-subtitle">每行带 agent 专属颜色、状态指示灯、内存估算</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(34,211,238,0.12);color:#22d3ee;">进程</span>
+        <span class="tag" style="background:rgba(251,191,36,0.12);color:#fbbf24;">PID</span>
+        <span class="tag" style="background:rgba(240,136,62,0.12);color:#f0883e;">内存</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">全局</div>
+  <div class="grid">
+    <a class="card" onclick="showViewer('mod-header-statusbar.html','标题栏 & 状态栏')">
+      <div class="card-header">
+        <div class="card-num" style="background:rgba(107,114,128,0.15);color:#9ca3af;">9</div>
+        <div class="card-title">标题栏 & 状态栏</div>
+      </div>
+      <div class="card-subtitle">顶部导航 + 底部系统状态 — 简洁中文、无冗余文字</div>
+      <div class="card-tags">
+        <span class="tag" style="background:rgba(107,114,128,0.12);color:#9ca3af;">导航</span>
+        <span class="tag" style="background:rgba(16,185,129,0.12);color:#10b981;">状态</span>
+      </div>
+    </a>
+  </div>
+
+  <div style="height:48px;"></div>
+</div>
+
+<!-- Viewer -->
+<div id="viewer" class="viewer">
+  <div class="viewer-header">
+    <button onclick="hideViewer()">← 返回目录</button>
+    <span class="title" id="viewer-title"></span>
+  </div>
+  <iframe id="viewer-frame"></iframe>
+</div>
+
+<script>
+function showViewer(file, title) {
+  document.getElementById('index-view').style.display = 'none';
+  document.getElementById('viewer').classList.add('active');
+  document.getElementById('viewer-frame').src = file;
+  document.getElementById('viewer-title').textContent = title;
+  history.pushState({ file, title }, '', '#' + file);
+}
+function hideViewer() {
+  document.getElementById('index-view').style.display = 'block';
+  document.getElementById('viewer').classList.remove('active');
+  document.getElementById('viewer-frame').src = '';
+  history.pushState(null, '', '#');
+}
+window.addEventListener('popstate', (e) => {
+  if (e.state && e.state.file) {
+    showViewer(e.state.file, e.state.title);
+  } else {
+    hideViewer();
+  }
+});
+</script>
+</body>
+</html>

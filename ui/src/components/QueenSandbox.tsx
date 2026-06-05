@@ -96,7 +96,16 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
     return 'idle'
   }, [lifecycleAgents])
 
-  // Layout: staggered pipeline — design mockup uses fixed positions with vertical stacking
+  // Design mockup fixed positions: scanner(52,178), gemini(220,40), claude-code(220,240),
+  // validation(548,140), aider(728,140). Fallback to dynamic layout for unknown agents.
+  const DESIGN_POSITIONS: Record<string, { x: number; y: number; shape: 'circle' | 'rect'; icon: string }> = {
+    'scanner': { x: 52, y: 178, shape: 'rect', icon: 'tree' },
+    'gemini': { x: 220, y: 40, shape: 'circle', icon: 'wand' },
+    'claude-code': { x: 220, y: 240, shape: 'circle', icon: 'terminal' },
+    'validation': { x: 548, y: 140, shape: 'circle', icon: 'check' },
+    'aider': { x: 728, y: 140, shape: 'circle', icon: 'git' },
+  }
+
   const nodes: SandboxNode[] = useMemo(() => {
     if (safeAgents.length === 0) {
       return []
@@ -107,10 +116,25 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
       getPipelineIndex(a.type || '') - getPipelineIndex(b.type || '')
     )
 
-    const spacing = 700 / (sorted.length + 1)
+    // Use design fixed positions when available, dynamic layout as fallback
+    const usedPositions = new Set<string>()
     return sorted.map((agent, i) => {
-      const x = 80 + spacing * (i + 1) - spacing / 2
-      const y = 140 + (i % 2 === 0 ? 0 : 80)
+      const designPos = DESIGN_POSITIONS[agent.id]
+      let x: number, y: number, shape: 'circle' | 'rect', icon: string
+      if (designPos && !usedPositions.has(agent.id)) {
+        x = designPos.x
+        y = designPos.y
+        shape = designPos.shape
+        icon = designPos.icon
+        usedPositions.add(agent.id)
+      } else {
+        // Dynamic fallback for agents not in design mockup
+        const spacing = 700 / (sorted.length + 1)
+        x = 80 + spacing * (i + 1) - spacing / 2
+        y = 140 + (i % 2 === 0 ? 0 : 80)
+        shape = 'circle'
+        icon = 'terminal'
+      }
       const status = getLifecycleStatus(agent.id, agent.state || 'idle')
       return {
         id: agent.id,
@@ -121,23 +145,23 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
         color: STATUS_COLORS[status] || '#58a6ff',
         x: Math.round(x),
         y,
-        shape: 'circle' as const,
+        shape,
         pid: (agent as unknown as Record<string, unknown>).pid as number | undefined,
-        icon: 'terminal',
+        icon,
       }
     })
   }, [safeAgents, getLifecycleStatus])
 
   const edges = useMemo(() => {
     if (nodes.length < 2) return []
-    // Default topology matches design: scanner->queen, queen->validation, validation->aider
+    // Design topology: scanner→gemini (blue), gemini→validation (orange), validation→aider (green)
     // claude-code is disconnected (blocked, waiting for HITL approval)
     const nodeIds = new Set(nodes.map(n => n.id))
-    const isDefaultTopology = nodeIds.has('ws-scanner') && nodeIds.has('queen') && nodeIds.has('claude-code') && nodeIds.has('validation') && nodeIds.has('aider')
+    const isDefaultTopology = nodeIds.has('scanner') && nodeIds.has('gemini') && nodeIds.has('claude-code') && nodeIds.has('validation') && nodeIds.has('aider')
     if (isDefaultTopology) {
       return [
-        { from: 'ws-scanner', to: 'queen', color: '#58a6ff' },
-        { from: 'queen', to: 'validation', color: '#f0883e' },
+        { from: 'scanner', to: 'gemini', color: '#58a6ff' },
+        { from: 'gemini', to: 'validation', color: '#f0883e' },
         { from: 'validation', to: 'aider', color: '#3fb950' },
       ]
     }
@@ -198,11 +222,23 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
 
   return (
     <div className="relative w-full h-full overflow-hidden" style={{ background: '#0a0d12' }}>
-      {/* CSS keyframes for status animations */}
+      {/* CSS keyframes for status animations — matching design spec */}
       <style>{`
         @keyframes sandbox-pulse-executing {
           0%, 100% { opacity: 0.2; }
           50% { opacity: 0.8; }
+        }
+        @keyframes sandbox-rotate-blocked {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes sandbox-dash-error {
+          0% { stroke-dashoffset: 0; }
+          100% { stroke-dashoffset: -24; }
+        }
+        @keyframes sandbox-bounce-waiting {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
         }
         @keyframes sandbox-pulse-thinking {
           0%, 100% { opacity: 0.15; }
@@ -339,16 +375,21 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
               style={{ transformOrigin: `${node.x}px ${node.y}px` }}
               onClick={() => handleNodeClick(node.id, node.name)}
             >
-              {/* 呼吸动画外圈 (blocked) — amber glow-pulse matching design mockup */}
-              {isBlocked && (
-                <>
-                  <circle cx={node.x} cy={node.y} r={36} fill="none" stroke={node.color} strokeWidth={1.5} filter="url(#glow-amber)">
+              {/* 旋转动画外圈 (blocked) — design spec: rotate */}
+              {node.status === 'blocked' && (
+                <g style={{ transformOrigin: `${node.x}px ${node.y}px`, animation: 'sandbox-rotate-blocked 3s linear infinite' }}>
+                  <circle cx={node.x} cy={node.y} r={36} fill="none" stroke={node.color} strokeWidth={1.5} strokeDasharray="12,6" filter="url(#glow-amber)">
                     <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
                   </circle>
-                  <circle cx={node.x} cy={node.y} r={42} fill="none" stroke={node.color} strokeWidth={1} opacity={0.3}>
-                    <animate attributeName="r" values="42;48;42" dur="2s" repeatCount="indefinite" />
+                </g>
+              )}
+              {/* 弹跳动画外圈 (waiting_auth) — design spec: bounce */}
+              {node.status === 'waiting_auth' && (
+                <g style={{ transformOrigin: `${node.x}px ${node.y}px`, animation: 'sandbox-bounce-waiting 1.5s ease-in-out infinite' }}>
+                  <circle cx={node.x} cy={node.y} r={36} fill="none" stroke={node.color} strokeWidth={1.5} strokeDasharray="12,6" filter="url(#glow-amber)">
+                    <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
                   </circle>
-                </>
+                </g>
               )}
               {/* 执行中节点 cyan glow-pulse — matching design mockup */}
               {isExecuting && (
@@ -373,14 +414,14 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
                   </circle>
                 </>
               )}
-              {/* 错误节点 — red static border with glow */}
+              {/* 错误节点 — design spec: dash animation */}
               {isError && (
-                <circle cx={node.x} cy={node.y} r={38} fill="none" stroke="#f85149" strokeWidth={2.5} filter="url(#glow-red)">
-                  <animate attributeName="opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite" />
+                <circle cx={node.x} cy={node.y} r={38} fill="none" stroke="#f85149" strokeWidth={2.5} strokeDasharray="8,4" filter="url(#glow-red)">
+                  <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="1s" repeatCount="indefinite" />
                 </circle>
               )}
-              {/* Queen 节点 cyan glow-pulse — matching design mockup glow-pulse-cyan */}
-              {node.id === 'queen' && (
+              {/* Queen (gemini) 节点 cyan glow-pulse — matching design mockup glow-pulse-cyan */}
+              {node.id === 'gemini' && (
                 <circle cx={node.x} cy={node.y} r={36} fill="none" stroke="#58a6ff" strokeWidth={1.5} filter="url(#glow-cyan)">
                   <animate attributeName="opacity" values="0.2;0.5;0.2" dur="2.5s" repeatCount="indefinite" />
                 </circle>
@@ -408,9 +449,9 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
                   cx={node.x} cy={node.y}
                   r={32}
                   fill={isBlocked ? 'rgba(69,26,3,0.4)' : isError ? 'rgba(127,29,29,0.3)' : isStuck ? 'rgba(120,53,15,0.3)' : isThinking ? 'rgba(30,58,138,0.2)' : node.id === 'queen' ? 'rgba(23,37,84,0.3)' : isExecuting ? 'rgba(30,60,100,0.3)' : node.id === 'aider' ? '#161b22' : '#161b22'}
-                  stroke={isError ? '#f85149' : isStuck ? '#fbbf24' : isThinking ? '#60a5fa' : node.id === 'queen' ? '#06b6d4' : node.id === 'validation' || node.id === 'aider' ? '#334155' : node.id === 'claude-code' && hitlResolved === 'approved' ? '#34d399' : node.id === 'claude-code' && hitlResolved === 'denied' ? '#f87171' : node.color}
+                  stroke={isError ? '#f85149' : isStuck ? '#fbbf24' : isThinking ? '#60a5fa' : node.id === 'gemini' ? '#06b6d4' : node.id === 'validation' || node.id === 'aider' ? '#334155' : node.id === 'claude-code' && hitlResolved === 'approved' ? '#34d399' : node.id === 'claude-code' && hitlResolved === 'denied' ? '#f87171' : node.color}
                   strokeWidth={2}
-                  filter={isBlocked ? 'url(#shadow-amber)' : isError || isStuck ? 'url(#shadow-amber)' : node.id === 'queen' ? 'url(#shadow-cyan)' : node.id === 'aider' ? 'none' : 'url(#shadow-node)'}
+                  filter={isBlocked ? 'url(#shadow-amber)' : isError || isStuck ? 'url(#shadow-amber)' : node.id === 'gemini' ? 'url(#shadow-cyan)' : node.id === 'aider' ? 'none' : 'url(#shadow-node)'}
                 />
               )}
               {/* 节点内图标 — SVG paths matching FontAwesome equivalents */}
@@ -447,7 +488,7 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
                 <circle cx={node.x} cy={node.y} r={4} fill={node.color} />
               )}
               {/* 节点下方名称 — 匹配设计稿: gemini=cyan-400, claude=orange-400, 其他=gray-400 */}
-              <text x={node.x} y={node.y + 52} textAnchor="middle" fill={node.id === 'queen' ? '#22d3ee' : node.id === 'claude-code' ? '#fb923c' : '#9ca3af'} fontSize={11} fontFamily="monospace" fontWeight="bold">
+              <text x={node.x} y={node.y + 52} textAnchor="middle" fill={node.id === 'gemini' ? '#22d3ee' : node.id === 'claude-code' ? '#fb923c' : '#9ca3af'} fontSize={11} fontFamily="monospace" fontWeight="bold">
                 {node.name.length > 16 ? node.name.slice(0, 14) + '..' : node.name}
               </text>
               {/* PID 徽章 — 匹配设计稿: bg-cyan-950/40 text-cyan-400 border-cyan-900/40 */}
@@ -485,9 +526,9 @@ export default function QueenSandbox({ onNodeSelect }: QueenSandboxProps) {
                   badgeFill = 'rgba(120,53,15,0.4)'; badgeStroke = 'rgba(251,191,36,0.4)'; badgeText = '#fbbf24'
                 } else if (isError) {
                   badgeFill = 'rgba(127,29,29,0.4)'; badgeStroke = 'rgba(248,81,73,0.4)'; badgeText = '#f85149'
-                } else if (node.id === 'queen') {
+                } else if (node.id === 'gemini') {
                   badgeFill = 'rgba(8,51,68,0.4)'; badgeStroke = 'rgba(21,94,117,0.4)'; badgeText = '#22d3ee'
-                } else if (node.id === 'ws-scanner') {
+                } else if (node.id === 'scanner') {
                   badgeFill = '#020617'; badgeStroke = '#30363d'; badgeText = '#64748b'
                 } else if (node.id === 'validation') {
                   badgeFill = '#0f172a'; badgeStroke = '#1e293b'; badgeText = '#6b7280'

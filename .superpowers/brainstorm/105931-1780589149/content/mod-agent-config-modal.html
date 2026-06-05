@@ -1,0 +1,182 @@
+<h2>模块 4: Agent 配置 Modal</h2>
+<p class="subtitle">Provider 预设卡片式 — 第一方/第三方分类 + 模型/Key/URL 结构化输入</p>
+
+<div class="mockup">
+  <div class="mockup-header">Claude Code 配置 Modal</div>
+  <div class="mockup-body" style="background:#0d1117;padding:20px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:520px;margin:0 auto;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+      <!-- Header -->
+      <div style="background:#161b22;padding:12px 16px;border-bottom:1px solid #30363d;display:flex;align-items:center;gap:8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span style="font-weight:bold;font-size:13px;color:#d1d5db;">Claude Code — 配置</span>
+        <span style="margin-left:auto;color:#8b949e;cursor:pointer;font-size:16px;">&times;</span>
+      </div>
+
+      <!-- Provider category tabs -->
+      <div style="padding:12px 16px 0;display:flex;gap:8px;">
+        <div style="padding:6px 16px;background:#21262d;border:1px solid #58a6ff;border-radius:6px;color:#58a6ff;font-size:10px;font-weight:600;cursor:pointer;">第一方 (官方)</div>
+        <div style="padding:6px 16px;background:transparent;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:10px;cursor:pointer;">第三方 (代理)</div>
+      </div>
+
+      <!-- Provider preset cards -->
+      <div style="padding:12px 16px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Provider 预设</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <!-- Anthropic Official -->
+          <div style="padding:10px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;display:flex;align-items:center;gap:10px;cursor:pointer;" onmouseover="this.style.borderColor='#58a6ff'" onmouseout="this.style.borderColor='#30363d'">
+            <span style="color:#8b949e;font-size:14px;">○</span>
+            <div style="flex:1;">
+              <div style="font-size:11px;font-weight:600;color:#d1d5db;">Anthropic Official</div>
+              <div style="font-size:9px;color:#6b7280;">api.anthropic.com</div>
+            </div>
+            <div style="display:flex;gap:3px;">
+              <span style="font-size:7px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">claude-sonnet-4</span>
+              <span style="font-size:7px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">claude-haiku-4</span>
+            </div>
+          </div>
+
+          <!-- XiaoMi MiMo (selected) -->
+          <div style="padding:10px 12px;background:#21262d;border:2px solid #58a6ff;border-radius:6px;display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <span style="color:#58a6ff;font-size:14px;">●</span>
+            <div style="flex:1;">
+              <div style="font-size:11px;font-weight:600;color:#d1d5db;">XiaoMi MiMo</div>
+              <div style="font-size:9px;color:#6b7280;">token-plan-sgp.xiaomimimo.com</div>
+            </div>
+            <div style="display:flex;gap:3px;">
+              <span style="font-size:7px;padding:1px 4px;background:#58a6ff15;color:#58a6ff;border-radius:3px;">mimo-v2.5-pro</span>
+            </div>
+          </div>
+
+          <!-- OpenRouter -->
+          <div style="padding:10px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;display:flex;align-items:center;gap:10px;cursor:pointer;" onmouseover="this.style.borderColor='#58a6ff'" onmouseout="this.style.borderColor='#30363d'">
+            <span style="color:#8b949e;font-size:14px;">○</span>
+            <div style="flex:1;">
+              <div style="font-size:11px;font-weight:600;color:#d1d5db;">OpenRouter</div>
+              <div style="font-size:9px;color:#6b7280;">openrouter.ai</div>
+            </div>
+            <div style="display:flex;gap:3px;">
+              <span style="font-size:7px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">多模型</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model config (structured inputs) -->
+      <div style="padding:0 16px 12px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">模型配置</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#6b7280;width:60px;text-align:right;">Model</span>
+            <div style="flex:1;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#d1d5db;">mimo-v2.5-pro</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#6b7280;width:60px;text-align:right;">API Key</span>
+            <div style="flex:1;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#d1d5db;">tp-se6y••••••••••••</div>
+            <span style="font-size:9px;color:#58a6ff;cursor:pointer;">显示</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#6b7280;width:60px;text-align:right;">Base URL</span>
+            <div style="flex:1;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#d1d5db;">https://token-plan-sgp.xiaomimimo.com/anthropic</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#6b7280;width:60px;text-align:right;">Sonnet</span>
+            <div style="flex:1;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#d1d5db;">mimo-v2.5-pro</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#6b7280;width:60px;text-align:right;">Haiku</span>
+            <div style="flex:1;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#d1d5db;">mimo-v2.5</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw JSON editor -->
+      <div style="padding:0 16px 12px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;display:flex;align-items:center;gap:4px;">
+          其他配置
+          <span style="font-size:7px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">JSON</span>
+        </div>
+        <div style="padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#7ee787;max-height:80px;overflow:hidden;line-height:1.5;">
+          <span style="color:#8b949e;">// permissions, enabledPlugins 等</span><br>
+          {<br>
+          &nbsp;&nbsp;"permissions": {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;"allow": ["Bash(npm run *)", "Read(*)"]<br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;"enabledPlugins": { ... }<br>
+          }
+        </div>
+      </div>
+
+      <!-- Validation status -->
+      <div style="padding:0 16px 8px;">
+        <div style="display:flex;align-items:center;gap:4px;font-size:9px;">
+          <span style="color:#3fb950;">&#10003;</span>
+          <span style="color:#3fb950;">格式校验通过</span>
+          <span style="color:#6b7280;margin-left:auto;font-size:8px;">~/.claude/settings.json</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:10px 16px;border-top:1px solid #30363d;display:flex;justify-content:flex-end;gap:8px;background:#161b22;">
+        <div style="padding:6px 16px;border:1px solid #30363d;border-radius:6px;font-size:10px;color:#8b949e;cursor:pointer;">取消</div>
+        <div style="padding:6px 16px;background:#238636;border:1px solid #2ea043;border-radius:6px;font-size:10px;color:white;cursor:pointer;font-weight:600;">保存并同步</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">交互说明</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>Provider 类别 Tab</strong>：第一方/第三方切换，过滤预设列表</li>
+  <li><strong>Provider 预设卡片</strong>：点击选择，自动填充 Base URL 和推荐模型。选中态蓝色边框 + 实心圆</li>
+  <li><strong>模型配置</strong>：结构化输入框，Model/API Key/Base URL + 高级模型（Sonnet/Haiku/Opus）</li>
+  <li><strong>API Key 脱敏</strong>：默认显示 tp-se6y••••，点击"显示"切换明文</li>
+  <li><strong>Raw JSON</strong>：Monaco Editor 编辑 permissions/plugins 等非结构化配置</li>
+  <li><strong>格式校验</strong>：实时校验，通过显示绿色勾，失败显示红色叉 + 错误信息</li>
+  <li><strong>保存</strong>：校验通过才写入原生文件，校验失败不破坏 agent 可用性</li>
+  <li><strong>文件路径</strong>：底部显示实际写入的配置文件路径</li>
+</ul>
+
+<!-- Kimi variant -->
+<h3 style="margin-top:24px;">Kimi Code 配置差异</h3>
+<div class="mockup">
+  <div class="mockup-header">Kimi Code 配置 Modal (TOML)</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:10px;color:#c9d1d9;">
+    <div style="max-width:480px;margin:0 auto;">
+      <!-- Provider type selector (Kimi-specific) -->
+      <div style="margin-bottom:12px;">
+        <div style="font-size:9px;font-weight:600;color:#8b949e;margin-bottom:6px;">Provider 类型</div>
+        <div style="display:flex;gap:6px;">
+          <div style="padding:4px 12px;background:#21262d;border:2px solid #58a6ff;border-radius:4px;font-size:9px;color:#58a6ff;cursor:pointer;">kimi</div>
+          <div style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">openai_responses</div>
+          <div style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">anthropic</div>
+          <div style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#8b949e;cursor:pointer;">gemini</div>
+        </div>
+      </div>
+
+      <!-- Model config (Kimi-specific fields) -->
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:9px;color:#6b7280;width:70px;text-align:right;">Model</span>
+          <div style="flex:1;padding:5px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#d1d5db;">Kimi-K2.5</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:9px;color:#6b7280;width:70px;text-align:right;">Context Size</span>
+          <div style="flex:1;padding:5px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#d1d5db;">262144</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:9px;color:#6b7280;width:70px;text-align:right;">Capabilities</span>
+          <div style="display:flex;gap:6px;">
+            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:#d1d5db;cursor:pointer;">
+              <input type="checkbox" checked style="accent-color:#58a6ff;width:12px;height:12px;"> thinking
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:#d1d5db;cursor:pointer;">
+              <input type="checkbox" checked style="accent-color:#58a6ff;width:12px;height:12px;"> image_in
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:7px;color:#6b7280;margin-top:8px;">配置文件: ~/.kimi/config.toml</div>
+    </div>
+  </div>
+</div>

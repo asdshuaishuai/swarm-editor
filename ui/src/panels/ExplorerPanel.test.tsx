@@ -1561,7 +1561,7 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Modified')).toBeInTheDocument()
+    expect(screen.getByText('M')).toBeInTheDocument()
   })
 
   it('displays Added status badge for staged file', async () => {
@@ -1573,7 +1573,7 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Added')).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
   })
 
   it('displays Untracked status badge', async () => {
@@ -1585,7 +1585,7 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Untracked')).toBeInTheDocument()
+    expect(screen.getByText('U')).toBeInTheDocument()
   })
 
   it('displays Deleted status badge', async () => {
@@ -1597,7 +1597,7 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Deleted')).toBeInTheDocument()
+    expect(screen.getByText('D')).toBeInTheDocument()
   })
 
   it('renders git section with branch info', async () => {
@@ -2633,6 +2633,6 @@ describe('ExplorerPanel', () => {
     })
 
     // The Added status is shown in the file tree badge
-    expect(screen.getByText('Added')).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
   })
 })

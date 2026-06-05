@@ -144,30 +144,17 @@ export function SupervisorPanel() {
     }
   }, [])
 
-  // Load initial data
+  // Load initial data + subscribe to real-time event-driven updates
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Initial data load is intentional
     loadData()
 
-    // Subscribe to real-time updates
-    const interval = setInterval(loadData, 5000)
-
-    // Real-time event subscriptions — refresh on key backend events
-    const unsubScheduleStart = events.subscribe('schedule_execution_started', () => {
-      loadData()
-    })
-    const unsubScheduleDone = events.subscribe('schedule_execution_completed', () => {
-      loadData()
-    })
-    const unsubSwarmTask = events.subscribe('swarm_task_update', () => {
-      loadData()
-    })
-    const unsubAgentStatus = events.subscribe('agent_status_change', () => {
-      loadData()
-    })
+    const unsubScheduleStart = events.subscribe('schedule_execution_started', () => loadData())
+    const unsubScheduleDone = events.subscribe('schedule_execution_completed', () => loadData())
+    const unsubSwarmTask = events.subscribe('swarm_task_update', () => loadData())
+    const unsubAgentStatus = events.subscribe('agent_status_change', () => loadData())
 
     return () => {
-      clearInterval(interval)
       unsubScheduleStart()
       unsubScheduleDone()
       unsubSwarmTask()

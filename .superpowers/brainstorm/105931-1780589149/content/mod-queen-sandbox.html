@@ -1,0 +1,177 @@
+<h2>模块 7: 蜂王调度沙盘 (Queen Sandbox)</h2>
+<p class="subtitle">Agent 拓扑可视化 — SVG 节点 + 流动粒子边 + HITL 授权弹窗</p>
+
+<div class="mockup">
+  <div class="mockup-header">蜂王调度沙盘详细设计</div>
+  <div class="mockup-body" style="background:#0a0d12;padding:20px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:600px;margin:0 auto;position:relative;min-height:360px;">
+
+      <!-- 左上: 架构指引浮窗 -->
+      <div style="position:absolute;top:0;left:0;max-width:240px;padding:10px;background:rgba(22,27,34,0.95);border:1px solid #30363d;border-radius:8px;font-size:10px;z-index:10;">
+        <div style="font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px;color:#fff;">
+          <span style="color:#fbbf24;">&#9733;</span> 蜂王全局调度协定 (ACP/A2A)
+        </div>
+        <p style="color:#9ca3af;line-height:1.5;margin:0;font-size:9px;">
+          系统中枢为<strong>「蜂王 Agent」</strong>。通过 <strong>ACP</strong> 控制子进程并执行 <strong>A2A</strong> 协商，形成自动变更管道。<br/>
+          <span style="color:#eab308;font-weight:600;">&#9889; 当前管道阻断于 claude-code，等待核准执行权。</span>
+        </p>
+      </div>
+
+      <!-- 右上: 选中节点信息 -->
+      <div style="position:absolute;top:0;right:0;padding:6px 10px;background:rgba(22,27,34,0.9);border:1px solid #30363d;border-radius:6px;font-size:10px;display:flex;align-items:center;gap:6px;z-index:10;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22d3ee;animation:pulse 2s infinite;"></span>
+        <span style="color:#9ca3af;">选中: <strong style="color:#fff;">gemini-cli (PID: 94801)</strong></span>
+      </div>
+
+      <!-- SVG 拓扑图 -->
+      <svg width="100%" height="300" viewBox="0 0 600 300" style="margin-top:60px;">
+        <!-- 定义: glow filters -->
+        <defs>
+          <filter id="glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-amber" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="8" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- 边: scanner → gemini (蓝色流动) -->
+        <path d="M 80 100 Q 180 40 280 80" fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-dasharray="8,8" opacity="0.5">
+          <animate attributeName="stroke-dashoffset" from="0" to="-1000" dur="35s" repeatCount="indefinite"/>
+        </path>
+        <circle r="4.5" fill="#58a6ff" filter="url(#glow-cyan)">
+          <animateMotion dur="3.5s" repeatCount="indefinite" path="M 80 100 Q 180 40 280 80"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3.5s" repeatCount="indefinite"/>
+        </circle>
+
+        <!-- 边: gemini → validation (橙色流动) -->
+        <path d="M 280 80 Q 380 40 460 100" fill="none" stroke="#f0883e" stroke-width="3" stroke-dasharray="8,8" opacity="0.6">
+          <animate attributeName="stroke-dashoffset" from="0" to="-1000" dur="35s" repeatCount="indefinite"/>
+        </path>
+        <circle r="5" fill="#f0883e" filter="url(#glow-amber)">
+          <animateMotion dur="4s" repeatCount="indefinite" path="M 280 80 Q 380 40 460 100"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="4s" repeatCount="indefinite"/>
+        </circle>
+
+        <!-- 边: validation → aider (绿色流动) -->
+        <path d="M 460 100 Q 500 140 540 180" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,8" opacity="0.3">
+          <animate attributeName="stroke-dashoffset" from="0" to="-1000" dur="35s" repeatCount="indefinite"/>
+        </path>
+        <circle r="4" fill="#3fb950">
+          <animateMotion dur="3s" repeatCount="indefinite" path="M 460 100 Q 500 140 540 180"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3s" repeatCount="indefinite"/>
+        </circle>
+
+        <!-- 节点: Scanner (rect, 左侧) -->
+        <rect x="52" y="72" width="56" height="56" rx="12" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <g transform="translate(68, 82) scale(0.7)">
+          <path d="M12 1l-3.5 5h2.5l-3 5h2.5l-4 7h5v3h2v-3h5l-4-7h2.5l-3-5h2.5z" fill="#64748b"/>
+        </g>
+        <text x="80" y="148" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="monospace" font-weight="bold">scanner</text>
+        <rect x="50" y="152" width="60" height="13" rx="2" fill="#020617" stroke="#30363d" stroke-width="0.5"/>
+        <text x="80" y="162" text-anchor="middle" font-size="7" font-family="monospace" fill="#64748b">空闲</text>
+
+        <!-- 节点: gemini-cli (circle, 执行中, cyan glow) -->
+        <circle cx="280" cy="80" r="38" fill="none" stroke="#58a6ff" stroke-width="2" filter="url(#glow-cyan)">
+          <animate attributeName="opacity" values="0.2;0.8;0.2" dur="1.5s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="280" cy="80" r="32" fill="rgba(30,60,100,0.3)" stroke="#58a6ff" stroke-width="2"/>
+        <g transform="translate(272, 74) scale(0.8)">
+          <path d="M4 6l5 5-5 5" stroke="#58a6ff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 16h6" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/>
+        </g>
+        <text x="280" y="132" text-anchor="middle" fill="#22d3ee" font-size="10" font-family="monospace" font-weight="bold">gemini-cli</text>
+        <rect x="250" y="136" width="60" height="13" rx="2" fill="rgba(30,60,100,0.4)" stroke="rgba(88,166,255,0.3)" stroke-width="0.5"/>
+        <text x="280" y="146" text-anchor="middle" font-size="7" font-family="monospace" font-weight="bold" fill="#58a6ff">执行中</text>
+
+        <!-- 节点: claude-code (circle, 阻断, amber glow-pulse) -->
+        <circle cx="280" cy="220" r="36" fill="none" stroke="#f0883e" stroke-width="1.5" filter="url(#glow-amber)">
+          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="280" cy="220" r="42" fill="none" stroke="#f0883e" stroke-width="1" opacity="0.3">
+          <animate attributeName="r" values="42;48;42" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="280" cy="220" r="32" fill="rgba(69,26,3,0.4)" stroke="#fb923c" stroke-width="2"/>
+        <g transform="translate(272, 214) scale(0.8)">
+          <path d="M4 6l5 5-5 5" stroke="#fb923c" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 16h6" stroke="#fb923c" stroke-width="2.5" stroke-linecap="round"/>
+        </g>
+        <text x="280" y="272" text-anchor="middle" fill="#fb923c" font-size="10" font-family="monospace" font-weight="bold">claude-code</text>
+        <rect x="242" y="276" width="76" height="13" rx="3" fill="rgba(67,20,7,0.5)" stroke="rgba(124,45,18,0.5)" stroke-width="0.5"/>
+        <text x="280" y="286" text-anchor="middle" font-size="7" font-family="monospace" font-weight="bold" fill="#fb923c">等候特权核准</text>
+
+        <!-- 节点: validation (circle, 空闲) -->
+        <circle cx="460" cy="100" r="32" fill="#161b22" stroke="#334155" stroke-width="2"/>
+        <g transform="translate(450, 90) scale(0.8)">
+          <path d="M4 3h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+          <path d="M7 11l3 3 7-7" stroke="#6b7280" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+        <text x="460" y="152" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="monospace" font-weight="bold">validation</text>
+        <rect x="430" y="156" width="60" height="13" rx="2" fill="#0f172a" stroke="#1e293b" stroke-width="0.5"/>
+        <text x="460" y="166" text-anchor="middle" font-size="7" font-family="monospace" fill="#6b7280">空闲</text>
+
+        <!-- 节点: aider (circle, 空闲, 无 shadow) -->
+        <circle cx="540" cy="200" r="32" fill="#161b22" stroke="#334155" stroke-width="2"/>
+        <g transform="translate(530, 190) scale(0.7)">
+          <circle cx="6" cy="6" r="3" fill="#4ade80"/>
+          <circle cx="6" cy="18" r="3" fill="#4ade80"/>
+          <circle cx="18" cy="18" r="3" fill="#4ade80"/>
+          <path d="M6 9v6M6 15c6 0 8-6 12-6" stroke="#4ade80" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </g>
+        <text x="540" y="252" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="monospace" font-weight="bold">aider</text>
+        <rect x="512" y="256" width="56" height="13" rx="2" fill="#030712" stroke="#111827" stroke-width="0.5"/>
+        <text x="540" y="266" text-anchor="middle" font-size="7" font-family="monospace" fill="#6b7280">空闲</text>
+      </svg>
+
+      <!-- 底部: 自主流转说明 -->
+      <div style="position:absolute;bottom:0;left:0;max-width:280px;padding:8px;background:rgba(15,23,42,0.95);border:1px solid #30363d;border-radius:6px;font-size:9px;display:flex;gap:6px;align-items:flex-start;color:#9ca3af;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div><strong style="color:#9ca3af;">自主流转说明：</strong> 此画面非机器人聊天。您可以随时在右侧下发「蜂王调度目标」。</div>
+      </div>
+
+      <!-- HITL 授权弹窗 -->
+      <div style="position:absolute;bottom:60px;left:140;width:300px;padding:12px;background:#1a1f26;border:2px solid #f0883e;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:20;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:6px;margin-bottom:8px;border-bottom:1px solid #30363d;">
+          <span style="font-weight:700;display:flex;align-items:center;gap:4px;color:#fb923c;font-size:10px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L3 7v5c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z"/></svg>
+            敏感指令安全授权闸
+          </span>
+          <span style="font-size:8px;color:#6b7280;">PID: 94812</span>
+        </div>
+        <p style="margin:0 0 8px;font-size:10px;line-height:1.5;color:#e5e7eb;">
+          底层 <strong style="color:#fff;">claude-code</code> 接收蜂王 A2A 命令后，申请在本机执行系统修改与整合测试指令。
+        </p>
+        <div style="padding:8px;background:rgba(0,0,0,0.8);border:1px solid #30363d;border-radius:4px;font-size:9px;margin-bottom:8px;">
+          <div style="color:#6b7280;"># claude-code 待授权动作</div>
+          <div style="color:#34d399;">$ node ./scripts/apply_layout_patch.js && npm run test:unit</div>
+          <div style="margin-top:4px;color:#6b7280;">// 写入影响目标:</div>
+          <div style="color:#fb923c;">write: src/MainLayout.tsx (+12行, -10行)</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button style="flex:1;padding:6px;background:#047857;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:9px;cursor:pointer;box-shadow:0 4px 6px rgba(2,44,34,0.4);">确认并核准执行</button>
+          <button style="flex:1;padding:6px;background:rgba(136,19,55,0.8);color:#fecdd3;border:1px solid #9f1239;border-radius:4px;font-weight:700;font-size:9px;cursor:pointer;">拒绝阻断</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>节点状态动画</strong>：执行中=cyan 呼吸脉冲, 阻断=amber 呼吸脉冲, 思考中=蓝色微弱脉冲, 卡住=amber 闪烁, 错误=红色 glow</li>
+  <li><strong>流动粒子</strong>：沿边路径移动的发光圆点，活跃边粒子更大更快</li>
+  <li><strong>节点颜色</strong>：gemini=cyan, claude=orange, validation/aider=灰色边框</li>
+  <li><strong>选中高亮</strong>：蓝色虚线旋转圈 + glow</li>
+  <li><strong>HITL 弹窗</strong>：点击阻断节点弹出，显示待授权命令和写入影响</li>
+  <li><strong>空状态</strong>：无 Agent 时显示"尚未发现 Agent"提示</li>
+  <li><strong>节点图标</strong>：scanner=树, gemini/claude=终端, validation=勾选, aider=git</li>
+</ul>
+
+<style>
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+</style>

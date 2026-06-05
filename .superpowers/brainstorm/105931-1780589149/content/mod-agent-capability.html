@@ -1,0 +1,105 @@
+<h2>模块 3: Agent 能力面板</h2>
+<p class="subtitle">注册/扫描到的 Agent 列表，带配置按钮、能力标签、状态指示</p>
+
+<div class="mockup">
+  <div class="mockup-header">Agent 能力面板详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:320px;margin:0 auto;">
+      <!-- Filter bar -->
+      <div style="display:flex;align-items:center;gap:4px;padding:6px 0;border-bottom:1px solid #30363d;margin-bottom:8px;">
+        <div style="padding:3px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:9px;color:#d1d5db;font-weight:600;">全部</div>
+        <div style="padding:3px 10px;background:transparent;border:1px solid transparent;border-radius:4px;font-size:9px;color:#8b949e;">活跃</div>
+        <div style="padding:3px 10px;background:transparent;border:1px solid transparent;border-radius:4px;font-size:9px;color:#8b949e;">空闲</div>
+        <div style="padding:3px 10px;background:transparent;border:1px solid transparent;border-radius:4px;font-size:9px;color:#8b949e;">告警</div>
+        <span style="margin-left:auto;font-size:8px;color:#6b7280;">6/6</span>
+      </div>
+
+      <!-- Agent Card 1: claude-code (executing, has alert) -->
+      <div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#f0883e;flex-shrink:0;"></span>
+          <span style="font-size:11px;font-weight:700;color:white;">claude-code</span>
+          <span style="font-size:8px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">config</span>
+          <!-- Alert icon -->
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#fb7185"><path d="M12 2L1 21h22L12 2zm0 4l7.53 13H4.47L12 6zm-1 5v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
+          <!-- Configure button -->
+          <div style="margin-left:auto;padding:3px;border:1px solid #30363d;border-radius:4px;cursor:pointer;" title="配置 Agent">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+        </div>
+        <!-- Capability chips -->
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;">
+          <span style="font-size:8px;padding:1px 5px;background:#58a6ff15;color:#58a6ff;border:1px solid #58a6ff25;border-radius:6px;">code-edit</span>
+          <span style="font-size:8px;padding:1px 5px;background:#3fb95015;color:#3fb950;border:1px solid #3fb95025;border-radius:6px;">shell-exec</span>
+          <span style="font-size:8px;padding:1px 5px;background:#f0883e15;color:#f0883e;border:1px solid #f0883e25;border-radius:6px;">file-write</span>
+        </div>
+        <!-- Active tools -->
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">
+          <span style="font-size:8px;padding:1px 5px;background:#f0883e15;color:#f0883e;border:1px solid #f0883e25;border-radius:6px;font-family:monospace;">Read</span>
+          <span style="font-size:8px;padding:1px 5px;background:#f0883e15;color:#f0883e;border:1px solid #f0883e25;border-radius:6px;font-family:monospace;">Edit</span>
+        </div>
+        <!-- Latest handoff -->
+        <div style="font-size:8px;color:#8b949e;font-family:monospace;margin-top:4px;">← gemini-cli</div>
+      </div>
+
+      <!-- Agent Card 2: gemini-cli (thinking) -->
+      <div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#58a6ff;flex-shrink:0;"></span>
+          <span style="font-size:11px;font-weight:700;color:white;">gemini-cli</span>
+          <span style="font-size:8px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">config</span>
+          <div style="margin-left:auto;padding:3px;border:1px solid #30363d;border-radius:4px;cursor:pointer;" title="配置 Agent">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;">
+          <span style="font-size:8px;padding:1px 5px;background:#22d3ee15;color:#22d3ee;border:1px solid #22d3ee25;border-radius:6px;">search</span>
+          <span style="font-size:8px;padding:1px 5px;background:#a78bfa15;color:#a78bfa;border:1px solid #a78bfa25;border-radius:6px;">analysis</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">
+          <span style="font-size:8px;padding:1px 5px;background:#58a6ff15;color:#58a6ff;border:1px solid #58a6ff25;border-radius:6px;font-family:monospace;">codegraph_context</span>
+        </div>
+        <div style="font-size:8px;color:#8b949e;font-family:monospace;margin-top:4px;">→ claude-code</div>
+      </div>
+
+      <!-- Agent Card 3: kimi-code (idle) -->
+      <div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0;"></span>
+          <span style="font-size:11px;font-weight:700;color:white;">kimi-code</span>
+          <span style="font-size:8px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">registered</span>
+          <div style="margin-left:auto;padding:3px;border:1px solid #30363d;border-radius:4px;cursor:pointer;" title="配置 Agent">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;">
+          <span style="font-size:8px;padding:1px 5px;background:#58a6ff15;color:#58a6ff;border:1px solid #58a6ff25;border-radius:6px;">code-edit</span>
+          <span style="font-size:8px;padding:1px 5px;background:#3fb95015;color:#3fb950;border:1px solid #3fb95025;border-radius:6px;">thinking</span>
+        </div>
+      </div>
+
+      <!-- Agent Card 4: qwen-code (idle) -->
+      <div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:10px;opacity:0.6;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#6b7280;flex-shrink:0;"></span>
+          <span style="font-size:11px;font-weight:700;color:#d1d5db;">qwen-code</span>
+          <span style="font-size:8px;padding:1px 4px;background:#30363d;color:#8b949e;border-radius:3px;">registered</span>
+          <div style="margin-left:auto;padding:3px;border:1px solid #30363d;border-radius:4px;cursor:pointer;" title="配置 Agent">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>状态颜色</strong>：executing=orange(#f0883e), thinking=blue(#58a6ff), idle=green(#3fb950), offline=gray(#6b7280)</li>
+  <li><strong>配置按钮</strong>：齿轮图标在每个卡片右上角，点击打开 AgentConfigModal</li>
+  <li><strong>能力标签</strong>：彩色 chip 显示 agent 的 capabilities</li>
+  <li><strong>活跃工具</strong>：橙色 chip 显示当前正在调用的工具名</li>
+  <li><strong>Handoff 箭头</strong>：显示最近的 agent 间交互方向</li>
+  <li><strong>Filter tabs</strong>：全部/活跃/空闲/告警，右上角显示计数</li>
+  <li><strong>告警图标</strong>：红色三角感叹号，出现在有 alert 或 state=error 的 agent 上</li>
+</ul>

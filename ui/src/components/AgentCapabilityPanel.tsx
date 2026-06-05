@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
 import { useAgentLifecycleStore } from '../stores/agentLifecycleStore'
 import { useTaskFlowStore } from '../stores/taskFlowStore'
+import AgentConfigModal from './AgentConfigModal'
+import type { AgentConfig } from '../types'
 
 type FilterTab = 'all' | 'active' | 'idle' | 'alert'
 
@@ -37,6 +39,7 @@ interface AgentEntry {
 
 export default function AgentCapabilityPanel() {
   const [filter, setFilter] = useState<FilterTab>('all')
+  const [configModalAgent, setConfigModalAgent] = useState<AgentConfig | null>(null)
 
   // Real registered/scanned agents from appStore
   const registeredAgents = useAppStore((s) => s.agents)
@@ -173,13 +176,33 @@ export default function AgentCapabilityPanel() {
                 )}
                 {hasAlert && (
                   <svg
-                    className="w-3.5 h-3.5 shrink-0 ml-auto"
+                    className="w-3.5 h-3.5 shrink-0"
                     fill="#fb7185"
                     viewBox="0 0 24 24"
                   >
                     <path d="M12 2L1 21h22L12 2zm0 4l7.53 13H4.47L12 6zm-1 5v4h2v-4h-2zm0 6v2h2v-2h-2z" />
                   </svg>
                 )}
+                <button
+                  onClick={() => setConfigModalAgent({
+                    id: agent.agentId,
+                    name: agent.name,
+                    description: '',
+                    enabled: true,
+                    command: '',
+                    args: [],
+                    env: {},
+                    tags: [],
+                  })}
+                  className="ml-auto p-1 rounded hover:bg-[#30363d] transition-colors"
+                  style={{ color: '#6b7280' }}
+                  title="配置 Agent"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
               </div>
 
               {/* Capabilities chips */}
@@ -226,6 +249,15 @@ export default function AgentCapabilityPanel() {
           )
         })}
       </div>
+
+      {/* Agent Config Modal */}
+      {configModalAgent && (
+        <AgentConfigModal
+          agent={configModalAgent}
+          onClose={() => setConfigModalAgent(null)}
+          onSaved={() => setConfigModalAgent(null)}
+        />
+      )}
     </div>
   )
 }

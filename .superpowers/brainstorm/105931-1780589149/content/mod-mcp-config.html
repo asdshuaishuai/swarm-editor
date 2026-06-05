@@ -1,0 +1,88 @@
+<h2>模块 12: MCP 配置 Modal</h2>
+<p class="subtitle">单个 MCP 服务器的详细配置 — 类型切换 + 命令/URL + 参数 + 环境变量</p>
+
+<div class="mockup">
+  <div class="mockup-header">MCP 配置 Modal 详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:20px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:420px;margin:0 auto;background:#1a1f26;border:1px solid #30363d;border-radius:10px;overflow:hidden;">
+
+      <!-- Header -->
+      <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #30363d;">
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#d0d7de;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          filesystem
+        </span>
+        <span style="cursor:pointer;color:#6b7280;font-size:16px;">&times;</span>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+
+        <!-- 名称 -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">名称</label>
+          <input type="text" value="filesystem" style="width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:11px;font-family:monospace;color:#d0d7de;outline:none;"/>
+        </div>
+
+        <!-- 类型选择 -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:6px;">类型</label>
+          <div style="display:flex;gap:6px;">
+            <button style="padding:4px 16px;background:rgba(88,166,255,0.15);border:1px solid rgba(88,166,255,0.3);border-radius:4px;font-size:10px;font-family:monospace;color:#58a6ff;cursor:pointer;">stdio</button>
+            <button style="padding:4px 16px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#6b7280;cursor:pointer;">http</button>
+            <button style="padding:4px 16px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#6b7280;cursor:pointer;">sse</button>
+          </div>
+        </div>
+
+        <!-- 命令 (stdio) -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">命令</label>
+          <input type="text" value="npx -y @modelcontextprotocol/server-filesystem" style="width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#d0d7de;outline:none;"/>
+        </div>
+
+        <!-- 参数 -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">参数</label>
+          <input type="text" value="/home/user/projects --readonly" style="width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#d0d7de;outline:none;" placeholder="/path --readonly"/>
+        </div>
+
+        <!-- 环境变量 -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">环境变量</label>
+          <textarea rows="2" style="width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#d0d7de;outline:none;resize:none;" placeholder="KEY=value">DEBUG=true
+LOG_LEVEL=info</textarea>
+        </div>
+
+        <!-- 描述 -->
+        <div>
+          <label style="display:block;font-size:9px;font-family:monospace;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">描述</label>
+          <input type="text" value="提供本地文件读写、AST 解析" style="width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:10px;font-family:monospace;color:#d0d7de;outline:none;" placeholder="服务器用途说明"/>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:12px 16px;border-top:1px solid #30363d;display:flex;align-items:center;gap:8px;">
+        <button style="padding:6px 14px;background:transparent;border:1px solid #30363d;border-radius:6px;font-size:10px;color:#9ca3af;cursor:pointer;">取消</button>
+        <div style="flex:1;"></div>
+        <button style="padding:6px 14px;background:rgba(127,29,29,0.2);border:1px solid rgba(248,81,73,0.2);border-radius:6px;font-size:10px;color:#f85149;cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          删除
+        </button>
+        <button style="padding:6px 16px;background:#238636;border:1px solid #2ea043;border-radius:6px;font-size:10px;color:white;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+          保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>类型切换</strong>：stdio/http/sse 三个按钮，选中态蓝色高亮，切换后表单字段变化</li>
+  <li><strong>stdio 模式</strong>：显示命令 + 参数 + 环境变量</li>
+  <li><strong>http/sse 模式</strong>：命令字段替换为 URL 字段</li>
+  <li><strong>删除按钮</strong>：红色，二次确认后删除</li>
+  <li><strong>保存按钮</strong>：绿色，校验通过才写入</li>
+  <li><strong>触发方式</strong>：MCP 面板中每个服务器卡片的齿轮图标</li>
+</ul>

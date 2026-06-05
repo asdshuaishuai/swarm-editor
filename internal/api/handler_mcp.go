@@ -586,15 +586,10 @@ func (h *CommandHandler) handleImportMCPFromApps(ctx context.Context, params jso
 		return nil, errNotFound("unified MCP store not initialized")
 	}
 
-	// Scan all agent configs for MCP servers
-	scanner := h.server.Scanner()
-	if scanner == nil {
-		return nil, errNotFound("agent scanner not available")
-	}
-
-	discovery := agent.NewMCPDiscovery(scanner)
+	// MCP discovery from global + project configs (independent of agent scan)
+	discovery := agent.NewMCPDiscovery(nil)
 	workspaceDir := h.server.workspacePath
-	discovered, err := discovery.DiscoverAllWithScope(workspaceDir)
+	discovered, err := discovery.DiscoverConfigsOnly(workspaceDir)
 	if err != nil {
 		return nil, safeError("MCP discovery failed", err)
 	}

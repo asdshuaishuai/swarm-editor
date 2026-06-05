@@ -1398,6 +1398,7 @@ type Client struct {
 	server  *WebSocketServer
 	sendCh  chan []byte
 	closeCh chan struct{}
+	cmdSem  chan struct{} // limits concurrent command handlers per client
 	mu      sync.Mutex
 }
 
@@ -1412,6 +1413,7 @@ func NewClient(id string, conn *websocket.Conn, server *WebSocketServer) *Client
 		server:  server,
 		sendCh:  make(chan []byte, 100),
 		closeCh: make(chan struct{}),
+		cmdSem:  make(chan struct{}, 8), // max 8 concurrent commands per client
 	}
 }
 
@@ -1476,7 +1478,17 @@ func (c *Client) ReadLoop() {
 			return
 		}
 
-		c.handleMessage(message)
+		// Dispatch command in a goroutine so slow commands don't block reads.
+		// Semaphore caps concurrency to prevent goroutine explosion per client.
+		go func(data []byte) {
+			select {
+			case c.cmdSem <- struct{}{}:
+				defer func() { <-c.cmdSem }()
+				c.handleMessage(data)
+			case <-c.closeCh:
+				return // client disconnected, skip
+			}
+		}(message)
 	}
 }
 
@@ -1523,9 +1535,7 @@ func (c *Client) handleMessage(data []byte) {
 	handler := c.server.Handler()
 	result, err := handler.HandleCommand(req.Method, req.Params, c.ID)
 	if err != nil {
-		// Log error for debugging
 		wsLog.Warn("Command error", "method", req.Method, "error", err)
-		// Use typed error code if available, otherwise generic internal error
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			c.SendError(req.ID, apiErr.Code, apiErr.Message)

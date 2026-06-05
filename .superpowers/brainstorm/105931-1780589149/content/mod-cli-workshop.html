@@ -1,0 +1,113 @@
+<h2>模块 2: 本地 CLI 进程工坊</h2>
+<p class="subtitle">每行带 agent 专属颜色、状态指示灯、内存估算</p>
+
+<div class="mockup">
+  <div class="mockup-header">CLI 进程工坊详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:640px;margin:0 auto;">
+      <!-- Table -->
+      <div style="border:1px solid #30363d;border-radius:6px;overflow:hidden;">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;padding:6px 10px;background:#161b22;border-bottom:1px solid #30363d;font-size:8px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">
+          <span style="width:140px;">工具/进程 ID</span>
+          <span style="width:100px;">核心职能</span>
+          <span style="width:70px;">版本</span>
+          <span style="width:110px;">PID / 内存</span>
+          <span style="flex:1;">当前执行指令</span>
+        </div>
+
+        <!-- Row 1: gemini-cli (running, cyan) -->
+        <div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d20;cursor:pointer;" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='transparent'">
+          <div style="width:140px;display:flex;align-items:center;gap:6px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#22d3ee;flex-shrink:0;"></span>
+            <span style="font-weight:600;color:#22d3ee;font-size:11px;">gemini-cli</span>
+          </div>
+          <div style="width:100px;font-size:10px;color:#d1d5db;">Planner</div>
+          <div style="width:70px;font-size:9px;color:#8b949e;">v1.0.0</div>
+          <div style="width:110px;font-size:10px;color:#94a3b8;">
+            <span style="font-weight:600;">94801</span>
+            <span style="color:#6b7280;"> / </span>
+            <span style="color:#22d3ee;">28MB</span>
+          </div>
+          <div style="flex:1;font-size:9px;color:#64748b;font-family:monospace;">gemini scanner --ast-diff MainLayout.tsx</div>
+        </div>
+
+        <!-- Row 2: claude-code (blocked, orange) -->
+        <div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d20;cursor:pointer;background:#78350f10;" onmouseover="this.style.background='#78350f20'" onmouseout="this.style.background='#78350f10'">
+          <div style="width:140px;display:flex;align-items:center;gap:6px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#fb923c;flex-shrink:0;animation:blink 2s infinite;"></span>
+            <span style="font-weight:600;color:#fb923c;font-size:11px;">claude-code</span>
+          </div>
+          <div style="width:100px;font-size:10px;color:#d1d5db;">Refactorer</div>
+          <div style="width:70px;font-size:9px;color:#8b949e;">v0.2.1</div>
+          <div style="width:110px;font-size:10px;">
+            <span style="font-weight:600;color:#fb923c;">94812</span>
+            <span style="color:#6b7280;"> / </span>
+            <span style="color:#fb923c;font-weight:600;">142MB</span>
+          </div>
+          <div style="flex:1;font-size:10px;color:#f0883e;font-weight:600;">
+            被安全闸阻断：等候特权核准执行
+          </div>
+        </div>
+
+        <!-- Row 3: mcp-validation (idle, purple) -->
+        <div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid #30363d20;cursor:pointer;opacity:0.6;" onmouseover="this.style.background='#21262d';this.style.opacity='0.9'" onmouseout="this.style.background='transparent';this.style.opacity='0.6'">
+          <div style="width:140px;display:flex;align-items:center;gap:6px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#c084fc;flex-shrink:0;opacity:0.4;"></span>
+            <span style="font-weight:600;color:#c084fc;font-size:11px;">mcp-validation</span>
+          </div>
+          <div style="width:100px;font-size:10px;color:#d1d5db;">Test Suite</div>
+          <div style="width:70px;font-size:9px;color:#8b949e;">v1.0.1</div>
+          <div style="width:110px;font-size:10px;color:#64748b;">
+            <span>94825</span>
+            <span style="color:#6b7280;"> / </span>
+            <span>12MB</span>
+          </div>
+          <div style="flex:1;font-size:9px;color:#64748b;font-family:monospace;">awaiting stream...</div>
+        </div>
+
+        <!-- Row 4: aider (idle, green) -->
+        <div style="display:flex;align-items:center;padding:8px 10px;cursor:pointer;opacity:0.6;" onmouseover="this.style.background='#21262d';this.style.opacity='0.9'" onmouseout="this.style.background='transparent';this.style.opacity='0.6'">
+          <div style="width:140px;display:flex;align-items:center;gap:6px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0;opacity:0.4;"></span>
+            <span style="font-weight:600;color:#4ade80;font-size:11px;">aider</span>
+          </div>
+          <div style="width:100px;font-size:10px;color:#d1d5db;">Git controller</div>
+          <div style="width:70px;font-size:9px;color:#8b949e;">v0.32.0</div>
+          <div style="width:110px;font-size:10px;color:#64748b;">
+            <span>94833</span>
+            <span style="color:#6b7280;"> / </span>
+            <span>41MB</span>
+          </div>
+          <div style="flex:1;font-size:9px;color:#64748b;font-family:monospace;">idle (sleeping)</div>
+        </div>
+      </div>
+
+      <!-- Agent color legend -->
+      <div style="margin-top:8px;display:flex;gap:12px;font-size:8px;">
+        <span style="color:#22d3ee;">● gemini</span>
+        <span style="color:#fb923c;">● claude</span>
+        <span style="color:#c084fc;">● mcp/validation</span>
+        <span style="color:#4ade80;">● aider</span>
+        <span style="color:#6b7280;margin-left:8px;">状态：● 运行中 ○ 空闲 ◉ 阻断</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>Agent 颜色</strong>：gemini=cyan(#22d3ee), claude=orange(#fb923c), mcp/validation=purple(#c084fc), aider=green(#4ade80)</li>
+  <li><strong>状态指示灯</strong>：实心=运行中，空心=空闲，闪烁=阻断/等待</li>
+  <li><strong>阻断行高亮</strong>：claude-code 被安全闸阻断时，整行带橙色背景</li>
+  <li><strong>PID 列</strong>：PID 粗体，内存值用 agent 颜色标记</li>
+  <li><strong>点击行</strong>：dispatch sandbox:node-selected 事件，高亮选中行</li>
+  <li><strong>无配置按钮</strong>：CLI 工坊只展示运行中进程，配置在 Agent 能力面板</li>
+</ul>
+
+<style>
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+</style>

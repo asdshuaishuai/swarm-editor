@@ -1,0 +1,103 @@
+<h2>模块 11: 技能面板 (Skills)</h2>
+<p class="subtitle">独立的技能列表 — 来源标签 + Agent 启用状态 + 搜索过滤</p>
+
+<div class="mockup">
+  <div class="mockup-header">技能面板详细设计</div>
+  <div class="mockup-body" style="background:#0d1117;padding:16px;font-family:monospace;font-size:11px;color:#c9d1d9;">
+    <div style="max-width:320px;margin:0 auto;">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid #30363d;">
+        <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#22d3ee;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a9 9 0 00-9 9c0 3.88 2.46 7.18 5.91 8.44L12 22l3.09-2.56A9.001 9.001 0 0012 2zm0 16c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7zm-1-11h2v2h2v2h-2v2h-2v-2H9v-2h2V7z"/></svg>
+          技能库
+        </span>
+        <span style="font-size:9px;color:#6b7280;">12 个技能</span>
+      </div>
+
+      <!-- Search -->
+      <div style="padding:6px 0;">
+        <div style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span style="font-size:9px;color:#4b5563;">搜索技能...</span>
+        </div>
+      </div>
+
+      <!-- Filter tabs -->
+      <div style="display:flex;gap:4px;padding-bottom:8px;border-bottom:1px solid #30363d20;">
+        <span style="padding:2px 8px;background:rgba(88,166,255,0.15);border:1px solid rgba(88,166,255,0.3);border-radius:3px;color:#58a6ff;font-size:9px;cursor:pointer;">全部</span>
+        <span style="padding:2px 8px;background:transparent;border:1px solid transparent;border-radius:3px;color:#6b7280;font-size:9px;cursor:pointer;">文件系统</span>
+        <span style="padding:2px 8px;background:transparent;border:1px solid transparent;border-radius:3px;color:#6b7280;font-size:9px;cursor:pointer;">Agent</span>
+        <span style="padding:2px 8px;background:transparent;border:1px solid transparent;border-radius:3px;color:#6b7280;font-size:9px;cursor:pointer;">项目</span>
+      </div>
+
+      <!-- Skill 1: 文件系统来源 -->
+      <div style="padding:8px;margin-top:6px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;font-weight:700;padding:1px 5px;background:rgba(88,166,255,0.15);color:#58a6ff;border:1px solid rgba(88,166,255,0.25);border-radius:3px;">FS</span>
+          <span style="font-size:10px;font-weight:600;color:#e5e7eb;">brainstorming</span>
+          <span style="margin-left:auto;font-size:8px;color:#6b7280;">global</span>
+        </div>
+        <div style="font-size:9px;color:#6b7280;margin-top:3px;font-family:monospace;">~/.claude/skills/brainstorming</div>
+        <!-- Agent pills -->
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <span style="padding:1px 6px;background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Claude</span>
+          <span style="padding:1px 6px;background:rgba(34,211,238,0.15);color:#22d3ee;border:1px solid rgba(34,211,238,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Kimi</span>
+          <span style="padding:1px 6px;background:rgba(118,200,147,0.15);color:#76c893;border:1px solid rgba(118,200,147,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Qwen</span>
+        </div>
+      </div>
+
+      <!-- Skill 2: Agent 来源 -->
+      <div style="padding:8px;margin-top:4px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;font-weight:700;padding:1px 5px;background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.25);border-radius:3px;">AGENT</span>
+          <span style="font-size:10px;font-weight:600;color:#e5e7eb;">code-edit</span>
+          <span style="margin-left:auto;font-size:8px;color:#6b7280;">claude-code</span>
+        </div>
+        <div style="font-size:9px;color:#6b7280;margin-top:3px;">代码编辑能力 — 文件读写、AST 修改</div>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <span style="padding:1px 6px;background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Claude</span>
+        </div>
+      </div>
+
+      <!-- Skill 3: 项目来源 -->
+      <div style="padding:8px;margin-top:4px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;font-weight:700;padding:1px 5px;background:rgba(63,185,80,0.15);color:#3fb950;border:1px solid rgba(63,185,80,0.25);border-radius:3px;">PROJ</span>
+          <span style="font-size:10px;font-weight:600;color:#e5e7eb;">custom-instructions</span>
+          <span style="margin-left:auto;font-size:8px;color:#6b7280;">project</span>
+        </div>
+        <div style="font-size:9px;color:#6b7280;margin-top:3px;font-family:monospace;">.claude/skills/custom-instructions</div>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <span style="padding:1px 6px;background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Claude</span>
+          <span style="padding:1px 6px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.25);border-radius:8px;font-size:8px;cursor:pointer;">OpenCode</span>
+        </div>
+      </div>
+
+      <!-- Skill 4: 文件系统 (disabled for some agents) -->
+      <div style="padding:8px;margin-top:4px;background:rgba(33,38,45,0.5);border:1px solid #30363d;border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;font-weight:700;padding:1px 5px;background:rgba(88,166,255,0.15);color:#58a6ff;border:1px solid rgba(88,166,255,0.25);border-radius:3px;">FS</span>
+          <span style="font-size:10px;font-weight:600;color:#e5e7eb;">using-superpowers</span>
+          <span style="margin-left:auto;font-size:8px;color:#6b7280;">global</span>
+        </div>
+        <div style="font-size:9px;color:#6b7280;margin-top:3px;font-family:monospace;">~/.claude/skills/using-superpowers</div>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <span style="padding:1px 6px;background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.25);border-radius:8px;font-size:8px;cursor:pointer;">Claude</span>
+          <span style="padding:1px 6px;background:rgba(33,38,45,0.8);color:#6b7280;border:1px solid #30363d;border-radius:8px;font-size:8px;cursor:pointer;">Kimi</span>
+          <span style="padding:1px 6px;background:rgba(33,38,45,0.8);color:#6b7280;border:1px solid #30363d;border-radius:8px;font-size:8px;cursor:pointer;">OpenCode</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px;">设计要点</h3>
+<ul style="color:#8b949e;font-size:12px;line-height:1.8;">
+  <li><strong>来源标签</strong>：FS=文件系统(蓝), AGENT=Agent能力(紫), PROJ=项目(绿)</li>
+  <li><strong>范围标签</strong>：global / project / agent 名称</li>
+  <li><strong>Agent pills</strong>：彩色=已启用，灰色=未启用，点击切换</li>
+  <li><strong>搜索过滤</strong>：实时搜索技能名称和描述</li>
+  <li><strong>Filter tabs</strong>：全部/文件系统/Agent/项目，按来源过滤</li>
+  <li><strong>独立面板</strong>：从 MCP 面板拆分出来，作为左侧边栏的独立 tab 或子区域</li>
+</ul>

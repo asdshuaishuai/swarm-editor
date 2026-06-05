@@ -117,9 +117,9 @@ class WebSocketClient {
   private nextRequestId = 0
   private maxQueueSize = 100 // Prevent unbounded queue growth
 
-  private onConnect: ConnectionHandler | null = null
-  private onDisconnect: ConnectionHandler | null = null
-  private onError: ErrorHandler | null = null
+  private onConnectHandlers: Set<ConnectionHandler> = new Set()
+  private onDisconnectHandlers: Set<ConnectionHandler> = new Set()
+  private onErrorHandlers: Set<ErrorHandler> = new Set()
 
   private connected = false
   private connecting = false
@@ -161,7 +161,7 @@ class WebSocketClient {
           this.connecting = false
           this.reconnectAttempts = 0
           this.flushMessageQueue()
-          this.onConnect?.()
+          this.onConnectHandlers.forEach(h => h())
           resolve()
         }
 
@@ -171,7 +171,7 @@ class WebSocketClient {
           this.connecting = false
           // Reject all pending requests immediately on disconnect
           this.rejectAllPending('WebSocket disconnected')
-          this.onDisconnect?.()
+          this.onDisconnectHandlers.forEach(h => h())
           this.handleReconnect()
         }
 
@@ -180,7 +180,7 @@ class WebSocketClient {
           this.connecting = false
           const err = new Error('WebSocket connection error')
           // Call onError first; if it throws, don't double-reject the Promise
-          try { this.onError?.(err) } catch (handlerErr) { logger.debug('WebSocket', 'onError handler threw', handlerErr) }
+          try { this.onErrorHandlers.forEach(h => h(err)) } catch (handlerErr) { logger.debug('WebSocket', 'onError handler threw', handlerErr) }
           reject(err)
         }
 
@@ -384,19 +384,21 @@ class WebSocketClient {
     }
   }
 
-  on(event: 'connect' | 'disconnect', handler: ConnectionHandler): void
-  on(event: 'error', handler: ErrorHandler): void
-  on(event: string, handler: ConnectionHandler | ErrorHandler): void {
+  on(event: 'connect' | 'disconnect', handler: ConnectionHandler): () => void
+  on(event: 'error', handler: ErrorHandler): () => void
+  on(event: string, handler: ConnectionHandler | ErrorHandler): () => void {
     switch (event) {
       case 'connect':
-        this.onConnect = handler as ConnectionHandler
-        break
+        this.onConnectHandlers.add(handler as ConnectionHandler)
+        return () => { this.onConnectHandlers.delete(handler as ConnectionHandler) }
       case 'disconnect':
-        this.onDisconnect = handler as ConnectionHandler
-        break
+        this.onDisconnectHandlers.add(handler as ConnectionHandler)
+        return () => { this.onDisconnectHandlers.delete(handler as ConnectionHandler) }
       case 'error':
-        this.onError = handler as ErrorHandler
-        break
+        this.onErrorHandlers.add(handler as ErrorHandler)
+        return () => { this.onErrorHandlers.delete(handler as ErrorHandler) }
+      default:
+        return () => {}
     }
   }
 

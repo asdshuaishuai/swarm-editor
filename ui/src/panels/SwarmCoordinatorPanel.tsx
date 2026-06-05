@@ -110,33 +110,23 @@ export default function SwarmCoordinatorPanel({
     return () => unsub()
   }, [])
 
-  // Polling fallback: refresh task stats from backend every 10s when there's an active swarm.
-  // The backend does not yet emit swarm_task_update events, so this keeps the UI in sync.
+  // Mark stale running tasks as completed when backend signals task completion
   useEffect(() => {
     if (!activeSwarm) return
 
-    const interval = setInterval(async () => {
-      if (!mountedRef.current || !activeSwarm) return
-      try {
-        const taskList = await api.swarm.getSwarmTasks(activeSwarm.id)
-        if (!mountedRef.current) return
-        // If no tasks are still running but we have locally-running tasks,
-        // mark them as completed (the backend finished them while we were polling).
-        const hasRunning = taskList.some(t => t.status === 'running')
-        if (!hasRunning) {
-          setTasks(prev => prev.map(t =>
-            t.status === 'running' ? { ...t, status: 'completed' as const, progress: 1 } : t
-          ))
-          setSelectedTask(prev =>
-            prev?.status === 'running' ? { ...prev, status: 'completed' as const, progress: 1 } : prev
-          )
-        }
-      } catch {
-        logger.debug('SwarmCoordinatorPanel', 'Polling error')
-      }
-    }, 10000)
+    const ws = getWebSocketClient()
+    const unsub = ws.subscribe('swarm_task_completed', (data: unknown) => {
+      if (!mountedRef.current) return
+      const { taskId } = data as { taskId: string }
+      setTasks(prev => prev.map(t =>
+        t.id === taskId ? { ...t, status: 'completed' as const, progress: 1 } : t
+      ))
+      setSelectedTask(prev =>
+        prev?.id === taskId ? { ...prev, status: 'completed' as const, progress: 1 } : prev
+      )
+    })
 
-    return () => clearInterval(interval)
+    return () => unsub()
   }, [activeSwarm])
 
   const handleSubmitTask = useCallback(async () => {
