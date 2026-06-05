@@ -13,6 +13,7 @@ const mockStopServer = vi.fn()
 const mockListTools = vi.fn()
 const mockCallTool = vi.fn()
 const mockScanServers = vi.fn()
+const mockImportFromApps = vi.fn().mockResolvedValue({ success: true, imported: 0, total: 0 })
 const mockAddMCPServer = vi.fn()
 const mockRemoveMCPServer = vi.fn()
 const mockUpdateMCPServer = vi.fn()
@@ -34,7 +35,7 @@ vi.mock('../services', () => ({
       upsertServer: vi.fn().mockResolvedValue({ success: true, id: 'test', status: 'processing' }),
       deleteUnifiedServer: vi.fn().mockResolvedValue({ success: true, status: 'processing' }),
       toggleApp: vi.fn().mockResolvedValue({ success: true, status: 'processing' }),
-      importFromApps: vi.fn().mockResolvedValue({ success: true, imported: 0, total: 0 }),
+      importFromApps: (...args: unknown[]) => mockImportFromApps(...args),
     },
     agent: {
       scanSkills: (...args: unknown[]) => mockScanSkills(...args),
@@ -165,7 +166,7 @@ describe('MCPPanel', () => {
 
     it('renders scan and register buttons', () => {
       renderWithDefaults()
-      expect(screen.getByTitle('扫描并导入 MCP 服务器')).toBeInTheDocument()
+      expect(screen.getByTitle('扫描 MCP 服务器并选择导入')).toBeInTheDocument()
       expect(screen.getByText('注册')).toBeInTheDocument()
     })
 
@@ -586,14 +587,22 @@ describe('MCPPanel', () => {
   // Scan servers
   // ---------------------------------------------------------------
   describe('scan servers', () => {
-    it('triggers scan and shows success toast when refresh button clicked', async () => {
+    it('triggers scan and opens import modal when import button clicked', async () => {
       const user = userEvent.setup()
+      mockScanServers.mockResolvedValue([
+        { id: 's1', name: 'context7', status: 'disconnected', command: 'npx', source: 'Claude Code' },
+        { id: 's2', name: 'fetch', status: 'disconnected', url: 'https://fetch.example.com', source: 'Kimi Code' },
+      ])
       renderWithDefaults()
 
-      await user.click(screen.getByTitle('扫描并导入 MCP 服务器'))
+      await user.click(screen.getByTitle('扫描 MCP 服务器并选择导入'))
 
       expect(mockScanServers).toHaveBeenCalled()
-      expect(mockAddToast).toHaveBeenCalledWith('success', '刷新完成', '已扫描并导入 MCP 服务器')
+      await waitFor(() => {
+        expect(screen.getByText('导入 MCP 服务器')).toBeInTheDocument()
+      })
+      expect(screen.getByText('context7')).toBeInTheDocument()
+      expect(screen.getByText('fetch')).toBeInTheDocument()
     })
   })
 
