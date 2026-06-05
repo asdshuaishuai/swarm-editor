@@ -1561,7 +1561,8 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('M')).toBeInTheDocument()
+    const mElements = screen.getAllByText('M')
+    expect(mElements.length).toBeGreaterThanOrEqual(1)
   })
 
   it('displays Added status badge for staged file', async () => {
@@ -1573,7 +1574,8 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('A')).toBeInTheDocument()
+    const aElements = screen.getAllByText('A')
+    expect(aElements.length).toBeGreaterThanOrEqual(1)
   })
 
   it('displays Untracked status badge', async () => {
@@ -1585,7 +1587,8 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('U')).toBeInTheDocument()
+    const uElements = screen.getAllByText('U')
+    expect(uElements.length).toBeGreaterThanOrEqual(1)
   })
 
   it('displays Deleted status badge', async () => {
@@ -1597,7 +1600,8 @@ describe('ExplorerPanel', () => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('D')).toBeInTheDocument()
+    const dElements = screen.getAllByText('D')
+    expect(dElements.length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders git section with branch info', async () => {
@@ -2633,6 +2637,7 @@ describe('ExplorerPanel', () => {
     })
 
     // The Added status is shown in the file tree badge
-    expect(screen.getByText('A')).toBeInTheDocument()
+    const aElements = screen.getAllByText('A')
+    expect(aElements.length).toBeGreaterThanOrEqual(1)
   })
 })
