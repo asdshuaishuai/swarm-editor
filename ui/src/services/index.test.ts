@@ -1,23 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api } from './index'
 
-// Mock WebSocket client
+// Mock IPC client
 const mockInvoke = vi.fn()
 const mockSubscribe = vi.fn()
-const mockConnect = vi.fn()
-const mockDisconnect = vi.fn()
 const mockIsConnected = vi.fn()
 
-vi.mock('./websocket', () => ({
-  getWebSocketClient: () => ({
+vi.mock('./ipcClient', () => ({
+  getIPCClient: () => ({
     invoke: mockInvoke,
     subscribe: mockSubscribe,
-    connect: mockConnect,
-    disconnect: mockDisconnect,
     isConnected: mockIsConnected,
-    on: vi.fn(),
   }),
-  initializeWebSocket: vi.fn(),
+  initializeIPCClient: vi.fn(),
+  createIPCClient: vi.fn(),
+  IPCError: class IPCError extends Error {},
+  listen: vi.fn().mockResolvedValue(vi.fn()),
 }))
 
 describe('api', () => {
@@ -182,21 +180,19 @@ describe('api', () => {
 
       const result = await api.backend.getStatus()
       expect(result.connected).toBe(true)
-      expect(result.backendType).toBe('websocket')
+      expect(result.backendType).toBe('unix-socket')
     })
 
-    it('connect calls WebSocket connect', async () => {
-      mockConnect.mockResolvedValueOnce(undefined)
+    it('connect performs ping check', async () => {
+      mockInvoke.mockResolvedValueOnce('pong')
 
-      await api.backend.connect()
-      expect(mockConnect).toHaveBeenCalled()
+      const result = await api.backend.connect()
+      expect(result).toBe('connected')
     })
 
-    it('disconnect calls WebSocket disconnect', async () => {
-      mockDisconnect.mockReturnValue(undefined)
-
-      await api.backend.disconnect()
-      expect(mockDisconnect).toHaveBeenCalled()
+    it('disconnect is a no-op for Unix socket', async () => {
+      const result = await api.backend.disconnect()
+      expect(result).toBe('disconnected')
     })
   })
 })

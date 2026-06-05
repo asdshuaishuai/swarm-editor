@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import {
   api,
-  events,
   type AuditEvent,
   type AuditStats,
   type MCPServerInfo,
@@ -9,6 +8,7 @@ import {
   type A2ALogEntry,
   type A2AStatus,
 } from '../services'
+import { listen } from '../services/ipcClient'
 import { logger } from '../utils'
 import {
   classifyAuditEvent,
@@ -479,6 +479,22 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
     const batched = get().addAuditEventBatched
     const eventId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
+    // Helper: subscribe via Tauri listen, returning sync cleanup
+    function onEvent(event: string, handler: (payload: unknown) => void): void {
+      let unlistenFn: (() => void) | null = null
+      listen(event, (payload: unknown) => handler(payload)).then((fn) => {
+        unlistenFn = fn
+      }).catch((err) => {
+        logger.warn('MonitoringStore', `Failed to subscribe to ${event}:`, err)
+      })
+      cleanups.push(() => {
+        if (unlistenFn) {
+          unlistenFn()
+          unlistenFn = null
+        }
+      })
+    }
+
     // Throttled refresh functions — max once per 2s for high-frequency triggers
     const throttledRefreshMCP = throttle(() => get().refreshMCPServers(), 2000)
     const throttledRefreshA2A = throttle(() => get().refreshA2A(), 2000)
@@ -486,72 +502,64 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
 
     // --- Core data events (immediate, not audit-derived) ---
 
-    cleanups.push(
-      events.subscribe('audit_event', (payload: unknown) => {
-        const event = payload as AuditEvent
-        if (event?.id) {
-          // Use batched — coalesces into one set() per animation frame
-          batched(event)
-        }
-      }),
-    )
+    onEvent('audit_event', (payload: unknown) => {
+      const event = payload as AuditEvent
+      if (event?.id) {
+        // Use batched — coalesces into one set() per animation frame
+        batched(event)
+      }
+    })
 
-    cleanups.push(
-      events.subscribe('a2a_message', (payload: unknown) => {
-        const entry = payload as A2ALogEntry
-        if (entry?.id) {
-          set((state) => {
-            if (state.a2aMessages.some((m) => m.id === entry.id)) return state
-            return {
-              a2aMessages: [...state.a2aMessages, entry].slice(-MAX_AUDIT_EVENTS),
-            }
-          })
-        }
-      }),
-    )
+    onEvent('a2a_message', (payload: unknown) => {
+      const entry = payload as A2ALogEntry
+      if (entry?.id) {
+        set((state) => {
+          if (state.a2aMessages.some((m) => m.id === entry.id)) return state
+          return {
+            a2aMessages: [...state.a2aMessages, entry].slice(-MAX_AUDIT_EVENTS),
+          }
+        })
+      }
+    })
 
-    cleanups.push(
-      events.subscribe('mcp_tool_invoked', (payload: unknown) => {
-        const inv = payload as MCPInvocation
-        if (inv?.id) {
-          get().addMCPInvocation(inv)
-        }
-      }),
-    )
+    onEvent('mcp_tool_invoked', (payload: unknown) => {
+      const inv = payload as MCPInvocation
+      if (inv?.id) {
+        get().addMCPInvocation(inv)
+      }
+    })
 
     // --- Status refresh events (throttled) ---
 
-    cleanups.push(events.subscribe('mcp_server_status', throttledRefreshMCP))
-    cleanups.push(events.subscribe('a2a_status_change', throttledRefreshA2A))
-    cleanups.push(events.subscribe('audit_stats_changed', throttledRefreshStats))
+    onEvent('mcp_server_status', throttledRefreshMCP)
+    onEvent('a2a_status_change', throttledRefreshA2A)
+    onEvent('audit_stats_changed', throttledRefreshStats)
 
     // --- Agent lifecycle events (batched audit) ---
 
-    cleanups.push(
-      events.subscribe('agent_status_change', (payload: unknown) => {
-        const p = payload as { agentId: string; state: string }
-        if (!p?.agentId) return
-        const state = (p.state || '').toLowerCase()
-        let eventType: string
-        if (state === 'active' || state === 'running' || state === 'started') {
-          eventType = 'agent_start'
-        } else if (state === 'stopped' || state === 'offline' || state === 'terminated') {
-          eventType = 'agent_stop'
-        } else {
-          return
-        }
-        batched({
-          id: `agent_status_${p.agentId}_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType,
-          actor: p.agentId,
-          action: eventType === 'agent_start' ? '已启动' : '已停止',
-          resourceType: 'agent',
-          resourceId: p.agentId,
-          success: true,
-        })
-      }),
-    )
+    onEvent('agent_status_change', (payload: unknown) => {
+      const p = payload as { agentId: string; state: string }
+      if (!p?.agentId) return
+      const state = (p.state || '').toLowerCase()
+      let eventType: string
+      if (state === 'active' || state === 'running' || state === 'started') {
+        eventType = 'agent_start'
+      } else if (state === 'stopped' || state === 'offline' || state === 'terminated') {
+        eventType = 'agent_stop'
+      } else {
+        return
+      }
+      batched({
+        id: `agent_status_${p.agentId}_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        eventType,
+        actor: p.agentId,
+        action: eventType === 'agent_start' ? '已启动' : '已停止',
+        resourceType: 'agent',
+        resourceId: p.agentId,
+        success: true,
+      })
+    })
 
     // --- Supervisor events (low frequency, immediate) ---
 
@@ -561,326 +569,263 @@ export const useMonitoringStore = create<MonitoringState>()((set, get) => ({
       ['agent_stuck', 'security_gate', (p: Record<string, unknown>) => `agent stuck (${(p?.duration as string) || 'unknown duration'})`],
       ['agent_recovered', 'agent_start', () => 'agent recovered'],
     ] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { agentId?: string; message?: string; duration?: string }
-          batched({
-            id: `${evt}_${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            eventType,
-            actor: 'supervisor',
-            action: actionTpl(p || {}),
-            resourceType: 'agent',
-            resourceId: p?.agentId || 'unknown',
-            success: eventType === 'agent_start',
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { agentId?: string; message?: string; duration?: string }
+        batched({
+          id: `${evt}_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          eventType,
+          actor: 'supervisor',
+          action: actionTpl(p || {}),
+          resourceType: 'agent',
+          resourceId: p?.agentId || 'unknown',
+          success: eventType === 'agent_start',
+        })
+      })
     }
 
     // --- Swarm events (HIGH FREQUENCY — batched, no individual audit for stats) ---
 
     // swarm_stats: dropped as audit event — too noisy, only useful for UI panels directly
-    // Panels that need swarm_stats should subscribe to the event directly via events.subscribe
+    // Panels that need swarm_stats should subscribe to the event directly via listen
 
-    cleanups.push(
-      events.subscribe('swarm_status_change', (payload: unknown) => {
-        const p = payload as { swarmId?: string; status?: string }
-        batched({
-          id: eventId('swarm_status'),
-          timestamp: new Date().toISOString(),
-          eventType: 'swarm_status',
-          actor: 'swarm',
-          action: `status → ${p?.status || 'unknown'}`,
-          resourceType: 'swarm',
-          resourceId: p?.swarmId || 'unknown',
-          success: true,
-        })
-      }),
-    )
+    onEvent('swarm_status_change', (payload: unknown) => {
+      const p = payload as { swarmId?: string; status?: string }
+      batched({
+        id: eventId('swarm_status'),
+        timestamp: new Date().toISOString(),
+        eventType: 'swarm_status',
+        actor: 'swarm',
+        action: `status → ${p?.status || 'unknown'}`,
+        resourceType: 'swarm',
+        resourceId: p?.swarmId || 'unknown',
+        success: true,
+      })
+    })
 
     // swarm_task_update: batched, dedup by taskId within same frame
-    cleanups.push(
-      events.subscribe('swarm_task_update', (payload: unknown) => {
-        const p = payload as { taskId?: string; status?: string; swarmId?: string }
-        batched({
-          id: eventId('task_update'),
-          timestamp: new Date().toISOString(),
-          eventType: 'task_update',
-          actor: 'swarm',
-          action: `task ${p?.status || 'updated'}`,
-          resourceType: 'task',
-          resourceId: p?.taskId || 'unknown',
-          success: true,
-        })
-      }),
-    )
+    onEvent('swarm_task_update', (payload: unknown) => {
+      const p = payload as { taskId?: string; status?: string; swarmId?: string }
+      batched({
+        id: eventId('task_update'),
+        timestamp: new Date().toISOString(),
+        eventType: 'task_update',
+        actor: 'swarm',
+        action: `task ${p?.status || 'updated'}`,
+        resourceType: 'task',
+        resourceId: p?.taskId || 'unknown',
+        success: true,
+      })
+    })
 
     // --- Handoff events (batched) ---
 
     for (const evt of ['handoff_requested', 'handoff_accepted', 'handoff_rejected', 'handoff_completed'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { fromAgent?: string; toAgent?: string; taskId?: string }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: 'handoff',
-            actor: p?.fromAgent || 'unknown',
-            action: evt.replace('handoff_', ''),
-            resourceType: 'agent',
-            resourceId: p?.toAgent || p?.taskId || 'unknown',
-            success: evt !== 'handoff_rejected',
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { fromAgent?: string; toAgent?: string; taskId?: string }
+        batched({
+          id: eventId(evt),
+          timestamp: new Date().toISOString(),
+          eventType: 'handoff',
+          actor: p?.fromAgent || 'unknown',
+          action: evt.replace('handoff_', ''),
+          resourceType: 'agent',
+          resourceId: p?.toAgent || p?.taskId || 'unknown',
+          success: evt !== 'handoff_rejected',
+        })
+      })
     }
 
     // --- Workflow events (batched) ---
 
     for (const evt of ['workflow_status_change', 'workflow_node_start', 'workflow_node_complete', 'workflow_node_heartbeat', 'workflow_chain_completed', 'workflow_node_cached'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { workflowId?: string; nodeId?: string }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: 'workflow',
-            actor: 'workflow',
-            action: evt.replace('workflow_', '').replace('_', ' '),
-            resourceType: 'workflow',
-            resourceId: p?.workflowId || p?.nodeId || 'unknown',
-            success: true,
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { workflowId?: string; nodeId?: string }
+        batched({
+          id: eventId(evt),
+          timestamp: new Date().toISOString(),
+          eventType: 'workflow',
+          actor: 'workflow',
+          action: evt.replace('workflow_', '').replace('_', ' '),
+          resourceType: 'workflow',
+          resourceId: p?.workflowId || p?.nodeId || 'unknown',
+          success: true,
+        })
+      })
     }
 
     // --- Team/Automation/Turn events (batched) ---
 
-    cleanups.push(
-      events.subscribe('team_message', (payload: unknown) => {
-        const p = payload as { from?: string; teamId?: string }
-        batched({
-          id: eventId('team_msg'),
-          timestamp: new Date().toISOString(),
-          eventType: 'a2a_message',
-          actor: p?.from || 'unknown',
-          action: 'team message',
-          resourceType: 'team',
-          resourceId: p?.teamId || 'unknown',
-          success: true,
-        })
-      }),
-    )
+    onEvent('team_message', (payload: unknown) => {
+      const p = payload as { from?: string; teamId?: string }
+      batched({
+        id: eventId('team_msg'),
+        timestamp: new Date().toISOString(),
+        eventType: 'a2a_message',
+        actor: p?.from || 'unknown',
+        action: 'team message',
+        resourceType: 'team',
+        resourceId: p?.teamId || 'unknown',
+        success: true,
+      })
+    })
 
-    cleanups.push(
-      events.subscribe('automation_triggered', (payload: unknown) => {
-        const p = payload as { rule?: string; trigger?: string }
-        batched({
-          id: eventId('automation'),
-          timestamp: new Date().toISOString(),
-          eventType: 'exec',
-          actor: 'automation',
-          action: `triggered: ${p?.rule || p?.trigger || 'unknown'}`,
-          resourceType: 'automation',
-          resourceId: p?.rule || 'unknown',
-          success: true,
-        })
-      }),
-    )
+    onEvent('automation_triggered', (payload: unknown) => {
+      const p = payload as { rule?: string; trigger?: string }
+      batched({
+        id: eventId('automation'),
+        timestamp: new Date().toISOString(),
+        eventType: 'exec',
+        actor: 'automation',
+        action: `triggered: ${p?.rule || p?.trigger || 'unknown'}`,
+        resourceType: 'automation',
+        resourceId: p?.rule || 'unknown',
+        success: true,
+      })
+    })
 
     for (const evt of ['agent_turn_start', 'agent_turn_end'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { agentId?: string }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: evt === 'agent_turn_start' ? 'agent_start' : 'agent_stop',
-            actor: p?.agentId || 'unknown',
-            action: evt.replace('agent_', ''),
-            resourceType: 'agent',
-            resourceId: p?.agentId || 'unknown',
-            success: true,
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { agentId?: string }
+        batched({
+          id: eventId(evt),
+          timestamp: new Date().toISOString(),
+          eventType: evt === 'agent_turn_start' ? 'agent_start' : 'agent_stop',
+          actor: p?.agentId || 'unknown',
+          action: evt.replace('agent_', ''),
+          resourceType: 'agent',
+          resourceId: p?.agentId || 'unknown',
+          success: true,
+        })
+      })
     }
 
     // --- Swarm algorithm events (batched) ---
 
     for (const evt of ['queen_elected', 'queen_abdicated', 'backup_activated'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { swarmId?: string; queenId?: string }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: 'swarm_election',
-            actor: p?.queenId || 'queen',
-            action: evt.replace('_', ' '),
-            resourceType: 'swarm',
-            resourceId: p?.swarmId || 'unknown',
-            success: evt !== 'queen_abdicated',
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { swarmId?: string; queenId?: string }
+        batched({
+          id: eventId(evt),
+          timestamp: new Date().toISOString(),
+          eventType: 'swarm_election',
+          actor: p?.queenId || 'queen',
+          action: evt.replace('_', ' '),
+          resourceType: 'swarm',
+          resourceId: p?.swarmId || 'unknown',
+          success: evt !== 'queen_abdicated',
+        })
+      })
     }
 
     for (const evt of ['agent_interrupted', 'task_checkpointed', 'task_resumed', 'task_recovered'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { agentId?: string; taskId?: string; reason?: string }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: 'task_interrupt',
-            actor: p?.agentId || 'agent',
-            action: evt.replace('_', ' '),
-            resourceType: 'task',
-            resourceId: p?.taskId || 'unknown',
-            success: evt === 'task_resumed' || evt === 'task_recovered',
-            details: p?.reason ? { reason: p.reason } : undefined,
-          })
-        }),
-      )
-    }
-
-    cleanups.push(
-      events.subscribe('role_assigned', (payload: unknown) => {
-        const p = payload as { agentId?: string; role?: string; taskId?: string }
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { agentId?: string; taskId?: string; reason?: string }
         batched({
-          id: eventId('role_assigned'),
+          id: eventId(evt),
           timestamp: new Date().toISOString(),
-          eventType: 'role_assignment',
+          eventType: 'task_interrupt',
           actor: p?.agentId || 'agent',
-          action: `assigned as ${p?.role || 'unknown'}`,
+          action: evt.replace('_', ' '),
           resourceType: 'task',
           resourceId: p?.taskId || 'unknown',
-          success: true,
+          success: evt === 'task_resumed' || evt === 'task_recovered',
+          details: p?.reason ? { reason: p.reason } : undefined,
         })
-      }),
-    )
+      })
+    }
+
+    onEvent('role_assigned', (payload: unknown) => {
+      const p = payload as { agentId?: string; role?: string; taskId?: string }
+      batched({
+        id: eventId('role_assigned'),
+        timestamp: new Date().toISOString(),
+        eventType: 'role_assignment',
+        actor: p?.agentId || 'agent',
+        action: `assigned as ${p?.role || 'unknown'}`,
+        resourceType: 'task',
+        resourceId: p?.taskId || 'unknown',
+        success: true,
+      })
+    })
 
     // --- Verification events (batched) ---
 
     for (const evt of ['verification_started', 'verification_passed', 'verification_failed', 'verification_escalated'] as const) {
-      cleanups.push(
-        events.subscribe(evt, (payload: unknown) => {
-          const p = payload as { patchId?: string; agentId?: string; path?: string; errors?: unknown[]; retryCount?: number }
-          batched({
-            id: eventId(evt),
-            timestamp: new Date().toISOString(),
-            eventType: 'verification',
-            actor: p?.agentId || 'verifier',
-            action: evt.replace('verification_', '') + (p?.path ? `: ${p.path}` : ''),
-            resourceType: 'patch',
-            resourceId: p?.patchId || 'unknown',
-            success: evt === 'verification_passed',
-            details: evt === 'verification_failed' ? { errorCount: p?.errors?.length ?? 0, retryCount: p?.retryCount ?? 0 } : undefined,
-          })
-        }),
-      )
+      onEvent(evt, (payload: unknown) => {
+        const p = payload as { patchId?: string; agentId?: string; path?: string; errors?: unknown[]; retryCount?: number }
+        batched({
+          id: eventId(evt),
+          timestamp: new Date().toISOString(),
+          eventType: 'verification',
+          actor: p?.agentId || 'verifier',
+          action: evt.replace('verification_', '') + (p?.path ? `: ${p.path}` : ''),
+          resourceType: 'patch',
+          resourceId: p?.patchId || 'unknown',
+          success: evt === 'verification_passed',
+          details: evt === 'verification_failed' ? { errorCount: p?.errors?.length ?? 0, retryCount: p?.retryCount ?? 0 } : undefined,
+        })
+      })
     }
 
-    cleanups.push(
-      events.subscribe('sensitive_command_intercepted', (payload: unknown) => {
-        const p = payload as { agentId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
-        batched({
-          id: eventId('sensitive'),
-          timestamp: new Date().toISOString(),
-          eventType: 'security_gate',
-          actor: p?.agentId || 'agent',
-          action: `intercepted: ${p?.pattern || 'unknown'} (${p?.severity || 'medium'})`,
-          resourceType: 'agent',
-          resourceId: p?.agentId || 'unknown',
-          success: false,
-          details: { pattern: p?.pattern, severity: p?.severity, reason: p?.reason, snippet: p?.snippet },
-        })
-      }),
-    )
+    onEvent('sensitive_command_intercepted', (payload: unknown) => {
+      const p = payload as { agentId?: string; pattern?: string; severity?: string; reason?: string; snippet?: string }
+      batched({
+        id: eventId('sensitive'),
+        timestamp: new Date().toISOString(),
+        eventType: 'security_gate',
+        actor: p?.agentId || 'agent',
+        action: `intercepted: ${p?.pattern || 'unknown'} (${p?.severity || 'medium'})`,
+        resourceType: 'agent',
+        resourceId: p?.agentId || 'unknown',
+        success: false,
+        details: { pattern: p?.pattern, severity: p?.severity, reason: p?.reason, snippet: p?.snippet },
+      })
+    })
 
-    // --- Scan result events (immediate data update + batched audit) ---
+    // --- Scan result events (data update only, no audit — scans are internal operations) ---
 
-    cleanups.push(
-      events.subscribe('agents_scanned', (payload: unknown) => {
-        const p = payload as { agents?: Array<{ id: string; name: string; type: string; state: string; command?: string; description?: string; capabilities?: string[] }> }
-        if (!p?.agents) return
+    onEvent('agents_scanned', (payload: unknown) => {
+      const p = payload as { agents?: Array<{ id: string; name: string; type: string; state: string; command?: string; description?: string; capabilities?: string[] }> }
+      if (!p?.agents) return
 
-        const agents = p.agents.map(a => agentInfoToAgent({
-          id: a.id,
-          name: a.name,
-          type: a.type,
-          state: a.state,
-          status: a.state,
-          command: a.command,
-          description: a.description,
-          capabilities: a.capabilities,
-        }))
+      const agents = p.agents.map(a => agentInfoToAgent({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        state: a.state,
+        status: a.state,
+        command: a.command,
+        description: a.description,
+        capabilities: a.capabilities,
+      }))
 
-        const appStore = useAppStore.getState()
-        const existingIds = new Set(appStore.agents.map(a => a.id))
-        const merged = [...appStore.agents]
-        for (const agent of agents) {
-          if (existingIds.has(agent.id)) {
-            const idx = merged.findIndex(a => a.id === agent.id)
-            if (idx >= 0) merged[idx] = { ...merged[idx], ...agent }
-          } else {
-            merged.push(agent)
-            existingIds.add(agent.id)
-          }
+      const appStore = useAppStore.getState()
+      const existingIds = new Set(appStore.agents.map(a => a.id))
+      const merged = [...appStore.agents]
+      for (const agent of agents) {
+        if (existingIds.has(agent.id)) {
+          const idx = merged.findIndex(a => a.id === agent.id)
+          if (idx >= 0) merged[idx] = { ...merged[idx], ...agent }
+        } else {
+          merged.push(agent)
+          existingIds.add(agent.id)
         }
-        appStore.setAgents(merged)
+      }
+      appStore.setAgents(merged)
+    })
 
-        batched({
-          id: eventId('agents_scanned'),
-          timestamp: new Date().toISOString(),
-          eventType: 'agent_scan',
-          actor: 'scanner',
-          action: `agent scan complete: ${p.agents.length} agents`,
-          resourceType: 'agent',
-          resourceId: `${p.agents.length} agents`,
-          success: true,
-        })
-      }),
-    )
+    onEvent('mcp_servers_scanned', (payload: unknown) => {
+      const p = payload as { servers?: MCPServerInfo[]; count?: number }
+      if (!p?.servers) return
+      set({ mcpServers: p.servers })
+    })
 
-    cleanups.push(
-      events.subscribe('mcp_servers_scanned', (payload: unknown) => {
-        const p = payload as { servers?: MCPServerInfo[]; count?: number }
-        if (!p?.servers) return
-        set({ mcpServers: p.servers })
-        batched({
-          id: eventId('mcp_scanned'),
-          timestamp: new Date().toISOString(),
-          eventType: 'mcp_scan',
-          actor: 'scanner',
-          action: `MCP scan complete: ${p.count ?? p.servers.length} servers`,
-          resourceType: 'mcp',
-          resourceId: `${p.count ?? p.servers.length} servers`,
-          success: true,
-        })
-      }),
-    )
-
-    cleanups.push(
-      events.subscribe('skills_scanned', (payload: unknown) => {
-        const p = payload as { skills?: SkillInfo[]; count?: number }
-        if (!p?.skills) return
-        set({ skills: p.skills })
-        batched({
-          id: eventId('skills_scanned'),
-          timestamp: new Date().toISOString(),
-          eventType: 'skill_scan',
-          actor: 'scanner',
-          action: `skill scan complete: ${p.count ?? p.skills.length} skills`,
-          resourceType: 'skill',
-          resourceId: `${p.count ?? p.skills.length} skills`,
-          success: true,
-        })
-      }),
-    )
+    onEvent('skills_scanned', (payload: unknown) => {
+      const p = payload as { skills?: SkillInfo[]; count?: number }
+      if (!p?.skills) return
+      set({ skills: p.skills })
+    })
 
     return () => {
       for (const cleanup of cleanups) cleanup()

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 use tokio::process::Command as TokioCommand;
 
 // ============================================================================
@@ -2001,6 +2003,91 @@ fn remove_mcp_server(server_id: String) -> Result<(), String> {
 }
 
 // ============================================================================
+// Unix Socket IPC Bridge
+// ============================================================================
+
+/// Get the Unix socket path used for IPC with the Go backend.
+fn get_socket_path() -> PathBuf {
+    let config_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".swarm-editor");
+    config_dir.join("swarm.sock")
+}
+
+/// Invoke a command on the Go backend via Unix socket IPC.
+/// This is the primary IPC bridge between the Tauri frontend and Go backend.
+/// Uses JSON-RPC 2.0 over newline-delimited Unix socket frames.
+#[tauri::command]
+async fn swarm_invoke(method: String, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    let sock_path = get_socket_path();
+
+    if !sock_path.exists() {
+        return Err(format!(
+            "Go backend not running (socket not found: {})",
+            sock_path.display()
+        ));
+    }
+
+    // Connect to the Unix socket
+    let stream = UnixStream::connect(&sock_path)
+        .await
+        .map_err(|e| format!("Failed to connect to Go backend: {}", e))?;
+
+    // Build JSON-RPC 2.0 request
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+    });
+
+    let mut request_bytes = serde_json::to_vec(&request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?;
+    request_bytes.push(b'\n');
+
+    // Split the stream into read and write halves
+    let (reader, mut writer) = stream.into_split();
+
+    // Send request
+    writer
+        .write_all(&request_bytes)
+        .await
+        .map_err(|e| format!("Failed to send request: {}", e))?;
+
+    // Read response (newline-delimited)
+    let mut buf_reader = BufReader::new(reader);
+    let mut response_line = String::new();
+    buf_reader
+        .read_line(&mut response_line)
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if response_line.is_empty() {
+        return Err("Go backend closed connection without response".to_string());
+    }
+
+    // Parse JSON-RPC response
+    let response: serde_json::Value = serde_json::from_str(&response_line.trim())
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    // Check for error
+    if let Some(error) = response.get("error") {
+        let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-32603);
+        let message = error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("Go backend error (code {}): {}", code, message));
+    }
+
+    // Return result
+    Ok(response
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
+}
+
+// ============================================================================
 // 入口
 // ============================================================================
 
@@ -2154,6 +2241,8 @@ pub fn run() {
             call_mcp_tool,
             add_mcp_server,
             remove_mcp_server,
+            // Unix Socket IPC bridge
+            swarm_invoke,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

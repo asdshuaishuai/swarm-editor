@@ -1,6 +1,6 @@
-// API client using WebSocket communication
+// API client using Tauri IPC → Unix Socket communication
 
-import { getWebSocketClient, WebSocketClient } from './websocket'
+import { getIPCClient, type IPCClient } from './ipcClient'
 import type { AgentConfig } from '../types'
 
 // Tauri native invoke (available when withGlobalTauri is enabled)
@@ -348,9 +348,9 @@ export interface PermissionOption {
   description: string
 }
 
-// Helper to get WebSocket client
-function getClient(): WebSocketClient {
-  return getWebSocketClient()
+// Helper to get IPC client (Tauri IPC → Unix Socket)
+function getClient(): IPCClient {
+  return getIPCClient()
 }
 
 // Agent API
@@ -1124,25 +1124,34 @@ export const executeApi = {
   },
 }
 
-// Backend API (connection management)
+// Backend API (connection management via Unix socket)
 export const backendApi = {
   async getStatus(): Promise<BackendStatus> {
     return {
       connected: getClient().isConnected(),
       state: getClient().isConnected() ? 'connected' : 'disconnected',
       retryCount: 0,
-      reconnectEnabled: true,
-      backendType: 'websocket',
+      reconnectEnabled: false,
+      backendType: 'unix-socket',
     }
   },
 
   async connect(): Promise<string> {
-    await getClient().connect()
-    return 'connected'
+    // Unix socket connection is implicit — just check availability
+    if (getClient().isConnected()) {
+      return 'connected'
+    }
+    // Try a ping to verify connection
+    try {
+      await getClient().invoke('ping')
+      return 'connected'
+    } catch {
+      return 'disconnected'
+    }
   },
 
   async disconnect(): Promise<string> {
-    getClient().disconnect()
+    // Unix socket has no explicit disconnect — connection is per-request
     return 'disconnected'
   },
 }
@@ -1155,7 +1164,7 @@ export interface BackendStatus {
   backendType: string
 }
 
-// Event subscription helpers
+// Event subscription helpers (via Tauri event system)
 export const events = {
   subscribe(eventType: string, handler: (payload: unknown) => void): () => void {
     return getClient().subscribe(eventType, handler)

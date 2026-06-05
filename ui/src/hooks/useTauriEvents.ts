@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { events, getWebSocketClient, type PermissionRequestEvent, type AgentInfo } from '../services'
+import { events, type PermissionRequestEvent, type AgentInfo } from '../services'
+import { getIPCClient } from '../services/ipcClient'
 import { useAppStore, agentInfoToAgent } from '../store/appStore'
 import { logger } from '../utils'
 import type { Swarm } from '../types'
@@ -22,7 +23,7 @@ export function useACPEvents() {
   const unsubscribers = useRef<(() => void)[]>([])
 
   useEffect(() => {
-    const client = getWebSocketClient()
+    const client = getIPCClient()
     // Capture store getter once at effect start for consistent type access
     const getStore = () => useAppStore.getState()
 
@@ -223,25 +224,17 @@ export function useACPEvents() {
     })
     unsubscribers.current.push(unsubDiagnostics)
 
-    // Handle connection state changes — handlers read current state via getStore()
-    client.on('connect', () => {
-      logger.info('WebSocket', 'Connected to backend')
-      getStore().setConnected(true)
-      // P1 fix: Notify EditorPanel to re-send LSP didOpen for tracked files after reconnect
-      window.dispatchEvent(new CustomEvent('ws-reconnect'))
-    })
+    // IPC connection state — Unix socket is stateless, set connected based on availability
+    // The IPC client checks connection on first invoke; update store accordingly
+    const connected = client.isConnected()
+    getStore().setConnected(connected)
+    if (connected) {
+      logger.info('IPC', 'Connected to Go backend via Unix socket')
+    } else {
+      logger.info('IPC', 'Go backend not yet available, will connect on first invoke')
+    }
 
-    client.on('disconnect', () => {
-      logger.warn('WebSocket', 'Disconnected from backend')
-      getStore().setConnected(false)
-      getStore().addToast('warning', 'Connection lost', 'Attempting to reconnect...')
-    })
-    // Note: client.on() does not return an unsub function for connect/disconnect,
-    // so these handlers are not tracked in unsubscribers. They are replaced
-    // (not accumulated) on subsequent effect runs since this effect has no
-    // reactive dependencies and runs only once.
-
-    logger.info('WebSocket Events', 'All event listeners registered')
+    logger.info('IPC Events', 'All event listeners registered')
 
     // Cleanup: unsubscribe from all event subscriptions
     return () => {
@@ -264,7 +257,7 @@ export function useACPEvents() {
  */
 export function useACPEventStatus() {
   const connected = useAppStore((state) => state.connected)
-  const client = getWebSocketClient()
+  const client = getIPCClient()
 
   return {
     connected,

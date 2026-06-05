@@ -4,18 +4,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockInvoke = vi.fn()
 const mockSubscribe = vi.fn()
-const mockConnect = vi.fn()
-const mockDisconnect = vi.fn()
 const mockIsConnected = vi.fn()
 
-vi.mock('./websocket', () => ({
-  getWebSocketClient: () => ({
+vi.mock('./ipcClient', () => ({
+  getIPCClient: () => ({
     invoke: mockInvoke,
     subscribe: mockSubscribe,
-    connect: mockConnect,
-    disconnect: mockDisconnect,
     isConnected: mockIsConnected,
   }),
+  listen: vi.fn().mockResolvedValue(vi.fn()),
 }))
 
 // Mock scheduling and byzantine so their module-level state does not interfere
@@ -1575,9 +1572,9 @@ describe('backendApi', () => {
 
       expect(result.connected).toBe(true)
       expect(result.state).toBe('connected')
-      expect(result.backendType).toBe('websocket')
+      expect(result.backendType).toBe('unix-socket')
       expect(result.retryCount).toBe(0)
-      expect(result.reconnectEnabled).toBe(true)
+      expect(result.reconnectEnabled).toBe(false)
     })
   })
 
@@ -1593,16 +1590,15 @@ describe('backendApi', () => {
 
   describe('connect', () => {
     it('connects and returns string', async () => {
-      mockConnect.mockResolvedValueOnce(undefined)
+      mockInvoke.mockResolvedValueOnce('pong')
       const result = await backendApi.connect()
       expect(result).toBe('connected')
     })
   })
 
   describe('disconnect', () => {
-    it('disconnects and returns string', async () => {
+    it('disconnects and returns string (no-op for Unix socket)', async () => {
       const result = await backendApi.disconnect()
-      expect(mockDisconnect).toHaveBeenCalled()
       expect(result).toBe('disconnected')
     })
   })

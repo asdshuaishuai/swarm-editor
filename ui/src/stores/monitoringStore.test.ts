@@ -9,7 +9,18 @@ const mockScanServers = vi.fn().mockResolvedValue([])
 const mockScanSkills = vi.fn().mockResolvedValue([])
 const mockGetStatus = vi.fn().mockResolvedValue(null)
 const mockGetMessageLog = vi.fn().mockResolvedValue([])
-const mockSubscribe = vi.fn().mockReturnValue(vi.fn())
+const mockListen = vi.fn()
+const mockEventCallbacks = new Map<string, (payload: unknown) => void>()
+
+vi.mock('../services/ipcClient', () => ({
+  listen: (event: string, handler: (payload: unknown) => void) => {
+    mockListen(event, handler)
+    mockEventCallbacks.set(event, handler)
+    return Promise.resolve(() => {
+      mockEventCallbacks.delete(event)
+    })
+  },
+}))
 
 vi.mock('../services', () => ({
   api: {
@@ -28,9 +39,6 @@ vi.mock('../services', () => ({
       getStatus: (...args: any[]) => mockGetStatus(...args),
       getMessageLog: (...args: any[]) => mockGetMessageLog(...args),
     },
-  },
-  events: {
-    subscribe: (...args: any[]) => mockSubscribe(...args),
   },
 }))
 
@@ -424,27 +432,28 @@ describe('monitoringStore', () => {
   describe('subscribeToEvents', () => {
     /** Helper: get the callback registered for a given event name */
     function getCallback(eventName: string): (payload: unknown) => void {
-      for (const call of mockSubscribe.mock.calls) {
-        if (call[0] === eventName) return call[1]
-      }
-      throw new Error(`No subscription for event: ${eventName}`)
+      const handler = mockEventCallbacks.get(eventName)
+      if (!handler) throw new Error(`No subscription for event: ${eventName}`)
+      return handler
     }
 
     it('registers event subscriptions', () => {
       useMonitoringStore.getState().subscribeToEvents()
-      expect(mockSubscribe).toHaveBeenCalledWith('audit_event', expect.any(Function))
-      expect(mockSubscribe).toHaveBeenCalledWith('a2a_message', expect.any(Function))
-      expect(mockSubscribe).toHaveBeenCalledWith('mcp_tool_invoked', expect.any(Function))
+      expect(mockListen).toHaveBeenCalledWith('audit_event', expect.any(Function))
+      expect(mockListen).toHaveBeenCalledWith('a2a_message', expect.any(Function))
+      expect(mockListen).toHaveBeenCalledWith('mcp_tool_invoked', expect.any(Function))
     })
 
-    it('returns cleanup function that calls all unsubscribed', () => {
-      const mockCleanup = vi.fn()
-      mockSubscribe.mockReturnValue(mockCleanup)
+    it('returns cleanup function that calls all unsubscribed', async () => {
       const cleanup = useMonitoringStore.getState().subscribeToEvents()
       expect(typeof cleanup).toBe('function')
+      // Wait for all listen() promises to resolve so unlisten fns are registered
+      await vi.waitFor(() => {
+        expect(mockEventCallbacks.size).toBeGreaterThan(0)
+      })
       cleanup()
-      // Every subscription should have been cleaned up
-      expect(mockCleanup).toHaveBeenCalledTimes(mockSubscribe.mock.calls.length)
+      // After cleanup, all event callbacks should be removed
+      expect(mockEventCallbacks.size).toBe(0)
     })
 
     // --- audit_event callback ---

@@ -7,14 +7,8 @@ import type { AppState } from '../store/appStore'
 // Store event handlers for triggering in tests
 const eventHandlers = new Map<string, (payload: unknown) => void>()
 
-// Track connect/disconnect handlers
-let connectHandler: (() => void) | null = null
-let disconnectHandler: (() => void) | null = null
-
-// Mock WebSocket client
+// Mock IPC client
 const mockIsConnected = vi.fn().mockReturnValue(true)
-const mockOnConnect = vi.fn()
-const mockOnDisconnect = vi.fn()
 
 vi.mock('../services', () => ({
   events: {
@@ -51,18 +45,11 @@ vi.mock('../services', () => ({
       return () => eventHandlers.delete('lsp_diagnostics_update')
     }),
   },
-  getWebSocketClient: () => ({
+}))
+
+vi.mock('../services/ipcClient', () => ({
+  getIPCClient: () => ({
     isConnected: mockIsConnected,
-    on: (event: string, handler: () => void) => {
-      if (event === 'connect') {
-        connectHandler = handler
-        mockOnConnect.mockImplementation(handler)
-      }
-      if (event === 'disconnect') {
-        disconnectHandler = handler
-        mockOnDisconnect.mockImplementation(handler)
-      }
-    },
   }),
 }))
 
@@ -115,8 +102,6 @@ describe('useTauriEvents (WebSocket)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     eventHandlers.clear()
-    connectHandler = null
-    disconnectHandler = null
     mockStoreState = {
       swarms: [],
       agents: [],
@@ -701,43 +686,6 @@ describe('useTauriEvents (WebSocket)', () => {
     const problems = mockUpdateFileProblems.mock.calls[0][1]
     expect(problems[0].id).toBe('/test/a.ts:2:0')
     expect(problems[1].id).toBe('/test/a.ts:2:1')
-  })
-
-  it('should handle ws connect event and set connected', () => {
-    renderHook(() => useTauriEvents())
-
-    connectHandler?.()
-
-    expect(mockSetConnected).toHaveBeenCalledWith(true)
-  })
-
-  it('should dispatch ws-reconnect event on connect', () => {
-    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
-
-    renderHook(() => useTauriEvents())
-
-    connectHandler?.()
-
-    expect(dispatchSpy).toHaveBeenCalledWith(expect.any(CustomEvent))
-    const customEvent = dispatchSpy.mock.calls[0][0] as CustomEvent
-    expect(customEvent.type).toBe('ws-reconnect')
-    dispatchSpy.mockRestore()
-  })
-
-  it('should handle ws disconnect event and set disconnected', () => {
-    renderHook(() => useTauriEvents())
-
-    disconnectHandler?.()
-
-    expect(mockSetConnected).toHaveBeenCalledWith(false)
-  })
-
-  it('should add warning toast on disconnect', () => {
-    renderHook(() => useTauriEvents())
-
-    disconnectHandler?.()
-
-    expect(mockAddToast).toHaveBeenCalledWith('warning', 'Connection lost', 'Attempting to reconnect...')
   })
 
   it('should handle agent message event', () => {
