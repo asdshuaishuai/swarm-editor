@@ -88,6 +88,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleUpdateAgentConfig(ctx, params)
 	case "get_agent_config_file":
 		return h.handleGetAgentConfigFile(ctx, params)
+	case "update_agent_config_file":
+		return h.handleUpdateAgentConfigFile(ctx, params)
 	case "test_agent":
 		return h.handleTestAgent(ctx, params)
 		case "get_process_metrics":

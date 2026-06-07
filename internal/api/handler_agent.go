@@ -9,6 +9,7 @@ import (
 "strings"
 "time"
 
+"github.com/BurntSushi/toml"
 "github.com/swarm-editor/swarm-editor/internal/acp"
 "github.com/swarm-editor/swarm-editor/internal/agent"
 )
@@ -1358,4 +1359,55 @@ func detectLanguage(path string) string {
 	default:
 		return "plaintext"
 	}
+}
+
+func (h *CommandHandler) handleUpdateAgentConfigFile(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string `json:"agentId"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agentId is required")
+	}
+
+	sync, err := agent.GetConfigSync(req.AgentID)
+	if err != nil {
+		return nil, errNotFound(err.Error())
+	}
+
+	configPath := sync.ConfigPath()
+	lang := detectLanguage(configPath)
+
+	// Validate content
+	switch lang {
+	case "json":
+		if !json.Valid([]byte(req.Content)) {
+			return nil, errValidation("invalid JSON content")
+		}
+	case "toml":
+		if _, err := toml.Decode(req.Content, &struct{}{}); err != nil {
+			return nil, errValidation(fmt.Sprintf("invalid TOML: %s", err.Error()))
+		}
+	}
+
+	// Atomic write
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, safeError("failed to create config directory", err)
+	}
+
+	tmp := configPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(req.Content), 0600); err != nil {
+		return nil, safeError("failed to write config file", err)
+	}
+
+	if err := os.Rename(tmp, configPath); err != nil {
+		return nil, safeError("failed to save config file", err)
+	}
+
+	return map[string]any{"success": true}, nil
 }
