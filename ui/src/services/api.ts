@@ -471,6 +471,14 @@ export const agentApi = {
   async updateAgentConfig(agentId: string, config: Partial<AgentConfigView>): Promise<{ success: boolean }> {
     return getClient().invoke('update_agent_config', { agentId, config })
   },
+
+  async getAgentConfigFile(agentId: string): Promise<{ content: string; language: string; path: string }> {
+    return getClient().invoke('get_agent_config_file', { agentId })
+  },
+
+  async updateAgentConfigFile(agentId: string, content: string): Promise<{ success: boolean }> {
+    return getClient().invoke('update_agent_config_file', { agentId, content })
+  },
 }
 
 // Swarm API
@@ -718,7 +726,7 @@ export const mcpApi = {
     return getClient().invoke('upsert_mcp_server', server)
   },
 
-  async updateServer(id: string, updates: Partial<UnifiedMCPServer>): Promise<{ success: boolean; id: string; status: string }> {
+  async updateServer(id: string, updates: { name?: string; type?: string; command?: string; args?: string[]; url?: string; env?: Record<string, string>; headers?: Record<string, string>; description?: string }): Promise<{ success: boolean; id: string; status: string }> {
     return getClient().invoke('update_mcp_server', { id, ...updates })
   },
 
