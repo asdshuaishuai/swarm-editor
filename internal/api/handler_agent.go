@@ -352,6 +352,25 @@ func (h *CommandHandler) handleGetAgentsCached() []AgentInfo {
 		}
 	}
 
+	// Add config-based agents not yet seen (from agents.json)
+	if h.server.Scanner() != nil {
+		for id, cfg := range configAgents {
+			if seenByID[id] || !cfg.Enabled {
+				continue
+			}
+			info := AgentInfo{
+				ID:          id,
+				Name:        cfg.Name,
+				Type:        AgentTypeConfig,
+				State:       AgentStateAvailable,
+				Command:     cfg.Command,
+				Description: cfg.Description,
+				Enabled:     &cfg.Enabled,
+			}
+			result = append(result, info)
+		}
+	}
+
 	return result
 }
 
@@ -1291,4 +1310,52 @@ func (h *CommandHandler) handleUpdateAgentConfig(ctx context.Context, params jso
 	}
 
 	return map[string]any{"success": true}, nil
+}
+
+func (h *CommandHandler) handleGetAgentConfigFile(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		AgentID string `json:"agentId"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, safeUnmarshalError(err)
+	}
+
+	if strings.TrimSpace(req.AgentID) == "" {
+		return nil, errValidation("agentId is required")
+	}
+
+	sync, err := agent.GetConfigSync(req.AgentID)
+	if err != nil {
+		return nil, errNotFound(err.Error())
+	}
+
+	configPath := sync.ConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{
+				"content":  "",
+				"language": detectLanguage(configPath),
+				"path":     configPath,
+			}, nil
+		}
+		return nil, safeError("failed to read config file", err)
+	}
+
+	return map[string]any{
+		"content":  string(data),
+		"language": detectLanguage(configPath),
+		"path":     configPath,
+	}, nil
+}
+
+func detectLanguage(path string) string {
+	switch {
+	case strings.HasSuffix(path, ".toml"):
+		return "toml"
+	case strings.HasSuffix(path, ".json"):
+		return "json"
+	default:
+		return "plaintext"
+	}
 }

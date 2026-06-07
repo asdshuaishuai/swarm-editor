@@ -86,6 +86,8 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleGetAgentConfig(ctx, params)
 	case "update_agent_config":
 		return h.handleUpdateAgentConfig(ctx, params)
+	case "get_agent_config_file":
+		return h.handleGetAgentConfigFile(ctx, params)
 	case "test_agent":
 		return h.handleTestAgent(ctx, params)
 		case "get_process_metrics":
@@ -440,6 +442,16 @@ func (h *CommandHandler) HandleCommand(method string, params json.RawMessage, cl
 		return h.handleStopScheduleRunner(ctx, params)
 	case "get_schedule_runner_status":
 		return h.handleGetScheduleRunnerStatus(ctx, params)
+
+	// Terminal IPC
+	case "terminal_connect":
+		return h.handleTerminalConnect(ctx, params)
+	case "terminal_input":
+		return h.handleTerminalInput(ctx, params)
+	case "terminal_resize":
+		return h.handleTerminalResize(ctx, params)
+	case "terminal_disconnect":
+		return h.handleTerminalDisconnect(ctx, params)
 
 	default:
 		return nil, NewAPIError(CodeMethodNotFound, fmt.Sprintf("unknown method: %s", method))
