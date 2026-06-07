@@ -6,6 +6,8 @@ const mockAddAgent = vi.fn().mockResolvedValue({})
 const mockUpdateAgent = vi.fn().mockResolvedValue({})
 const mockGetAgentConfig = vi.fn()
 const mockUpdateAgentConfig = vi.fn().mockResolvedValue({ success: true })
+const mockGetAgentConfigFile = vi.fn()
+const mockUpdateAgentConfigFile = vi.fn().mockResolvedValue({ success: true })
 const mockAddToast = vi.fn()
 
 vi.mock('../services', () => ({
@@ -15,6 +17,8 @@ vi.mock('../services', () => ({
       updateAgent: (...args: any[]) => mockUpdateAgent(...args),
       getAgentConfig: (...args: any[]) => mockGetAgentConfig(...args),
       updateAgentConfig: (...args: any[]) => mockUpdateAgentConfig(...args),
+      getAgentConfigFile: (...args: any[]) => mockGetAgentConfigFile(...args),
+      updateAgentConfigFile: (...args: any[]) => mockUpdateAgentConfigFile(...args),
     },
   },
 }))
@@ -33,8 +37,6 @@ vi.mock('lucide-react', () => ({
   X: () => <span data-testid="x-icon" />,
   Shield: () => <span data-testid="shield-icon" />,
   Globe: () => <span data-testid="globe-icon" />,
-  ChevronDown: () => <span data-testid="chevron-down" />,
-  ChevronRight: () => <span data-testid="chevron-right" />,
   Eye: () => <span data-testid="eye-icon" />,
   EyeOff: () => <span data-testid="eye-off-icon" />,
 }))
@@ -56,11 +58,20 @@ const defaultNativeConfig = {
   raw: { permissions: { allow: ['Bash(ls)'] } },
 }
 
+const defaultRawFile = {
+  content: '{"model":"claude-sonnet-4-20250514"}',
+  language: 'json',
+  path: '/home/user/.claude/settings.json',
+}
+
 describe('AgentConfigModal', () => {
   const onClose = vi.fn()
   const onSaved = vi.fn()
 
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetAgentConfigFile.mockResolvedValue(defaultRawFile)
+  })
 
   // ─── Basic Mode Tests ────────────────────────────────────────────────────
 
@@ -170,7 +181,7 @@ describe('AgentConfigModal', () => {
 
   // ─── Native Mode Tests ───────────────────────────────────────────────────
 
-  it('shows Provider Config tab for native agent (claude-code)', async () => {
+  it('shows structured/raw tabs for native agent (claude-code)', async () => {
     mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
     render(
       <AgentConfigModal
@@ -178,8 +189,8 @@ describe('AgentConfigModal', () => {
         onClose={onClose} onSaved={onSaved}
       />,
     )
-    expect(screen.getByText('Provider Config')).toBeInTheDocument()
-    expect(screen.getByText('Basic Settings')).toBeInTheDocument()
+    expect(screen.getByText('结构化配置')).toBeInTheDocument()
+    expect(screen.getByText('原始配置文件')).toBeInTheDocument()
   })
 
   it('loads native config on mount for native agent', async () => {
@@ -192,6 +203,17 @@ describe('AgentConfigModal', () => {
     )
     await waitFor(() => expect(mockGetAgentConfig).toHaveBeenCalledWith('claude-code'))
     await waitFor(() => expect(screen.getByDisplayValue('claude-sonnet-4-20250514')).toBeInTheDocument())
+  })
+
+  it('loads raw config file on mount for native agent', async () => {
+    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
+    render(
+      <AgentConfigModal
+        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
+        onClose={onClose} onSaved={onSaved}
+      />,
+    )
+    await waitFor(() => expect(mockGetAgentConfigFile).toHaveBeenCalledWith('claude-code'))
   })
 
   it('shows provider category tabs (Official / Third-party)', async () => {
@@ -261,32 +283,6 @@ describe('AgentConfigModal', () => {
     expect(screen.getByTestId('eye-off-icon')).toBeInTheDocument()
   })
 
-  it('shows raw JSON section collapsed by default', async () => {
-    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
-    render(
-      <AgentConfigModal
-        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
-        onClose={onClose} onSaved={onSaved}
-      />,
-    )
-    await waitFor(() => expect(screen.getByText('Other Configuration (raw JSON)')).toBeInTheDocument())
-    // Should not show textarea until expanded
-    expect(screen.queryByPlaceholderText('{}')).not.toBeInTheDocument()
-  })
-
-  it('expands raw JSON on click', async () => {
-    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
-    render(
-      <AgentConfigModal
-        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
-        onClose={onClose} onSaved={onSaved}
-      />,
-    )
-    await waitFor(() => expect(screen.getByText('Other Configuration (raw JSON)')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Other Configuration (raw JSON)'))
-    expect(screen.getByPlaceholderText('{}')).toBeInTheDocument()
-  })
-
   it('shows loading state while fetching native config', () => {
     mockGetAgentConfig.mockImplementation(() => new Promise(() => {})) // never resolves
     render(
@@ -327,7 +323,7 @@ describe('AgentConfigModal', () => {
     })))
   })
 
-  it('switches to Basic Settings tab for native agent', async () => {
+  it('switches to raw tab and shows textarea', async () => {
     mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
     render(
       <AgentConfigModal
@@ -335,9 +331,11 @@ describe('AgentConfigModal', () => {
         onClose={onClose} onSaved={onSaved}
       />,
     )
-    await waitFor(() => expect(screen.getByText('Basic Settings')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Basic Settings'))
-    expect(screen.getByText('Agent ID *')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('原始配置文件')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('原始配置文件'))
+    // Should show a textarea for raw editing
+    const textarea = document.querySelector('textarea')
+    expect(textarea).toBeInTheDocument()
   })
 
   it('does not show native tabs for non-native agent', () => {
@@ -347,11 +345,11 @@ describe('AgentConfigModal', () => {
         onClose={onClose} onSaved={onSaved}
       />,
     )
-    expect(screen.queryByText('Provider Config')).not.toBeInTheDocument()
-    expect(screen.queryByText('Basic Settings')).not.toBeInTheDocument()
+    expect(screen.queryByText('结构化配置')).not.toBeInTheDocument()
+    expect(screen.queryByText('原始配置文件')).not.toBeInTheDocument()
   })
 
-  it('shows config path for native agent', async () => {
+  it('shows config path for native agent in header', async () => {
     mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
     render(
       <AgentConfigModal
@@ -365,6 +363,7 @@ describe('AgentConfigModal', () => {
   it('renders for all native agent IDs', async () => {
     for (const agentId of ['kimi-code', 'opencode', 'qwen-code']) {
       mockGetAgentConfig.mockResolvedValue({ ...defaultNativeConfig, agentId })
+      mockGetAgentConfigFile.mockResolvedValue({ ...defaultRawFile, path: `/home/user/.${agentId}/config.json` })
       const { unmount } = render(
         <AgentConfigModal
           key={agentId}
@@ -375,6 +374,7 @@ describe('AgentConfigModal', () => {
       await waitFor(() => expect(mockGetAgentConfig).toHaveBeenCalledWith(agentId))
       unmount()
       mockGetAgentConfig.mockClear()
+      mockGetAgentConfigFile.mockClear()
     }
   })
 
@@ -403,5 +403,62 @@ describe('AgentConfigModal', () => {
     await waitFor(() => expect(screen.getByText('Save & Sync')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Save & Sync'))
     await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('success', 'Config saved', expect.any(String)))
+  })
+
+  it('validates JSON in raw tab textarea', async () => {
+    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
+    render(
+      <AgentConfigModal
+        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
+        onClose={onClose} onSaved={onSaved}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('原始配置文件')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('原始配置文件'))
+    const textarea = document.querySelector('textarea')!
+    // Invalid JSON — should show a validation error containing the parse error
+    fireEvent.change(textarea, { target: { value: '{invalid' } })
+    await waitFor(() => {
+      const spans = document.querySelectorAll('span')
+      const errorSpan = Array.from(spans).find(s => s.textContent?.includes('Expected'))
+      expect(errorSpan).toBeTruthy()
+    })
+    // Valid JSON — should show Valid JSON label
+    fireEvent.change(textarea, { target: { value: '{"ok":true}' } })
+    await waitFor(() => {
+      const spans = document.querySelectorAll('span')
+      const validSpan = Array.from(spans).find(s => s.textContent?.includes('Valid JSON'))
+      expect(validSpan).toBeTruthy()
+    })
+  })
+
+  it('shows Save File button in raw tab for native agent', async () => {
+    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
+    render(
+      <AgentConfigModal
+        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
+        onClose={onClose} onSaved={onSaved}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('原始配置文件')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('原始配置文件'))
+    expect(screen.getByText('Save File')).toBeInTheDocument()
+  })
+
+  it('saves raw config file when Save File is clicked with modifications', async () => {
+    mockGetAgentConfig.mockResolvedValue(defaultNativeConfig)
+    render(
+      <AgentConfigModal
+        defaults={{ id: 'claude-code', name: 'Claude Code', command: 'claude' }}
+        onClose={onClose} onSaved={onSaved}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('原始配置文件')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('原始配置文件'))
+    const textarea = document.querySelector('textarea')!
+    fireEvent.change(textarea, { target: { value: '{"model":"new-model"}' } })
+    fireEvent.click(screen.getByText('Save File'))
+    await waitFor(() => expect(mockUpdateAgentConfigFile).toHaveBeenCalledWith('claude-code', '{"model":"new-model"}'))
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('success', '配置已保存', '原始配置文件已更新'))
   })
 })

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Bot, Loader2, X, Shield, Globe, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { Bot, Loader2, X, Shield, Globe, Eye, EyeOff } from 'lucide-react'
 import { AgentConfig, AgentSwarmConfig } from '../types'
 import { api, type AgentConfigView, type ProviderPreset } from '../services'
 import { logger } from '../utils'
@@ -19,6 +19,11 @@ interface AgentConfigModalProps {
 
 type ConfigMode = 'basic' | 'native'
 
+function generateConfigPreview(agentId: string, config: AgentConfigView): string {
+  // Placeholder — will be implemented in Task 6
+  return JSON.stringify({ agentId, model: config.model }, null, 2)
+}
+
 export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: AgentConfigModalProps) {
   const addToast = useAppStore(state => state.addToast)
   const [isSaving, setIsSaving] = useState(false)
@@ -27,7 +32,15 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
   // Determine mode: native if agent ID matches known agents
   const agentId = agent?.id || defaults?.id || ''
   const isNative = NATIVE_AGENTS.has(agentId)
-  const [mode, setMode] = useState<ConfigMode>(isNative ? 'native' : 'basic')
+  const mode: ConfigMode = isNative ? 'native' : 'basic'
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'structured' | 'raw'>('structured')
+  const [rawContent, setRawContent] = useState('')
+  const [rawLanguage, setRawLanguage] = useState<'json' | 'toml'>('json')
+  const [rawModified, setRawModified] = useState(false)
+  const [rawError, setRawError] = useState<string | null>(null)
+  const [configPath, setConfigPath] = useState('')
 
   // Basic mode state (existing)
   const [form, setForm] = useState<Partial<AgentConfig>>({
@@ -51,9 +64,6 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
   const [nativeLoading, setNativeLoading] = useState(false)
   const [nativeError, setNativeError] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [rawJson, setRawJson] = useState('')
-  const [rawJsonError, setRawJsonError] = useState<string | null>(null)
-  const [showRaw, setShowRaw] = useState(false)
 
   // Load basic form
   useEffect(() => {
@@ -82,7 +92,6 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
     try {
       const view = await api.agent.getAgentConfig(agentId)
       setNativeConfig(view)
-      setRawJson(JSON.stringify(view.raw || {}, null, 2))
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load config'
       setNativeError(msg)
@@ -95,6 +104,30 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
   useEffect(() => {
     loadNativeConfig()
   }, [loadNativeConfig])
+
+  // Load raw config file on mount for native agents
+  useEffect(() => {
+    if (!isNative) return
+    api.agent.getAgentConfigFile(agentId).then(result => {
+      setRawContent(result.content)
+      setRawLanguage(result.language as 'json' | 'toml')
+      setConfigPath(result.path)
+    }).catch(err => {
+      logger.error('AgentConfigModal', 'Failed to load raw config:', err)
+    })
+  }, [agentId, isNative])
+
+  // Tab switch handler
+  const handleTabSwitch = (tab: 'structured' | 'raw') => {
+    if (tab === 'raw' && nativeConfig) {
+      // Generate preview from structured config
+      const preview = generateConfigPreview(agentId, nativeConfig)
+      if (!rawModified) {
+        setRawContent(preview)
+      }
+    }
+    setActiveTab(tab)
+  }
 
   // Save basic config (existing flow)
   const handleBasicSave = async () => {
@@ -143,19 +176,6 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
     setIsSaving(true)
     setSaveError(null)
     try {
-      // Parse raw JSON if shown
-      let raw: Record<string, unknown> | undefined
-      if (showRaw && rawJson.trim()) {
-        try {
-          raw = JSON.parse(rawJson)
-          setRawJsonError(null)
-        } catch {
-          setRawJsonError('Invalid JSON')
-          setIsSaving(false)
-          return
-        }
-      }
-
       await api.agent.updateAgentConfig(agentId, {
         providerCategory: nativeConfig.providerCategory,
         providerPreset: nativeConfig.providerPreset,
@@ -163,7 +183,7 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
         smallModel: nativeConfig.smallModel,
         apiKey: nativeConfig.apiKey,
         baseUrl: nativeConfig.baseUrl,
-        raw: raw !== undefined ? raw : nativeConfig.raw,
+        raw: nativeConfig.raw,
       })
       addToast('success', 'Config saved', `${nativeConfig.agentName} configuration updated`)
       // Return a minimal AgentConfig for onSaved callback
@@ -175,6 +195,28 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
       setSaveError(msg)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Unified save handler
+  const handleSave = async () => {
+    if (activeTab === 'raw' && rawModified) {
+      setIsSaving(true)
+      setSaveError(null)
+      try {
+        await api.agent.updateAgentConfigFile(agentId, rawContent)
+        addToast('success', '配置已保存', '原始配置文件已更新')
+        onSaved({ id: agentId, name: nativeConfig?.agentName || '', command: '', enabled: true } as AgentConfig)
+        onClose()
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Save failed')
+      } finally {
+        setIsSaving(false)
+      }
+    } else if (mode === 'native') {
+      await handleNativeSave()
+    } else {
+      await handleBasicSave()
     }
   }
 
@@ -195,46 +237,58 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-      <div className="bg-mac-panel/95 border border-glass-border rounded-mac-xl p-5 w-[560px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl" role="dialog" aria-modal="true" aria-label="Agent configuration">
+      <div
+        className="rounded-mac-xl p-5 w-[720px] max-h-[85vh] overflow-y-auto shadow-mac backdrop-blur-xl"
+        style={{ background: '#161b22', border: '1px solid #30363d' }}
+        role="dialog" aria-modal="true" aria-label="Agent configuration"
+      >
         {/* Header */}
-        <div className="flex justify-between items-center mb-5">
-          <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            <Bot size={18} className="text-accent" />
-            {agent ? `Edit: ${agent.name}` : (defaults?.name ? `Configure: ${defaults.name}` : 'Add New Agent')}
-          </h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-card-hover rounded-mac transition-colors">
-            <X size={18} className="text-text-secondary" />
+        <div className="flex justify-between items-start mb-5">
+          <div>
+            <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#d0d7de' }}>
+              <Bot size={18} style={{ color: '#58a6ff' }} />
+              {agent ? `Edit: ${agent.name}` : (defaults?.name ? `Configure: ${defaults.name}` : 'Add New Agent')}
+            </h3>
+            <p className="text-xs font-mono truncate mt-1" style={{ color: '#6e7681' }} title={configPath}>
+              {configPath || nativeConfig?.configPath || ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-mac transition-colors" style={{ background: 'transparent' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#30363d')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <X size={18} style={{ color: '#8b949e' }} />
           </button>
         </div>
 
-        {/* Mode tabs (only if native agent) */}
+        {/* Tab switching (only if native agent) */}
         {isNative && (
-          <div className="flex border-b border-glass-border mb-4">
+          <div className="flex border-b mb-4" style={{ borderColor: '#30363d' }}>
             <button
-              onClick={() => setMode('native')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                mode === 'native'
-                  ? 'text-accent border-accent'
-                  : 'text-text-tertiary border-transparent hover:text-text-secondary'
-              }`}
+              onClick={() => setActiveTab('structured')}
+              className="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+              style={{
+                color: activeTab === 'structured' ? '#58a6ff' : '#6e7681',
+                borderColor: activeTab === 'structured' ? '#58a6ff' : 'transparent',
+              }}
             >
-              Provider Config
+              结构化配置
             </button>
             <button
-              onClick={() => setMode('basic')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                mode === 'basic'
-                  ? 'text-accent border-accent'
-                  : 'text-text-tertiary border-transparent hover:text-text-secondary'
-              }`}
+              onClick={() => handleTabSwitch('raw')}
+              className="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+              style={{
+                color: activeTab === 'raw' ? '#58a6ff' : '#6e7681',
+                borderColor: activeTab === 'raw' ? '#58a6ff' : 'transparent',
+              }}
             >
-              Basic Settings
+              原始配置文件
             </button>
           </div>
         )}
 
-        {/* Native config mode */}
-        {mode === 'native' && (
+        {/* Structured config content */}
+        {activeTab === 'structured' && mode === 'native' && (
           <NativeConfigEditor
             config={nativeConfig}
             loading={nativeLoading}
@@ -243,20 +297,15 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
             thirdPartyPresets={thirdPartyPresets}
             activePresets={activePresets}
             showApiKey={showApiKey}
-            showRaw={showRaw}
-            rawJson={rawJson}
-            rawJsonError={rawJsonError}
             onConfigChange={setNativeConfig}
             onPresetSelect={handlePresetSelect}
             onToggleApiKey={() => setShowApiKey(!showApiKey)}
-            onToggleRaw={() => setShowRaw(!showRaw)}
-            onRawJsonChange={(val) => { setRawJson(val); setRawJsonError(null) }}
             onRetry={loadNativeConfig}
           />
         )}
 
         {/* Basic config mode */}
-        {mode === 'basic' && (
+        {activeTab === 'structured' && mode === 'basic' && (
           <BasicConfigEditor
             form={form}
             isEdit={!!agent}
@@ -264,25 +313,63 @@ export default function AgentConfigModal({ agent, defaults, onClose, onSaved }: 
           />
         )}
 
+        {/* Raw config content */}
+        {activeTab === 'raw' && (
+          <>
+            <div className="h-[400px] rounded overflow-hidden" style={{ border: '1px solid #30363d' }}>
+              <textarea
+                className="w-full h-full p-3 font-mono text-sm resize-none"
+                style={{ background: '#0d1117', color: '#d0d7de', border: 'none', outline: 'none' }}
+                value={rawContent}
+                onChange={e => {
+                  setRawContent(e.target.value)
+                  setRawModified(true)
+                  if (rawLanguage === 'json') {
+                    try {
+                      JSON.parse(e.target.value)
+                      setRawError(null)
+                    } catch (err) {
+                      setRawError(err instanceof Error ? err.message : 'Invalid JSON')
+                    }
+                  }
+                }}
+                spellCheck={false}
+              />
+            </div>
+            {/* Validation status */}
+            <div className="flex items-center gap-2 mt-2 text-xs">
+              {rawError ? (
+                <span style={{ color: '#f85149' }}>✗ {rawError}</span>
+              ) : rawContent ? (
+                <span style={{ color: '#3fb950' }}>✓ Valid {rawLanguage.toUpperCase()}</span>
+              ) : null}
+            </div>
+          </>
+        )}
+
         {/* Error */}
         {saveError && (
-          <div role="alert" className="mt-4 p-3 bg-error/10 border border-error/30 rounded-mac text-sm text-error">
+          <div
+            role="alert"
+            className="mt-4 p-3 rounded-mac text-sm"
+            style={{ background: 'rgba(248, 81, 73, 0.1)', border: '1px solid rgba(248, 81, 73, 0.3)', color: '#f85149' }}
+          >
             {saveError}
           </div>
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-glass-border">
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t" style={{ borderColor: '#30363d' }}>
           <button onClick={onClose} className="btn-secondary" disabled={isSaving}>Cancel</button>
           <button
-            onClick={mode === 'native' ? handleNativeSave : handleBasicSave}
+            onClick={handleSave}
             className="btn-primary"
-            disabled={isSaving || (mode === 'native' && !nativeConfig)}
+            disabled={isSaving || (mode === 'native' && !nativeConfig && activeTab === 'structured')}
           >
             {isSaving ? (
               <><Loader2 size={16} className="animate-spin" /><span>Saving...</span></>
             ) : (
-              <span>{mode === 'native' ? 'Save & Sync' : (agent ? 'Save Changes' : 'Add Agent')}</span>
+              <span>{activeTab === 'raw' ? 'Save File' : (mode === 'native' ? 'Save & Sync' : (agent ? 'Save Changes' : 'Add Agent'))}</span>
             )}
           </button>
         </div>
@@ -301,25 +388,20 @@ interface NativeConfigEditorProps {
   thirdPartyPresets: ProviderPreset[]
   activePresets: ProviderPreset[]
   showApiKey: boolean
-  showRaw: boolean
-  rawJson: string
-  rawJsonError: string | null
   onConfigChange: (config: AgentConfigView) => void
   onPresetSelect: (preset: ProviderPreset) => void
   onToggleApiKey: () => void
-  onToggleRaw: () => void
-  onRawJsonChange: (val: string) => void
   onRetry: () => void
 }
 
 function NativeConfigEditor({
   config, loading, error, firstPartyPresets, thirdPartyPresets, activePresets,
-  showApiKey, showRaw, rawJson, rawJsonError,
-  onConfigChange, onPresetSelect, onToggleApiKey, onToggleRaw, onRawJsonChange, onRetry,
+  showApiKey,
+  onConfigChange, onPresetSelect, onToggleApiKey, onRetry,
 }: NativeConfigEditorProps) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-text-tertiary">
+      <div className="flex items-center justify-center py-12" style={{ color: '#6e7681' }}>
         <Loader2 size={20} className="animate-spin mr-2" />
         <span>Loading configuration...</span>
       </div>
@@ -329,7 +411,7 @@ function NativeConfigEditor({
   if (error) {
     return (
       <div className="text-center py-8">
-        <p className="text-sm text-error mb-3">{error}</p>
+        <p className="text-sm mb-3" style={{ color: '#f85149' }}>{error}</p>
         <button onClick={onRetry} className="btn-secondary text-sm">Retry</button>
       </div>
     )
@@ -343,33 +425,30 @@ function NativeConfigEditor({
 
   return (
     <div className="space-y-4">
-      {/* Config path */}
-      <p className="text-xs text-text-tertiary font-mono truncate" title={config.configPath}>
-        {config.configPath}
-      </p>
-
       {/* Provider Category Tabs */}
       <div>
-        <label className="block text-sm text-text-secondary mb-2 font-medium">Provider</label>
+        <label className="block text-sm mb-2 font-medium" style={{ color: '#8b949e' }}>Provider</label>
         <div className="flex gap-2">
           <button
             onClick={() => onConfigChange({ ...config, providerCategory: 'first_party', providerPreset: firstPartyPresets[0]?.name || '' })}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-mac text-sm font-medium transition-colors border ${
-              config.providerCategory === 'first_party'
-                ? 'bg-accent/10 border-accent text-accent'
-                : 'border-glass-border text-text-tertiary hover:border-accent/50'
-            }`}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-mac text-sm font-medium transition-colors"
+            style={{
+              border: config.providerCategory === 'first_party' ? '1px solid #58a6ff' : '1px solid #30363d',
+              background: config.providerCategory === 'first_party' ? 'rgba(88, 166, 255, 0.1)' : 'transparent',
+              color: config.providerCategory === 'first_party' ? '#58a6ff' : '#6e7681',
+            }}
           >
             <Shield size={14} />
             Official
           </button>
           <button
             onClick={() => onConfigChange({ ...config, providerCategory: 'third_party', providerPreset: thirdPartyPresets[0]?.name || '' })}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-mac text-sm font-medium transition-colors border ${
-              config.providerCategory === 'third_party'
-                ? 'bg-accent/10 border-accent text-accent'
-                : 'border-glass-border text-text-tertiary hover:border-accent/50'
-            }`}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-mac text-sm font-medium transition-colors"
+            style={{
+              border: config.providerCategory === 'third_party' ? '1px solid #58a6ff' : '1px solid #30363d',
+              background: config.providerCategory === 'third_party' ? 'rgba(88, 166, 255, 0.1)' : 'transparent',
+              color: config.providerCategory === 'third_party' ? '#58a6ff' : '#6e7681',
+            }}
           >
             <Globe size={14} />
             Third-party
@@ -380,21 +459,22 @@ function NativeConfigEditor({
       {/* Provider Presets */}
       {activePresets.length > 0 && (
         <div>
-          <label className="block text-sm text-text-secondary mb-2 font-medium">Provider Preset</label>
+          <label className="block text-sm mb-2 font-medium" style={{ color: '#8b949e' }}>Provider Preset</label>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {activePresets.map(preset => (
               <button
                 key={preset.name}
                 onClick={() => onPresetSelect(preset)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-mac text-sm transition-colors border ${
-                  config.providerPreset === preset.name
-                    ? 'bg-accent/10 border-accent text-accent'
-                    : 'border-glass-border text-text-secondary hover:border-accent/50'
-                }`}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-mac text-sm transition-colors"
+                style={{
+                  border: config.providerPreset === preset.name ? '1px solid #58a6ff' : '1px solid #30363d',
+                  background: config.providerPreset === preset.name ? 'rgba(88, 166, 255, 0.1)' : 'transparent',
+                  color: config.providerPreset === preset.name ? '#58a6ff' : '#8b949e',
+                }}
               >
                 <span className="font-medium">{preset.name}</span>
                 {preset.baseUrl && (
-                  <span className="text-xs text-text-tertiary font-mono truncate ml-2 max-w-[200px]">
+                  <span className="text-xs font-mono truncate ml-2 max-w-[200px]" style={{ color: '#6e7681' }}>
                     {preset.baseUrl.replace(/^https?:\/\//, '')}
                   </span>
                 )}
@@ -405,11 +485,11 @@ function NativeConfigEditor({
       )}
 
       {/* Model Configuration */}
-      <div className="border-t border-glass-border pt-4">
-        <h4 className="text-sm font-semibold mb-3 text-text-primary">Model Configuration</h4>
+      <div className="border-t pt-4" style={{ borderColor: '#30363d' }}>
+        <h4 className="text-sm font-semibold mb-3" style={{ color: '#d0d7de' }}>Model Configuration</h4>
         <div className="space-y-3">
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5 font-medium">Model</label>
+            <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Model</label>
             <input
               type="text"
               value={config.model || ''}
@@ -420,7 +500,7 @@ function NativeConfigEditor({
           </div>
           {config.smallModel !== undefined && (
             <div>
-              <label className="block text-sm text-text-secondary mb-1.5 font-medium">Small Model</label>
+              <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Small Model</label>
               <input
                 type="text"
                 value={config.smallModel || ''}
@@ -431,7 +511,7 @@ function NativeConfigEditor({
             </div>
           )}
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5 font-medium">API Key</label>
+            <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>API Key</label>
             <div className="relative">
               <input
                 type={showApiKey ? 'text' : 'password'}
@@ -442,15 +522,18 @@ function NativeConfigEditor({
               />
               <button
                 onClick={onToggleApiKey}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-card-hover rounded transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
+                style={{ background: 'transparent' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#30363d')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 type="button"
               >
-                {showApiKey ? <EyeOff size={14} className="text-text-tertiary" /> : <Eye size={14} className="text-text-tertiary" />}
+                {showApiKey ? <EyeOff size={14} style={{ color: '#6e7681' }} /> : <Eye size={14} style={{ color: '#6e7681' }} />}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5 font-medium">Base URL</label>
+            <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Base URL</label>
             <input
               type="text"
               value={config.baseUrl || ''}
@@ -460,31 +543,6 @@ function NativeConfigEditor({
             />
           </div>
         </div>
-      </div>
-
-      {/* Raw JSON Editor */}
-      <div className="border-t border-glass-border pt-4">
-        <button
-          onClick={onToggleRaw}
-          className="flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
-        >
-          {showRaw ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Other Configuration (raw JSON)
-        </button>
-        {showRaw && (
-          <div className="mt-3">
-            <textarea
-              className={`w-full input-mac font-mono resize-none ${rawJsonError ? 'border-error' : ''}`}
-              rows={8}
-              value={rawJson}
-              onChange={e => onRawJsonChange(e.target.value)}
-              placeholder="{}"
-            />
-            {rawJsonError && (
-              <p className="text-xs text-error mt-1">{rawJsonError}</p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -504,7 +562,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
       {/* ID & Name */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm text-text-secondary mb-1.5 font-medium">Agent ID *</label>
+          <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Agent ID *</label>
           <input
             type="text"
             value={form.id || ''}
@@ -515,7 +573,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
           />
         </div>
         <div>
-          <label className="block text-sm text-text-secondary mb-1.5 font-medium">Display Name *</label>
+          <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Display Name *</label>
           <input
             type="text"
             value={form.name || ''}
@@ -528,7 +586,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
 
       {/* Command */}
       <div>
-        <label className="block text-sm text-text-secondary mb-1.5 font-medium">Command Path *</label>
+        <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Command Path *</label>
         <input
           type="text"
           value={form.command || ''}
@@ -540,7 +598,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
 
       {/* Arguments */}
       <div>
-        <label className="block text-sm text-text-secondary mb-1.5 font-medium">Arguments (comma-separated)</label>
+        <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Arguments (comma-separated)</label>
         <input
           type="text"
           value={(form.args || []).join(', ')}
@@ -552,7 +610,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
 
       {/* Environment Variables */}
       <div>
-        <label className="block text-sm text-text-secondary mb-1.5 font-medium">Environment Variables</label>
+        <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Environment Variables</label>
         <textarea
           className="w-full input-mac font-mono resize-none"
           rows={3}
@@ -570,10 +628,13 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
       </div>
 
       {/* Swarm Config */}
-      <div className="border-t border-glass-border pt-4">
-        <h4 className="text-sm font-semibold mb-3 text-text-primary">Swarm Configuration</h4>
+      <div className="border-t pt-4" style={{ borderColor: '#30363d' }}>
+        <h4 className="text-sm font-semibold mb-3" style={{ color: '#d0d7de' }}>Swarm Configuration</h4>
         <div className="grid grid-cols-2 gap-4">
-          <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
+          <label className="flex items-center gap-2.5 p-2.5 rounded-mac cursor-pointer transition-colors" style={{ background: '#21262d' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#30363d')}
+            onMouseLeave={e => (e.currentTarget.style.background = '#21262d')}
+          >
             <input
               type="checkbox"
               checked={form.swarmConfig?.canBeCoordinator ?? true}
@@ -583,9 +644,12 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
               })}
               className="accent-accent"
             />
-            <span className="text-sm text-text-primary">Can be Coordinator</span>
+            <span className="text-sm" style={{ color: '#d0d7de' }}>Can be Coordinator</span>
           </label>
-          <label className="flex items-center gap-2.5 p-2.5 bg-glass rounded-mac cursor-pointer hover:bg-card-hover transition-colors">
+          <label className="flex items-center gap-2.5 p-2.5 rounded-mac cursor-pointer transition-colors" style={{ background: '#21262d' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#30363d')}
+            onMouseLeave={e => (e.currentTarget.style.background = '#21262d')}
+          >
             <input
               type="checkbox"
               checked={form.swarmConfig?.canBeWorker ?? true}
@@ -595,12 +659,12 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
               })}
               className="accent-accent"
             />
-            <span className="text-sm text-text-primary">Can be Worker</span>
+            <span className="text-sm" style={{ color: '#d0d7de' }}>Can be Worker</span>
           </label>
         </div>
         <div className="grid grid-cols-2 gap-4 mt-3">
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5 font-medium">Max Concurrent Tasks</label>
+            <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Max Concurrent Tasks</label>
             <input
               type="number"
               value={form.swarmConfig?.maxConcurrent || 3}
@@ -613,7 +677,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5 font-medium">Priority (1-10)</label>
+            <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Priority (1-10)</label>
             <input
               type="number"
               value={form.swarmConfig?.priority || 5}
@@ -627,10 +691,16 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
           </div>
         </div>
         <div className="mt-3">
-          <label className="block text-sm text-text-secondary mb-1.5 font-medium">Preferred Roles</label>
+          <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Preferred Roles</label>
           <div className="flex flex-wrap gap-2">
             {['coder', 'reviewer', 'tester', 'architect'].map(role => (
-              <label key={role} className="flex items-center gap-1.5 px-3 py-1.5 border border-glass-border rounded-mac text-sm cursor-pointer hover:border-accent/50 hover:bg-card-hover transition-colors">
+              <label
+                key={role}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-mac text-sm cursor-pointer transition-colors"
+                style={{ border: '1px solid #30363d' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(88, 166, 255, 0.5)'; e.currentTarget.style.background = '#30363d' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#30363d'; e.currentTarget.style.background = 'transparent' }}
+              >
                 <input
                   type="checkbox"
                   checked={form.swarmConfig?.preferredRoles?.includes(role) ?? false}
@@ -641,7 +711,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
                   }}
                   className="accent-accent"
                 />
-                <span className="capitalize text-text-primary">{role}</span>
+                <span className="capitalize" style={{ color: '#d0d7de' }}>{role}</span>
               </label>
             ))}
           </div>
@@ -650,7 +720,7 @@ function BasicConfigEditor({ form, isEdit, onFormChange }: BasicConfigEditorProp
 
       {/* Tags */}
       <div>
-        <label className="block text-sm text-text-secondary mb-1.5 font-medium">Tags (comma-separated)</label>
+        <label className="block text-sm mb-1.5 font-medium" style={{ color: '#8b949e' }}>Tags (comma-separated)</label>
         <input
           type="text"
           value={(form.tags || []).join(', ')}
