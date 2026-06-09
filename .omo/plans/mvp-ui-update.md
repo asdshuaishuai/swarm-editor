@@ -1069,19 +1069,19 @@ Wave FINAL (验证):
 
 ## Final Verification Wave
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle` [APPROVE]
   逐一检查 "Must Have" 是否实现，"Must NOT Have" 是否违反。检查 `.omo/evidence/` 中的证据文件。
   输出: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high` [APPROVE]
   运行 `./gradlew build` + linter。检查所有变更文件的 `as any`/`@ts-ignore`、空 catch、console.log、未使用导入。
   输出: `Build [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **实际 QA 验证** — `unspecified-high`
+- [x] F3. **实际 QA 验证** — `unspecified-high` [APPROVE]
   从干净状态启动。执行每个 Task 的 QA 场景。测试跨 Task 集成。
   输出: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | VERDICT`
 
-- [ ] F4. **范围忠实度检查** — `deep`
+- [x] F4. **范围忠实度检查** — `deep` [APPROVE]
   对每个 Task: 读 "What to do"，读实际 diff。验证 1:1 — 没有遗漏、没有超出范围。
   输出: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | VERDICT`
 
