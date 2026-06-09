@@ -4,11 +4,15 @@ import com.swarmeditor.backend.acp.AcpConnectionManager
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.mcp.McpStore
 import com.swarmeditor.backend.route.agentRoutes
+import com.swarmeditor.backend.route.gitRoutes
 import com.swarmeditor.backend.route.mcpRoutes
+import com.swarmeditor.backend.route.projectRoutes
 import com.swarmeditor.backend.route.sessionRoutes
 import com.swarmeditor.backend.route.skillRoutes
 import com.swarmeditor.backend.service.AgentService
+import com.swarmeditor.backend.service.GitService
 import com.swarmeditor.backend.service.McpService
+import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.backend.service.SessionService
 import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.backend.session.SessionStore
@@ -42,6 +46,15 @@ val agentService = AgentService(agentRegistry, connectionManager)
 val sessionService = SessionService(sessionStore)
 val mcpService = McpService(mcpStore)
 val skillService = SkillService(skillStore, skillScanner)
+val projectRoot = File(System.getProperty("user.dir")).let { dir ->
+    var candidate = dir
+    while (candidate.parentFile != null && !File(candidate, ".git").exists()) {
+        candidate = candidate.parentFile
+    }
+    if (File(candidate, ".git").exists()) candidate else dir
+}
+val gitService = GitService(projectRoot)
+val projectService = ProjectService(projectRoot)
 
 fun main() {
     runBlocking {
@@ -72,5 +85,7 @@ fun Application.module() {
         mcpRoutes(mcpService)
         skillRoutes(skillService)
         sessionRoutes(sessionService, agentService)
+        gitRoutes(gitService)
+        projectRoutes(projectService)
     }
 }

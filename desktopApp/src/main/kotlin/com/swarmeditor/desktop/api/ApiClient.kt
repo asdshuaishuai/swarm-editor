@@ -16,20 +16,27 @@ private val client = HttpClient(CIO) {
 private const val BASE = "http://localhost:8080"
 
 // --- Response DTOs ---
+@Serializable data class AgentStatsDto(val tasks: Int = 0, val successRate: Double = 0.0, val avgLatency: String = "")
 @Serializable data class AgentListResponse(val agents: List<AgentDto> = emptyList())
-@Serializable data class AgentDto(val config: AgentConfigDto, val status: String = "disconnected", val version: String = "")
+@Serializable data class AgentDto(val config: AgentConfigDto, val status: String = "disconnected", val version: String = "", val description: String = "", val stats: AgentStatsDto = AgentStatsDto())
 @Serializable data class AgentConfigDto(val id: String, val name: String, val description: String = "", val command: String = "", val args: List<String> = emptyList(), val agentType: String = "", val enabled: Boolean = true)
 @Serializable data class SessionListResponse(val sessions: List<SessionDto> = emptyList())
 @Serializable data class SessionDto(val id: String, val agentId: String, val status: String = "active", val messages: List<MessageDto> = emptyList(), val createdAt: String = "", val updatedAt: String = "")
 @Serializable data class MessageDto(val id: String, val role: String, val content: List<ContentBlockDto> = emptyList(), val createdAt: String = "")
 @Serializable data class ContentBlockDto(val type: String = "text", val text: String = "")
 @Serializable data class McpServerListResponse(val servers: List<McpServerDto> = emptyList())
-@Serializable data class McpServerDto(val id: String, val name: String, val type: String = "stdio", val command: String = "", val args: List<String> = emptyList(), val env: Map<String, String> = emptyMap(), val url: String = "", val enabledAgents: Map<String, Boolean> = emptyMap(), val description: String = "", val tags: List<String> = emptyList())
+@Serializable data class McpToolParamDto(val name: String, val required: Boolean = false)
+@Serializable data class McpToolDto(val name: String, val description: String = "", val params: List<McpToolParamDto> = emptyList())
+@Serializable data class McpServerDto(val id: String, val name: String, val type: String = "stdio", val command: String = "", val args: List<String> = emptyList(), val env: Map<String, String> = emptyMap(), val url: String = "", val enabledAgents: Map<String, Boolean> = emptyMap(), val description: String = "", val tags: List<String> = emptyList(), val tools: List<McpToolDto> = emptyList(), val downloads: String = "", val rating: Double = 0.0, val ratingCount: Int = 0, val published: String = "", val updated: String = "", val repository: String = "", val categories: List<String> = emptyList(), val agents: List<String> = emptyList())
 @Serializable data class SkillListResponse(val skills: List<SkillDto> = emptyList())
 @Serializable data class SkillDto(val id: String, val name: String, val description: String = "", val source: String = "filesystem", val scope: String = "global", val path: String = "", val enabledAgents: Map<String, Boolean> = emptyMap(), val tags: List<String> = emptyList())
 @Serializable data class ConfigFieldsResponse(val fields: Map<String, String> = emptyMap(), val configPath: String = "")
 @Serializable data class StatusResponse(val status: String = "", val error: String? = null, val response: String? = null)
 @Serializable data class SessionResponse(val session: SessionDto? = null)
+@Serializable data class GitStatusDto(val branch: String = "", val ahead: Int = 0, val behind: Int = 0, val staged: Int = 0, val modified: Int = 0, val untracked: Int = 0)
+@Serializable data class GitStatusResponse(val branch: String = "", val ahead: Int = 0, val behind: Int = 0, val staged: Int = 0, val modified: Int = 0, val untracked: Int = 0)
+@Serializable data class FileNodeDto(val name: String, val path: String, val isDirectory: Boolean = false, val children: List<FileNodeDto> = emptyList(), val changeStatus: String? = null)
+@Serializable data class ProjectTreeResponse(val tree: FileNodeDto = FileNodeDto(name = "", path = ""))
 
 object ApiClient {
     // --- Agent ---
@@ -57,4 +64,10 @@ object ApiClient {
     suspend fun getSkills(): List<SkillDto> = try { client.get("$BASE/api/skills").body<SkillListResponse>().skills } catch (_: Exception) { emptyList() }
     suspend fun scanSkills(): List<SkillDto> = try { client.get("$BASE/api/skills/scan").body<SkillListResponse>().skills } catch (_: Exception) { emptyList() }
     suspend fun toggleSkillAgent(id: String, agentId: String, enabled: Boolean): StatusResponse = try { client.put("$BASE/api/skills/$id/toggle/$agentId").body() } catch (e: Exception) { StatusResponse(error = e.message) }
+
+    // --- Git ---
+    suspend fun getGitStatus(): GitStatusDto = try { client.get("$BASE/api/git/status").body<GitStatusResponse>().let { GitStatusDto(branch = it.branch, ahead = it.ahead, behind = it.behind, staged = it.staged, modified = it.modified, untracked = it.untracked) } } catch (_: Exception) { GitStatusDto() }
+
+    // --- Project ---
+    suspend fun getProjectTree(): FileNodeDto = try { client.get("$BASE/api/project/tree").body<ProjectTreeResponse>().tree } catch (_: Exception) { FileNodeDto(name = "", path = "") }
 }

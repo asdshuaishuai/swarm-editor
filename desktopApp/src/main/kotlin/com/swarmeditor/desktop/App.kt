@@ -42,6 +42,7 @@ import com.swarmeditor.desktop.viewmodel.SessionViewModel
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.McpViewModel
 import com.swarmeditor.desktop.viewmodel.SkillViewModel
+import com.swarmeditor.desktop.viewmodel.MainViewModel
 
 data class AgentInfo(
     val id: String, val name: String, val emoji: String, val color: Color,
@@ -55,6 +56,7 @@ fun App() {
     val settingsVm = remember { SettingsViewModel() }
     val mcpVm = remember { McpViewModel() }
     val skillVm = remember { SkillViewModel() }
+    val mainVm = remember { MainViewModel() }
 
     val agents by agentVm.agents.collectAsState()
     val sessions by sessionVm.sessions.collectAsState()
@@ -63,6 +65,7 @@ fun App() {
     val currentSessionId by sessionVm.currentSessionId.collectAsState()
     val mcpServers by mcpVm.servers.collectAsState()
     val skills by skillVm.skills.collectAsState()
+    val currentView by mainVm.currentView.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
     var showRightPanel by remember { mutableStateOf(true) }
@@ -130,18 +133,70 @@ fun App() {
 
                 // 对话区 + 右侧面板
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    ChatArea(
-                        selectedAgent = selectedAgent, messages = messages, isSending = isSending,
-                        inputText = inputText, onInputChange = { inputText = it },
-                        onSend = { sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
-                        modifier = Modifier.weight(1f).fillMaxHeight()
-                    )
-                    if (showRightPanel) {
-                        RightPanel(
-                            selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
-                            mcpServers = mcpServers, skills = skills,
-                            modifier = Modifier.width(320.dp).fillMaxHeight()
-                        )
+                    when (currentView) {
+                        "chat" -> {
+                            ChatArea(
+                                selectedAgent = selectedAgent, messages = messages, isSending = isSending,
+                                inputText = inputText, onInputChange = { inputText = it },
+                                onSend = { sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
+                                modifier = Modifier.weight(1f).fillMaxHeight()
+                            )
+                            if (showRightPanel) {
+                                RightPanel(
+                                    selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
+                                    mcpServers = mcpServers, skills = skills,
+                                    modifier = Modifier.width(320.dp).fillMaxHeight()
+                                )
+                            }
+                        }
+                        "agents" -> {
+                            Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
+                                Text("Agents View", color = Tx, fontSize = 18.sp)
+                            }
+                            if (showRightPanel) {
+                                RightPanel(
+                                    selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
+                                    mcpServers = mcpServers, skills = skills,
+                                    modifier = Modifier.width(320.dp).fillMaxHeight()
+                                )
+                            }
+                        }
+                        "plugins" -> {
+                            Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
+                                Text("Plugins View", color = Tx, fontSize = 18.sp)
+                            }
+                            if (showRightPanel) {
+                                RightPanel(
+                                    selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
+                                    mcpServers = mcpServers, skills = skills,
+                                    modifier = Modifier.width(320.dp).fillMaxHeight()
+                                )
+                            }
+                        }
+                        "files" -> {
+                            Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
+                                Text("Files View", color = Tx, fontSize = 18.sp)
+                            }
+                            if (showRightPanel) {
+                                RightPanel(
+                                    selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
+                                    mcpServers = mcpServers, skills = skills,
+                                    modifier = Modifier.width(320.dp).fillMaxHeight()
+                                )
+                            }
+                        }
+                        "activity" -> {
+                            Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
+                                Text("Activity View", color = Tx, fontSize = 18.sp)
+                            }
+                            if (showRightPanel) {
+                                RightPanel(
+                                    selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
+                                    mcpServers = mcpServers, skills = skills,
+                                    modifier = Modifier.width(320.dp).fillMaxHeight()
+                                )
+                            }
+                        }
                     }
                 }
             }
