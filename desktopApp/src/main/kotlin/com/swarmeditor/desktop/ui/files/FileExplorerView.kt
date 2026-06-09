@@ -140,7 +140,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
     val rootNode = tree.value
     if (rootNode == null || isLoading.value) {
         Box(
-            modifier.fillMaxSize().background(Bg),
+            modifier.fillMaxSize().background(Glass),
             contentAlignment = Alignment.Center
         ) {
             Text("加载中...", color = Tx2, fontSize = 14.sp)
@@ -152,7 +152,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
     val modifiedCount = countByStatus(rootNode, "modified")
     val newCount = countByStatus(rootNode, "new")
 
-    Column(modifier.fillMaxSize().background(Bg)) {
+    Column(modifier.fillMaxSize().background(Glass)) {
         // ── Top bar ────────────────────────────────────────────
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -199,7 +199,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Modifier
                     .width(280.dp)
                     .fillMaxHeight()
-                    .background(Bg2)
+                    .background(Glass2)
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 6.dp)
             ) {
@@ -217,7 +217,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
 
             // Right: content placeholder
             Box(
-                Modifier.weight(1f).fillMaxHeight().background(Bg),
+                Modifier.weight(1f).fillMaxHeight().background(Glass),
                 contentAlignment = Alignment.Center
             ) {
                 if (selectedPath.value != null) {

@@ -81,9 +81,9 @@ fun MentionDropdown(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(RR2))
+            .background(Glass)
+            .border(1.dp, Bd, RoundedCornerShape(RR2))
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {

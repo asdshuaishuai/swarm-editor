@@ -98,7 +98,7 @@ fun ActivityLogView(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = modifier.fillMaxSize().background(Glass)) {
         // Top bar
         ActivityTopBar(
             filter = filter,
@@ -112,7 +112,7 @@ fun ActivityLogView(
                 modifier = Modifier
                     .width(240.dp)
                     .fillMaxHeight()
-                    .background(Bg2)
+                    .background(Glass2)
             ) {
                 if (archiveYears.isNotEmpty()) {
                     ArchiveTree(
@@ -138,7 +138,7 @@ fun ActivityLogView(
                 )
             } else {
                 Box(
-                    Modifier.weight(1f).fillMaxHeight().background(Bg),
+                    Modifier.weight(1f).fillMaxHeight().background(Glass),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("选择一个会话查看详情", color = Tx3, fontSize = 13.sp)
@@ -157,7 +157,7 @@ private fun ActivityTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(Bg2)
+            .background(Glass2)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

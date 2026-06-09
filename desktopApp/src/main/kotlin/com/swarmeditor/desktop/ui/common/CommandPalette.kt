@@ -119,13 +119,13 @@ private fun CommandPaletteModal(
         focusRequester.requestFocus()
     }
 
-    val modalShape = RoundedCornerShape(12.dp)
+    val modalShape = RoundedCornerShape(RR2)
 
     Column(
         modifier = Modifier
             .width(580.dp)
             .clip(modalShape)
-            .background(Bg2)
+            .background(Glass)
             .border(1.dp, Bd, modalShape)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

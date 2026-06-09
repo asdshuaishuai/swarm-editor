@@ -187,7 +187,7 @@ fun SwarmVisualization(
 
             // Node circle background
             drawCircle(
-                color = Bg3.copy(alpha = alpha),
+                color = Surface2.copy(alpha = alpha),
                 radius = nodeRadius,
                 center = Offset(nx, ny)
             )

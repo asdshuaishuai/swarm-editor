@@ -28,7 +28,7 @@ fun StatusBar(
 ) {
     Row(
         modifier = modifier.fillMaxWidth().height(26.dp)
-            .background(Bg.copy(alpha = 0.5f)).border(1.dp, Bd)
+            .background(Glass2).border(1.dp, Bd)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

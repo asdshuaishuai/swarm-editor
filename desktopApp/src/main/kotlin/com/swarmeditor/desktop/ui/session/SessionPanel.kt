@@ -98,7 +98,7 @@ fun SessionPanel(
     var searchQuery by remember { mutableStateOf("") }
     val allAgents = if (agents.isEmpty()) listOf(selectedAgent) else agents
 
-    Column(modifier = modifier.background(Bg2)) {
+    Column(modifier = modifier.width(260.dp).background(Glass).border(1.dp, Bd)) {
         // 上半部：会话
         Column(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Bd)) {
             Row(
@@ -153,9 +153,9 @@ fun SessionPanel(
                     groups.forEach { group ->
                         // Date group label
                         Text(
-                            group.label,
-                            color = Tx3, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
-                            fontFamily = MonoFont, letterSpacing = 0.7.sp,
+                            group.label.uppercase(),
+                            color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                            fontFamily = MonoFont, letterSpacing = 0.8.sp,
                             modifier = Modifier.padding(10.dp, 10.dp, 10.dp, 4.dp)
                         )
                         // Sessions in this group

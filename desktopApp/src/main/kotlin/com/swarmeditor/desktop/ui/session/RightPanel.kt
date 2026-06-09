@@ -162,7 +162,7 @@ fun RightPanel(
     gitStatus: GitStatusDto = GitStatusDto(),
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.background(Bg2).border(1.dp, Bd)) {
+    Column(modifier = modifier.width(320.dp).background(Glass2).border(1.dp, Bd)) {
         // ── Tab header row ───────────────────────────────────────────────
         TabHeader(currentTab, onTabChange)
 

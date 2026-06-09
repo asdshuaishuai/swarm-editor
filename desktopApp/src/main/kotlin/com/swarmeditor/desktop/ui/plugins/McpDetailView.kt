@@ -305,9 +305,9 @@ private fun McpToolsTab(server: McpServerDto) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Bg2)
-                    .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(RR))
+                    .background(Surface2)
+                    .border(1.dp, Bd, RoundedCornerShape(RR))
                     .padding(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -375,9 +375,9 @@ private fun McpConfigTab(server: McpServerDto) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .background(Bg2)
-                .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(RR))
+                .background(Surface2)
+                .border(1.dp, Bd, RoundedCornerShape(RR))
                 .padding(12.dp)
         ) {
             Text(
@@ -399,9 +399,9 @@ private fun McpConfigTab(server: McpServerDto) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Bg2)
-                .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(RR))
+                .background(Surface2)
+                .border(1.dp, Bd, RoundedCornerShape(RR))
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -465,9 +465,9 @@ private fun McpSidePanel(server: McpServerDto) {
             .width(220.dp)
             .fillMaxHeight()
             .verticalScroll(rememberScrollState())
-            .clip(RoundedCornerShape(10.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Glass2)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .padding(14.dp)
     ) {
         SidePanelRow("Identifier", server.id)
@@ -529,10 +529,12 @@ private fun SidePanelRow(label: String, value: String) {
 @Composable
 private fun SectionTitle(title: String) {
     Text(
-        text = title,
-        color = Tx,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold
+        text = title.uppercase(),
+        color = Tx3,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = MonoFont,
+        letterSpacing = 0.8.sp
     )
     Spacer(Modifier.height(6.dp))
 }

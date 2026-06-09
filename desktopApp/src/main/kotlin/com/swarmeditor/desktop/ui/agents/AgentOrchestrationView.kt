@@ -112,7 +112,7 @@ fun AgentOrchestrationView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Bg)
+            .background(Glass)
             .verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
@@ -173,9 +173,9 @@ fun AgentOrchestrationView(
             // Refresh button
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Bg3)
-                    .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(RR))
+                    .background(Surface2)
+                    .border(1.dp, Bd, RoundedCornerShape(RR))
                     .clickable(onClick = onRefresh)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
@@ -216,9 +216,9 @@ fun AgentOrchestrationView(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(260.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Bg2)
-                .border(1.dp, Bd, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(RR2))
+                .background(Glass)
+                .border(1.dp, Bd, RoundedCornerShape(RR2))
         ) {
             SwarmVisualization(
                 agents = displayAgents,
@@ -293,17 +293,18 @@ fun AgentOrchestrationView(
 private fun SectionHeader(title: String, count: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            title,
-            color = Tx,
-            fontSize = 13.sp,
+            title.uppercase(),
+            color = Tx3,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 0.8.sp
         )
         Spacer(Modifier.width(8.dp))
         Text(
             "($count)",
             color = Tx3,
-            fontSize = 12.sp,
+            fontSize = 10.sp,
             fontFamily = FontFamily.Monospace
         )
     }
@@ -314,9 +315,9 @@ private fun EmptySection(text: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Glass)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {

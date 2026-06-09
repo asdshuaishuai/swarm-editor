@@ -91,20 +91,21 @@ fun CodeCard(
     card: CodeCardData,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(RR)
     val lineNumWidth = card.diffLines.maxOfOrNull { it.lineNum.toString().length } ?: 1
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Bg3)
+            .background(Glass)
             .border(1.dp, Bd, shape)
     ) {
         // File header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(Surface2)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

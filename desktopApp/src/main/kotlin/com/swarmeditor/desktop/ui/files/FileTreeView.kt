@@ -110,7 +110,7 @@ fun FileTreeView(
     } else {
         // File node
         val isSelected = tree.path == selectedPath
-        val bgColor = if (isSelected) Bg3 else androidx.compose.ui.graphics.Color.Transparent
+        val bgColor = if (isSelected) Surface2 else androidx.compose.ui.graphics.Color.Transparent
         val borderColor = if (isSelected) Ac.copy(alpha = 0.4f) else androidx.compose.ui.graphics.Color.Transparent
 
         Row(

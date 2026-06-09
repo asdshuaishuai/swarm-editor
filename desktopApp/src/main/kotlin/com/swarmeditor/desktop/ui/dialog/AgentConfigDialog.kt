@@ -65,13 +65,13 @@ fun AgentConfigDialog(agentId: String?, onDismiss: () -> Unit) {
                         if (preset.version.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
                             Text("v${preset.version}", color = Tx3, fontSize = 9.sp, fontFamily = MonoFont,
-                                modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Bg3).padding(horizontal = 5.dp, vertical = 1.dp))
+                                modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Surface2).padding(horizontal = 5.dp, vertical = 1.dp))
                         }
                     }
                 }
                 Spacer(Modifier.weight(1f))
                 Text("未连接", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
-                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Bd2, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
+                    modifier = Modifier.clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd2, RoundedCornerShape(RR)).padding(horizontal = 8.dp, vertical = 3.dp))
                 Spacer(Modifier.width(8.dp))
                 Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
                     Text("✕", color = Tx3, fontSize = 14.sp)

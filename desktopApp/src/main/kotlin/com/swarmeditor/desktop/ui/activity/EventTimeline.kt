@@ -104,7 +104,7 @@ private fun StatChip(icon: String, label: String, value: String) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Bg3)
+            .background(Surface2)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

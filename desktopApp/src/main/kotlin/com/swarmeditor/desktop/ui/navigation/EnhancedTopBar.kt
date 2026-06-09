@@ -54,13 +54,13 @@ fun EnhancedTopBar(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(Bg2.copy(alpha = 0.85f))
+            .background(Glass2)
             .border(1.dp, Bd)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Logo: conic-gradient ring + "Swarm Editor" + MVP badge
-        ConicGradientLogo(size = 24.dp, strokeWidth = 2.5f)
+        ConicGradientLogo(size = 34.dp, strokeWidth = 8f)
         Spacer(Modifier.width(8.dp))
         Text(
             "Swarm Editor",

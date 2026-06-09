@@ -211,8 +211,9 @@ private fun SkillOverviewTab(skill: SkillDto) {
             fontFamily = MonoFont,
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .background(Bg2)
+                .clip(RoundedCornerShape(RR))
+                .background(Surface2)
+                .border(1.dp, Bd, RoundedCornerShape(RR))
                 .padding(10.dp)
         )
         Spacer(Modifier.height(16.dp))
@@ -248,8 +249,8 @@ private fun SkillStructureTab(skill: SkillDto) {
         fontFamily = MonoFont,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(Bg2)
+            .clip(RoundedCornerShape(RR))
+            .background(Surface2)
             .padding(10.dp)
     )
     Spacer(Modifier.height(16.dp))
@@ -260,9 +261,9 @@ private fun SkillStructureTab(skill: SkillDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Surface2)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .padding(12.dp)
     ) {
         val segments = skill.path.split("/")
@@ -301,9 +302,9 @@ private fun SkillAgentsTab(skill: SkillDto) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Bg2)
-                    .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(RR))
+                    .background(Surface2)
+                    .border(1.dp, Bd, RoundedCornerShape(RR))
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -347,9 +348,9 @@ private fun SkillAgentsTab(skill: SkillDto) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Surface2)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .padding(14.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
@@ -378,9 +379,9 @@ private fun SkillUsageTab(skill: SkillDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Surface2)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .padding(12.dp)
     ) {
         InfoRow("Skill ID", skill.id)
@@ -456,10 +457,12 @@ private fun StatBlock(label: String, value: String) {
 @Composable
 private fun SkillSectionTitle(title: String) {
     Text(
-        text = title,
-        color = Tx,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold
+        text = title.uppercase(),
+        color = Tx3,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = MonoFont,
+        letterSpacing = 0.8.sp
     )
     Spacer(Modifier.height(6.dp))
 }

@@ -116,7 +116,7 @@ fun SettingsModal(agents: List<AgentInfo>, settingsVm: SettingsViewModel, onClos
 private fun AgentConfigTab(agents: List<AgentInfo>, selectedId: String, onSelect: (String) -> Unit, fields: List<com.swarmeditor.desktop.viewmodel.AgentConfigField>, configPath: String, settingsVm: SettingsViewModel) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
         // Agent 选择器
-        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Surface).padding(4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RR)).background(Surface2).padding(4.dp)) {
             agents.forEach { agent ->
                 val isActive = agent.id == selectedId
                 Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isActive) AcD else Color.Transparent).clickable { onSelect(agent.id) }.padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
@@ -253,7 +253,7 @@ private fun SkillMgmtCard(skill: SkillDto, settingsVm: SettingsViewModel) {
 // ==================== 通用组件 ====================
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
-    Text(title, color = Tx2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, letterSpacing = 0.3.sp)
+    Text(title.uppercase(), color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, letterSpacing = 0.8.sp)
     Spacer(Modifier.height(10.dp))
     content()
 }
@@ -271,7 +271,7 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
     var editValue by remember(field.label) { mutableStateOf(field.value) }
     Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(field.label, color = Tx3, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.width(90.dp))
-        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd2, RoundedCornerShape(RR)).padding(horizontal = 10.dp, vertical = 7.dp)) {
             Text(
                 if (field.isPassword && editValue.isNotEmpty()) "••••••••" else editValue.ifEmpty { "未配置" },
                 color = if (editValue.isEmpty()) Tx4 else Tx, fontSize = 12.sp, fontFamily = MonoFont
@@ -282,7 +282,7 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
 
 @Composable
 private fun AgentToggle(name: String, enabled: Boolean, onToggle: () -> Unit) {
-    Row(modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(if (enabled) AcD else Surface)
+    Row(modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(if (enabled) AcD else Surface2)
         .border(1.dp, if (enabled) Ac else Bd, RoundedCornerShape(5.dp))
         .clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(5.dp).clip(RoundedCornerShape(2.5.dp)).background(if (enabled) Ac else Tx3))
@@ -299,7 +299,7 @@ private fun GeneralTab(agents: List<AgentInfo>) {
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
         Section("默认工作目录") {
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(RR)).padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(workDir, color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
             }
             Spacer(Modifier.height(8.dp))
@@ -311,7 +311,7 @@ private fun GeneralTab(agents: List<AgentInfo>) {
         Spacer(Modifier.height(20.dp))
 
         Section("默认 Agent") {
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Surface).padding(4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RR)).background(Surface2).padding(4.dp)) {
                 agents.forEach { agent ->
                     val isActive = agent.id == defaultAgent
                     Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isActive) AcD else Color.Transparent).clickable { defaultAgent = agent.id }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
@@ -337,7 +337,7 @@ private fun GeneralTab(agents: List<AgentInfo>) {
 
 @Composable
 private fun ToggleChip(on: Boolean) {
-    Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(9.dp)).background(if (on) Ac else Bg3).border(1.dp, if (on) Ac else Bd2, RoundedCornerShape(9.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
+    Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(9.dp)).background(if (on) Ac else Surface2).border(1.dp, if (on) Ac else Bd2, RoundedCornerShape(9.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(modifier = Modifier.size(14.dp).padding(horizontal = 2.dp).clip(CircleShape).background(if (on) Bg else Tx3))
     }
 }
@@ -353,7 +353,7 @@ private fun AppearanceTab() {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 themes.forEach { (id, label) ->
                     val isActive = selectedTheme == id
-                    Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isActive) AcD else Bg3).border(1.dp, if (isActive) Ac else Bd2, RoundedCornerShape(8.dp)).clickable { selectedTheme = id }.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(RR)).background(if (isActive) AcD else Surface2).border(1.dp, if (isActive) Ac else Bd2, RoundedCornerShape(RR)).clickable { selectedTheme = id }.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(if (id == "dark") Bg else if (id == "light") Color(0xFFe0e0e8) else Color(0xFF2a2a34)).border(1.dp, Bd2, RoundedCornerShape(8.dp)))
                         Spacer(Modifier.height(8.dp))
                         Text(label, color = if (isActive) Ac else Tx2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
@@ -401,7 +401,7 @@ private fun ShortcutsTab() {
             Text("键盘快捷键", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
             Spacer(Modifier.weight(1f))
             Text("只读", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 8.dp, vertical = 3.dp))
+                modifier = Modifier.clip(RoundedCornerShape(RR)).background(Surface2).padding(horizontal = 8.dp, vertical = 3.dp))
         }
         Spacer(Modifier.height(12.dp))
         LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -411,7 +411,7 @@ private fun ShortcutsTab() {
                         Text(item.command, color = Tx, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = MonoFont)
                         Text(item.description, color = Tx3, fontSize = 10.sp, fontFamily = MonoFont)
                     }
-                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Bd, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    Box(modifier = Modifier.clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(RR)).padding(horizontal = 8.dp, vertical = 4.dp)) {
                         Text(item.keys, color = Ac, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
                     }
                 }

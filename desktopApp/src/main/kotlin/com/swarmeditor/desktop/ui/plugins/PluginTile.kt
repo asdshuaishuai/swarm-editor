@@ -78,9 +78,9 @@ fun PluginTile(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Bg3)
-            .border(1.dp, Bd, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Surface2)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
             .clickable(onClick = onClick)
     ) {
         // Colored top bar
@@ -98,8 +98,8 @@ fun PluginTile(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accent.copy(alpha = 0.15f)),
+                    .clip(RoundedCornerShape(RR))
+                    .background(accent.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(

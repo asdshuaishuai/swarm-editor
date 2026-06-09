@@ -6,9 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,7 +29,13 @@ fun ThinkingIndicator(
     text: String = "正在审查",
     modifier: Modifier = Modifier
 ) {
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(RR))
+            .background(Glass2)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         repeat(3) { index ->
             val opacity = remember { Animatable(0.3f) }
             LaunchedEffect(Unit) {
@@ -43,7 +51,7 @@ fun ThinkingIndicator(
                 modifier = Modifier
                     .size(5.dp)
                     .clip(CircleShape)
-                    .background(Pr.copy(alpha = opacity.value))
+                    .background(Ac.copy(alpha = opacity.value))
             )
             if (index < 2) Spacer(Modifier.width(4.dp))
         }

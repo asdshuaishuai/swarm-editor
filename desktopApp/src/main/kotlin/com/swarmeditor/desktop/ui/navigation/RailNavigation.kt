@@ -53,7 +53,7 @@ fun RailNavigation(
 
     Column(
         modifier = modifier
-            .width(52.dp)
+            .width(58.dp)
             .fillMaxHeight()
             .background(Color.Black.copy(alpha = 0.3f))
             .border(1.dp, Bd),
@@ -148,38 +148,18 @@ private fun RailNavItem(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isActive) Pr.copy(alpha = 0.12f) else Color.Transparent
-    val iconColor = if (isActive) Pr else Tx2
-    val glowColor = if (isActive) Pr.copy(alpha = 0.3f) else Color.Transparent
+    val bgColor = if (isActive) Surface else Color.Transparent
+    val iconColor = if (isActive) Ac else Tx2
 
     Box(
         modifier = Modifier
             .width(44.dp)
             .height(42.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(RR2))
             .background(bgColor)
-            .then(
-                if (isActive) Modifier.shadow(
-                    elevation = 6.dp,
-                    shape = RoundedCornerShape(10.dp),
-                    ambientColor = glowColor,
-                    spotColor = glowColor
-                ) else Modifier
-            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        // Active left bar indicator
-        if (isActive) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = (-2).dp)
-                    .width(2.dp)
-                    .height(20.dp)
-                    .background(Pr, RoundedCornerShape(1.dp))
-            )
-        }
 
         // Icon
         Text(

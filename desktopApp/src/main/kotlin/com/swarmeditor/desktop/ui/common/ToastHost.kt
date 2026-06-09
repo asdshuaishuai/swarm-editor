@@ -31,7 +31,7 @@ import com.swarmeditor.desktop.viewmodel.ToastData
 import com.swarmeditor.desktop.viewmodel.ToastType
 import kotlinx.coroutines.delay
 
-private val ToastShape = RoundedCornerShape(10.dp)
+private val ToastShape = RoundedCornerShape(RR)
 private const val DISMISS_AFTER_MS = 2600L
 
 private val ToastIcon = mapOf(
@@ -94,7 +94,7 @@ private fun ToastItem(
             modifier = Modifier
                 .width(260.dp)
                 .clip(ToastShape)
-                .background(Bg2)
+                .background(Glass)
                 .border(1.dp, Bd, ToastShape)
                 .clickable { onDismiss() }
                 .padding(horizontal = 14.dp, vertical = 10.dp),

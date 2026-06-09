@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.activity
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,7 +74,11 @@ fun ArchiveTree(
         expandState["$currentYear-$currentMonth"] = true
     }
 
-    LazyColumn(modifier = modifier) {
+    LazyColumn(modifier = modifier
+        .clip(RoundedCornerShape(RR))
+        .background(Glass2)
+        .border(1.dp, Bd, RoundedCornerShape(RR))
+    ) {
         years.forEach { year ->
             val yearKey = year.year
             val yearExpanded = expandState[yearKey] ?: false
@@ -221,7 +226,7 @@ private fun SessionRow(
             .clickable(onClick = onClick)
             .padding(start = 56.dp, top = 2.dp, bottom = 2.dp, end = 8.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Glass else Bg.copy(alpha = 0f))
+            .background(if (isSelected) Surface else Surface2)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

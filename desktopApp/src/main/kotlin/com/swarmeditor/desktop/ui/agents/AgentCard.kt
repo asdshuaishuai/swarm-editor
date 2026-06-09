@@ -74,9 +74,9 @@ fun AgentCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Bg2)
-            .border(1.dp, Bd, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(RR))
+            .background(Glass)
+            .border(1.dp, Bd, RoundedCornerShape(RR))
     ) {
         // Gradient top bar (2dp)
         Box(
@@ -187,9 +187,9 @@ fun AgentCard(
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Bg3)
-                        .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(RR))
+                        .background(Surface2)
+                        .border(1.dp, Bd, RoundedCornerShape(RR))
                         .clickable(onClick = onConfigClick)
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {

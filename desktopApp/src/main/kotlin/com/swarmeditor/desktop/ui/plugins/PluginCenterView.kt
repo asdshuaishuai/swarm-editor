@@ -88,7 +88,7 @@ fun PluginCenterView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Bg2)
+                        .background(Glass)
                         .padding(horizontal = 24.dp, vertical = 18.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +136,7 @@ fun PluginCenterView(
                                 unfocusedBorderColor = Bd,
                                 cursorColor = Ac
                             ),
-                            modifier = Modifier.width(240.dp).clip(RoundedCornerShape(8.dp))
+                            modifier = Modifier.width(240.dp).clip(RoundedCornerShape(RR))
                         )
                     }
 
@@ -145,9 +145,9 @@ fun PluginCenterView(
                     // Sub-tab toggle: MCP / Skills
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Bg)
-                            .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(RR))
+                            .background(Glass2)
+                            .border(1.dp, Bd, RoundedCornerShape(RR))
                     ) {
                         PluginSubTab.entries.forEach { tab ->
                             val isActive = activeSubTab == tab
@@ -180,7 +180,8 @@ fun PluginCenterView(
                             color = Tx3,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = MonoFont
+                            fontFamily = MonoFont,
+                            letterSpacing = 0.8.sp
                         )
                         Spacer(Modifier.height(6.dp))
                         FlowRow(
@@ -195,7 +196,7 @@ fun PluginCenterView(
                                     fontFamily = MonoFont,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(5.dp))
-                                        .background(Surface)
+                                        .background(Surface2)
                                         .border(1.dp, Bd, RoundedCornerShape(5.dp))
                                         .clickable { /* filter by category - placeholder */ }
                                         .padding(horizontal = 10.dp, vertical = 4.dp)

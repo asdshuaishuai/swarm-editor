@@ -100,7 +100,7 @@ fun ChatArea(
         }
 
         // 输入区
-        Column(modifier = Modifier.fillMaxWidth().border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().background(Glass2).border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
             // Mention dropdown (shown above chips/input)
             if (showMentionDropdown) {
                 Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -149,7 +149,7 @@ fun ChatArea(
 
             // Text input row
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).border(1.dp, Bd, RoundedCornerShape(12.dp)).padding(10.dp, 14.dp),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RR2)).background(Surface).border(1.dp, Bd, RoundedCornerShape(RR2)).padding(10.dp, 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BasicTextField(
@@ -227,13 +227,13 @@ fun ChatArea(
 private fun ChipButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(50))
             .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(6.dp))
+            .border(1.dp, Bd, RoundedCornerShape(50))
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
     ) {
-        Text(label, color = Tx2, fontSize = 11.sp, fontFamily = MonoFont)
+        Text(label, color = Tx2, fontSize = 10.sp, fontFamily = MonoFont)
     }
 }
 
