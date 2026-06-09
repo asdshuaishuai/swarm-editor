@@ -1,84 +1,31 @@
-# Binaries
-bin/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Test coverage
-coverage.out
-coverage.html
-coverage/
-
-# Go workspace
-go.work
-go.work.sum
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
 
 # IDE
 .idea/
+*.iml
 .vscode/
-*.swp
-*.swo
-*~
+
+# Kotlin
+.kotlin/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Build
-/dist/
+# Local config
+local.properties
 
-# UI
+# SolonCode
+.soloncode/
+
+# AI
+.ai/
+
+# Node
 node_modules/
-ui/node_modules/
-ui/dist/
-ui/.vite/
-ui/coverage/
 
-# Logs
-*.log
-logs/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Tauri
-ui/src-tauri/target/
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Data
-data/
-*.db
-*.db-journal
-
-# BadgerDB
-badger/
-
-# Backup files
-*.bak
-*.old
-*.orig
-
-# Test binaries and coverage outputs
-*.test
-*.out
-
-# Root-level npm (only ui/ has a real package.json)
-/package.json
-/package-lock.json
-/node_modules/
-
-# Stale UI coverage dirs (only ui/coverage/ is kept)
-ui/coverage[0-9]*/
-
-# Misc build artifacts at root
-ws-server
-swarm-editor
-test_compile
+# Build output
+bin/

@@ -1,0 +1,84 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main  # or your default branch
+  workflow_dispatch:  # Allows manual triggering
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'  # ensure consistency with project requirement
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Sync version from pyproject.toml
+        run: |
+          uv run python scripts/sync_version.py
+
+      - name: Build singlehtml for documentation extraction
+        run: |
+          cd docs
+          uv run make singlehtml
+
+      - name: Generate all llms.txt files
+        run: |
+          uv run python scripts/generate_llms_files.py
+          # Copy to _static directory for Sphinx to process during build
+          mkdir -p docs/_static
+          cp docs/llms-*.txt docs/_static/
+          echo "Generated llms files:"
+          ls -lh docs/_static/llms-*.txt
+
+      - name: Build HTML documentation
+        run: |
+          cd docs
+          uv run make html
+
+      - name: Verify llms files in build
+        run: |
+          echo "Checking for llms files in build directory:"
+          ls -lh docs/_build/html/_static/llms-*.txt || echo "Files not in _static"
+          ls -lh docs/_build/html/_downloads/*/llms-*.txt || echo "Files not in _downloads"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

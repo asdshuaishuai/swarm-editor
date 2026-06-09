@@ -2,198 +2,338 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+---
 
-Swarm Editor 是一个基于 ACP (Agent Client Protocol) 协议的**多Agent协调编辑器**，Go 后端 + React/Tauri v2 桌面前端。
+## ⚡ 提示词增强专业化元规则（Prompt Enhancement Meta-Rule）
 
-### 核心定位 (2026-03-31 自进化修正)
-- **不是**工作流引擎 (Temporal/LangGraph/n8n)
-- **是**多Agent协调编辑器 (对标 Cursor/Claude Code/Windsurf)
+**适用范围：所有 AGENT 任务**
 
-### 独有优势
-- 多 Agent 协调 — 竞品都是单 Agent 架构
-- 涌现智能 — 信息素路由 + 自组织协商
-- 共识机制 — Queen Bee 投票
-- 三层记忆 — Agent级 + Swarm级 + Emergence级
-- 可靠性 — 熔断器 + DLQ + 重试策略 + 敏感命令拦截
+**规则说明**：所有用户任务在正式执行前，必须经过提示词增强流程。未经增强和审批的原始提示词禁止直接执行。
 
-### 竞品 GAP
-| 优先级 | GAP | 竞品方案 | 状态 |
-|--------|-----|----------|------|
-| P1 | 代码库索引 | Cursor @Codebase | ✅ 已实现 |
-| P2 | @Files 语法 | Cursor `@Files path` | ✅ 已实现 |
-| P2 | LSP 桥接 | Cursor/Windsurf 内置 | ✅ 已实现 |
-| P0 | 自动 lint 反馈 | 设计文档 S7 | ✅ 已实现 |
-| P0 | 敏感命令拦截 | HITL gateway | ✅ 已实现 |
-| P2 | A2A 代码补丁 | Agent 间协作 | ✅ 已实现 |
-| P1 | Tauri 文件对话框 | 原生文件选择 | ✅ 已实现 |
-| P3 | 内联补全 | Cursor Tab 补全 | 🚧 开发中 |
-| P3 | Monaco 集成补全 | Cursor/Windsurf | 待开发 |
+### 执行流程（四步闭环）
 
-详细文档: `docs/SELF_EVOLUTION.md`, `internal/swarm/FEATURE_CLASSIFICATION.md`
+```
+用户原始提示词
+      ↓
+[Step 1] 触发提示词增强 Sub-agent（delegate_task → deep 分析型任务）
+      ↓
+[Step 2] Sub-agent 执行上下文感知分析
+      ↓
+[Step 3] 返回增强后提示词给主 Agent
+      ↓
+[Step 4] 主 Agent 向用户展示增强结果，等待审批
+      ↓
+用户审批通过 → 正式执行
+用户审批驳回 → 返回 Step 1 重新增强
+```
 
-## 常用命令
+### Step 2 - Sub-agent 分析清单（必须完成）
+
+当接收到用户提示词后，Sub-agent 必须并行执行以下检测：
+
+| 检测维度 | 分析内容 | 输出要求 |
+|---------|---------|---------|
+| **上下文检测** | 当前对话历史、已完成的任务状态、待办事项、未被撤回的决策 | 列出相关上下文摘要 |
+| **项目内容分析** | 读取项目根目录结构、识别涉及的组件/页面/模块/服务 | 标记受影响的文件路径 |
+| **设计文档对齐** | 检查项目中的设计文档目录（如 `docs/` 等），读取与当前任务相关的规范 | 提取相关设计规范段落 |
+| **智能体指引文件** | 重新读取项目级 `CLAUDE.md`（本文件）、其他智能体配置（如 `AGENTS.md`、`copilot-instructions.md` 等） | 提取适用的核心规则与约束 |
+| **技术栈匹配** | 根据项目文件（`build.gradle.kts`、`settings.gradle.kts` 等）识别实际使用的语言、框架、库与构建工具 | 列出关键技术与版本约束 |
+
+### Step 3 - 能力映射（MCP/Skills/Tools 指引）
+
+Sub-agent 必须根据任务类型，推荐适用的能力。以下为通用分类，需结合项目实际情况选择。
+
+#### 1. MCP 工具推荐
+```yaml
+代码质量:
+  - LSP 工具链: lsp_diagnostics, lsp_rename, lsp_find_references
+  - AST 工具: ast_grep_search, ast_grep_replace
+
+外部集成:
+  - GitHub CLI: gh (PR、Issue、Release 操作)
+  - Context7: 查询第三方库文档
+```
+
+#### 2. Skills 技能推荐
+```yaml
+版本控制:
+  - git-master: 所有涉及仓库操作的必须加载
+
+项目通用:
+  - review-work: 完成实现后的代码审查
+  - ai-slop-remover: 清理 AI 生成代码异味
+```
+
+#### 3. Tools 工具推荐
+```yaml
+文件操作:
+  - read: 读取文件内容
+  - edit: 精确修改文件内容
+  - write: 创建新文件
+  - glob: 文件模式搜索
+  - grep: 内容搜索
+
+代码智能:
+  - lsp_symbols: 代码符号分析与导航
+  - lsp_diagnostics: 诊断错误与警告
+  - ast_grep_search: 基于 AST 的模式搜索与替换
+
+任务管理:
+  - todowrite: 创建/更新任务列表
+  - task: 委派子任务给专业 Agent
+```
+
+### Step 4 - 增强提示词输出格式
+
+Sub-agent 返回的增强提示词必须包含以下结构：
+
+```markdown
+## 📋 任务分析摘要
+- **任务类型**: [功能开发/缺陷修复/重构/测试/文档/运维/其他]
+- **影响范围**: [列出受影响的文件/模块/服务]
+- **复杂度评估**: [简单/中等/复杂]
+
+## 🎯 增强后提示词
+[基于原始提示词，添加上下文、设计约束与技术规范后的完整任务描述]
+
+## 📚 参考资源
+- **设计文档**: [相关设计文档路径或关键段落]
+- **代码规范**: [适用的 CLAUDE.md 或 style guide 条款]
+- **示例代码**: [项目中可参考的类似实现路径]
+
+## 🛠️ 推荐工具链
+- **MCP**: [推荐使用的 MCP 工具]
+- **Skills**: [推荐加载的技能]
+- **Tools**: [推荐使用的文件操作/代码智能/任务管理工具]
+
+## ⚠️ 注意事项
+- [技术约束 1，如语言版本、框架限制]
+- [技术约束 2，如不可修改的公共接口]
+- [潜在风险点，如破坏性变更、性能瓶颈]
+
+## ✅ 预期输出
+[明确任务完成后的可验证交付物，如：通过所有单元测试、生成 3 个 API 端点、更新 2 个页面组件等]
+```
+
+### 审批机制（强制性）
+
+**审批流程**：
+1. 主 Agent 向用户展示增强后的完整提示词
+2. 用户必须明确回复以下之一：
+   - **"批准" / "同意" / "可以执行"** → 进入正式执行
+   - **"修改：[具体修改意见]"** → 返回 Step 1 重新增强
+   - **"驳回" / "不执行"** → 任务终止，记录原因
+
+**禁止行为**：
+- 未经用户审批擅自执行增强后的任务
+- 简化或跳过提示词增强流程
+- 在用户未明确表态前假设审批通过
+
+### Sub-agent 委派规范（通用模板）
+
+```yaml
+调用方式:
+  task:
+    category: "deep"                 # 深度分析型任务
+    load_skills:                     # 按需加载分析辅助技能
+      - []                           # 根据项目技术栈动态加载
+    prompt: |
+      TASK: 对用户提示词进行专业化增强
+
+      原始提示词: "{userPrompt}"
+
+      MUST DO:
+      1. 读取项目级 CLAUDE.md 及所有相关智能体指引文件
+      2. 扫描项目根目录结构，定位设计文档、配置文件
+      3. 识别技术栈与版本约束
+      4. 分析当前对话上下文及任务依赖关系
+      5. 按照《增强提示词输出格式》返回结构化结果
+
+      MUST NOT DO:
+      1. 不执行任何实际代码修改或命令
+      2. 不假设用户意图，只基于明确信息与项目规则分析
+      3. 不推荐与当前技术栈无关的工具或库
+
+      OUTPUT: 返回完整的增强提示词，等待用户审批
+    run_in_background: false         # 同步等待结果
+```
+
+**元规则生效条件**：本规则适用于所有任务型对话，无需每次引用。主 Agent 在收到任何新的用户任务时，应自动进入本流程。
+
+---
+
+## 项目概述
+
+Swarm Editor 是一款**多 Agent 协调桌面客户端**，正在进行 Kotlin/JVM 全栈重构。当前处于 MVP 阶段，聚焦可交互客户端核心能力，去掉了蜂群调度、多 Agent 协调和编辑器功能。
+
+### 技术栈（Kotlin/JVM 全栈）
+
+| 层 | 技术 | 版本 |
+|---|------|------|
+| 构建 | Gradle (Kotlin DSL) | 8.x |
+| 后端 | Ktor Server | 3.1.x |
+| 前端 | Compose Desktop | 1.7.x |
+| 序列化 | kotlinx.serialization | 1.7.x |
+| 协程 | kotlinx.coroutines | 1.9.x |
+| 测试 | JUnit 5 + coroutines-test | - |
+| JDK | OpenJDK | 21+ |
+
+### MVP 核心功能
+
+1. **ACP 协议**：JSON-RPC 2.0 over stdio，连接外部 CLI Agent
+2. **Agent 管理**：5 个 Agent 统一管理与配置（Claude Code、Gemini CLI、Kimi Code、QwenCode、OpenCode），每个 Agent 独立适配器
+3. **MCP 配置管理**：统一 MCP Server 配置、per-Agent 同步、工具浏览与调用
+4. **Skills 配置管理**：文件系统扫描、统一存储、per-Agent 开关
+5. **会话历史**：消息持久化、会话生命周期管理
+
+### 不包含的功能（MVP 阶段）
+
+- ❌ 蜂群调度与多 Agent 协调
+- ❌ 编辑器能力（CodeMirror/Monaco）
+- ❌ ShadowBuffer 与自动 lint 验证
+- ❌ A2A Agent 间通信
+- ❌ LSP 桥接
+- ❌ 代码库索引与 @Files 语法
+
+## 构建与测试命令
 
 ```bash
-# Go 后端构建和测试
-make build              # 构建所有二进制文件 (bin/swarm-editor, bin/swarm-agent)
-make test               # 运行测试
-make test-race          # 带 race 检测的测试
-make coverage           # 生成覆盖率报告
-make coverage-html      # 生成 HTML 覆盖率报告
+# 构建全部模块
+./gradlew build
 
-# 单独构建
-go build -o bin/swarm-editor ./cmd/swarm-editor
-go build -o bin/swarm-agent ./cmd/swarm-agent
+# 运行全部测试
+./gradlew test
 
-# 运行单个测试
-go test -v -run TestName ./internal/swarm/...
+# 运行单模块测试
+./gradlew :common:test
+./gradlew :backend:test
+./gradlew :desktop:test
 
-# UI 前端 (Tauri 桌面客户端)
-cd ui && npx tauri dev          # 开发运行 (Tauri 桌面窗口 + Go 后端 + Vite 热重载)
-cd ui && npx tauri build        # 构建桌面安装包 (.app/.exe/.deb)
-cd ui && npm run test           # 运行 UI 测试
-cd ui && npm run test:coverage  # UI 测试覆盖率
-# 注意: npm run dev 仅是 Vite HTTP 服务，仅供 Tauri devUrl 内部使用，不要直接用于开发验证
+# 运行单个测试类
+./gradlew :backend:test --tests "com.swarmeditor.backend.acp.AcpClientTest"
+
+# 启动后端服务
+./gradlew :backend:run
+
+# 启动桌面客户端
+./gradlew :desktop:run
+
+# 代码检查
+./gradlew detekt
+
+# 清理构建产物
+./gradlew clean
 ```
 
-## 架构
+## 项目结构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     React UI (Tauri v2 / Vite)                   │
-│  Monaco Editor | Agent Panel | Swarm Coordinator | Team Panel   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ WebSocket (JSON-RPC 2.0)
-┌──────────────────────────▼──────────────────────────────────────┐
-│                     Go Backend (16 packages)                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ api/        │  │ swarm/      │  │ agent/                  │  │
-│  │ websocket   │  │ scheduler   │  │ registry, lifecycle     │  │
-│  │ workspace   │  │ coordinator │  │ discovery, scanner      │  │
-│  │ shadowbuf   │  │ consensus   │  │ skill_scanner           │  │
-│  │ verifier    │  │ supervisor  │  │                         │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ acp/        │  │ session/    │  │ a2a/, mcp/, lsp/, pair/ │  │
-│  │ protocol    │  │ store       │  │ a2a: patch_channel      │  │
-│  │ transport   │  │             │  │ lsp: bridge/scanner     │  │
-│  │ connection  │  │             │  │ mcp: discovery/tools    │  │
-│  │ throttler   │  │             │  │                         │  │
-│  │ detector    │  │             │  │                         │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ stdio/ACP
-┌──────────────────────────▼──────────────────────────────────────┐
-│                 External ACP Agents (6+ ACP-compatible)          │
-│  Claude Code | Kimi Code | OpenCode | Cline | QwenCode | Gemini │
-└─────────────────────────────────────────────────────────────────┘
+swarm-editor/
+├── build.gradle.kts              # 根构建文件（插件声明）
+├── settings.gradle.kts           # 模块声明（common, backend, desktop）
+├── gradle.properties             # JVM 参数、Gradle 配置
+├── common/                       # 共享数据模型与协议定义
+│   └── src/main/kotlin/com/swarmeditor/common/
+│       ├── model/                # AgentConfig, McpServerConfig, SkillConfig, Session, Message
+│       ├── protocol/             # JSON-RPC 2.0 消息类型
+│       └── config/               # 配置常量与路径
+├── backend/                      # Ktor 后端服务
+│   └── src/main/kotlin/com/swarmeditor/backend/
+│       ├── Application.kt        # Ktor 入口
+│       ├── acp/                  # ACP 协议（Transport, Client, Connection）
+│       ├── agent/                # Agent 管理（Registry, Scanner）
+│       │   └── adapter/          # 5 个 Agent 适配器
+│       ├── mcp/                  # MCP 管理（Client, Store, AgentSync）
+│       ├── skill/                # Skills 管理（Scanner, Store）
+│       ├── session/              # 会话管理（Store, Manager）
+│       └── route/                # Ktor API 路由
+└── desktop/                      # Compose Desktop 前端
+    └── src/main/kotlin/com/swarmeditor/desktop/
+        ├── Main.kt               # 桌面入口
+        ├── App.kt                # 根组件
+        ├── theme/                # 主题与样式
+        ├── navigation/           # 导航状态
+        ├── viewmodel/            # ViewModel 层
+        └── ui/                   # UI 组件（agent/, mcp/, skill/, session/, common/）
 ```
 
 ## 核心模块
 
-### internal/acp — ACP 协议实现
-- `protocol.go`: JSON-RPC 2.0 消息类型定义
-- `transport.go`: Stdio, WebSocket, TCP 传输层实现
-- `connection.go`: AgentConnection 管理，会话创建和 Prompt 发送，日志节流
-- `log_throttler.go`: 30Hz (~33ms) 日志批处理，10k 条目上限，溢出丢弃计数
-- `sensitive_detector.go`: 19 条默认正则规则分类敏感命令（rm/sudo/curl|sh 等），RWMutex 并发安全
-- Agent 通过 stdio 与编辑器通信，协议格式为 JSON-RPC 2.0
+### common — 共享模型与协议
+- `model/AgentConfig`：Agent 配置数据类（id, name, command, args, env, agentType）
+- `model/McpServerConfig`：MCP 服务器配置（type, command, url, enabledAgents）
+- `model/SkillConfig`：技能配置（source, scope, path, enabledAgents）
+- `model/Session`、`Message`、`ContentBlock`：会话与消息模型
+- `protocol/`：JSON-RPC 2.0 消息定义（Request, Response, Notification, Error）
 
-### internal/lsp — LSP 协议桥接
-- `scanner.go`: 检测系统已安装的 LSP 服务器（gopls, rust-analyzer, pyright 等）
-- `client.go`: LSP 客户端，支持 32+ 命令
-- `manager.go`: 多语言 LSP 管理器，按文件扩展名路由到对应 LSP 服务器
+### backend/acp — ACP 协议实现
+- `AcpTransport`：StdioTransport 接口，stdin/stdout JSON 行读写
+- `AcpClient`：initialize 握手、session/new、session/prompt、session/close
+- `AcpConnection`：进程管理、状态机（disconnected → connecting → connected → error）
+- 敏感命令检测（19 条正则规则）
 
-### internal/agent — 智能体系统
-- `agent.go`: Agent 结构体，状态管理，委托给 ACP 连接执行
-- `registry.go`: Agent 注册表
-- `lifecycle.go`: Agent 生命周期管理
-- `discovery.go`: 自动发现和连接外部 ACP Agent
-- `scanner.go`: Agent CLI 自动扫描（PATH + 常见安装路径）
-- `skill_scanner.go`: 技能扫描（文件系统 + MCP 工具 + Agent 能力）
+### backend/agent — Agent 管理
+- `AgentRegistry`：Agent CRUD、启停、健康检查
+- `AgentScanner`：PATH 扫描、`--version` 检测
+- `adapter/`：5 个独立适配器
+  - `ClaudeCodeAdapter`：`claude acp`，配置 `~/.claude/settings.json`
+  - `GeminiCliAdapter`：`gemini --acp`，配置 `~/.gemini/settings.json`
+  - `KimiCodeAdapter`：`kimi acp`，配置 `~/.kimi/config.toml`（TOML 格式）
+  - `QwenCodeAdapter`：`qwen --acp`，配置 `~/.qwen/settings.json`
+  - `OpenCodeAdapter`：`opencode acp`，配置 `~/.config/opencode/opencode.json`
 
-### internal/swarm — 蜂群协调
-- `scheduler.go`: 智能任务调度，4 种负载均衡策略，动态重平衡
-- `coordinator.go`: 多 Agent 任务协调，任务分解，结果收集
-- `supervisor.go`: Agent 健康监控，卡住检测，心跳追踪
-- `consensus.go`: Queen Bee 结果共识机制
-- `task.go`: 任务定义和队列
+### backend/mcp — MCP 配置管理
+- `McpClient`：MCP JSON-RPC 2.0 over stdio（initialize、tools/list、tools/call）
+- `McpStore`：统一存储 `~/.swarm-editor/mcp-servers.json`
+- `McpAgentSync`：各 Agent 配置格式同步（Claude/Kimi/OpenCode/Qwen/Gemini 各自格式）
 
-### internal/api — WebSocket API
-- `websocket_server.go`: WebSocket 服务，163 个命令路由
-- `handler_agent.go`: Agent 管理 + ShadowBuffer 提交 + 自动验证 + 敏感命令拦截
-- `handler_a2a.go`: A2A 协议路由 + 代码补丁发送
-- `shadowbuffer.go`: 内存中补丁暂存（Stage/Commit/Reject）+ 验证状态追踪
-- `verifier.go`: 文件类型路由 linter（go vet / tsc / pylint），最大 3 次重试 + HITL 升级
-- `workspace.go`: 工作区管理，文件锁定，光标同步
-- `emergence.go`: 涌现仪表板数据
+### backend/skill — Skills 管理
+- `SkillScanner`：文件系统扫描（SKILL.md 清单 + 独立脚本）
+- `SkillStore`：统一存储 `~/.swarm-editor/skills.json`
 
-### internal/a2a — Agent 间协议
-- `protocol.go`: A2A 消息类型和路由
-- `coordinator.go`: Agent 卡片发现和消息路由
-- `patch_channel.go`: 代码补丁点对点传输（MessageTypeCodePatch/Ack）
+### backend/session — 会话历史
+- `SessionStore`：JSON 文件持久化，原子写入（temp + rename）
+- `SessionManager`：会话生命周期（active → closed → archived）
 
-### internal/session — 会话持久化
-- JSON 文件存储，消息历史
+### desktop — Compose Desktop 前端
+- 4 个核心面板：Agent 管理、MCP 配置、Skills 管理、会话历史
+- ViewModel 模式：每个面板对应 ViewModel，通过 Ktor HTTP 与后端通信
+- 导航：侧边栏导航 + 面板切换
 
-### ui/ — React 前端
-- `src/panels/`: 42 个面板组件（Agent/Swarm/MCP/Terminal/Diff/Symbol 等）
-- `src/components/`: 116 个共享组件（layouts/MainLayout 三列设计等）
-- `src/stores/`: 16 个 Zustand store（monitoring/agent/workspace 等）
-- `src/hooks/`: 35 个自定义 hooks（useEditorWindowEvents/useCommandPaletteEvents 等）
-- `src/services/`: 12 个 API 服务层（WebSocket client + lspApi + monitoringApi）
-- `src/utils/`: 26 个工具函数（monacoLSP/fileReference/等）
+## Agent 适配器差异
 
-## 配置
+| 特性 | Claude Code | Gemini CLI | Kimi Code | QwenCode | OpenCode |
+|------|------------|------------|-----------|----------|----------|
+| ACP 命令 | `claude acp` | `gemini --acp` | `kimi acp` | `qwen --acp` | `opencode acp` |
+| 配置格式 | JSON | JSON | TOML | JSON | JSON |
+| 配置路径 | `~/.claude/settings.json` | `~/.gemini/settings.json` | `~/.kimi/config.toml` | `~/.qwen/settings.json` | `~/.config/opencode/opencode.json` |
+| MCP 同步 | `~/.claude.json` | 待确认 | `~/.kimi/mcp.json` | `~/.qwen/settings.json` | `~/.config/opencode/opencode.json` |
+| 类型映射 | stdio/http | 待确认 | stdio | httpUrl | local/remote |
 
-Agent 配置文件位于 `~/.swarm-editor/agents.json`，定义外部 Agent 的命令、参数、环境变量、角色和优先级。
+## UI 设计稿
 
-当前已配置 6 个 ACP 兼容 Agent：Claude Code、Kimi Code、OpenCode、Cline、QwenCode、Gemini CLI。
+- 设计稿：`docs/superpowers/specs/mvp-design-mockup.html`
+- 设计文档：`docs/superpowers/specs/2026-06-08-mvp-design.md`
+- 风格：极客等宽 + 深色主题 + 发光强调色 + 扫描线
+- 布局：左 Agent 图标栏 + 左侧栏（会话/项目） + 中间对话区 + 右侧面板（MCP/Skills/Diff + 活动日志） + 右上角设置模态框（Agent 配置/MCP 管理/Skills 管理）
 
-MCP Server 发现路径：
-- 全局: `~/.claude/mcp.json`, `~/.config/claude-code/mcp.json`, `~/.config/cursor/mcp.json`, `~/.swarm-editor/mcp.json`
-- 项目: `.swarm-editor/mcp.json`, `.mcp.json`, `.claude/mcp.json`
+## 开发阶段
 
-## 测试约定
+| Phase | 目标 | 状态 |
+|-------|------|------|
+| Phase 1 | 项目骨架 + Gradle 构建系统 | ✅ 完成 |
+| Phase 2 | ACP 协议层（官方 SDK 封装 + ConnectionManager） | 📋 待开始 |
+| Phase 3 | Agent 管理（AgentAdapter 抽象 + Claude/Qwen 适配器 + Scanner + Registry） | 📋 待开始 |
+| Phase 4 | MCP 配置管理（McpStore + AgentSync） | 📋 待开始 |
+| Phase 5 | Skills 配置管理（SkillScanner + SkillStore + Agent 同步） | 📋 待开始 |
+| Phase 6 | 会话历史（SessionStore + 消息持久化） | 📋 待开始 |
+| Phase 7 | UI 面板（Composable Desktop 严格按设计稿实现） | 📋 待开始 |
 
-- Go 测试使用 `_test.go` 后缀（169 个测试文件，133 个源文件）
-- UI 测试使用 Vitest + React Testing Library（127 个测试文件，6376 个用例）
-- 测试中使用 `vi.useFakeTimers()` 时，用 `vi.advanceTimersByTimeAsync()` 代替 `waitFor`
-- ShadowBuffer stage ID 使用 `agentID-path-timestamp-monotonicCounter` 格式防止碰撞
-- SensitiveDetector 并发安全：读用 `RLock`，写用 `Lock`
-- LogThrottler 上限 `MaxPendingEntries=10000`，超出丢弃并计入 `Dropped()`
+## 配置路径
 
-## 关键设计决策
-
-- **ShadowBuffer**: 内存中暂存 Agent 代码变更，提交时先写磁盘再自动 lint 验证
-- **Verifier**: 文件类型路由（.go→go vet, .ts→tsc, .py→pylint），最多 3 次重试，失败升级 HITL
-- **SensitiveDetector**: 19 条正则规则 + 自定义扩展，post-hoc 审计（非预拦截）
-- **A2A Patch Channel**: 使用 `Enqueue`（非 `Send`）触发已注册 handler，单一数据源
-- **路径安全**: 所有文件操作通过 `safePath()` 防止目录遍历
-- **Windows 兼容**: Tauri 文件对话框路径使用 `replace(/\\/g, '/')` 标准化
-
-## 自进化历史
-
-### Round 6365 (2026-05-26) — P0-1 Auto Lint + Audit Fixes
-- **自动 lint 反馈循环**: verifier.go 文件类型路由 linter + shadowbuffer 验证状态
-- **A2A 代码补丁通道**: patch_channel.go 点对点补丁传输
-- **敏感命令拦截**: sensitive_detector.go 19 条规则
-- **日志节流**: log_throttler.go 30Hz 批处理
-- **19 点审查修复**: path traversal, Windows 路径, OnUpdate 泄漏, A2A 双重暂存
-- **质量验证**: 6365 UI tests PASS, Go test -race PASS, staticcheck CLEAN
-
-### Round 5912 (2026-04-03) — LSP Provider 提取
-- **LSP 桥接**: 32+ 命令，monacoLSP.ts 从 EditorPanel 提取
-- **EditorPanel**: 5,181 → 2,491 行 (-52%)
-
-### Round 4781 (2026-03-31) — 方向修正
-- **从"工作流引擎"回归"多Agent协调编辑器"**
-- 竞品对标: Cursor / Claude Code / Windsurf
-
-### Round 562 (2026-03-28) — 基础设施
-- Tauri 编译错误修复，TeamPanel/SettingsPanel 测试覆盖
-
----
-
-*自进化永不停歇*
+| 配置 | 路径 | 格式 |
+|------|------|------|
+| Agent 配置 | `~/.swarm-editor/agents.json` | JSON |
+| MCP 统一存储 | `~/.swarm-editor/mcp-servers.json` | JSON |
+| Skills 统一存储 | `~/.swarm-editor/skills.json` | JSON |
+| 会话数据 | `~/.swarm-editor/sessions/{id}.json` | JSON |

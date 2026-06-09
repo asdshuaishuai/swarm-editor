@@ -1,0 +1,162 @@
+package com.swarmeditor.desktop.ui.session
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.swarmeditor.desktop.AgentInfo
+import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.viewmodel.UiActivity
+import com.swarmeditor.desktop.viewmodel.UiMessage
+
+@Composable
+fun ChatArea(
+    selectedAgent: AgentInfo,
+    messages: List<UiMessage>,
+    isSending: Boolean,
+    inputText: String,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        // 消息区
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp, 20.dp, 24.dp, 20.dp)) {
+            if (messages.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 80.dp), contentAlignment = Alignment.Center) {
+                    Text("选择 Agent 开始对话", color = Tx3, fontSize = 14.sp, fontFamily = MonoFont)
+                }
+            }
+            messages.forEach { msg ->
+                if (msg.isUser) UserMessage(msg.text)
+                else AssistantMessage(selectedAgent.name, msg.text.ifEmpty { null }, msg.activities)
+                Spacer(Modifier.height(18.dp))
+            }
+            if (isSending) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(AcD), contentAlignment = Alignment.Center) {
+                        Text("C", color = Ac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text("思考中...", color = Tx3, fontSize = 13.sp, fontFamily = MonoFont)
+                }
+            }
+        }
+
+        // 输入区
+        Column(modifier = Modifier.fillMaxWidth().border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).border(1.dp, Bd, RoundedCornerShape(12.dp)).padding(10.dp, 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = onInputChange,
+                    modifier = Modifier.weight(1f).onPreviewKeyEvent { event ->
+                        if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                            if (!event.isShiftPressed && inputText.isNotBlank() && !isSending) {
+                                onSend()
+                                true
+                            } else false
+                        } else false
+                    },
+                    textStyle = TextStyle(color = Tx, fontSize = 14.sp, fontFamily = MonoFont),
+                    cursorBrush = SolidColor(Ac),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (inputText.isEmpty()) Text("输入消息...", color = Tx3, fontSize = 14.sp)
+                            innerTextField()
+                        }
+                    }
+                )
+                Box(
+                    modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(if (inputText.isNotBlank() && !isSending) Ac else Ac.copy(alpha = 0.4f))
+                        .then(if (inputText.isNotBlank() && !isSending) Modifier.clickable { onSend() } else Modifier),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("↑", color = Bg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                Text("Enter", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Surface2).padding(horizontal = 5.dp, vertical = 2.dp))
+                Text(" 发送 · ", color = Tx4, fontSize = 11.sp)
+                Text("Shift+Enter", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Surface2).padding(horizontal = 5.dp, vertical = 2.dp))
+                Text(" 换行", color = Tx4, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserMessage(text: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+            Text(text, color = Tx, fontSize = 14.sp, lineHeight = 22.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(PrD), contentAlignment = Alignment.Center) {
+            Text("U", color = Pr, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun AssistantMessage(sender: String, text: String?, activities: List<UiActivity>) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Box(modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(AcD), contentAlignment = Alignment.Center) {
+            Text("C", color = Ac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(sender, color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, letterSpacing = 0.5.sp)
+            Spacer(Modifier.height(4.dp))
+            if (text != null && text.isNotEmpty()) Text(text, color = Tx, fontSize = 14.sp, lineHeight = 22.sp)
+            activities.forEach { act ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(7.dp)).background(Surface2).padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(act.icon, fontSize = 12.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(act.label, color = if (act.isOk) Gn else Tx2, fontSize = 12.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(act.detail, color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
+                }
+            }
+        }
+    }
+}
+
+// No custom clickable extension needed

@@ -1,0 +1,34 @@
+{
+  "zai-coding-plugins": {
+    "source": {
+      "source": "directory",
+      "path": "/home/kelthas/.npm/_npx/2f024689b4d0d3b0/node_modules/@z_ai/coding-helper/zai-coding-plugins"
+    },
+    "installLocation": "/home/kelthas/.npm/_npx/2f024689b4d0d3b0/node_modules/@z_ai/coding-helper/zai-coding-plugins",
+    "lastUpdated": "2026-02-27T13:47:37.865Z"
+  },
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/home/kelthas/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-06-08T14:39:32.649Z"
+  },
+  "saints-workflow-local": {
+    "source": {
+      "source": "directory",
+      "path": "/home/kelthas/.claude/plugins/cache/local/saints-workflow/1.0.0"
+    },
+    "installLocation": "/home/kelthas/.claude/plugins/cache/local/saints-workflow/1.0.0",
+    "lastUpdated": "2026-03-14T13:15:00.000Z"
+  },
+  "pua-skills": {
+    "source": {
+      "source": "github",
+      "repo": "tanweai/pua"
+    },
+    "installLocation": "/home/kelthas/.claude/plugins/marketplaces/pua-skills",
+    "lastUpdated": "2026-03-21T14:47:04.500Z"
+  }
+}

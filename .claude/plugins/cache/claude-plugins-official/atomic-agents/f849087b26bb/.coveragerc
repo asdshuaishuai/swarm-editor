@@ -1,0 +1,14 @@
+[report]
+show_missing=true
+exclude_lines =
+    @abstractmethod
+    @abc.abstractmethod
+    if __name__ == .__main__.:
+    if __name__ == '__main__':
+    pragma: no cover
+    # pragma: no cover
+
+[run]
+omit =
+    */__init__.py
+    */tests/*

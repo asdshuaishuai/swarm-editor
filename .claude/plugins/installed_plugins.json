@@ -1,0 +1,381 @@
+{
+  "version": 2,
+  "plugins": {
+    "glm-plan-bug@zai-coding-plugins": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/zai-coding-plugins/glm-plan-bug/0.0.1",
+        "version": "0.0.1",
+        "installedAt": "2026-02-27T13:47:44.835Z",
+        "lastUpdated": "2026-02-27T13:47:44.835Z"
+      }
+    ],
+    "glm-plan-usage@zai-coding-plugins": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/zai-coding-plugins/glm-plan-usage/0.0.1",
+        "version": "0.0.1",
+        "installedAt": "2026-02-27T13:47:52.401Z",
+        "lastUpdated": "2026-02-27T13:47:52.401Z"
+      }
+    ],
+    "frontend-design@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/frontend-design/61c0597779bd",
+        "version": "61c0597779bd",
+        "installedAt": "2026-02-27T14:01:02.107Z",
+        "lastUpdated": "2026-03-22T11:49:48.796Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/frontend-design/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T15:07:51.504Z",
+        "lastUpdated": "2026-05-27T15:07:51.504Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:15.920Z",
+        "lastUpdated": "2026-06-08T14:39:32.726Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      }
+    ],
+    "code-review@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/code-review/61c0597779bd",
+        "version": "61c0597779bd",
+        "installedAt": "2026-02-27T14:01:02.107Z",
+        "lastUpdated": "2026-03-22T11:49:48.798Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/code-review/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:19.977Z",
+        "lastUpdated": "2026-06-08T14:39:32.726Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/code-review/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T15:08:58.114Z",
+        "lastUpdated": "2026-05-27T15:08:58.114Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      }
+    ],
+    "context7@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/context7/61c0597779bd",
+        "version": "61c0597779bd",
+        "installedAt": "2026-02-27T14:01:02.107Z",
+        "lastUpdated": "2026-03-22T11:49:48.800Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/context7/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T15:08:13.977Z",
+        "lastUpdated": "2026-05-27T15:08:13.977Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/context7/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:19.955Z",
+        "lastUpdated": "2026-06-08T14:39:32.723Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      }
+    ],
+    "playwright@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/playwright/61c0597779bd",
+        "version": "61c0597779bd",
+        "installedAt": "2026-02-27T14:01:02.299Z",
+        "lastUpdated": "2026-03-22T11:49:48.802Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/playwright/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T15:10:36.981Z",
+        "lastUpdated": "2026-05-27T15:10:36.981Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/playwright/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:20.045Z",
+        "lastUpdated": "2026-06-08T14:39:32.724Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      }
+    ],
+    "typescript-lsp@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-02-27T14:01:02.307Z",
+        "lastUpdated": "2026-02-27T14:01:02.307Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/typescript-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-27T15:07:35.140Z",
+        "lastUpdated": "2026-05-27T15:07:35.140Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      }
+    ],
+    "security-guidance@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/security-guidance/61c0597779bd",
+        "version": "61c0597779bd",
+        "installedAt": "2026-02-27T14:01:05.625Z",
+        "lastUpdated": "2026-03-22T11:49:48.804Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      }
+    ],
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5",
+        "version": "5.0.5",
+        "installedAt": "2026-02-27T14:01:05.616Z",
+        "lastUpdated": "2026-03-22T11:49:53.426Z",
+        "gitCommitSha": "e4a2375cb705ca5800f0833528ce36a3faf9017a"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/swarm-editor/ui",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7",
+        "version": "5.0.7",
+        "installedAt": "2026-04-06T10:53:53.885Z",
+        "lastUpdated": "2026-04-06T10:53:53.885Z",
+        "gitCommitSha": "b7a8f76985f1e93e75dd2f2a3b424dc731bd9d37"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/swarm-editor",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0",
+        "version": "5.1.0",
+        "installedAt": "2026-05-25T16:05:07.391Z",
+        "lastUpdated": "2026-05-25T16:05:07.391Z",
+        "gitCommitSha": "f2cbfbefebbfef77321e4c9abc9e949826bea9d7"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0",
+        "version": "5.1.0",
+        "installedAt": "2026-05-27T15:08:06.203Z",
+        "lastUpdated": "2026-05-27T15:08:06.203Z",
+        "gitCommitSha": "f2cbfbefebbfef77321e4c9abc9e949826bea9d7"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0",
+        "version": "5.1.0",
+        "installedAt": "2026-05-29T16:40:19.917Z",
+        "lastUpdated": "2026-05-29T16:40:19.917Z",
+        "gitCommitSha": "f2cbfbefebbfef77321e4c9abc9e949826bea9d7"
+      }
+    ],
+    "coderabbit@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/aispeaker",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/coderabbit/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-02-27T14:01:08.236Z",
+        "lastUpdated": "2026-02-27T14:01:08.236Z",
+        "gitCommitSha": "51651e86d8d71e150e13313f43298f212abb47db"
+      }
+    ],
+    "rust-analyzer-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-02T14:05:06.717Z",
+        "lastUpdated": "2026-03-02T14:05:06.717Z",
+        "gitCommitSha": "55b58ec6e5649104f926ba7558b567dc8d33c5ff"
+      }
+    ],
+    "gopls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-20T16:25:32.165Z",
+        "lastUpdated": "2026-03-20T16:25:32.165Z",
+        "gitCommitSha": "b664e152af5742dd11b6a6e5d7a65848a8c5a261"
+      }
+    ],
+    "saints-workflow@saints-workflow-local": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/local/saints-workflow/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-14T13:15:00.000Z",
+        "lastUpdated": "2026-03-14T13:15:00.000Z"
+      }
+    ],
+    "ralph-loop@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/ralph-loop/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-14T13:45:08.597Z",
+        "lastUpdated": "2026-03-30T13:09:02.837Z",
+        "gitCommitSha": "d5c15b861cd23e3102215c26020368ad5134dc47"
+      }
+    ],
+    "pua@pua-skills": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/pua-skills/pua/2.8.0",
+        "version": "2.8.0",
+        "installedAt": "2026-03-21T03:15:52.962Z",
+        "lastUpdated": "2026-03-21T03:15:52.962Z",
+        "gitCommitSha": "0cd045b1d68034fa9828c23ad115da81720b4e6d"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/pua-skills/pua/2.8.0",
+        "version": "2.8.0",
+        "installedAt": "2026-03-21T14:47:10.819Z",
+        "lastUpdated": "2026-03-21T14:47:10.819Z",
+        "gitCommitSha": "55e79201c9fec467d3e2311a70c635c5b1069d6e"
+      }
+    ],
+    "sourcegraph@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/sourcegraph/0.1.0",
+        "version": "0.1.0",
+        "installedAt": "2026-05-15T14:09:26.847Z",
+        "lastUpdated": "2026-05-15T14:09:26.847Z",
+        "gitCommitSha": "332ee0ca9a409ccd791abee43c7abf2606469017"
+      }
+    ],
+    "linear@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/linear/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T14:57:52.399Z",
+        "lastUpdated": "2026-05-27T14:57:52.399Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      }
+    ],
+    "code-simplifier@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/code-simplifier/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-27T15:09:16.882Z",
+        "lastUpdated": "2026-05-27T15:09:16.882Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code/copyB",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/code-simplifier/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-29T16:39:41.920Z",
+        "lastUpdated": "2026-05-29T16:39:41.920Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      }
+    ],
+    "github@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/github/1b527e2ee74e",
+        "version": "1b527e2ee74e",
+        "installedAt": "2026-05-27T15:09:27.528Z",
+        "lastUpdated": "2026-05-27T15:09:27.528Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/github/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:20.022Z",
+        "lastUpdated": "2026-06-08T14:39:32.725Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      }
+    ],
+    "claude-md-management@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/claude-md-management/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-27T15:10:45.173Z",
+        "lastUpdated": "2026-05-27T15:10:45.173Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      },
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/claude-md-management/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-05-29T16:40:20.067Z",
+        "lastUpdated": "2026-05-29T16:40:20.067Z",
+        "gitCommitSha": "1b527e2ee74e6dbd198e22cd41701c3b6f47dfec"
+      }
+    ],
+    "atomic-agents@claude-plugins-official": [
+      {
+        "scope": "project",
+        "projectPath": "/home/kelthas/code",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/atomic-agents/f849087b26bb",
+        "version": "f849087b26bb",
+        "installedAt": "2026-05-27T15:13:29.568Z",
+        "lastUpdated": "2026-05-27T15:13:29.568Z",
+        "gitCommitSha": "f849087b26bbb6fb5e63acb60f2b566ce874aaa7"
+      }
+    ],
+    "skill-creator@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/kelthas/.claude/plugins/cache/claude-plugins-official/skill-creator/unknown",
+        "version": "unknown",
+        "installedAt": "2026-05-29T16:40:20.000Z",
+        "lastUpdated": "2026-06-08T14:39:32.730Z",
+        "gitCommitSha": "3d5017bc1d40ef08c5733243516afeb993a6f5e5"
+      }
+    ]
+  }
+}

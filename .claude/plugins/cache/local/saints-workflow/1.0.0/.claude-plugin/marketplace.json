@@ -1,0 +1,18 @@
+{
+  "name": "saints-workflow-local",
+  "description": "圣人工作流 - 基于洪荒神话的智能开发协作系统",
+  "owner": {
+    "name": "newZipX"
+  },
+  "plugins": [
+    {
+      "name": "saints-workflow",
+      "description": "圣人工作流 - 基于洪荒神话的智能开发协作系统。完整流程：规划→拆分增强→开发→测试→审查→确认→增强修复",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "newZipX"
+      }
+    }
+  ]
+}
