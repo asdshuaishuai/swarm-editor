@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.acp
 
 import com.swarmeditor.common.model.AgentConfig
+import io.github.oshai.kotlinlogging.KotlinLogging
 import com.swarmeditor.common.model.AgentStatus
 import com.swarmeditor.common.protocol.JsonRpcError
 import com.swarmeditor.common.protocol.JsonRpcNotification
@@ -35,6 +36,7 @@ class AcpConnection(
     val agentId: String,
     private val config: AgentConfig
 ) {
+    private val log = KotlinLogging.logger {}
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     @Volatile
@@ -75,6 +77,19 @@ class AcpConnection(
             process = pb.start()
             writer = BufferedWriter(OutputStreamWriter(process!!.outputStream, Charsets.UTF_8))
             val reader = BufferedReader(InputStreamReader(process!!.inputStream, Charsets.UTF_8))
+
+            // 启动 stderr 读取循环 — 捕获 Agent 进程错误输出
+            val stderrReader = BufferedReader(InputStreamReader(process!!.errorStream, Charsets.UTF_8))
+            scope.launch {
+                try {
+                    while (isActive) {
+                        val line = stderrReader.readLine() ?: break
+                        if (line.isNotBlank()) {
+                            log.warn { "[$agentId stderr] $line" }
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
 
             // 启动读取循环
             readerJob = scope.launch { readLoop(reader) }
