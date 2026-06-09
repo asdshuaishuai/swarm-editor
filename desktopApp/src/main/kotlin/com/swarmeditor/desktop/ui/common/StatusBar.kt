@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
@@ -28,7 +29,7 @@ fun StatusBar(
 ) {
     Row(
         modifier = modifier.fillMaxWidth().height(26.dp)
-            .background(Glass2).border(1.dp, Bd)
+            .background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Bd)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

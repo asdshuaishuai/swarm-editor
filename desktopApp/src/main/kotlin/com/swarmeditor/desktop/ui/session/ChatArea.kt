@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -100,7 +101,7 @@ fun ChatArea(
         }
 
         // 输入区
-        Column(modifier = Modifier.fillMaxWidth().background(Glass2).border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().background(Surface).border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
             // Mention dropdown (shown above chips/input)
             if (showMentionDropdown) {
                 Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -204,7 +205,7 @@ fun ChatArea(
                 )
                 Box(
                     modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(if (inputText.isNotBlank() && !isSending) Ac else Ac.copy(alpha = 0.4f))
-                        .then(if (inputText.isNotBlank() && !isSending) Modifier.clickable { onSend() } else Modifier),
+                        .then(if (inputText.isNotBlank() && !isSending) Modifier.shadow(elevation = 8.dp, shape = RoundedCornerShape(8.dp), ambientColor = Glow, spotColor = Glow).clickable { onSend() } else Modifier),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("↑", color = Bg, fontSize = 14.sp, fontWeight = FontWeight.Bold)

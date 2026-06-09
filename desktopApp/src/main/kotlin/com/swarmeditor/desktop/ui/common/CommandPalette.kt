@@ -196,7 +196,7 @@ private fun CommandPaletteModal(
             // ESC label
             Box(
                 modifier = Modifier
-                    .background(Bg3, RoundedCornerShape(4.dp))
+                    .background(Surface2, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text("ESC", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium)
@@ -325,7 +325,7 @@ private fun CommandItem(
         if (command.shortcut.isNotBlank()) {
             Box(
                 modifier = Modifier
-                    .background(Bg3, RoundedCornerShape(4.dp))
+                    .background(Surface2, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(command.shortcut, color = Tx3, fontSize = 10.sp)
