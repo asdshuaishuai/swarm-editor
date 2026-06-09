@@ -25,12 +25,31 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// 等宽字体
 val MonoFont = FontFamily.Monospace
 
-// 状态指示灯
+fun Modifier.glassBg(): Modifier = this.background(Glass)
+
+fun Modifier.cardBg(): Modifier = this
+    .clip(RoundedCornerShape(RR))
+    .background(Surface)
+    .border(1.dp, Bd, RoundedCornerShape(RR))
+
+val sectionLabel: @Composable (String) -> Unit = { text ->
+    Text(
+        text = text.uppercase(),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Tx3,
+        letterSpacing = 0.8.sp
+    )
+}
+
 @Composable
-fun StatusDot(color: Color, modifier: Modifier = Modifier) {
+fun StatusDot(
+    color: Color,
+    modifier: Modifier = Modifier,
+    glow: Boolean = false
+) {
     Box(
         modifier = modifier
             .size(6.dp)
@@ -39,7 +58,6 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier) {
     )
 }
 
-// Agent 图标（左侧栏）
 @Composable
 fun AgentIcon(
     emoji: String,
@@ -51,8 +69,8 @@ fun AgentIcon(
     Box(
         modifier = modifier
             .size(42.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isActive) Surface else Color.Transparent)
+            .clip(RoundedCornerShape(RR))
+            .background(if (isActive) Glass2 else Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -64,7 +82,6 @@ fun AgentIcon(
     }
 }
 
-// 会话卡片（左侧栏）
 @Composable
 fun SessionCard(
     title: String,
@@ -76,15 +93,10 @@ fun SessionCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bg = when {
-        isActive -> Surface
-        else -> Color.Transparent
-    }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(bg)
+            .cardBg()
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
@@ -114,7 +126,6 @@ fun SessionCard(
     }
 }
 
-// 消息气泡
 @Composable
 fun MessageBubble(
     isUser: Boolean,
@@ -170,7 +181,6 @@ fun MessageBubble(
     }
 }
 
-// 活动日志条目
 @Composable
 fun ActivityEntry(
     time: String,
@@ -196,7 +206,6 @@ fun ActivityEntry(
     }
 }
 
-// MCP/Skill 启用切换
 @Composable
 fun AgentToggle(
     name: String,
@@ -227,7 +236,6 @@ fun AgentToggle(
     }
 }
 
-// 文件标签
 @Composable
 fun FileBadge(
     ext: String,
@@ -255,5 +263,53 @@ fun FileBadge(
         )
         Spacer(Modifier.width(4.dp))
         Text(fileName, color = Tx2, fontSize = 11.sp, fontFamily = MonoFont)
+    }
+}
+
+@Composable
+fun GlowButton(
+    text: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bg = if (active) AcD else Surface
+    val textColor = if (active) Ac else Tx2
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(RR))
+            .background(bg)
+            .border(1.dp, if (active) Ac else Bd, RoundedCornerShape(RR))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, color = textColor, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = MonoFont)
+    }
+}
+
+@Composable
+fun FilterChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(RR2))
+            .background(if (active) AcD else Surface)
+            .border(1.dp, if (active) Ac else Bd, RoundedCornerShape(RR2))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = if (active) Ac else Tx3,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            fontFamily = MonoFont
+        )
     }
 }

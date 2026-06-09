@@ -221,7 +221,7 @@ private fun SessionRow(
             .clickable(onClick = onClick)
             .padding(start = 56.dp, top = 2.dp, bottom = 2.dp, end = 8.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Surface2 else Bg.copy(alpha = 0f))
+            .background(if (isSelected) Glass else Bg.copy(alpha = 0f))
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -53,8 +53,8 @@ fun AgentConfigDialog(agentId: String?, onDismiss: () -> Unit) {
     var apiKey by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.width(480.dp).clip(RoundedCornerShape(12.dp)).background(Bg2).border(1.dp, Bd2, RoundedCornerShape(12.dp)).clickable(enabled = false) {}) {
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(16.dp, 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.width(480.dp).clip(RoundedCornerShape(RR2)).background(Glass).border(1.dp, Bd2, RoundedCornerShape(RR2)).clickable(enabled = false) {}) {
+            Row(modifier = Modifier.fillMaxWidth().background(Glass2).padding(16.dp, 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(preset.color.copy(alpha = 0.15f)).border(1.dp, preset.color.copy(alpha = 0.4f), CircleShape), contentAlignment = Alignment.Center) {
                     Text(preset.emoji, fontSize = 14.sp)
                 }
@@ -86,7 +86,7 @@ fun AgentConfigDialog(agentId: String?, onDismiss: () -> Unit) {
                 ConfigFieldRow("API Key", if (apiKey.isNotEmpty()) "••••••••" else "", placeholder = "sk-...") { apiKey = it }
             }
 
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).border(1.dp, Bd).padding(12.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Glass2).border(1.dp, Bd).padding(12.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 Text("取消", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable(onClick = onDismiss).padding(horizontal = 16.dp, vertical = 7.dp))
@@ -103,7 +103,7 @@ private fun ConfigFieldRow(label: String, value: String, placeholder: String = "
     Column {
         Text(label, color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
         Spacer(Modifier.height(6.dp))
-        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable { /* TODO: inline edit */ }.padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(RR)).clickable { /* TODO: inline edit */ }.padding(horizontal = 10.dp, vertical = 8.dp)) {
             Text(value.ifEmpty { placeholder }, color = if (value.isEmpty()) Tx4 else Tx, fontSize = 12.sp, fontFamily = MonoFont)
         }
     }

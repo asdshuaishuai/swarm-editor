@@ -8,7 +8,7 @@
       "plan_name": "mvp-ui-update",
       "status": "active",
       "started_at": "2026-06-09T13:26:47.013Z",
-      "updated_at": "2026-06-09T14:43:41.680Z",
+      "updated_at": "2026-06-09T15:27:14.576Z",
       "session_ids": [
         "ses_153828077ffe83630zbYuLH3hn"
       ],
@@ -81,6 +81,17 @@
           "status": "completed",
           "ended_at": "2026-06-09T14:43:41.680Z",
           "elapsed_ms": 202066
+        },
+        "final-wave:f1": {
+          "task_key": "final-wave:f1",
+          "task_label": "F1",
+          "task_title": "**计划合规审计** — `oracle`",
+          "session_id": "ses_1530ef551ffeBXAKiBEUddiQts",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "started_at": "2026-06-09T15:22:03.620Z",
+          "status": "running",
+          "updated_at": "2026-06-09T15:27:14.577Z"
         }
       }
     }
@@ -88,7 +99,7 @@
   "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/mvp-ui-update.md",
   "started_at": "2026-06-09T13:26:47.013Z",
   "status": "active",
-  "updated_at": "2026-06-09T14:43:41.680Z",
+  "updated_at": "2026-06-09T15:27:14.576Z",
   "session_ids": [
     "ses_153828077ffe83630zbYuLH3hn"
   ],
@@ -161,6 +172,17 @@
       "status": "completed",
       "ended_at": "2026-06-09T14:43:41.680Z",
       "elapsed_ms": 202066
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "**计划合规审计** — `oracle`",
+      "session_id": "ses_1530ef551ffeBXAKiBEUddiQts",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "started_at": "2026-06-09T15:22:03.620Z",
+      "status": "running",
+      "updated_at": "2026-06-09T15:27:14.577Z"
     }
   },
   "agent": "atlas"

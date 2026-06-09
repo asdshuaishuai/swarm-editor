@@ -66,15 +66,15 @@ fun SettingsModal(agents: List<AgentInfo>, settingsVm: SettingsViewModel, onClos
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.width(760.dp).height(520.dp).clip(RoundedCornerShape(12.dp)).background(Bg2).border(1.dp, Bd2, RoundedCornerShape(12.dp)).clickable(enabled = false) {}) {
+        Column(modifier = Modifier.width(760.dp).height(520.dp).clip(RoundedCornerShape(RR2)).background(Glass).border(1.dp, Bd2, RoundedCornerShape(RR2)).clickable(enabled = false) {}) {
             // Header
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Glass2).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = MonoFont, letterSpacing = 0.5.sp)
                 Spacer(Modifier.weight(1f))
                 Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) { Text("✕", color = Tx3, fontSize = 14.sp) }
             }
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Column(modifier = Modifier.width(130.dp).fillMaxHeight().background(Bg).padding(vertical = 4.dp)) {
+                Column(modifier = Modifier.width(130.dp).fillMaxHeight().background(Glass2).padding(vertical = 4.dp)) {
                     tabs.forEach { (id, label) ->
                         val isActive = activeTab == id
                         Row(modifier = Modifier.fillMaxWidth().clickable { activeTab = id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -102,7 +102,7 @@ fun SettingsModal(agents: List<AgentInfo>, settingsVm: SettingsViewModel, onClos
                 }
             }
             // Footer
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).border(1.dp, Bd).padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Glass2).border(1.dp, Bd).padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 Text("关闭", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable(onClick = onClose).padding(horizontal = 16.dp, vertical = 7.dp))
@@ -366,13 +366,13 @@ private fun AppearanceTab() {
         Section("字体大小") {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("界面字体", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.width(90.dp))
-                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(RR)).padding(horizontal = 10.dp, vertical = 7.dp)) {
                     Text("13px", color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
                 }
             }
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("代码字体", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.width(90.dp))
-                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(RR)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(RR)).padding(horizontal = 10.dp, vertical = 7.dp)) {
                     Text("JetBrains Mono 12px", color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
                 }
             }
