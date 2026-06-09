@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "active_work_id": "mvp-ui-update-8ed26edc",
+  "works": {
+    "mvp-ui-update-8ed26edc": {
+      "work_id": "mvp-ui-update-8ed26edc",
+      "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/mvp-ui-update.md",
+      "plan_name": "mvp-ui-update",
+      "status": "active",
+      "started_at": "2026-06-09T13:26:47.013Z",
+      "updated_at": "2026-06-09T14:10:17.975Z",
+      "session_ids": [
+        "ses_153828077ffe83630zbYuLH3hn"
+      ],
+      "session_origins": {
+        "ses_153828077ffe83630zbYuLH3hn": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:9": {
+          "task_key": "todo:9",
+          "task_label": "9",
+          "task_title": "后端 DTO 扩展 + GitService + ProjectService",
+          "session_id": "ses_15369d56fffeNLHxhWy4Szp4Ot",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-09T13:45:03.583Z",
+          "started_at": "2026-06-09T13:44:14.744Z",
+          "status": "completed",
+          "ended_at": "2026-06-09T13:45:03.583Z",
+          "elapsed_ms": 48839
+        },
+        "todo:11": {
+          "task_key": "todo:11",
+          "task_label": "11",
+          "task_title": "左侧 Rail 导航 + 顶部栏重构",
+          "session_id": "ses_15355e665ffergmoZk5Rj4yMvF",
+          "agent": "Sisyphus-Junior",
+          "category": "visual-engineering",
+          "updated_at": "2026-06-09T14:00:39.953Z",
+          "started_at": "2026-06-09T13:59:10.261Z",
+          "status": "completed",
+          "ended_at": "2026-06-09T14:00:39.953Z",
+          "elapsed_ms": 89692
+        },
+        "todo:12": {
+          "task_key": "todo:12",
+          "task_label": "12",
+          "task_title": "Toast 通知系统",
+          "session_id": "ses_1534f05adffenxaECoznEYQrCx",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-09T14:10:17.975Z",
+          "started_at": "2026-06-09T14:07:26.856Z",
+          "status": "completed",
+          "ended_at": "2026-06-09T14:10:17.975Z",
+          "elapsed_ms": 171119
+        }
+      }
+    }
+  },
+  "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/mvp-ui-update.md",
+  "started_at": "2026-06-09T13:26:47.013Z",
+  "status": "active",
+  "updated_at": "2026-06-09T14:10:17.975Z",
+  "session_ids": [
+    "ses_153828077ffe83630zbYuLH3hn"
+  ],
+  "session_origins": {
+    "ses_153828077ffe83630zbYuLH3hn": "direct"
+  },
+  "plan_name": "mvp-ui-update",
+  "task_sessions": {
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "后端 DTO 扩展 + GitService + ProjectService",
+      "session_id": "ses_15369d56fffeNLHxhWy4Szp4Ot",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-09T13:45:03.583Z",
+      "started_at": "2026-06-09T13:44:14.744Z",
+      "status": "completed",
+      "ended_at": "2026-06-09T13:45:03.583Z",
+      "elapsed_ms": 48839
+    },
+    "todo:11": {
+      "task_key": "todo:11",
+      "task_label": "11",
+      "task_title": "左侧 Rail 导航 + 顶部栏重构",
+      "session_id": "ses_15355e665ffergmoZk5Rj4yMvF",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-06-09T14:00:39.953Z",
+      "started_at": "2026-06-09T13:59:10.261Z",
+      "status": "completed",
+      "ended_at": "2026-06-09T14:00:39.953Z",
+      "elapsed_ms": 89692
+    },
+    "todo:12": {
+      "task_key": "todo:12",
+      "task_label": "12",
+      "task_title": "Toast 通知系统",
+      "session_id": "ses_1534f05adffenxaECoznEYQrCx",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-09T14:10:17.975Z",
+      "started_at": "2026-06-09T14:07:26.856Z",
+      "status": "completed",
+      "ended_at": "2026-06-09T14:10:17.975Z",
+      "elapsed_ms": 171119
+    }
+  },
+  "agent": "atlas"
+}

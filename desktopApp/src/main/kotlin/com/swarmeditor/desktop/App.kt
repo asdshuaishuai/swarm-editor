@@ -19,10 +19,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.CommandPalette
+import com.swarmeditor.desktop.ui.common.Command
 import com.swarmeditor.desktop.ui.common.StatusBar
+import com.swarmeditor.desktop.ui.common.ToastHost
 import com.swarmeditor.desktop.ui.navigation.EnhancedTopBar
 import com.swarmeditor.desktop.ui.navigation.RailNavigation
 import com.swarmeditor.desktop.ui.session.SessionPanel
@@ -58,6 +67,8 @@ fun App() {
     val mcpServers by mcpVm.servers.collectAsState()
     val skills by skillVm.skills.collectAsState()
     val currentView by mainVm.currentView.collectAsState()
+    val toasts by mainVm.toasts.collectAsState()
+    val showCmdK by mainVm.showCmdK.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
     var showRightPanel by remember { mutableStateOf(true) }
@@ -74,6 +85,34 @@ fun App() {
     val selectedAgent = agents.firstOrNull { it.isSelected } ?: agents.firstOrNull()
         ?: AgentInfo("claude-code", "Claude Code", "🟣", Pr)
 
+    val handleCommand: (Command) -> Unit = { cmd ->
+        when (cmd.id) {
+            "new-session" -> sessionVm.createSession(selectedAgent.id)
+            "open-settings" -> { showSettings = true }
+            "view-chat" -> mainVm.switchView("chat")
+            "view-agents" -> mainVm.switchView("agents")
+            "view-plugins" -> mainVm.switchView("plugins")
+            "view-files" -> mainVm.switchView("files")
+            "view-activity" -> mainVm.switchView("activity")
+            else -> mainVm.showToast("Command: ${cmd.name}")
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.isCtrlPressed && keyEvent.key == Key.K) {
+                    mainVm.showCmdKDialog()
+                    true
+                } else if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape && showCmdK) {
+                    mainVm.hideCmdKDialog()
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
     Column(Modifier.fillMaxSize().background(Bg)) {
         // Enhanced TopBar — spans full width
         EnhancedTopBar(
@@ -161,5 +200,18 @@ fun App() {
 
     if (showSettings) {
         SettingsModal(agents = agents.ifEmpty { listOf(selectedAgent) }, settingsVm = settingsVm, onClose = { showSettings = false })
+    }
+
+    CommandPalette(
+        isVisible = showCmdK,
+        onDismiss = { mainVm.hideCmdKDialog() },
+        onCommand = handleCommand,
+        agentNames = agents.map { it.name }
+    )
+
+    ToastHost(
+        toasts = toasts,
+        onDismiss = { mainVm.dismissToast(it) }
+    )
     }
 }
