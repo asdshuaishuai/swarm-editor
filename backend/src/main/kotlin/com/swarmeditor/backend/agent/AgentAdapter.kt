@@ -37,4 +37,8 @@ interface AgentAdapter {
 
     /** 写入 MCP 配置 */
     suspend fun writeMcpConfig(servers: Map<String, McpServerConfig>)
+
+    /** Provider 预设列表 */
+    val providerPresets: List<ProviderPreset>
+        get() = emptyList()
 }

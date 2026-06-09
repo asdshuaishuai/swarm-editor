@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.swarmeditor.backend.acp.AcpConnectionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-06-09T17:04:41.660Z" hostname="MiWiFi-RD16B-srv" time="1.559">
+  <properties/>
+  <testcase name="close - closes writer without throwing" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="1.283"/>
+  <testcase name="close - skips destroy when process is already dead" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.235"/>
+  <testcase name="close - transitions CONNECTED status to DISCONNECTED" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.005"/>
+  <testcase name="close - does not change status when already DISCONNECTED" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.001"/>
+  <testcase name="close - gracefully destroys alive process and waits for exit" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.011"/>
+  <testcase name="close - second call is idempotent and does not throw" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.003"/>
+  <testcase name="close - destroys forcibly when process does not exit in time" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.013"/>
+  <testcase name="close - clears notification handlers" classname="com.swarmeditor.backend.acp.AcpConnectionTest" time="0.002"/>
+  <system-out><![CDATA[kotlin-logging: initializing... active logger factory: Slf4jLoggerFactory
+01:04:43.212 [Test worker] WARN  c.s.backend.acp.AcpConnection - [test] Process did not exit gracefully within 2000ms, forcing...
+]]></system-out>
+  <system-err><![CDATA[WARNING: A Java agent has been loaded dynamically (/home/kelthas/.gradle/caches/modules-2/files-2.1/net.bytebuddy/byte-buddy-agent/1.15.11/a38b16385e867f59a641330f0362ebe742788ed8/byte-buddy-agent-1.15.11.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+]]></system-err>
+</testsuite>

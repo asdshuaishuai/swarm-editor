@@ -23,8 +23,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.io.Closeable
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.TimeUnit
 
 /**
  * ACP 连接 — 管理单个 Agent 进程的 ACP 通信。
@@ -35,7 +37,7 @@ import java.io.OutputStreamWriter
 class AcpConnection(
     val agentId: String,
     private val config: AgentConfig
-) {
+) : Closeable {
     private val log = KotlinLogging.logger {}
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -50,7 +52,10 @@ class AcpConnection(
     private var process: Process? = null
     private var writer: BufferedWriter? = null
     private var readerJob: Job? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var stderrJob: Job? = null
+    private val connectionJob = SupervisorJob()
+    private val connectionScope = CoroutineScope(connectionJob + Dispatchers.IO)
+    private var closed = false
 
     private var nextId = 1L
     private val pendingRequests = mutableMapOf<Long, CompletableDeferred<JsonRpcResponse>>()
@@ -80,7 +85,7 @@ class AcpConnection(
 
             // 启动 stderr 读取循环 — 捕获 Agent 进程错误输出
             val stderrReader = BufferedReader(InputStreamReader(process!!.errorStream, Charsets.UTF_8))
-            scope.launch {
+            stderrJob = connectionScope.launch {
                 try {
                     while (isActive) {
                         val line = stderrReader.readLine() ?: break
@@ -92,7 +97,7 @@ class AcpConnection(
             }
 
             // 启动读取循环
-            readerJob = scope.launch { readLoop(reader) }
+            readerJob = connectionScope.launch { readLoop(reader) }
 
             // ACP initialize 握手
             val initResult = initialize()
@@ -299,21 +304,46 @@ class AcpConnection(
 
     /**
      * 关闭连接，终止 Agent 进程。
+     * 幂等：多次调用不会抛异常。
      */
-    fun close() {
-        readerJob?.cancel()
+    override fun close() {
+        if (closed) return
+        closed = true
+
+        connectionJob.cancel()
+
         try {
             writer?.close()
         } catch (_: Exception) {}
-        try {
-            process?.destroyForcibly()
-        } catch (_: Exception) {}
-        process = null
-        writer = null
+
+        process?.let { gracefulShutdown(it, 2000L) }
+
+        notificationHandlers.clear()
         pendingRequests.values.forEach { it.completeExceptionally(Exception("Connection closed")) }
         pendingRequests.clear()
+
+        process = null
+        writer = null
+        readerJob = null
+        stderrJob = null
         if (status == AgentStatus.CONNECTED) {
             status = AgentStatus.DISCONNECTED
+        }
+    }
+
+    /**
+     * 优雅关闭进程：先 destroy()，等待 timeoutMs 后强制杀死。
+     */
+    private fun gracefulShutdown(process: Process, timeoutMs: Long) {
+        if (!process.isAlive) return
+        try {
+            process.destroy()
+            val exited = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            if (!exited) {
+                log.warn { "[$agentId] Process did not exit gracefully within ${timeoutMs}ms, forcing..." }
+                process.destroyForcibly()
+            }
+        } catch (_: Exception) {
         }
     }
 }

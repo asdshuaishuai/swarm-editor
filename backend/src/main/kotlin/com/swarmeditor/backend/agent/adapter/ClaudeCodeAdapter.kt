@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.agent.adapter
 
 import com.swarmeditor.backend.agent.AgentAdapter
+import com.swarmeditor.backend.agent.ProviderPreset
 import com.swarmeditor.common.model.AgentType
 import com.swarmeditor.common.model.McpServerConfig
 import com.swarmeditor.common.model.McpServerType
@@ -40,9 +41,7 @@ class ClaudeCodeAdapter : AgentAdapter {
     private val mcpConfigPath = File(System.getProperty("user.home"), ".claude.json").absolutePath
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
-    /** Provider 预设 */
-    data class ProviderPreset(val name: String, val baseUrl: String, val model: String)
-    val providerPresets = listOf(
+    override val providerPresets = listOf(
         ProviderPreset("Anthropic Official", "api.anthropic.com", "claude-sonnet-4-20250514"),
         ProviderPreset("OpenRouter", "openrouter.ai/api", "anthropic/claude-sonnet-4"),
         ProviderPreset("DeepSeek", "api.deepseek.com", "deepseek-chat"),
@@ -152,40 +151,4 @@ class ClaudeCodeAdapter : AgentAdapter {
         } catch (e: Exception) { log.error { "Failed to write Claude MCP: ${e.message}" } }
     }
 
-    /** Scan skills directory and return list of skill directory names */
-    suspend fun scanSkills(): List<String> = withContext(Dispatchers.IO) {
-        try {
-            val dir = File(skillsDirectory)
-            if (!dir.exists()) return@withContext emptyList()
-            dir.listFiles { f -> f.isDirectory }?.map { it.name } ?: emptyList()
-        } catch (e: Exception) { log.warn { "Failed to scan skills: ${e.message}" }; emptyList() }
-    }
-
-    /** Sync skills via symbolic links from global skills directory */
-    suspend fun syncSkills(skillNames: List<String>) = withContext(Dispatchers.IO) {
-        try {
-            val agentDir = File(skillsDirectory)
-            if (!agentDir.exists()) agentDir.mkdirs()
-            agentDir.listFiles { f -> java.nio.file.Files.isSymbolicLink(f.toPath()) }?.forEach { link ->
-                if (!link.exists() || !skillNames.contains(link.name)) {
-                    link.delete()
-                }
-            }
-            val globalDir = File(System.getProperty("user.home"), ".swarm-editor/skills")
-            skillNames.forEach { name ->
-                val target = File(globalDir, name)
-                val link = File(agentDir, name)
-                if (target.exists() && !link.exists()) {
-                    java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
-                }
-            }
-        } catch (e: Exception) { log.error { "Failed to sync skills: ${e.message}" } }
-    }
-
-    /** Apply a provider preset by writing Base URL and Model fields */
-    suspend fun applyProviderPreset(presetName: String) = withContext(Dispatchers.IO) {
-        val preset = providerPresets.find { it.name == presetName } ?: return@withContext
-        writeNativeConfigField("Base URL", preset.baseUrl)
-        writeNativeConfigField("Model", preset.model)
-    }
 }

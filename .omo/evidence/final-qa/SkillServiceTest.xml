@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.swarmeditor.backend.service.SkillServiceTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-06-09T17:04:43.224Z" hostname="MiWiFi-RD16B-srv" time="0.326">
+  <properties/>
+  <testcase name="syncSkillsToAgent with Copy creates physical copies" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.287"/>
+  <testcase name="syncSkillsToAgent with Symlink creates symbolic links" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.004"/>
+  <testcase name="applyProviderPreset does nothing when adapter is null" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.003"/>
+  <testcase name="syncSkillsToAgent does nothing when adapter is null" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.003"/>
+  <testcase name="scanAgentSkills returns directory names from adapter skillsDirectory" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.005"/>
+  <testcase name="applyProviderPreset does nothing when preset not found" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.009"/>
+  <testcase name="applyProviderPreset writes baseUrl and model to native config" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.006"/>
+  <testcase name="scanAgentSkills returns empty list when directory does not exist" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.003"/>
+  <testcase name="scanAgentSkills returns empty list when adapter is null" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.002"/>
+  <testcase name="syncSkillsToAgent creates target directory when it does not exist" classname="com.swarmeditor.backend.service.SkillServiceTest" time="0.004"/>
+  <system-out><![CDATA[01:04:43.517 [Test worker @kotlinx.coroutines.test runner#6] WARN  c.s.backend.service.SkillService - No adapter found for CLAUDE_CODE
+01:04:43.520 [Test worker @kotlinx.coroutines.test runner#8] WARN  c.s.backend.service.SkillService - No adapter found for CLAUDE_CODE
+01:04:43.530 [Test worker @kotlinx.coroutines.test runner#12] WARN  c.s.backend.service.SkillService - Preset 'NonExistent' not found for CLAUDE_CODE
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
