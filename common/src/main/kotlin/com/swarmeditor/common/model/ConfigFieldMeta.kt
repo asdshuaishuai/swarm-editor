@@ -1,4 +1,5 @@
 package com.swarmeditor.common.model
+// TODO: Use in AgentAdapter.configFields for dynamic UI generation
 
 /**
  * Agent 原生配置字段元数据。

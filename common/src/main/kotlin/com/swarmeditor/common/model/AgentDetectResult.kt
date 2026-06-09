@@ -1,4 +1,5 @@
 package com.swarmeditor.common.model
+// TODO: Integrate into AgentAdapter.detect() return type
 
 /**
  * Agent 检测结果 — 表示 [AgentAdapter.detect] 的三态返回值。

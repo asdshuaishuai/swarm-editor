@@ -55,7 +55,7 @@ class AcpConnection(
     private var stderrJob: Job? = null
     private val connectionJob = SupervisorJob()
     private val connectionScope = CoroutineScope(connectionJob + Dispatchers.IO)
-    private var closed = false
+    @Volatile private var closed = false
 
     private var nextId = 1L
     private val pendingRequests = mutableMapOf<Long, CompletableDeferred<JsonRpcResponse>>()
@@ -343,8 +343,7 @@ class AcpConnection(
                 log.warn { "[$agentId] Process did not exit gracefully within ${timeoutMs}ms, forcing..." }
                 process.destroyForcibly()
             }
-        } catch (_: Exception) {
-        }
+        } catch (e: Exception) { log.warn(e) { "[$agentId] gracefulShutdown failed" } }
     }
 }
 

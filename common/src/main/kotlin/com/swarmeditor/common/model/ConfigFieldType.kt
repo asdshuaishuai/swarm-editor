@@ -1,4 +1,5 @@
 package com.swarmeditor.common.model
+// TODO: Use in ConfigFieldMeta.type
 
 /**
  * Agent 原生配置字段类型。

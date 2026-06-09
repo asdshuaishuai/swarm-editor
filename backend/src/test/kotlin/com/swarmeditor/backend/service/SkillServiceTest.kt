@@ -1,5 +1,6 @@
 package com.swarmeditor.backend.service
 
+import com.swarmeditor.common.config.ConfigPaths
 import com.swarmeditor.backend.agent.AgentAdapter
 import com.swarmeditor.backend.agent.ProviderPreset
 import com.swarmeditor.backend.skill.SkillScanner
@@ -27,10 +28,10 @@ class SkillServiceTest {
         tempDirs.clear()
     }
 
-    private fun createService(adapter: AgentAdapter? = null): SkillService {
+    private fun createService(adapter: AgentAdapter? = null, skillsRootPath: String? = null): SkillService {
         val store = mockk<SkillStore>(relaxed = true)
         val scanner = mockk<SkillScanner>(relaxed = true)
-        return SkillService(store, scanner) { adapter }
+        return SkillService(store, scanner, { adapter }, skillsRootPath ?: ConfigPaths.SWARM_EDITOR_DIR)
     }
 
     private fun mockAdapter(skillsDir: String): AgentAdapter {
@@ -87,43 +88,29 @@ class SkillServiceTest {
 
     @Test
     fun `syncSkillsToAgent with Copy creates physical copies`() = runTest {
-        val globalDir = createTempDir("global-skills")
-        val skillDir = File(globalDir, "my-skill")
+        val fakeHome = createTempDir("fake-home")
+        val skillsDir = File(fakeHome, "skills")
+        val skillDir = File(skillsDir, "my-skill")
         skillDir.mkdirs()
         File(skillDir, "SKILL.md").writeText("# My Skill\nA great skill")
 
         val agentDir = createTempDir("agent-skills")
-        // Point System.getProperty("user.home") resolution to our temp globalDir
-        // We create the expected ~/.swarm-editor/skills structure via symlink workaround:
-        // Instead, we directly set globalDir as the source by creating it where expected.
-        // Since SkillService hardcodes ~/.swarm-editor/skills, we override user.home
-        val originalHome = System.getProperty("user.home")
-        val fakeHome = createTempDir("fake-home")
-        val swarmSkillsDir = File(fakeHome, ".swarm-editor/skills")
-        swarmSkillsDir.mkdirs()
-        // Copy our skill into the fake home location
-        skillDir.copyRecursively(File(swarmSkillsDir, "my-skill"), overwrite = true)
 
-        System.setProperty("user.home", fakeHome.absolutePath)
-        try {
-            val adapter = mockAdapter(agentDir.absolutePath)
-            val service = createService(adapter)
+        val adapter = mockAdapter(agentDir.absolutePath)
+        val service = createService(adapter, fakeHome.absolutePath)
 
-            service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("my-skill"), SyncMethod.Copy)
+        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("my-skill"), SyncMethod.Copy)
 
-            val synced = File(agentDir, "my-skill")
-            assertTrue(synced.exists(), "Synced skill directory should exist")
-            assertTrue(synced.isDirectory, "Should be a directory")
-            assertTrue(!Files.isSymbolicLink(synced.toPath()), "Should NOT be a symlink")
-            assertTrue(File(synced, "SKILL.md").exists(), "Files inside should be copied")
-            assertEquals(
-                "# My Skill\nA great skill",
-                File(synced, "SKILL.md").readText(),
-                "File content should match"
-            )
-        } finally {
-            System.setProperty("user.home", originalHome)
-        }
+        val synced = File(agentDir, "my-skill")
+        assertTrue(synced.exists(), "Synced skill directory should exist")
+        assertTrue(synced.isDirectory, "Should be a directory")
+        assertTrue(!Files.isSymbolicLink(synced.toPath()), "Should NOT be a symlink")
+        assertTrue(File(synced, "SKILL.md").exists(), "Files inside should be copied")
+        assertEquals(
+            "# My Skill\nA great skill",
+            File(synced, "SKILL.md").readText(),
+            "File content should match"
+        )
     }
 
     // ── syncSkillsToAgent (Symlink) ──────────────────────────────────
@@ -131,28 +118,21 @@ class SkillServiceTest {
     @Test
     fun `syncSkillsToAgent with Symlink creates symbolic links`() = runTest {
         val fakeHome = createTempDir("fake-home-sym")
-        val swarmSkillsDir = File(fakeHome, ".swarm-editor/skills")
-        swarmSkillsDir.mkdirs()
-        val skillDir = File(swarmSkillsDir, "link-skill")
+        val skillsDir = File(fakeHome, "skills")
+        val skillDir = File(skillsDir, "link-skill")
         skillDir.mkdirs()
         File(skillDir, "SKILL.md").writeText("# Linked")
 
         val agentDir = createTempDir("agent-sym")
 
-        val originalHome = System.getProperty("user.home")
-        System.setProperty("user.home", fakeHome.absolutePath)
-        try {
-            val adapter = mockAdapter(agentDir.absolutePath)
-            val service = createService(adapter)
+        val adapter = mockAdapter(agentDir.absolutePath)
+        val service = createService(adapter, fakeHome.absolutePath)
 
-            service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("link-skill"), SyncMethod.Symlink)
+        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("link-skill"), SyncMethod.Symlink)
 
-            val synced = File(agentDir, "link-skill")
-            assertTrue(synced.exists(), "Synced skill should exist")
-            assertTrue(Files.isSymbolicLink(synced.toPath()), "Should be a symlink")
-        } finally {
-            System.setProperty("user.home", originalHome)
-        }
+        val synced = File(agentDir, "link-skill")
+        assertTrue(synced.exists(), "Synced skill should exist")
+        assertTrue(Files.isSymbolicLink(synced.toPath()), "Should be a symlink")
     }
 
     // ── syncSkillsToAgent creates target directory ───────────────────
@@ -160,9 +140,8 @@ class SkillServiceTest {
     @Test
     fun `syncSkillsToAgent creates target directory when it does not exist`() = runTest {
         val fakeHome = createTempDir("fake-home-mkdir")
-        val swarmSkillsDir = File(fakeHome, ".swarm-editor/skills")
-        swarmSkillsDir.mkdirs()
-        val skillDir = File(swarmSkillsDir, "mkdir-skill")
+        val skillsDir = File(fakeHome, "skills")
+        val skillDir = File(skillsDir, "mkdir-skill")
         skillDir.mkdirs()
         File(skillDir, "SKILL.md").writeText("# Mkdir")
 
@@ -170,19 +149,13 @@ class SkillServiceTest {
         val agentDir = File(createTempDir("agent-parent"), "nested/skills")
         assertTrue(!agentDir.exists(), "Agent dir should not exist yet")
 
-        val originalHome = System.getProperty("user.home")
-        System.setProperty("user.home", fakeHome.absolutePath)
-        try {
-            val adapter = mockAdapter(agentDir.absolutePath)
-            val service = createService(adapter)
+        val adapter = mockAdapter(agentDir.absolutePath)
+        val service = createService(adapter, fakeHome.absolutePath)
 
-            service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("mkdir-skill"), SyncMethod.Copy)
+        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("mkdir-skill"), SyncMethod.Copy)
 
-            assertTrue(agentDir.exists(), "Agent dir should be created")
-            assertTrue(File(agentDir, "mkdir-skill").exists(), "Skill should be synced")
-        } finally {
-            System.setProperty("user.home", originalHome)
-        }
+        assertTrue(agentDir.exists(), "Agent dir should be created")
+        assertTrue(File(agentDir, "mkdir-skill").exists(), "Skill should be synced")
     }
 
     @Test

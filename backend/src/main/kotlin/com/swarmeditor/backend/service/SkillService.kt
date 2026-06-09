@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.agent.AgentAdapter
+import com.swarmeditor.common.config.ConfigPaths
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
@@ -19,7 +20,8 @@ private val log = KotlinLogging.logger {}
 class SkillService(
     private val store: SkillStore,
     private val scanner: SkillScanner,
-    private val adapterResolver: (AgentType) -> AgentAdapter? = { null }
+    private val adapterResolver: (AgentType) -> AgentAdapter? = { null },
+    private val skillsRootPath: String = ConfigPaths.SWARM_EDITOR_DIR
 ) {
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     val skills: StateFlow<List<SkillConfig>> = _skills
@@ -44,17 +46,11 @@ class SkillService(
                 val agentDir = File(adapter.skillsDirectory)
                 if (!agentDir.exists()) agentDir.mkdirs()
 
-                val globalDir = File(System.getProperty("user.home"), ".swarm-editor/skills")
+                val globalDir = File(skillsRootPath, "skills")
 
                 agentDir.listFiles { f -> Files.isSymbolicLink(f.toPath()) }?.forEach { link ->
                     if (!link.exists() || !skillNames.contains(link.name)) {
                         link.delete()
-                    }
-                }
-
-                agentDir.listFiles { f -> f.isDirectory && !Files.isSymbolicLink(f.toPath()) }?.forEach { dir ->
-                    if (!skillNames.contains(dir.name)) {
-                        dir.deleteRecursively()
                     }
                 }
 

@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "active_work_id": "followup-architecture-fixes-e4036717",
+  "active_work_id": "code-review-fixes-a9dd0547",
   "works": {
     "followup-architecture-fixes-e4036717": {
       "work_id": "followup-architecture-fixes-e4036717",
       "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/followup-architecture-fixes.md",
       "plan_name": "followup-architecture-fixes",
-      "status": "active",
+      "status": "completed",
       "started_at": "2026-06-09T16:48:44.556Z",
-      "updated_at": "2026-06-09T17:05:36.874Z",
+      "updated_at": "2026-06-09T17:06:40.426Z",
       "session_ids": [
         "ses_153828077ffe83630zbYuLH3hn"
       ],
@@ -68,71 +68,65 @@
           "ended_at": "2026-06-09T17:05:36.873Z",
           "elapsed_ms": 16916
         }
+      },
+      "ended_at": "2026-06-09T17:06:40.426Z",
+      "elapsed_ms": 1075870
+    },
+    "code-review-fixes-a9dd0547": {
+      "work_id": "code-review-fixes-a9dd0547",
+      "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/code-review-fixes.md",
+      "plan_name": "code-review-fixes",
+      "status": "active",
+      "started_at": "2026-06-09T17:23:05.678Z",
+      "updated_at": "2026-06-09T17:30:39.633Z",
+      "session_ids": [
+        "ses_153828077ffe83630zbYuLH3hn"
+      ],
+      "session_origins": {
+        "ses_153828077ffe83630zbYuLH3hn": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "AcpConnection 修复 — volatile + 异常日志",
+          "session_id": "ses_152935187ffeHwl5bwg4aHqFL8",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "started_at": "2026-06-09T17:27:18.936Z",
+          "status": "completed",
+          "updated_at": "2026-06-09T17:30:39.633Z",
+          "ended_at": "2026-06-09T17:30:39.633Z",
+          "elapsed_ms": 200697
+        }
       }
     }
   },
-  "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/followup-architecture-fixes.md",
-  "started_at": "2026-06-09T16:48:44.556Z",
+  "active_plan": "/home/kelthas/code/swarm-editor/.omo/plans/code-review-fixes.md",
+  "started_at": "2026-06-09T17:23:05.678Z",
   "status": "active",
-  "updated_at": "2026-06-09T17:05:36.874Z",
+  "updated_at": "2026-06-09T17:30:39.633Z",
   "session_ids": [
     "ses_153828077ffe83630zbYuLH3hn"
   ],
   "session_origins": {
     "ses_153828077ffe83630zbYuLH3hn": "direct"
   },
-  "plan_name": "followup-architecture-fixes",
+  "plan_name": "code-review-fixes",
   "task_sessions": {
     "todo:1": {
       "task_key": "todo:1",
       "task_label": "1",
-      "task_title": "`syncSkillsToAgent(agentType: AgentType, skillNames: List<String>, method: SyncMethod = SyncMethod.Auto)`",
-      "session_id": "ses_152b04539ffeVc5XD3JjH2IsEn",
-      "agent": "Sisyphus-Junior",
-      "category": "unspecified-high",
-      "started_at": "2026-06-09T16:53:41.069Z",
-      "ended_at": "2026-06-09T16:58:19.486Z",
-      "elapsed_ms": 278417,
-      "status": "completed",
-      "updated_at": "2026-06-09T16:58:19.486Z"
-    },
-    "todo:5": {
-      "task_key": "todo:5",
-      "task_label": "5",
-      "task_title": "SkillService 增强 - Skills 同步功能",
-      "session_id": "ses_152b00106ffeJtzlKWnHHtHhgC",
-      "agent": "Sisyphus-Junior",
-      "category": "unspecified-high",
-      "updated_at": "2026-06-09T16:58:55.889Z",
-      "started_at": "2026-06-09T16:58:05.491Z",
-      "status": "completed",
-      "ended_at": "2026-06-09T16:58:55.889Z",
-      "elapsed_ms": 50398
-    },
-    "todo:6": {
-      "task_key": "todo:6",
-      "task_label": "6",
-      "task_title": "从 Adapter 删除 skills 方法",
-      "session_id": "ses_152acf46bffezWkL8DFLtkEp1k",
+      "task_title": "AcpConnection 修复 — volatile + 异常日志",
+      "session_id": "ses_152935187ffeHwl5bwg4aHqFL8",
       "agent": "Sisyphus-Junior",
       "category": "quick",
-      "updated_at": "2026-06-09T17:02:43.235Z",
-      "started_at": "2026-06-09T17:00:31.304Z",
+      "started_at": "2026-06-09T17:27:18.936Z",
       "status": "completed",
-      "ended_at": "2026-06-09T17:02:43.235Z",
-      "elapsed_ms": 131931
-    },
-    "final-wave:f1": {
-      "task_key": "final-wave:f1",
-      "task_label": "F1",
-      "task_title": "**计划合规审计** — `oracle`",
-      "session_id": "ses_152a92df3ffeCh8Z4iOYFppCOe",
-      "agent": "oracle",
-      "updated_at": "2026-06-09T17:05:36.874Z",
-      "started_at": "2026-06-09T17:05:19.957Z",
-      "status": "completed",
-      "ended_at": "2026-06-09T17:05:36.873Z",
-      "elapsed_ms": 16916
+      "updated_at": "2026-06-09T17:30:39.633Z",
+      "ended_at": "2026-06-09T17:30:39.633Z",
+      "elapsed_ms": 200697
     }
   },
   "agent": "atlas"
