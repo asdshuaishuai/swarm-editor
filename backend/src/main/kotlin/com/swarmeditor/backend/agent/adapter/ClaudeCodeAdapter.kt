@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -80,7 +81,7 @@ class ClaudeCodeAdapter : AgentAdapter {
 
             mapOf(
                 "Model" to envValue("ANTHROPIC_MODEL"),
-                "API Key" to envValue("ANTHROPIC_AUTH_TOKEN"),
+                "API Key" to (envValue("ANTHROPIC_AUTH_TOKEN").ifEmpty { envValue("ANTHROPIC_API_KEY") }),
                 "Base URL" to (envValue("ANTHROPIC_BASE_URL").ifEmpty { "api.anthropic.com" }),
                 "Max Tokens" to (env?.get("CLAUDE_MAX_TOKENS")?.jsonPrimitive?.contentOrNull ?: "8192"),
                 "Temperature" to (env?.get("CLAUDE_TEMPERATURE")?.jsonPrimitive?.contentOrNull ?: "1.0"),
@@ -95,13 +96,19 @@ class ClaudeCodeAdapter : AgentAdapter {
             val envObj = existing["env"]?.jsonObject?.toMutableMap() ?: mutableMapOf()
             val envKey = when (key) {
                 "Model" -> "ANTHROPIC_MODEL"
-                "API Key" -> "ANTHROPIC_AUTH_TOKEN"
+                "API Key" -> {
+                    envObj["ANTHROPIC_API_KEY"] = kotlinx.serialization.json.JsonPrimitive(value)
+                    envObj["ANTHROPIC_AUTH_TOKEN"] = kotlinx.serialization.json.JsonPrimitive(value)
+                    null
+                }
                 "Base URL" -> "ANTHROPIC_BASE_URL"
                 "Max Tokens" -> "CLAUDE_MAX_TOKENS"
                 "Temperature" -> "CLAUDE_TEMPERATURE"
                 else -> key
             }
-            envObj[envKey] = kotlinx.serialization.json.JsonPrimitive(value)
+            if (envKey != null) {
+                envObj[envKey] = kotlinx.serialization.json.JsonPrimitive(value)
+            }
             existing["env"] = JsonObject(envObj)
             f.writeText(json.encodeToString(JsonObject.serializer(), JsonObject(existing)))
         } catch (e: Exception) { log.error { "Failed to write Claude config: ${e.message}" } }
@@ -118,7 +125,7 @@ class ClaudeCodeAdapter : AgentAdapter {
                     id = "claude-$name", name = name,
                     type = McpServerType.STDIO,
                     command = obj["command"]?.jsonPrimitive?.contentOrNull ?: "",
-                    args = obj["args"]?.jsonObject?.values?.map { it.jsonPrimitive.contentOrNull ?: "" } ?: emptyList(),
+                    args = obj["args"]?.jsonArray?.map { it.jsonPrimitive.contentOrNull ?: "" } ?: emptyList(),
                     env = obj["env"]?.jsonObject?.mapValues { it.value.jsonPrimitive.contentOrNull ?: "" } ?: emptyMap(),
                     enabledAgents = mapOf("claude-code" to true)
                 )
@@ -143,5 +150,42 @@ class ClaudeCodeAdapter : AgentAdapter {
             }
             File(mcpConfigPath).writeText(json.encodeToString(JsonObject.serializer(), buildJsonObject { put("mcpServers", mcpServers) }))
         } catch (e: Exception) { log.error { "Failed to write Claude MCP: ${e.message}" } }
+    }
+
+    /** Scan skills directory and return list of skill directory names */
+    suspend fun scanSkills(): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val dir = File(skillsDirectory)
+            if (!dir.exists()) return@withContext emptyList()
+            dir.listFiles { f -> f.isDirectory }?.map { it.name } ?: emptyList()
+        } catch (e: Exception) { log.warn { "Failed to scan skills: ${e.message}" }; emptyList() }
+    }
+
+    /** Sync skills via symbolic links from global skills directory */
+    suspend fun syncSkills(skillNames: List<String>) = withContext(Dispatchers.IO) {
+        try {
+            val agentDir = File(skillsDirectory)
+            if (!agentDir.exists()) agentDir.mkdirs()
+            agentDir.listFiles { f -> java.nio.file.Files.isSymbolicLink(f.toPath()) }?.forEach { link ->
+                if (!link.exists() || !skillNames.contains(link.name)) {
+                    link.delete()
+                }
+            }
+            val globalDir = File(System.getProperty("user.home"), ".swarm-editor/skills")
+            skillNames.forEach { name ->
+                val target = File(globalDir, name)
+                val link = File(agentDir, name)
+                if (target.exists() && !link.exists()) {
+                    java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
+                }
+            }
+        } catch (e: Exception) { log.error { "Failed to sync skills: ${e.message}" } }
+    }
+
+    /** Apply a provider preset by writing Base URL and Model fields */
+    suspend fun applyProviderPreset(presetName: String) = withContext(Dispatchers.IO) {
+        val preset = providerPresets.find { it.name == presetName } ?: return@withContext
+        writeNativeConfigField("Base URL", preset.baseUrl)
+        writeNativeConfigField("Model", preset.model)
     }
 }

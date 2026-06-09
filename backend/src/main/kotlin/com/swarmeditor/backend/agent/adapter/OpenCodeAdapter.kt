@@ -74,10 +74,9 @@ class OpenCodeAdapter : AgentAdapter {
             mcp.mapValues { (name, el) ->
                 val obj = el.jsonObject
                 val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "local"
-                val cmd = obj["command"]?.jsonObject
                 McpServerConfig(id = "opencode-$name", name = name,
                     type = if (type == "remote") McpServerType.HTTP else McpServerType.STDIO,
-                    command = cmd?.let { it.values.map { v -> v.jsonPrimitive.contentOrNull ?: "" }.joinToString(" ") } ?: "",
+                    command = obj["command"]?.jsonPrimitive?.contentOrNull ?: "",
                     enabledAgents = mapOf("opencode" to true))
             }
         } catch (e: Exception) { log.warn { "Failed to read OpenCode MCP: ${e.message}" }; emptyMap() }
@@ -91,7 +90,7 @@ class OpenCodeAdapter : AgentAdapter {
                 servers.values.filter { it.enabledAgents["opencode"] == true }.forEach { s ->
                     put(s.name, buildJsonObject {
                         put("type", if (s.type == McpServerType.HTTP) "remote" else "local")
-                        put("command", buildJsonObject { put(s.command.split(" ").first(), s.command) })
+                        put("command", s.command)
                     })
                 }
             }

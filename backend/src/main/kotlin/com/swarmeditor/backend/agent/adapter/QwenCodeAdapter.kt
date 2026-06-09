@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
@@ -91,7 +92,7 @@ class QwenCodeAdapter : AgentAdapter {
                     id = "qwen-$name", name = name,
                     type = if (httpUrl != null) McpServerType.HTTP else McpServerType.STDIO,
                     command = obj["command"]?.jsonPrimitive?.contentOrNull ?: "",
-                    args = obj["args"]?.jsonObject?.values?.map { it.jsonPrimitive.contentOrNull ?: "" } ?: emptyList(),
+                    args = obj["args"]?.jsonArray?.map { it.jsonPrimitive.contentOrNull ?: "" } ?: emptyList(),
                     env = obj["env"]?.jsonObject?.mapValues { it.value.jsonPrimitive.contentOrNull ?: "" } ?: emptyMap(),
                     url = httpUrl ?: "",
                     enabledAgents = mapOf("qwen-code" to true)
