@@ -24,6 +24,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.chat.CodeCard
+import com.swarmeditor.desktop.ui.chat.MentionDropdown
 import com.swarmeditor.desktop.ui.chat.ThinkingIndicator
 import com.swarmeditor.desktop.ui.chat.ToolCard
 import com.swarmeditor.desktop.viewmodel.UiActivity
@@ -49,8 +54,19 @@ fun ChatArea(
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    agents: List<AgentInfo> = emptyList(),
+    onMcpClick: () -> Unit = {},
+    onSkillClick: () -> Unit = {}
 ) {
+    // Mention state
+    var showMentionDropdown by remember { mutableStateOf(false) }
+    var mentionFilter by remember { mutableStateOf("") }
+    var mentionStartIndex by remember { mutableStateOf(-1) }
+
+    // Simple token estimate: ~4 chars per token
+    val tokenEstimate = inputText.length / 4
+
     Column(modifier = modifier) {
         // 消息区
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp, 20.dp, 24.dp, 20.dp)) {
@@ -85,14 +101,91 @@ fun ChatArea(
 
         // 输入区
         Column(modifier = Modifier.fillMaxWidth().border(1.dp, Bd).padding(12.dp, 12.dp, 16.dp, 12.dp)) {
+            // Mention dropdown (shown above chips/input)
+            if (showMentionDropdown) {
+                Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    MentionDropdown(
+                        agents = agents.ifEmpty { listOf(selectedAgent) },
+                        filter = mentionFilter,
+                        onSelect = { agentName ->
+                            // Replace "@filter" with "@AgentName "
+                            val before = inputText.substring(0, mentionStartIndex)
+                            val after = inputText.substring(
+                                inputText.indexOf(' ', mentionStartIndex).let {
+                                    if (it > mentionStartIndex) it + 1 else inputText.length
+                                }
+                            )
+                            onInputChange("$before@$agentName $after")
+                            showMentionDropdown = false
+                            mentionFilter = ""
+                            mentionStartIndex = -1
+                        },
+                        onDismiss = {
+                            showMentionDropdown = false
+                            mentionFilter = ""
+                            mentionStartIndex = -1
+                        }
+                    )
+                }
+            }
+
+            // Chip buttons row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Attachment chip (placeholder)
+                ChipButton("📎 附件", onClick = { /* placeholder */ })
+                Spacer(Modifier.width(6.dp))
+                // MCP chip
+                ChipButton("🔧 MCP", onClick = onMcpClick)
+                Spacer(Modifier.width(6.dp))
+                // Skill chip
+                ChipButton("⚡ Skill", onClick = onSkillClick)
+                Spacer(Modifier.weight(1f))
+                // Token count
+                Text("$tokenEstimate tokens", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont)
+            }
+
+            // Text input row
             Row(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).border(1.dp, Bd, RoundedCornerShape(12.dp)).padding(10.dp, 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BasicTextField(
                     value = inputText,
-                    onValueChange = onInputChange,
+                    onValueChange = { newText ->
+                        // Detect "@" to trigger mention dropdown
+                        if (newText.length > inputText.length && newText.last() == '@') {
+                            showMentionDropdown = true
+                            mentionFilter = ""
+                            mentionStartIndex = newText.lastIndex
+                        } else if (showMentionDropdown) {
+                            // Update filter based on text after "@"
+                            if (mentionStartIndex in newText.indices) {
+                                val afterAt = newText.substring(mentionStartIndex + 1)
+                                // If user typed a space or deleted the "@", dismiss
+                                if (afterAt.contains(' ') || newText.getOrNull(mentionStartIndex) != '@') {
+                                    showMentionDropdown = false
+                                    mentionFilter = ""
+                                } else {
+                                    mentionFilter = afterAt
+                                }
+                            }
+                        }
+                        onInputChange(newText)
+                    },
                     modifier = Modifier.weight(1f).onPreviewKeyEvent { event ->
+                        if (showMentionDropdown) {
+                            // Let MentionDropdown handle nav keys — pass through by returning false
+                            // The dropdown's onPreviewKeyEvent handles Up/Down/Enter/Escape
+                            if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                return@onPreviewKeyEvent false // let dropdown handle it
+                            }
+                            if (event.key in listOf(Key.DirectionUp, Key.DirectionDown, Key.Escape) && event.type == KeyEventType.KeyDown) {
+                                return@onPreviewKeyEvent false // let dropdown handle
+                            }
+                        }
                         if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
                             if (!event.isShiftPressed && inputText.isNotBlank() && !isSending) {
                                 onSend()
@@ -127,6 +220,20 @@ fun ChatArea(
                 Text(" 换行", color = Tx4, fontSize = 11.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun ChipButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Surface2)
+            .border(1.dp, Bd, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(label, color = Tx2, fontSize = 11.sp, fontFamily = MonoFont)
     }
 }
 
@@ -223,5 +330,3 @@ private fun AssistantMessage(
         }
     }
 }
-
-// No custom clickable extension needed

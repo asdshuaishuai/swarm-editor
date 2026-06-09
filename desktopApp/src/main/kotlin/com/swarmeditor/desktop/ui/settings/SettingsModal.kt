@@ -3,17 +3,22 @@ package com.swarmeditor.desktop.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -27,7 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
@@ -52,33 +60,49 @@ fun SettingsModal(agents: List<AgentInfo>, settingsVm: SettingsViewModel, onClos
     val mcpServers by settingsVm.mcpServers.collectAsState()
     val skills by settingsVm.skills.collectAsState()
 
+    val tabs = listOf(
+        "agent" to "Agent 配置", "mcp" to "MCP 管理", "skills" to "Skills 管理",
+        "general" to "通用", "appearance" to "外观", "shortcuts" to "快捷键", "about" to "关于"
+    )
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.width(720.dp).clip(RoundedCornerShape(12.dp)).background(Bg2).border(1.dp, Bd2, RoundedCornerShape(12.dp)).clickable(enabled = false) {}) {
+        Column(modifier = Modifier.width(760.dp).height(520.dp).clip(RoundedCornerShape(12.dp)).background(Bg2).border(1.dp, Bd2, RoundedCornerShape(12.dp)).clickable(enabled = false) {}) {
             // Header
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = MonoFont, letterSpacing = 0.5.sp)
                 Spacer(Modifier.weight(1f))
                 Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) { Text("✕", color = Tx3, fontSize = 14.sp) }
             }
-            // Tabs
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).border(1.dp, Bd)) {
-                listOf("agent" to "Agent 配置", "mcp" to "MCP 管理", "skills" to "Skills 管理").forEach { (id, label) ->
-                    val isActive = activeTab == id
-                    Box(modifier = Modifier.clickable { activeTab = id }.padding(10.dp, 16.dp), contentAlignment = Alignment.Center) {
-                        Text(label, color = if (isActive) Ac else Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Column(modifier = Modifier.width(130.dp).fillMaxHeight().background(Bg).padding(vertical = 4.dp)) {
+                    tabs.forEach { (id, label) ->
+                        val isActive = activeTab == id
+                        Row(modifier = Modifier.fillMaxWidth().clickable { activeTab = id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (isActive) {
+                                Box(modifier = Modifier.width(2.dp).height(14.dp).clip(RoundedCornerShape(1.dp)).background(Ac))
+                            } else {
+                                Box(modifier = Modifier.width(2.dp).height(14.dp))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(label, color = if (isActive) Ac else Tx3, fontSize = 11.sp, fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal, fontFamily = MonoFont)
+                        }
+                    }
+                }
+                // Body
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    when (activeTab) {
+                        "agent" -> AgentConfigTab(agents, selectedAgentId, { settingsVm.selectAgent(it) }, configFields, configPath, settingsVm)
+                        "mcp" -> McpManagementTab(mcpServers, settingsVm)
+                        "skills" -> SkillsManagementTab(skills, settingsVm)
+                        "general" -> GeneralTab(agents)
+                        "appearance" -> AppearanceTab()
+                        "shortcuts" -> ShortcutsTab()
+                        "about" -> AboutTab()
                     }
                 }
             }
-            // Body
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (activeTab) {
-                    "agent" -> AgentConfigTab(agents, selectedAgentId, { settingsVm.selectAgent(it) }, configFields, configPath, settingsVm)
-                    "mcp" -> McpManagementTab(mcpServers, settingsVm)
-                    "skills" -> SkillsManagementTab(skills, settingsVm)
-                }
-            }
             // Footer
-            Row(modifier = Modifier.fillMaxWidth().border(1.dp, Bd).padding(12.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Bg).border(1.dp, Bd).padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 Text("关闭", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable(onClick = onClose).padding(horizontal = 16.dp, vertical = 7.dp))
@@ -264,5 +288,166 @@ private fun AgentToggle(name: String, enabled: Boolean, onToggle: () -> Unit) {
         Box(modifier = Modifier.size(5.dp).clip(RoundedCornerShape(2.5.dp)).background(if (enabled) Ac else Tx3))
         Spacer(Modifier.width(4.dp))
         Text(name, color = if (enabled) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium, fontFamily = MonoFont)
+    }
+}
+
+// ==================== 通用 Tab ====================
+@Composable
+private fun GeneralTab(agents: List<AgentInfo>) {
+    var workDir by remember { mutableStateOf(System.getProperty("user.dir")) }
+    var defaultAgent by remember { mutableStateOf(agents.firstOrNull()?.id ?: "claude-code") }
+
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+        Section("默认工作目录") {
+            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                Text(workDir, color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text("浏览...", color = Ac, fontSize = 11.sp, fontFamily = MonoFont,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, Bd2, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp))
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+
+        Section("默认 Agent") {
+            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Surface).padding(4.dp)) {
+                agents.forEach { agent ->
+                    val isActive = agent.id == defaultAgent
+                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isActive) AcD else Color.Transparent).clickable { defaultAgent = agent.id }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("${agent.emoji} ${agent.name}", color = if (isActive) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+
+        Section("启动") {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("自动连接已配置的 Agent", color = Tx2, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.weight(1f))
+                ToggleChip(true)
+            }
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("启动时恢复上次会话", color = Tx2, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.weight(1f))
+                ToggleChip(false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleChip(on: Boolean) {
+    Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(9.dp)).background(if (on) Ac else Bg3).border(1.dp, if (on) Ac else Bd2, RoundedCornerShape(9.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
+        Box(modifier = Modifier.size(14.dp).padding(horizontal = 2.dp).clip(CircleShape).background(if (on) Bg else Tx3))
+    }
+}
+
+// ==================== 外观 Tab ====================
+@Composable
+private fun AppearanceTab() {
+    var selectedTheme by remember { mutableStateOf("dark") }
+    val themes = listOf("dark" to "深色", "light" to "浅色", "system" to "系统")
+
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+        Section("主题预设") {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                themes.forEach { (id, label) ->
+                    val isActive = selectedTheme == id
+                    Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isActive) AcD else Bg3).border(1.dp, if (isActive) Ac else Bd2, RoundedCornerShape(8.dp)).clickable { selectedTheme = id }.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(if (id == "dark") Bg else if (id == "light") Color(0xFFe0e0e8) else Color(0xFF2a2a34)).border(1.dp, Bd2, RoundedCornerShape(8.dp)))
+                        Spacer(Modifier.height(8.dp))
+                        Text(label, color = if (isActive) Ac else Tx2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+
+        Section("字体大小") {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("界面字体", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.width(90.dp))
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                    Text("13px", color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("代码字体", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont, modifier = Modifier.width(90.dp))
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Bg).border(1.dp, Bd2, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                    Text("JetBrains Mono 12px", color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
+                }
+            }
+        }
+    }
+}
+
+// ==================== 快捷键 Tab ====================
+private data class ShortcutItem(val command: String, val keys: String, val description: String)
+
+@Composable
+private fun ShortcutsTab() {
+    val shortcuts = listOf(
+        ShortcutItem("新建会话", "⌘ N", "创建新的 Agent 会话"),
+        ShortcutItem("打开设置", "⌘ ,", "打开设置面板"),
+        ShortcutItem("命令面板", "⌘ K", "打开 Cmd+K 快速命令"),
+        ShortcutItem("发送消息", "Enter", "在输入框中发送消息"),
+        ShortcutItem("换行", "Shift+Enter", "在输入框中插入换行"),
+        ShortcutItem("切换侧栏", "⌘ B", "显示/隐藏右侧面板"),
+        ShortcutItem("切换视图", "⌘ 1-5", "切换到对应视图"),
+        ShortcutItem("关闭弹窗", "Esc", "关闭当前弹窗或对话框"),
+    )
+
+    Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("键盘快捷键", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
+            Spacer(Modifier.weight(1f))
+            Text("只读", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 8.dp, vertical = 3.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            items(shortcuts) { item ->
+                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(Surface2).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(item.command, color = Tx, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = MonoFont)
+                        Text(item.description, color = Tx3, fontSize = 10.sp, fontFamily = MonoFont)
+                    }
+                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Bd, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Text(item.keys, color = Ac, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 关于 Tab ====================
+@Composable
+private fun AboutTab() {
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(20.dp))
+        Box(modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(AcD).border(1.dp, Ac.copy(alpha = 0.3f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+            Text("SE", color = Ac, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = MonoFont)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Swarm Editor", color = Tx, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = MonoFont)
+        Text("v0.1.0 MVP", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
+        Spacer(Modifier.height(16.dp))
+        Text(buildAnnotatedString {
+            withStyle(SpanStyle(color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)) {
+                append("多 Agent 协调桌面客户端\n")
+                append("Kotlin/JVM · Compose Desktop · Ktor")
+            }
+        }, color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
+        Spacer(Modifier.height(24.dp))
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Surface2).border(1.dp, Bd, RoundedCornerShape(8.dp)).padding(12.dp)) {
+            InfoRow("技术栈", "Kotlin 2.3.10 + JDK 21")
+            InfoRow("前端", "Compose Desktop 1.8.1")
+            InfoRow("后端", "Ktor 3.2.2 (CIO)")
+            InfoRow("协议", "ACP 0.13.1 / MCP 0.4.0")
+            InfoRow("构建", "Gradle 8.x + Kotlin DSL")
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("github.com/swarm-editor", color = Ac, fontSize = 11.sp, fontFamily = MonoFont,
+            modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, Bd2, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp))
     }
 }

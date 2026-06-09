@@ -22,7 +22,14 @@ data class UiMessage(
 
 data class UiActivity(val icon: String, val label: String, val detail: String, val isOk: Boolean = false)
 
-data class UiSession(val id: String, val agentId: String, val title: String, val isActive: Boolean)
+data class UiSession(
+    val id: String,
+    val agentId: String,
+    val title: String,
+    val isActive: Boolean,
+    val createdAt: Long = System.currentTimeMillis(),
+    val messageCount: Int = 0
+)
 
 class SessionViewModel {
     private val scope = CoroutineScope(Dispatchers.Default)

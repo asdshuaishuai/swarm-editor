@@ -773,7 +773,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Right panel enhancements - change management, inspector, log`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/session/RightPanel.kt`
 
-- [ ] 18. 文件浏览器视图
+- [x] 18. 文件浏览器视图
 
   **What to do**:
   - 创建 `FileExplorerView.kt`:
@@ -835,7 +835,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): File explorer view with project file tree`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/files/`
 
-- [ ] 19. 活动日志视图
+- [x] 19. 活动日志视图
 
   **What to do**:
   - 创建 `ActivityLogView.kt`:
@@ -913,7 +913,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Activity log view with archive tree and timeline`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/activity/`
 
-- [ ] 20. 设置模态框扩展 + Agent 配置弹窗
+- [x] 20. 设置模态框扩展 + Agent 配置弹窗
 
   **What to do**:
   - 扩展 `SettingsModal.kt`:
@@ -986,7 +986,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Settings modal expansion + Agent config dialog`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/settings/`, `ui/dialog/`
 
-- [ ] 21. 会话列表增强 + Mention 下拉
+- [x] 21. 会话列表增强 + Mention 下拉
 
   **What to do**:
   - 增强 `SessionPanel.kt`:

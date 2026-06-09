@@ -36,6 +36,7 @@ import com.swarmeditor.desktop.ui.navigation.EnhancedTopBar
 import com.swarmeditor.desktop.ui.navigation.RailNavigation
 import com.swarmeditor.desktop.ui.session.SessionPanel
 import com.swarmeditor.desktop.ui.settings.SettingsModal
+import com.swarmeditor.desktop.ui.dialog.AgentConfigDialog
 import com.swarmeditor.desktop.ui.session.RightPanel
 import com.swarmeditor.desktop.ui.session.ChatArea
 import com.swarmeditor.desktop.viewmodel.AgentViewModel
@@ -46,6 +47,8 @@ import com.swarmeditor.desktop.viewmodel.SkillViewModel
 import com.swarmeditor.desktop.viewmodel.MainViewModel
 import com.swarmeditor.desktop.ui.agents.AgentOrchestrationView
 import com.swarmeditor.desktop.ui.plugins.PluginCenterView
+import com.swarmeditor.desktop.ui.activity.ActivityLogView
+import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.api.AgentDto
 
 data class AgentInfo(
@@ -146,7 +149,8 @@ fun App() {
                 currentSessionId = currentSessionId,
                 onSelectSession = { sessionVm.selectSession(it) },
                 onCreateSession = { sessionVm.createSession(selectedAgent.id) },
-                modifier = Modifier.width(260.dp).fillMaxHeight()
+                modifier = Modifier.width(260.dp).fillMaxHeight(),
+                agents = agents
             )
 
             // Center content + Right panel
@@ -157,7 +161,10 @@ fun App() {
                             selectedAgent = selectedAgent, messages = messages, isSending = isSending,
                             inputText = inputText, onInputChange = { inputText = it },
                             onSend = { sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
-                            modifier = Modifier.weight(1f).fillMaxHeight()
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            agents = agents,
+                            onMcpClick = { mainVm.switchView("plugins") },
+                            onSkillClick = { mainVm.switchView("plugins") }
                         )
                     }
                     "agents" -> {
@@ -176,14 +183,12 @@ fun App() {
                         )
                     }
                     "files" -> {
-                        Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
-                            Text("Files View", color = Tx, fontSize = 18.sp)
-                        }
+                        FileExplorerView(modifier = Modifier.weight(1f).fillMaxHeight())
                     }
                     "activity" -> {
-                        Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
-                            Text("Activity View", color = Tx, fontSize = 18.sp)
-                        }
+                        ActivityLogView(
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
                     }
                 }
 
@@ -208,6 +213,11 @@ fun App() {
 
     if (showSettings) {
         SettingsModal(agents = agents.ifEmpty { listOf(selectedAgent) }, settingsVm = settingsVm, onClose = { showSettings = false })
+    }
+
+    val showAgentConfig by mainVm.showAgentConfig.collectAsState()
+    if (showAgentConfig != null) {
+        AgentConfigDialog(agentId = showAgentConfig, onDismiss = { mainVm.dismissAgentConfigDialog() })
     }
 
     CommandPalette(

@@ -226,3 +226,152 @@
 
 ### Build Verification
 - `./gradlew :desktopApp:build` — PASS
+
+## Task 21: Session List Enhancements + Mention Dropdown
+
+### Key Decisions
+- `UiSession` extended with `createdAt: Long = System.currentTimeMillis()` and `messageCount: Int = 0` — both defaulted for backward compatibility, no changes needed at existing call sites
+- Date grouping uses `java.time.LocalDate` / `java.time.Instant` / `ZoneId.systemDefault()` for UTC-to-local conversion
+- `groupByDate()` helper returns `List<DateGroup>` with labels: 今天/昨天/本周/更早
+- `relativeTime()` returns human-readable strings: 刚刚/N分钟前/N小时前/昨天/N天前/N周前
+- Search uses `BasicTextField` instead of static `Text` — overlays placeholder text with `if (searchQuery.isEmpty()) Text(...)` pattern
+- Hover actions on session cards: 🗑 delete + 📦 archive shown on `hovered || isActive` state
+- Agent avatar in session: 18dp `CircleShape` with `agentColor.copy(alpha = 0.15f)` bg + emoji
+- Task count badge: 16dp `CircleShape` with `Ac.copy(alpha = 0.2f)` bg, shows "9+" for counts ≥ 10
+- `SessionPanel` new param `agents: List<AgentInfo> = emptyList()` for avatar display — falls back to `listOf(selectedAgent)` if empty
+
+### MentionDropdown
+- `MentionDropdown` in `ui/chat/MentionDropdown.kt` — standalone composable
+- Takes `agents`, `filter`, `onSelect`, `onDismiss` params
+- Uses `LazyColumn` with `itemsIndexed` for agent list — max 5 items visible (5 × 36dp)
+- Keyboard nav: `onPreviewKeyEvent` handles Up/Down/Enter/Escape on the Column container
+- Selection highlight: `Surface2` background on selected item
+- `mutableIntStateOf` for selectedIndex to avoid boxing
+- `LaunchedEffect(selectedIndex)` calls `animateScrollToItem` to keep selection visible
+- Filter applied client-side: `agents.filter { it.name.contains(filter, ignoreCase = true) }`
+
+### ChatArea Composer Enhancements
+- New params: `agents`, `onMcpClick: () -> Unit`, `onSkillClick: () -> Unit` — all with defaults
+- Chip buttons row above text input: 📎 附件 (placeholder), 🔧 MCP (→ plugins view), ⚡ Skill (→ plugins view)
+- `ChipButton` composable: `Surface2` bg + `Bd` border + `RoundedCornerShape(6.dp)` + `clickable`
+- Token count: `inputText.length / 4` estimate, displayed as "N tokens" in Tx3, 10sp at right of chips row
+- Mention integration: tracks `mentionStartIndex` and `mentionFilter` state, shows `MentionDropdown` when "@" typed
+- Mention selection: replaces "@filter" substring with "@AgentName " in input text
+
+### App.kt Updates
+- `SessionPanel` call: added `agents = agents` param
+- `ChatArea` call: added `agents = agents`, `onMcpClick = { mainVm.switchView("plugins") }`, `onSkillClick = { mainVm.switchView("plugins") }`
+
+### Build Verification
+- `./gradlew :desktopApp:build` — PASS
+
+## Task 19: Activity Log View (Archive Tree + Event Timeline)
+
+### Key Decisions
+- `ActivityLogView` is self-contained — loads sessions via `ApiClient.getSessions()`, builds archive tree client-side
+- No separate ViewModel needed — all state is `remember { mutableStateOf }` inside the composable
+- `ArchiveTree` uses `mutableStateMapOf<String, Boolean>()` for expand state with keys like "2024", "2024-06", "2024-06-09"
+- Auto-expands current year and month on first render via `if (expandState.isEmpty())` guard
+- Event type classification done client-side via keyword matching in message content: "mcp"/"tool_call" → mcp, "write"/".kt" → file, "gradlew"/"command" → cmd
+- `ActivityService` in backend created but not yet wired to REST API — desktop reads directly from ApiClient sessions endpoint
+
+### ArchiveTree Design
+- 3-level collapsible: Year → Month → Day → Session items
+- Each tree node: `TreeNodeRow` composable with ▼/▶ arrow + label + count badge (Pr circle)
+- "今天" badge: purple chip next to today's day node
+- Session items show agent icon (first letter in PrD box) + title + agent + relative time
+- Selected session highlighted with Surface2 background + Ac text color
+- Relative time formatting uses `java.time.Duration.between()` for human-readable strings
+
+### EventTimeline Design
+- Vertical line connecting colored dots: mcp=Gn, file=Pr, cmd=Ac, message=Tx2
+- Each entry: dot → time (Tx3 mono) → actor chip (colored) → action text → detail (Tx3 mono)
+- Session stats bar at top: Row of `StatChip` composables (duration/events/token/agent)
+- Filter chips: 全部/MCP/文件/命令 — client-side filtering
+
+### Pre-existing Issue Fixed
+- `MentionDropdown.kt` had `String.contains(filter, ignoreCase = true)` causing Kotlin 2.3 type inference failure
+- Fixed by using `it.name.lowercase().contains(filter.lowercase())` instead
+
+### Backend ActivityService
+- Mirrors `SessionStore` pattern: reads `sessions/*.json` files, parses with `kotlinx.serialization`
+- Returns `ArchiveData(years: List<YearNode>)` → `YearNode → MonthNode → DayNode → SessionSummary`
+- `SessionSummary` includes `events: List<ActivityEvent>` parsed from messages
+- Uses `kotlinx.datetime.Instant` + `toLocalDateTime` for date grouping (has deprecation warnings for `monthNumber`/`dayOfMonth`)
+- Not yet wired to REST routes — exists for future direct-call architecture
+
+### Files Created
+- `desktopApp/src/main/kotlin/.../ui/activity/ActivityLogView.kt` — Main view composable
+- `desktopApp/src/main/kotlin/.../ui/activity/ArchiveTree.kt` — Collapsible year/month/day tree
+- `desktopApp/src/main/kotlin/.../ui/activity/EventTimeline.kt` — Event timeline component
+- `backend/src/main/kotlin/.../service/ActivityService.kt` — Session data extraction service
+
+### Build Verification
+- `./gradlew :backend:build` — PASS (deprecation warnings for kotlinx.datetime APIs)
+- `./gradlew :desktopApp:build` — PASS
+
+### SettingsModal Changes
+- Replaced horizontal Row tab bar with sidebar layout (130dp sidebar + scrollable body)
+- 7 tabs: agent / mcp / skills / general / appearance / shortcuts / about
+- Active tab: 2dp Ac left bar indicator + Ac colored text
+- Modal dimensions: 760dp × 520dp (was 720dp auto-height)
+- Footer moved inside Column with Bg background for cleaner visual separation
+
+### New Tabs
+- **通用 (General)**: Working directory input, default Agent selector (agent chips row), startup toggles (auto-connect, restore session)
+- **外观 (Appearance)**: 3 theme preset cards (深色/浅色/系统) with AcD bg for selected, font size placeholders
+- **快捷键 (Shortcuts)**: LazyColumn with `ShortcutItem` data class, key combo chips in Bg3 bg with Ac text, "只读" badge
+- **关于 (About)**: Centered layout with SE logo box, version, tech stack info table, GitHub link
+
+### AgentConfigDialog
+- Standalone overlay at `ui/dialog/AgentConfigDialog.kt`, 480dp width, RoundedCornerShape(12dp)
+- Header: agent color circle (CircleShape, 0.15f alpha bg) + name + version chip + status chip ("未连接") + close ✕
+- Form: ACP Command, Config Path, API Key (password dots) — `ConfigFieldRow` composable
+- Footer: Cancel (bordered) + Save (Ac bg) buttons
+- `AGENT_PRESETS` map provides default values per agent ID (acpCommand, configPath, version, emoji, color)
+- Wired in App.kt: `val showAgentConfig by mainVm.showAgentConfig.collectAsState()`, renders when non-null
+
+### App.kt Integration
+- Added import `com.swarmeditor.desktop.ui.dialog.AgentConfigDialog`
+- Also fixed pre-existing missing import `com.swarmeditor.desktop.ui.files.FileExplorerView`
+- AgentConfigDialog rendered after SettingsModal block in the root Box overlay area
+
+### Pre-existing Bugs Fixed
+- `MentionDropdown.kt`: Missing `Color` import caused `Unresolved reference 'Color'` — added explicit import
+- `MentionDropdown.kt`: `with(LocalDensity)` block with dp arithmetic caused type mismatch — replaced with `heightIn(max = 180.dp)` + added `heightIn` import
+- `App.kt`: Missing `FileExplorerView` import — added
+
+### Import Gotchas
+- `LazyColumn` + `items` require `import androidx.compose.foundation.lazy.items` for the items extension
+- `CircleShape` requires `import androidx.compose.foundation.shape.CircleShape`
+- `Arrangement.spacedBy` requires `import androidx.compose.foundation.layout.Arrangement`
+- `heightIn` requires `import androidx.compose.foundation.layout.heightIn`
+
+### ToggleChip Pattern
+- Simple toggle indicator: 32×18dp rounded box with 14dp circle inside
+- Uses `Alignment.CenterEnd` / `Alignment.CenterStart` for knob position based on state
+- `CircleShape` for the inner knob
+
+### Build Verification
+- `./gradlew :desktopApp:build` — PASS
+- Demo data fallback: if API returns blank-name root, generates a mock tree with 3 modules + files
+- Split layout: `Row` with 280.dp file tree on left, weighted content placeholder on right
+- `FileTreeView` is recursive — takes `depth` parameter for indentation (16.dp per level)
+- Expand/collapse state managed via `mutableStateMapOf<String, Boolean>()` keyed by directory path
+- Filter chips (全部/仅变更) toggle `filterChangesOnly` — recursive `hasChanges()` check skips subtrees with no changes
+- File colors by extension: .kt/.json=Gd, .md=Tx, .toml/.yaml=Ac, .xml/.html=Or, else=Tx2
+- Change badges: "M" (Gd bg 0.12f) for modified, "N" (Gn bg 0.12f) for new
+- Selected file: Bg3 background + Ac border simulation
+- Stats cards: 3 cards in Row (total=Ac, modified=Gd, new=Gn) — use `Surface2` bg
+- Children sorted: directories first, then alphabetical
+
+### Pre-existing Issue Fixed
+- `SettingsModal.kt` referenced `GeneralTab`/`AppearanceTab`/`ShortcutsTab`/`AboutTab` that didn't exist at that point — they were defined later in the same file (duplicated stubs were conflicting). Removed duplicate stub definitions.
+
+### Directory Structure
+- New: `ui/files/FileExplorerView.kt` — main view composable
+- New: `ui/files/FileTreeView.kt` — collapsible tree component
+- Modified: `App.kt` — "files" branch now calls `FileExplorerView(modifier = ...)`
+
+### Build Verification
+- `./gradlew :desktopApp:build` — PASS
