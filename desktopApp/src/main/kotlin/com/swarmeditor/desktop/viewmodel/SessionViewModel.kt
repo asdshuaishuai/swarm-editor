@@ -1,13 +1,25 @@
 package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.desktop.api.ApiClient
+import com.swarmeditor.desktop.ui.chat.CodeCardData
+import com.swarmeditor.desktop.ui.chat.ToolCardData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-data class UiMessage(val id: String, val isUser: Boolean, val text: String, val activities: List<UiActivity> = emptyList())
+data class UiMessage(
+    val id: String,
+    val isUser: Boolean,
+    val text: String,
+    val activities: List<UiActivity> = emptyList(),
+    val toolCards: List<ToolCardData> = emptyList(),
+    val codeCards: List<CodeCardData> = emptyList(),
+    val isThinking: Boolean = false,
+    val role: String? = null
+)
+
 data class UiActivity(val icon: String, val label: String, val detail: String, val isOk: Boolean = false)
 
 data class UiSession(val id: String, val agentId: String, val title: String, val isActive: Boolean)

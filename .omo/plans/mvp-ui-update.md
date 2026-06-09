@@ -466,7 +466,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Command palette (Cmd+K)`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/common/CommandPalette.kt`
 
-- [ ] 14. Agent 编排台视图 + Swarm 可视化
+- [x] 14. Agent 编排台视图 + Swarm 可视化
 
   **What to do**:
   - 创建 `AgentOrchestrationView.kt`:
@@ -545,7 +545,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Agent orchestration view with Swarm visualization`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/agents/`
 
-- [ ] 15. 插件中心视图
+- [x] 15. 插件中心视图
 
   **What to do**:
   - 创建 `PluginCenterView.kt`:
@@ -631,7 +631,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Plugin center view with MCP/Skill detail pages`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/plugins/`
 
-- [ ] 16. Chat 增强 — ToolCard + CodeCard + ThinkingIndicator
+- [x] 16. Chat 增强 — ToolCard + CodeCard + ThinkingIndicator
 
   **What to do**:
   - 创建 `ToolCard.kt`:
@@ -711,7 +711,7 @@ Wave FINAL (验证):
   - Message: `feat(desktop): Chat enhancements - ToolCard, CodeCard, ThinkingIndicator`
   - Files: `desktopApp/src/main/kotlin/com/swarmeditor/desktop/ui/chat/`
 
-- [ ] 17. 右侧面板增强 — 变更管理 + Inspector + Log
+- [x] 17. 右侧面板增强 — 变更管理 + Inspector + Log
 
   **What to do**:
   - 重写 `RightPanel.kt`:

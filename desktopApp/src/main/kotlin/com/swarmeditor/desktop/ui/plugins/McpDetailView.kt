@@ -1,0 +1,538 @@
+package com.swarmeditor.desktop.ui.plugins
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.swarmeditor.desktop.api.McpServerDto
+import com.swarmeditor.desktop.theme.*
+
+private val DetailTabs = listOf("Details", "Tools", "Configuration", "Changelog")
+
+@Composable
+fun McpDetailView(
+    server: McpServerDto,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val selectedTab = remember { mutableIntStateOf(0) }
+    val accent = accentFor(server.name)
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Back button row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "← 返回",
+                color = Ac,
+                fontSize = 12.sp,
+                fontFamily = MonoFont,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+
+        // Hero section
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+        ) {
+            // 84px icon
+            Box(
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(accent.copy(alpha = 0.15f))
+                    .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = server.name.take(1).uppercase(),
+                    color = accent,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = server.name,
+                        color = Tx,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    StatusChip(text = "active", color = Gn)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = server.id,
+                    color = Tx3,
+                    fontSize = 11.sp,
+                    fontFamily = MonoFont
+                )
+                Spacer(Modifier.height(6.dp))
+                if (server.rating > 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 12.sp, fontFamily = MonoFont)
+                        Spacer(Modifier.width(6.dp))
+                        Text("(${server.ratingCount})", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+                if (server.description.isNotEmpty()) {
+                    Text(
+                        text = server.description,
+                        color = Tx2,
+                        fontSize = 13.sp,
+                        maxLines = 3,
+                        overflow = Ellipsis,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        // Action buttons row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ActionButton(text = "⟳ 重启", color = Ac)
+            ActionButton(text = "⎘ 复制配置", color = Tx2)
+            ActionButton(text = "✕ 卸载", color = Rd)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Tab headers
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+        ) {
+            DetailTabs.forEachIndexed { index, tab ->
+                val isActive = selectedTab.intValue == index
+                Column(
+                    modifier = Modifier
+                        .clickable { selectedTab.intValue = index }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = tab,
+                        color = if (isActive) Ac else Tx3,
+                        fontSize = 13.sp,
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(2.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(if (isActive) Ac else Color.Transparent)
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Tab content + side panel
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+        ) {
+            // Main content area
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(end = 16.dp)
+            ) {
+                when (selectedTab.intValue) {
+                    0 -> McpDetailsTab(server)
+                    1 -> McpToolsTab(server)
+                    2 -> McpConfigTab(server)
+                    3 -> McpChangelogTab(server)
+                }
+            }
+
+            // Side info panel (only for Details tab)
+            if (selectedTab.intValue == 0) {
+                McpSidePanel(server)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        fontFamily = MonoFont,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = 0.06f))
+            .clickable { /* placeholder */ }
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
+private fun McpDetailsTab(server: McpServerDto) {
+    if (server.description.isNotEmpty()) {
+        SectionTitle("Description")
+        Text(
+            text = server.description,
+            color = Tx2,
+            fontSize = 13.sp,
+            lineHeight = 19.sp
+        )
+        Spacer(Modifier.height(16.dp))
+    }
+    if (server.command.isNotEmpty()) {
+        SectionTitle("Command")
+        Text(
+            text = server.command,
+            color = Ac,
+            fontSize = 12.sp,
+            fontFamily = MonoFont,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Bg2)
+                .padding(10.dp)
+        )
+        Spacer(Modifier.height(16.dp))
+    }
+    if (server.args.isNotEmpty()) {
+        SectionTitle("Arguments")
+        server.args.forEach { arg ->
+            Text(
+                text = arg,
+                color = Tx2,
+                fontSize = 12.sp,
+                fontFamily = MonoFont,
+                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+    if (server.url.isNotEmpty()) {
+        SectionTitle("URL")
+        Text(
+            text = server.url,
+            color = Ac,
+            fontSize = 12.sp,
+            fontFamily = MonoFont
+        )
+        Spacer(Modifier.height(16.dp))
+    }
+    if (server.tags.isNotEmpty()) {
+        SectionTitle("Tags")
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            server.tags.forEach { tag ->
+                StatusChip(text = tag, color = Pr)
+            }
+        }
+    }
+}
+
+@Composable
+private fun McpToolsTab(server: McpServerDto) {
+    if (server.tools.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No tools available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+        }
+        return
+    }
+
+    SectionTitle("Tools (${server.tools.size})")
+    Spacer(Modifier.height(8.dp))
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        server.tools.forEach { tool ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Bg2)
+                    .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = tool.name,
+                        color = Tx,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = MonoFont
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (tool.params.any { it.required }) {
+                        StatusChip(text = "req", color = Or)
+                    }
+                }
+                if (tool.description.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = tool.description,
+                        color = Tx2,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+                if (tool.params.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Parameters:", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont)
+                    Spacer(Modifier.height(4.dp))
+                    tool.params.forEach { param ->
+                        Row(
+                            modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = param.name,
+                                color = Ac,
+                                fontSize = 11.sp,
+                                fontFamily = MonoFont
+                            )
+                            if (param.required) {
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "required",
+                                    color = Or,
+                                    fontSize = 9.sp,
+                                    fontFamily = MonoFont,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Or.copy(alpha = 0.12f))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun McpConfigTab(server: McpServerDto) {
+    if (server.command.isNotEmpty()) {
+        SectionTitle("Command")
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Bg2)
+                .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                .padding(12.dp)
+        ) {
+            Text(
+                text = buildString {
+                    append(server.command)
+                    server.args.forEach { append(" "); append(it) }
+                },
+                color = Ac,
+                fontSize = 12.sp,
+                fontFamily = MonoFont
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+
+    if (server.env.isNotEmpty()) {
+        SectionTitle("Environment Variables")
+        Spacer(Modifier.height(6.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg2)
+                .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row {
+                Text("Key", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, modifier = Modifier.weight(1f))
+                Text("Value", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, modifier = Modifier.weight(2f))
+            }
+            server.env.forEach { (key, value) ->
+                Row {
+                    Text(key, color = Ac, fontSize = 11.sp, fontFamily = MonoFont, modifier = Modifier.weight(1f))
+                    Text(value, color = Tx2, fontSize = 11.sp, fontFamily = MonoFont, modifier = Modifier.weight(2f))
+                }
+            }
+        }
+    }
+
+    if (server.command.isEmpty() && server.env.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No configuration available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+        }
+    }
+}
+
+@Composable
+private fun McpChangelogTab(server: McpServerDto) {
+    if (server.updated.isNotEmpty()) {
+        SectionTitle("Last Updated")
+        Text(
+            text = server.updated,
+            color = Tx2,
+            fontSize = 12.sp,
+            fontFamily = MonoFont
+        )
+        Spacer(Modifier.height(12.dp))
+    }
+    if (server.published.isNotEmpty()) {
+        SectionTitle("Published")
+        Text(
+            text = server.published,
+            color = Tx2,
+            fontSize = 12.sp,
+            fontFamily = MonoFont
+        )
+        Spacer(Modifier.height(12.dp))
+    }
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("Changelog not available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+    }
+}
+
+@Composable
+private fun McpSidePanel(server: McpServerDto) {
+    Column(
+        modifier = Modifier
+            .width(220.dp)
+            .fillMaxHeight()
+            .verticalScroll(rememberScrollState())
+            .clip(RoundedCornerShape(10.dp))
+            .background(Bg2)
+            .border(1.dp, Bd, RoundedCornerShape(10.dp))
+            .padding(14.dp)
+    ) {
+        SidePanelRow("Identifier", server.id)
+        SidePanelRow("Type", server.type)
+        if (server.repository.isNotEmpty()) {
+            SidePanelRow("Repository", server.repository)
+        }
+        if (server.categories.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text("Categories", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                server.categories.forEach { cat ->
+                    StatusChip(text = cat, color = Pr)
+                }
+            }
+        }
+        if (server.agents.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Authorized Agents", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            server.agents.forEach { agent ->
+                Text(
+                    text = "• $agent",
+                    color = Tx2,
+                    fontSize = 11.sp,
+                    fontFamily = MonoFont,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                )
+            }
+        }
+        if (server.enabledAgents.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Enabled Agents", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            server.enabledAgents.filter { it.value }.keys.forEach { agent ->
+                StatusChip(text = agent, color = Gn)
+                Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidePanelRow(label: String, value: String) {
+    Text(label, color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(2.dp))
+    Text(
+        text = value,
+        color = Tx2,
+        fontSize = 11.sp,
+        fontFamily = MonoFont,
+        maxLines = 3,
+        overflow = Ellipsis
+    )
+    Spacer(Modifier.height(10.dp))
+}
+
+@Composable
+private fun SectionTitle(title: String) {
+    Text(
+        text = title,
+        color = Tx,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    Spacer(Modifier.height(6.dp))
+}

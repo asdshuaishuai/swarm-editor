@@ -35,6 +35,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.chat.CodeCard
+import com.swarmeditor.desktop.ui.chat.ThinkingIndicator
+import com.swarmeditor.desktop.ui.chat.ToolCard
 import com.swarmeditor.desktop.viewmodel.UiActivity
 import com.swarmeditor.desktop.viewmodel.UiMessage
 
@@ -58,7 +61,15 @@ fun ChatArea(
             }
             messages.forEach { msg ->
                 if (msg.isUser) UserMessage(msg.text)
-                else AssistantMessage(selectedAgent.name, msg.text.ifEmpty { null }, msg.activities)
+                else AssistantMessage(
+                    sender = selectedAgent.name,
+                    text = msg.text.ifEmpty { null },
+                    activities = msg.activities,
+                    toolCards = msg.toolCards,
+                    codeCards = msg.codeCards,
+                    isThinking = msg.isThinking,
+                    role = msg.role
+                )
                 Spacer(Modifier.height(18.dp))
             }
             if (isSending) {
@@ -67,7 +78,7 @@ fun ChatArea(
                         Text("C", color = Ac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.width(12.dp))
-                    Text("思考中...", color = Tx3, fontSize = 13.sp, fontFamily = MonoFont)
+                    ThinkingIndicator()
                 }
             }
         }
@@ -133,7 +144,15 @@ private fun UserMessage(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(sender: String, text: String?, activities: List<UiActivity>) {
+private fun AssistantMessage(
+    sender: String,
+    text: String?,
+    activities: List<UiActivity>,
+    toolCards: List<com.swarmeditor.desktop.ui.chat.ToolCardData>,
+    codeCards: List<com.swarmeditor.desktop.ui.chat.CodeCardData>,
+    isThinking: Boolean,
+    role: String?
+) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Box(modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(AcD), contentAlignment = Alignment.Center) {
             Text("C", color = Ac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -142,7 +161,53 @@ private fun AssistantMessage(sender: String, text: String?, activities: List<UiA
         Column(modifier = Modifier.weight(1f)) {
             Text(sender, color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, letterSpacing = 0.5.sp)
             Spacer(Modifier.height(4.dp))
+
+            // Role tag
+            if (role != null) {
+                val tagColor = when (role.uppercase()) {
+                    "AGENT" -> Ac
+                    "REVIEWING" -> Pr
+                    else -> Ac
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(tagColor.copy(alpha = 0.12f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        role.uppercase(),
+                        color = tagColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = MonoFont,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+
             if (text != null && text.isNotEmpty()) Text(text, color = Tx, fontSize = 14.sp, lineHeight = 22.sp)
+
+            // Thinking indicator
+            if (isThinking) {
+                if (text != null && text.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                ThinkingIndicator(text = "正在审查")
+            }
+
+            // Tool cards
+            toolCards.forEachIndexed { index, card ->
+                Spacer(Modifier.height(8.dp))
+                ToolCard(card = card, defaultExpanded = index == 0)
+            }
+
+            // Code cards
+            codeCards.forEach { card ->
+                Spacer(Modifier.height(8.dp))
+                CodeCard(card = card)
+            }
+
+            // Activities
             activities.forEach { act ->
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(7.dp)).background(Surface2).padding(horizontal = 10.dp, vertical = 6.dp),

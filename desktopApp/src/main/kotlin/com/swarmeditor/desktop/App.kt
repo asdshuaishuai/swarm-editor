@@ -44,6 +44,9 @@ import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.McpViewModel
 import com.swarmeditor.desktop.viewmodel.SkillViewModel
 import com.swarmeditor.desktop.viewmodel.MainViewModel
+import com.swarmeditor.desktop.ui.agents.AgentOrchestrationView
+import com.swarmeditor.desktop.ui.plugins.PluginCenterView
+import com.swarmeditor.desktop.api.AgentDto
 
 data class AgentInfo(
     val id: String, val name: String, val emoji: String, val color: Color,
@@ -158,14 +161,19 @@ fun App() {
                         )
                     }
                     "agents" -> {
-                        Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
-                            Text("Agents View", color = Tx, fontSize = 18.sp)
-                        }
+                        AgentOrchestrationView(
+                            agents = emptyList(),
+                            onConfigClick = { mainVm.showAgentConfigDialog(it.config.id) },
+                            onAddAgent = { mainVm.showToast("Add Agent clicked") },
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
                     }
                     "plugins" -> {
-                        Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
-                            Text("Plugins View", color = Tx, fontSize = 18.sp)
-                        }
+                        PluginCenterView(
+                            mcpServers = mcpServers,
+                            skills = skills,
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
                     }
                     "files" -> {
                         Box(Modifier.weight(1f).fillMaxHeight().background(Bg), contentAlignment = Alignment.Center) {
