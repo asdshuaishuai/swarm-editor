@@ -35,6 +35,12 @@
 - 全局 Service 实例（Main.kt 中的 `val`）需要评估线程安全性
 - bidirectional config sync 有数据源一致性风险
 
+### Claude Code 优先策略（用户补充）
+- **当前阶段只验证 Claude Code 的端到端流程**，其他 Agent（Qwen/Kimi/Gemini/OpenCode）后续扩展
+- ClaudeCodeAdapter 已实现最完整（detect、native config I/O、MCP I/O、Provider presets）
+- Service 层调用逻辑（MCP 同步、Skills 同步）全部缺失，先验证 Claude Code 路径
+- 其他 Agent 适配器已存在，同步逻辑通用（通过 AgentAdapter 接口），扩展成本低
+
 ---
 
 ## Work Objectives
@@ -60,11 +66,11 @@
 ### Must Have
 - 嵌入式架构迁移完成
 - 官方 ACP SDK 集成
-- MCP → Agent 同步
-- Skills → Agent 同步
-- 流式消息输出
+- **MCP → Claude Code 同步**（先验证 Claude Code，其他 Agent 后续）
+- **Skills → Claude Code 同步**（先验证 Claude Code，其他 Agent 后续）
+- 流式消息输出（**先用 Claude Code 验证**）
 - 项目级 Skills 支持
-- 后端测试覆盖
+- 后端测试覆盖（**ClaudeCodeAdapter 优先**）
 
 ### Must NOT Have (Guardrails)
 - ❌ 不修改任何 UI Composable 函数（视觉组件冻结）
@@ -403,7 +409,7 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - `McpService.upsert(config)` 在保存到 `~/.swarm-editor/mcp-servers.json` 后，遍历 `enabledAgents` 中 enabled=true 的 Agent，调用对应 `AgentAdapter.writeMcpConfig()`
   - `McpService.delete(id)` 同样触发同步（从 Agent 配置中移除）
   - 添加 `McpService.syncToAgent(agentId)` 单独同步方法
-  - 处理格式差异：Claude（`~/.claude.json`，标准格式）vs Qwen（`~/.qwen/settings.json`，无 type 字段，HTTP 用 httpUrl）
+  - **Claude Code 优先**：先验证 Claude Code 的 `~/.claude.json` 同步正确，其他 Agent 的格式差异（Qwen 无 type 字段等）后续扩展
 
   **Must NOT do**:
   - 不改 McpStore 的存储逻辑（只加同步触发）
@@ -472,6 +478,7 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - 方案 B（备选）：调用 AgentAdapter.writeNativeConfig 修改 skills 配置（如果 Agent 支持）
   - 实现全局 Skills 仓库初始化：`~/.swarm-editor/skills/{name}/SKILL.md`（如不存在则创建）
   - SkillScanner 增加扫描 `~/.swarm-editor/skills/`（当前只扫描 Agent 目录，需要修正）
+  - **Claude Code 优先**：先验证 `~/.claude/skills/` 的符号链接同步，其他 Agent 后续扩展
 
   **Must NOT do**:
   - 不改 UI（T11 处理 ViewModel 调用）
@@ -560,9 +567,10 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - `backend/src/main/kotlin/.../agent/AgentAdapter.kt:26-33` — read/write native config 接口
 
   **Acceptance Criteria**:
-  - [ ] `AgentRegistry.scan()` 后，agents.json 包含 native config 中的 env/args 等字段
-  - [ ] `AgentService.saveConfig()` 后，native config 和 agents.json 一致
+  - [ ] `AgentRegistry.scan()` 后，agents.json 包含 Claude Code native config 中的 env 字段（ANTHROPIC_MODEL、ANTHROPIC_API_KEY 等）
+  - [ ] `AgentService.saveConfig()` 后，Claude Code 的 `~/.claude/settings.json` 和 agents.json 一致
   - [ ] 手动修改 `~/.claude/settings.json` 后重新 scan，agents.json 反映最新值
+  - [ ] **其他 Agent 暂不要求**（Qwen/Kimi/Gemini/OpenCode 后续扩展）
 
   **QA Scenarios**:
   ```
@@ -738,6 +746,7 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - [ ] `SessionService.sendMessage(sessionId, text)` 返回 Flow<String>（或等效流式接口）
   - [ ] 流结束时完整消息保存到 SessionStore
   - [ ] 如果 Agent 未连接，返回错误 Flow（非阻塞）
+  - [ ] **先用 Claude Code 验证流式输出**（连接 Claude → 发送消息 → 看到实时打字机效果）
 
   **QA Scenarios**:
   ```
@@ -957,6 +966,7 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - [ ] `backend/src/test/kotlin/.../service/AgentServiceTest.kt` 存在
   - [ ] `./gradlew :backend:test --tests "AgentServiceTest"` PASS
   - [ ] 覆盖率 >= 60%（AgentService 公共方法）
+  - [ ] **Claude Code 优先**：测试覆盖 Claude Code 的 connect/disconnect/scan 路径
 
   **QA Scenarios**:
   ```
@@ -1055,9 +1065,10 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
   - T6 输出：SkillService 同步逻辑
 
   **Acceptance Criteria**:
-  - [ ] `McpSyncTest`：upsert 后验证 mock Agent 目录中的 JSON 内容
-  - [ ] `SkillSyncTest`：toggleAgent 后验证符号链接存在/不存在
+  - [ ] `McpSyncTest`：upsert 后验证 `~/.claude.json` 同步更新（Claude Code 优先）
+  - [ ] `SkillSyncTest`：toggleAgent 后验证 `~/.claude/skills/` 符号链接存在/不存在（Claude Code 优先）
   - [ ] `./gradlew :backend:test` PASS
+  - [ ] **其他 Agent 的格式差异测试后续扩展**
 
   **QA Scenarios**:
   ```
@@ -1228,7 +1239,7 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
 ```bash
 # 1. 嵌入式运行（无需后端服务）
 ./gradlew :desktopApp:run
-# Expected: 桌面应用启动，不报错，能连接 Agent
+# Expected: 桌面应用启动，不报错，能连接 Claude Code
 
 # 2. 构建通过
 ./gradlew build
@@ -1238,17 +1249,19 @@ Critical Path: T1 → T2 → T8 → T10 → T11 → T17 → F1-F4 → user okay
 ./gradlew :backend:test
 # Expected: 所有测试 PASS
 
-# 4. 单机验证（模拟完整流程）
-# 扫描 Agent → 连接 Claude → 创建会话 → 发送消息 → 看到流式回复
+# 4. Claude Code 端到端验证（单机运行）
+# 扫描 Agent → 连接 Claude Code → 创建会话 → 发送消息 → 看到流式回复
 # 添加 MCP Server → 验证 ~/.claude.json 同步更新
 # 启用 Skill → 验证 ~/.claude/skills/ 符号链接存在
+# 修改 Claude Code 配置 → 验证 ~/.claude/settings.json 和 agents.json 一致
 ```
 
 ### Final Checklist
 - [ ] `./gradlew :desktopApp:run` 不依赖 localhost:8080
 - [ ] `./gradlew build` BUILD SUCCESSFUL
 - [ ] `./gradlew :backend:test` 全部通过
-- [ ] MCP 修改同步到 Agent 原生配置（验证文件系统）
-- [ ] Skills 修改同步到 Agent 原生配置（验证文件系统）
-- [ ] 消息发送后有流式输出（非完整响应一次性出现）
-- [ ] 零 UI Composable 文件被修改（视觉组件冻结验证）
+- [ ] **Claude Code MCP 同步**：修改 MCP 后 `~/.claude.json` 同步更新（验证文件系统）
+- [ ] **Claude Code Skills 同步**：启用 Skill 后 `~/.claude/skills/` 符号链接存在（验证文件系统）
+- [ ] **Claude Code 配置同步**：修改配置后 `~/.claude/settings.json` 和 agents.json 一致
+- [ ] **Claude Code 流式输出**：发送消息后看到实时打字机效果（非完整响应一次性出现）
+- [ ] **其他 Agent 暂不要求**（Qwen/Kimi/Gemini/OpenCode 后续扩展）
