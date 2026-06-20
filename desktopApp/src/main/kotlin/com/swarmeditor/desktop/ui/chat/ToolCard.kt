@@ -32,7 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
@@ -139,8 +144,7 @@ fun ToolCard(
                         .padding(10.dp, 12.dp)
                 ) {
                     Text(
-                        card.output,
-                        color = Tx2,
+                        toolOutputAnnotated(card.output),
                         fontSize = 12.sp,
                         fontFamily = CodeFont,
                         lineHeight = 18.sp
@@ -176,6 +180,18 @@ fun ToolCard(
                 Spacer(Modifier.width(8.dp))
                 Text(card.resultDuration, color = Tx3, fontSize = 11.5.sp, fontFamily = SansFont)
             }
+        }
+    }
+}
+
+/** 工具输出按行着色：→ 结果行蓝(#93c5fd)，$ 命令行灰，其余默认。对齐核心稿 .tool-body */
+private fun toolOutputAnnotated(output: String): AnnotatedString = buildAnnotatedString {
+    output.split('\n').forEachIndexed { i, line ->
+        if (i > 0) append('\n')
+        when {
+            line.startsWith("→") -> withStyle(SpanStyle(color = Color(0xFF93c5fd))) { append(line) }
+            line.startsWith("$") -> withStyle(SpanStyle(color = Tx3)) { append(line) }
+            else -> append(line)
         }
     }
 }

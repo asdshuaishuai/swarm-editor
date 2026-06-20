@@ -6,11 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,18 +22,16 @@ import com.swarmeditor.desktop.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * 三个依次闪烁的点（对齐核心稿 .thinking <i>×3，blink 动画）。
+ * 纯内联，无容器底色；可选 text 显示在点之后。
+ */
 @Composable
 fun ThinkingIndicator(
-    text: String = "正在审查",
+    text: String = "",
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(RR))
-            .background(Glass2)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
             val opacity = remember { Animatable(0.3f) }
             LaunchedEffect(Unit) {
@@ -55,7 +51,9 @@ fun ThinkingIndicator(
             )
             if (index < 2) Spacer(Modifier.width(3.dp))
         }
-        Spacer(Modifier.width(8.dp))
-        Text(text, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+        if (text.isNotEmpty()) {
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+        }
     }
 }

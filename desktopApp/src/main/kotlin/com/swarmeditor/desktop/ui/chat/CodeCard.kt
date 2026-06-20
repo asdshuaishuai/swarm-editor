@@ -165,6 +165,11 @@ fun CodeCard(
                     DiffLineType.DEL -> Rd.withAlpha(0.7f)
                     else -> Tx
                 }
+                val lineNumColor = when (line.type) {
+                    DiffLineType.ADD -> OkLight
+                    DiffLineType.DEL -> ErrLight
+                    DiffLineType.CONTEXT -> Tx3
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -175,7 +180,7 @@ fun CodeCard(
                     // Old line number (left)
                     Text(
                         text = line.oldLineNum?.toString()?.padStart(oldLineNumWidth) ?: "",
-                        color = Tx3,
+                        color = lineNumColor,
                         fontSize = 10.sp,
                         fontFamily = CodeFont
                     )
@@ -183,7 +188,7 @@ fun CodeCard(
                     // New line number (right)
                     Text(
                         text = line.newLineNum?.toString()?.padStart(newLineNumWidth) ?: "",
-                        color = Tx3,
+                        color = lineNumColor,
                         fontSize = 10.sp,
                         fontFamily = CodeFont
                     )
@@ -194,7 +199,7 @@ fun CodeCard(
                         DiffLineType.DEL -> "-"
                         DiffLineType.CONTEXT -> " "
                     }
-                    Text(marker, color = Tx3, fontSize = 10.sp, fontFamily = CodeFont)
+                    Text(marker, color = lineNumColor, fontSize = 10.sp, fontFamily = CodeFont)
                     Spacer(Modifier.width(6.dp))
                     // Content with syntax highlighting
                     Text(

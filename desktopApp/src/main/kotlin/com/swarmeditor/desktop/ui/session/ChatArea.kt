@@ -458,11 +458,16 @@ private fun AssistantMessage(
             }
             Spacer(Modifier.height(6.dp))
 
-            if (text != null && text.isNotEmpty()) AnnotatedText(text, color = Tx, fontSize = 13.5.sp)
-
-            if (isThinking) {
-                if (text != null && text.isNotEmpty()) Spacer(Modifier.height(8.dp))
-                ThinkingIndicator(text = "Reviewing...")
+            // 对齐核心稿：文本 + 内联闪烁点（同一行）；纯思考态只显示点
+            if (text != null && text.isNotEmpty() && isThinking) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AnnotatedText(text, color = Tx2, fontSize = 13.5.sp)
+                    Spacer(Modifier.width(6.dp))
+                    ThinkingIndicator()
+                }
+            } else {
+                if (text != null && text.isNotEmpty()) AnnotatedText(text, color = Tx, fontSize = 13.5.sp)
+                if (isThinking) ThinkingIndicator()
             }
 
             toolCards.forEachIndexed { index, card ->

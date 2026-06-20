@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.theme.*
 
-private val DetailTabs = listOf("Details", "Tools", "Configuration", "Changelog")
+private val DetailTabs = listOf("详情", "工具", "配置", "更新日志")
 
 @Composable
 fun McpDetailView(
@@ -142,7 +142,7 @@ fun McpDetailView(
         ) {
             ActionButton(text = "⟳ 重启", color = Ac)
             ActionButton(text = "⎘ 复制配置", color = Tx2)
-            ActionButton(text = "Remove", color = Rd)
+            ActionButton(text = "删除", color = Rd)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -231,7 +231,7 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
 @Composable
 private fun McpDetailsTab(server: McpServerDto) {
     if (server.description.isNotEmpty()) {
-        SectionTitle("Description")
+        SectionTitle("描述")
         Text(
             text = server.description,
             color = Tx2,
@@ -241,7 +241,7 @@ private fun McpDetailsTab(server: McpServerDto) {
         Spacer(Modifier.height(16.dp))
     }
     if (server.command.isNotEmpty()) {
-        SectionTitle("Command")
+        SectionTitle("命令")
         Text(
             text = server.command,
             color = Ac,
@@ -256,7 +256,7 @@ private fun McpDetailsTab(server: McpServerDto) {
         Spacer(Modifier.height(16.dp))
     }
     if (server.args.isNotEmpty()) {
-        SectionTitle("Arguments")
+        SectionTitle("参数")
         server.args.forEach { arg ->
             Text(
                 text = arg,
@@ -279,7 +279,7 @@ private fun McpDetailsTab(server: McpServerDto) {
         Spacer(Modifier.height(16.dp))
     }
     if (server.tags.isNotEmpty()) {
-        SectionTitle("Tags")
+        SectionTitle("标签")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             server.tags.forEach { tag ->
                 StatusChip(text = tag, color = AgentClaude)
@@ -295,12 +295,12 @@ private fun McpToolsTab(server: McpServerDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No tools available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text("暂无工具", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
 
-    SectionTitle("Tools (${server.tools.size})")
+    SectionTitle("工具 (${server.tools.size})")
     Spacer(Modifier.height(8.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -337,7 +337,7 @@ private fun McpToolsTab(server: McpServerDto) {
                 }
                 if (tool.params.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Parameters:", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
+                    Text("参数：", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                     Spacer(Modifier.height(4.dp))
                     tool.params.forEach { param ->
                         Row(
@@ -374,7 +374,7 @@ private fun McpToolsTab(server: McpServerDto) {
 @Composable
 private fun McpConfigTab(server: McpServerDto) {
     if (server.command.isNotEmpty()) {
-        SectionTitle("Command")
+        SectionTitle("命令")
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -397,7 +397,7 @@ private fun McpConfigTab(server: McpServerDto) {
     }
 
     if (server.env.isNotEmpty()) {
-        SectionTitle("Environment Variables")
+        SectionTitle("环境变量")
         Spacer(Modifier.height(6.dp))
         Column(
             modifier = Modifier
@@ -409,8 +409,8 @@ private fun McpConfigTab(server: McpServerDto) {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row {
-                Text("Key", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(1f))
-                Text("Value", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(2f))
+                Text("键", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(1f))
+                Text("值", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(2f))
             }
             server.env.forEach { (key, value) ->
                 Row {
@@ -426,7 +426,7 @@ private fun McpConfigTab(server: McpServerDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No configuration available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text("暂无配置", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
     }
 }
@@ -434,7 +434,7 @@ private fun McpConfigTab(server: McpServerDto) {
 @Composable
 private fun McpChangelogTab(server: McpServerDto) {
     if (server.updated.isNotEmpty()) {
-        SectionTitle("Last Updated")
+        SectionTitle("最后更新")
         Text(
             text = server.updated,
             color = Tx2,
@@ -444,7 +444,7 @@ private fun McpChangelogTab(server: McpServerDto) {
         Spacer(Modifier.height(12.dp))
     }
     if (server.published.isNotEmpty()) {
-        SectionTitle("Published")
+        SectionTitle("发布日期")
         Text(
             text = server.published,
             color = Tx2,
@@ -457,7 +457,7 @@ private fun McpChangelogTab(server: McpServerDto) {
         modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text("Changelog not available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+        Text("暂无更新日志", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
     }
 }
 
@@ -473,14 +473,14 @@ private fun McpSidePanel(server: McpServerDto) {
             .border(1.dp, Line, RoundedCornerShape(R8))
             .padding(14.dp)
     ) {
-        SidePanelRow("Identifier", server.id)
-        SidePanelRow("Type", server.type)
+        SidePanelRow("标识符", server.id)
+        SidePanelRow("类型", server.type)
         if (server.repository.isNotEmpty()) {
-            SidePanelRow("Repository", server.repository)
+            SidePanelRow("仓库", server.repository)
         }
         if (server.categories.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
-            Text("Categories", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("分类", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 server.categories.forEach { cat ->
@@ -490,7 +490,7 @@ private fun McpSidePanel(server: McpServerDto) {
         }
         if (server.agents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("Authorized Agents", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("授权 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.agents.forEach { agent ->
                 Text(
@@ -504,7 +504,7 @@ private fun McpSidePanel(server: McpServerDto) {
         }
         if (server.enabledAgents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("Enabled Agents", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("已启用 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.enabledAgents.filter { it.value }.keys.forEach { agent ->
                 StatusChip(text = agent, color = Gn)

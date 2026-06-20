@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
 
-private val SkillTabs = listOf("Overview", "Structure", "Agents", "Usage")
+private val SkillTabs = listOf("概览", "结构", "Agent", "使用")
 
 @Composable
 fun SkillDetailView(
@@ -174,7 +174,7 @@ fun SkillDetailView(
 @Composable
 private fun SkillOverviewTab(skill: SkillDto) {
     if (skill.description.isNotEmpty()) {
-        SkillSectionTitle("Description")
+        SkillSectionTitle("描述")
         Text(
             text = skill.description,
             color = Tx2,
@@ -184,7 +184,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
         Spacer(Modifier.height(16.dp))
     }
 
-    SkillSectionTitle("Source")
+    SkillSectionTitle("来源")
     Text(
         text = skill.source,
         color = Ac,
@@ -193,7 +193,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
     )
     Spacer(Modifier.height(16.dp))
 
-    SkillSectionTitle("Scope")
+    SkillSectionTitle("作用域")
     Text(
         text = skill.scope,
         color = Tx2,
@@ -203,7 +203,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
     Spacer(Modifier.height(16.dp))
 
     if (skill.path.isNotEmpty()) {
-        SkillSectionTitle("Path")
+        SkillSectionTitle("路径")
         Text(
             text = skill.path,
             color = Tx2,
@@ -220,7 +220,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
     }
 
     if (skill.tags.isNotEmpty()) {
-        SkillSectionTitle("Tags")
+        SkillSectionTitle("标签")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             skill.tags.forEach { tag ->
                 StatusChip(text = tag, color = Pr)
@@ -236,12 +236,12 @@ private fun SkillStructureTab(skill: SkillDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No file structure available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text("暂无文件结构", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
 
-    SkillSectionTitle("File Location")
+    SkillSectionTitle("文件位置")
     Text(
         text = skill.path,
         color = Ac,
@@ -256,7 +256,7 @@ private fun SkillStructureTab(skill: SkillDto) {
     Spacer(Modifier.height(16.dp))
 
     // Tree-like directory display (simulated from path)
-    SkillSectionTitle("Directory Tree")
+    SkillSectionTitle("目录树")
     Spacer(Modifier.height(6.dp))
     Column(
         modifier = Modifier
@@ -289,12 +289,12 @@ private fun SkillAgentsTab(skill: SkillDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No agents linked to this skill", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text("暂无关联 Agent", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
 
-    SkillSectionTitle("Linked Agents (${skill.enabledAgents.size})")
+    SkillSectionTitle("关联 Agent (${skill.enabledAgents.size})")
     Spacer(Modifier.height(8.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -343,7 +343,7 @@ private fun SkillAgentsTab(skill: SkillDto) {
     Spacer(Modifier.height(16.dp))
 
     // Call stats placeholder
-    SkillSectionTitle("Call Statistics")
+    SkillSectionTitle("调用统计")
     Spacer(Modifier.height(6.dp))
     Row(
         modifier = Modifier
@@ -354,15 +354,15 @@ private fun SkillAgentsTab(skill: SkillDto) {
             .padding(14.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        StatBlock(label = "Total Calls", value = "—")
-        StatBlock(label = "Success Rate", value = "—")
-        StatBlock(label = "Avg Latency", value = "—")
+        StatBlock(label = "总调用", value = "—")
+        StatBlock(label = "成功率", value = "—")
+        StatBlock(label = "平均延迟", value = "—")
     }
 }
 
 @Composable
 private fun SkillUsageTab(skill: SkillDto) {
-    SkillSectionTitle("Usage Instructions")
+    SkillSectionTitle("使用说明")
     Spacer(Modifier.height(6.dp))
     if (skill.description.isNotEmpty()) {
         Text(
@@ -374,7 +374,7 @@ private fun SkillUsageTab(skill: SkillDto) {
     }
     Spacer(Modifier.height(16.dp))
 
-    SkillSectionTitle("Quick Reference")
+    SkillSectionTitle("快速参考")
     Spacer(Modifier.height(6.dp))
     Column(
         modifier = Modifier
@@ -385,16 +385,16 @@ private fun SkillUsageTab(skill: SkillDto) {
             .padding(12.dp)
     ) {
         InfoRow("Skill ID", skill.id)
-        InfoRow("Source", skill.source)
-        InfoRow("Scope", skill.scope)
+        InfoRow("来源", skill.source)
+        InfoRow("作用域", skill.scope)
         if (skill.path.isNotEmpty()) {
-            InfoRow("Path", skill.path)
+            InfoRow("路径", skill.path)
         }
     }
     Spacer(Modifier.height(16.dp))
 
     if (skill.enabledAgents.isNotEmpty()) {
-        SkillSectionTitle("Compatible Agents")
+        SkillSectionTitle("兼容 Agent")
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             skill.enabledAgents.filter { it.value }.keys.forEach { agent ->
