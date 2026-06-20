@@ -6,20 +6,20 @@ import androidx.compose.ui.graphics.Color
    Swarm Editor — Design System Colors (from MVP mockup)
    ═══════════════════════════════════════════════════════════════ */
 
-// Backgrounds
-val Bg0 = Color(0xFF07080c)      // Deepest background
-val Bg1 = Color(0xFF0b0d14)      // Secondary bg
-val Bg2 = Color(0xFF11141d)      // Card / input bg
-val Bg3 = Color(0xFF161a25)      // Hover / highlight bg
+// Backgrounds — 深色分层（越深越靠后，营造深度感）
+val Bg0 = Color(0xFF060709)      // 最深背景（app 底）
+val Bg1 = Color(0xFF0a0b11)      // 侧栏/面板底（比 Bg0 稍亮，与卡片拉开层次）
+val Bg2 = Color(0xFF12151e)      // 卡片/输入框底
+val Bg3 = Color(0xFF1a1f2c)      // hover/高亮底（足够亮，反馈明显）
 
-// Lines / Borders
-val Line = Color(0xFF1f2430)     // Primary divider
-val Line2 = Color(0xFF2a3040)    // Hover divider
+// Lines / Borders — 分隔线层次
+val Line = Color(0xFF1e2330)     // 主分隔线
+val Line2 = Color(0xFF2b3142)    // hover 分隔线
 
-// Text
-val Tx = Color(0xFFe6e8ef)       // Primary text
-val Tx2 = Color(0xFF9aa3b8)      // Secondary text
-val Tx3 = Color(0xFF5c6478)      // Tertiary / muted text
+// Text — 三级文字层次（对比度递减）
+val Tx = Color(0xFFf0f1f6)       // 主文字（更亮，可读性优）
+val Tx2 = Color(0xFF9aa3b8)      // 次文字
+val Tx3 = Color(0xFF6b7388)      // 弱化/标签文字（稍亮，减少疲劳）
 
 // Accent (purple)
 val Ac = Color(0xFFa78bfa)         // Primary accent
