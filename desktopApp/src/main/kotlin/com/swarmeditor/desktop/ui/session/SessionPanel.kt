@@ -3,13 +3,16 @@ package com.swarmeditor.desktop.ui.session
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,6 +21,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.Source
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -77,11 +88,11 @@ private fun relativeTime(createdAt: Long): String {
     val diff = now - createdAt
     return when {
         diff < 60_000L -> "刚刚"
-        diff < 3_600_000L -> "${diff / 60_000L}分钟前"
-        diff < 86_400_000L -> "${diff / 3_600_000L}小时前"
+        diff < 3_600_000L -> "${diff / 60_000L} 分钟前"
+        diff < 86_400_000L -> "${diff / 3_600_000L} 小时前"
         diff < 172_800_000L -> "昨天"
-        diff < 604_800_000L -> "${diff / 86_400_000L}天前"
-        else -> "${diff / 604_800_000L}周前"
+        diff < 604_800_000L -> "${diff / 86_400_000L} 天前"
+        else -> "${diff / 604_800_000L} 周前"
     }
 }
 
@@ -98,9 +109,9 @@ fun SessionPanel(
     var searchQuery by remember { mutableStateOf("") }
     val allAgents = if (agents.isEmpty()) listOf(selectedAgent) else agents
 
-    Column(modifier = modifier.width(260.dp).background(Glass).border(1.dp, Bd)) {
-        // 上半部：会话
-        Column(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Bd)) {
+    Column(modifier = modifier.width(260.dp).background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
+        // Top: Sessions
+        Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp, 12.dp, 12.dp, 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -112,30 +123,36 @@ fun SessionPanel(
                         .clickable(onClick = onCreateSession),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("＋", color = Tx3, fontSize = 15.sp)
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "New",
+                        tint = Tx3,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
-            // Search box — functional BasicTextField
+            // Search box
             Box(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-                    .border(1.dp, Bd, RoundedCornerShape(8.dp)).background(Surface2)
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                modifier = Modifier.fillMaxWidth().padding(6.dp)
+                    .border(1.dp, Line, RoundedCornerShape(7.dp))
+                    .background(Bg3.copy(alpha = 0.5f))
+                    .padding(horizontal = 9.dp, vertical = 6.dp)
             ) {
                 if (searchQuery.isEmpty()) {
-                    Text("搜索会话...", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+                    Text("搜索会话…", color = Tx3, fontSize = 11.5.sp, fontFamily = SansFont)
                 }
                 BasicTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(color = Tx, fontSize = 12.sp, fontFamily = MonoFont),
+                    textStyle = TextStyle(color = Tx, fontSize = 11.5.sp, fontFamily = SansFont),
                     cursorBrush = SolidColor(Ac),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // Session list with date grouping
+            // Session list
             Column(
                 modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(6.dp)
             ) {
@@ -144,21 +161,19 @@ fun SessionPanel(
 
                 if (filtered.isEmpty()) {
                     Text(
-                        if (searchQuery.isNotBlank()) "无匹配会话" else "暂无会话",
-                        color = Tx3, fontSize = 11.sp, fontFamily = MonoFont,
+                        if (searchQuery.isNotBlank()) "无匹配结果" else "暂无会话",
+                        color = Tx3, fontSize = 11.sp, fontFamily = SansFont,
                         modifier = Modifier.padding(12.dp)
                     )
                 } else {
                     val groups = groupByDate(filtered)
                     groups.forEach { group ->
-                        // Date group label
                         Text(
-                            group.label.uppercase(),
+                            group.label,
                             color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                            fontFamily = MonoFont, letterSpacing = 0.8.sp,
-                            modifier = Modifier.padding(10.dp, 10.dp, 10.dp, 4.dp)
+                            fontFamily = SansFont, letterSpacing = 0.6.sp,
+                            modifier = Modifier.padding(8.dp, 10.dp, 10.dp, 4.dp)
                         )
-                        // Sessions in this group
                         group.sessions.forEach { session ->
                             SessionCard(
                                 session = session,
@@ -168,52 +183,6 @@ fun SessionPanel(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // 下半部：项目
-        Column(modifier = Modifier.fillMaxWidth().border(1.dp, Bd).padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("项目", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                Box(modifier = Modifier.size(26.dp).clip(RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-                    Text("📂", color = Tx3, fontSize = 15.sp)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Surface2)
-                    .border(1.dp, Bd, RoundedCornerShape(8.dp)).padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("📁", fontSize = 18.sp)
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text("swarm-editor", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text("~/code/swarm-editor", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Row {
-                Row(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Surface)
-                        .border(1.dp, Bd, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("●", color = Gn, fontSize = 11.sp, fontFamily = MonoFont)
-                    Spacer(Modifier.width(5.dp))
-                    Text("main", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
-                }
-                Spacer(Modifier.width(5.dp))
-                Row(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Surface)
-                        .border(1.dp, Bd, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("⇄", color = Ac, fontSize = 11.sp, fontFamily = MonoFont)
-                    Spacer(Modifier.width(5.dp))
-                    Text("0 worktrees", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
                 }
             }
         }
@@ -229,49 +198,76 @@ private fun SessionCard(
 ) {
     val agent = agents.find { it.id == session.agentId }
     val agentName = agent?.name ?: session.agentId
-    val agentEmoji = agent?.emoji ?: "⚪"
+    val agentLetter = agent?.letter ?: "?"
     val agentColor = agent?.color ?: Tx3
-    val bg = if (isActive) Surface else Color.Transparent
-    var hovered by remember { mutableStateOf(false) }
+    val bg = if (isActive) Ac.withAlpha(0.08f) else Color.Transparent
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val hoverBg = if (isHovered && !isActive) Bg3.copy(alpha = 0.6f) else Color.Transparent
 
     Box(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(hoverBg)
+            .then(
+                if (isActive) Modifier.border(1.dp, Ac.withAlpha(0.2f), RoundedCornerShape(8.dp))
+                    .background(Ac.withAlpha(0.08f))
+                else Modifier
+            )
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 onClick = onSelect
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            // Agent avatar: 18dp circle
+            // Agent avatar with status dot
             Box(
-                modifier = Modifier.size(18.dp).clip(CircleShape)
-                    .background(agentColor.copy(alpha = 0.15f)),
+                modifier = Modifier.size(26.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(agentEmoji, fontSize = 8.sp)
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(agentColor.withAlpha(0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(agentLetter, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+                // Status dot (bottom-right, 9px, border 2px Bg1)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 2.dp, y = 2.dp)
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(if (agent?.isConnected == true) OkLight else ErrLight)
+                        .border(2.dp, Bg1, CircleShape)
+                )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             // Content
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         session.title,
-                        color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                        color = Tx, fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
-                    // Task count badge
+                    // Message count badge
                     if (session.messageCount > 0) {
                         Box(
-                            modifier = Modifier.size(16.dp).clip(CircleShape).background(Ac.copy(alpha = 0.2f)),
+                            modifier = Modifier.size(18.dp).clip(CircleShape).background(Ac.withAlpha(0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 if (session.messageCount < 10) "${session.messageCount}" else "9+",
                                 color = Ac, fontSize = 8.sp, fontWeight = FontWeight.Bold,
-                                fontFamily = MonoFont
+                                fontFamily = SansFont
                             )
                         }
                     }
@@ -279,31 +275,45 @@ private fun SessionCard(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     "$agentName · ${relativeTime(session.createdAt)}",
-                    color = Tx3, fontSize = 10.sp, fontFamily = MonoFont
+                    color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont
                 )
             }
         }
 
         // Hover actions: delete + archive
-        if (hovered || isActive) {
+        if (isHovered || isActive) {
             Row(
                 modifier = Modifier.align(Alignment.CenterEnd).padding(start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp))
+                        .background(Bg1.copy(alpha = 0.95f))
+                        .border(1.dp, Line, RoundedCornerShape(4.dp))
                         .clickable { /* TODO: delete session */ },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("🗑", fontSize = 10.sp)
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete",
+                        tint = Tx3,
+                        modifier = Modifier.size(12.dp)
+                    )
                 }
                 Spacer(Modifier.width(2.dp))
                 Box(
                     modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp))
+                        .background(Bg1.copy(alpha = 0.95f))
+                        .border(1.dp, Line, RoundedCornerShape(4.dp))
                         .clickable { /* TODO: archive session */ },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("📦", fontSize = 10.sp)
+                    Icon(
+                        imageVector = Icons.Filled.Archive,
+                        contentDescription = "Archive",
+                        tint = Tx3,
+                        modifier = Modifier.size(12.dp)
+                    )
                 }
             }
         }

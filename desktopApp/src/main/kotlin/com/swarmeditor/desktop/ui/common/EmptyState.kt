@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.swarmeditor.desktop.theme.MonoFont
+import com.swarmeditor.desktop.theme.SansFont
 import com.swarmeditor.desktop.theme.Tx3
 
 @Composable
@@ -26,10 +26,10 @@ fun EmptyState(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(icon, fontSize = 32.sp)
             Spacer(Modifier.height(8.dp))
-            Text(title, color = Tx3, fontSize = 13.sp, fontFamily = MonoFont, textAlign = TextAlign.Center)
+            Text(title, color = Tx3, fontSize = 13.sp, fontFamily = SansFont, textAlign = TextAlign.Center)
             if (subtitle.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(subtitle, color = Tx3.copy(alpha = 0.6f), fontSize = 11.sp, fontFamily = MonoFont, textAlign = TextAlign.Center)
+                Text(subtitle, color = Tx3.copy(alpha = 0.6f), fontSize = 11.sp, fontFamily = SansFont, textAlign = TextAlign.Center)
             }
         }
     }

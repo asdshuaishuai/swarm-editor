@@ -2,6 +2,9 @@ package com.swarmeditor.desktop.ui.files
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,8 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +50,7 @@ private fun fileColor(name: String) = when {
  * @param expanded  map of path → is-expanded state (directory expand/collapse)
  * @param selectedPath  currently selected file path (null = none selected)
  * @param onSelectFile  callback when a file (not directory) is clicked
+ * @param onToggleDir  callback when a directory row is clicked
  * @param filterChangesOnly  if true, only show files with non-null changeStatus
  * @param depth     indentation depth for recursive rendering
  */
@@ -72,16 +81,18 @@ fun FileTreeView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(
-                text = if (isExpanded) "📂" else "📁",
-                fontSize = 13.sp
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = "Folder",
+                modifier = Modifier.size(16.dp),
+                tint = Tx2
             )
             Text(
                 text = tree.name,
                 color = Tx,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace
+                fontFamily = SansFont
             )
             if (hasChildren) {
                 Text(
@@ -110,17 +121,24 @@ fun FileTreeView(
     } else {
         // File node
         val isSelected = tree.path == selectedPath
-        val bgColor = if (isSelected) Surface2 else androidx.compose.ui.graphics.Color.Transparent
-        val borderColor = if (isSelected) Ac.copy(alpha = 0.4f) else androidx.compose.ui.graphics.Color.Transparent
+        val borderColor = if (isSelected) Ac.withAlpha(0.4f) else androidx.compose.ui.graphics.Color.Transparent
+        val hoverInteraction = remember { MutableInteractionSource() }
+        val hovered by hoverInteraction.collectIsHoveredAsState()
+        val rowBg = when {
+            isSelected -> Bg3
+            hovered -> Bg3.copy(alpha = 0.5f)
+            else -> androidx.compose.ui.graphics.Color.Transparent
+        }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .hoverable(hoverInteraction)
                 .clip(RoundedCornerShape(4.dp))
-                .background(bgColor)
+                .background(rowBg)
                 .then(
                     if (isSelected) Modifier.clip(RoundedCornerShape(4.dp))
-                        .background(borderColor.copy(alpha = 0.08f))
+                        .background(borderColor.withAlpha(0.08f))
                     else Modifier
                 )
                 .clickable { onSelectFile(tree) }
@@ -128,12 +146,17 @@ fun FileTreeView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(text = "📄", fontSize = 12.sp)
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                contentDescription = "File",
+                modifier = Modifier.size(14.dp),
+                tint = Tx2
+            )
             Text(
                 text = tree.name,
                 color = fileColor(tree.name),
                 fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = SansFont
             )
             // Change status badge
             when (tree.changeStatus) {
@@ -144,7 +167,7 @@ fun FileTreeView(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(3.dp))
-                        .background(Gd.copy(alpha = 0.12f))
+                        .background(Gd.withAlpha(0.12f))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
                 "new" -> Text(
@@ -154,7 +177,7 @@ fun FileTreeView(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(3.dp))
-                        .background(Gn.copy(alpha = 0.12f))
+                        .background(Gn.withAlpha(0.12f))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }

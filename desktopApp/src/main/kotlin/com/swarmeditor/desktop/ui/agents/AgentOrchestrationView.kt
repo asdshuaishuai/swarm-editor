@@ -3,22 +3,23 @@ package com.swarmeditor.desktop.ui.agents
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,8 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,15 +41,13 @@ import com.swarmeditor.desktop.api.AgentStatsDto
 import com.swarmeditor.desktop.theme.*
 
 /**
- * Agent Orchestration View — main composable for the "agents" tab.
+ * Agent Orchestration View — aligned with mvp-design-mockup.html
  *
  * Layout:
- *  1. Title bar: "Agent 编排台" + agent count badge + "添加 Agent" button
- *  2. SwarmVisualization canvas area (fixed height)
- *  3. "在线 Agents" section — AgentCard list for connected/disconnected agents
- *  4. "待安装" section — placeholder cards for not-yet-installed agents
- *
- * Does NOT modify App.kt — the orchestrator will wire this in later.
+ *  1. Chat-topbar style header: icon + title/subtitle + "+ 添加 Agent" button
+ *  2. SwarmVisualization (120dp height)
+ *  3. "在线 Agents" section — full-width AgentCard list
+ *  4. "待安装" section — full-width AgentCard list
  */
 @Composable
 fun AgentOrchestrationView(
@@ -64,42 +63,41 @@ fun AgentOrchestrationView(
         loadedAgents = agents
     }
 
-    // Default demo data when no agents are loaded
     val displayAgents = loadedAgents.ifEmpty {
         listOf(
             AgentDto(
                 config = AgentConfigDto("claude-code", "Claude Code", "Anthropic 旗舰编码助手", "claude", agentType = "claude"),
                 status = "connected",
-                version = "1.0.3",
-                description = "Anthropic 旗舰编码助手，支持 ACP 协议",
-                stats = AgentStatsDto(tasks = 142, successRate = 0.97, avgLatency = "1.2s")
+                version = "1.2.3",
+                description = "官方 Anthropic 命令行 Agent。擅长代码重构、系统设计与深度分析。",
+                stats = AgentStatsDto(tasks = 47, successRate = 0.98, avgLatency = "24ms")
             ),
             AgentDto(
                 config = AgentConfigDto("qwencode", "QwenCode", "通义灵码编码助手", "qwen", agentType = "qwen"),
-                status = "connected",
-                version = "0.9.1",
-                description = "通义灵码编码助手",
-                stats = AgentStatsDto(tasks = 89, successRate = 0.94, avgLatency = "0.8s")
+                status = "disconnected",
+                version = "0.8.1",
+                description = "阿里通义千问。中文理解强，适合文档/测试生成。",
+                stats = AgentStatsDto(tasks = 12, successRate = 0.89, avgLatency = "")
             ),
             AgentDto(
                 config = AgentConfigDto("gemini-cli", "Gemini CLI", "Google Gemini 命令行工具", "gemini", agentType = "gemini"),
-                status = "disconnected",
-                version = "0.1.0",
-                description = "Google Gemini 命令行工具",
-                stats = AgentStatsDto(tasks = 23, successRate = 0.91, avgLatency = "2.1s")
-            ),
-            AgentDto(
-                config = AgentConfigDto("kimi-code", "Kimi Code", "Moonshot 编码助手", "kimi", agentType = "kimi"),
-                status = "disconnected",
+                status = "not_installed",
                 version = "",
-                description = "Moonshot 编码助手",
+                description = "Google Gemini 命令行 Agent。多模态能力强。",
                 stats = AgentStatsDto()
             ),
             AgentDto(
-                config = AgentConfigDto("opencode", "OpenCode", "开源编码 Agent", "opencode", agentType = "opencode"),
+                config = AgentConfigDto("kimi-code", "Kimi Code", "Moonshot Kimi 命令行工具", "kimi", agentType = "kimi"),
                 status = "not_installed",
                 version = "",
-                description = "开源编码 Agent — 尚未安装",
+                description = "Moonshot Kimi。超长上下文处理能力。",
+                stats = AgentStatsDto()
+            ),
+            AgentDto(
+                config = AgentConfigDto("opencode", "OpenCode", "OpenCode 开源 Agent", "opencode", agentType = "opencode"),
+                status = "not_installed",
+                version = "",
+                description = "OpenCode 开源 Agent。可定制性高。",
                 stats = AgentStatsDto()
             )
         )
@@ -107,205 +105,156 @@ fun AgentOrchestrationView(
 
     val onlineAgents = displayAgents.filter { it.status != "not_installed" }
     val pendingAgents = displayAgents.filter { it.status == "not_installed" }
-    val onlineCount = displayAgents.count { it.status == "connected" }
+    val onlineCount = onlineAgents.size
+    val totalCount = displayAgents.size
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Glass)
+            .background(Bg0)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp)
     ) {
-        // ── Title bar ────────────────────────────────────────────────
+        // ── Top bar (chat-topbar style) ─────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Bg1)
+                .border(1.dp, Line)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Agent 编排台",
-                color = Tx,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-
+            // Icon
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(Ac.withAlpha(0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = "Agents",
+                    tint = Ac,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
             Spacer(Modifier.width(10.dp))
-
-            // Agent count badge
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Ac.copy(alpha = 0.12f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
+            Column {
                 Text(
-                    "${displayAgents.size} Agents",
-                    color = Ac,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = FontFamily.Monospace
+                    "Agent 编排台",
+                    color = Tx,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "$totalCount 个 Agent · $onlineCount 在线 · ${pendingAgents.size} 待安装",
+                    color = Tx3,
+                    fontSize = 12.sp
                 )
             }
-
-            Spacer(Modifier.width(8.dp))
-
-            // Online count
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .width(6.dp)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Gn)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    "$onlineCount 在线",
-                    color = Gn,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
             Spacer(Modifier.weight(1f))
-
-            // Refresh button
+            // + 添加 Agent button
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(RR))
-                    .background(Surface2)
-                    .border(1.dp, Bd, RoundedCornerShape(RR))
-                    .clickable(onClick = onRefresh)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    "Scan",
-                    color = Tx2,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            Spacer(Modifier.width(8.dp))
-
-            // Add Agent button
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Ac.copy(alpha = 0.15f))
-                    .border(1.dp, Ac.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Brush.linearGradient(listOf(Ac, Ac2)))
                     .clickable(onClick = onAddAgent)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
                 Text(
                     "+ 添加 Agent",
-                    color = Ac,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-
-        // ── Swarm Visualization ──────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp)
-                .clip(RoundedCornerShape(RR2))
-                .background(Glass)
-                .border(1.dp, Bd, RoundedCornerShape(RR2))
-        ) {
-            SwarmVisualization(
-                agents = displayAgents,
-                onNodeClick = onConfigClick,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // ── Online Agents section ────────────────────────────────────
-        SectionHeader(title = "在线 Agents", count = onlineAgents.size)
-
-        Spacer(Modifier.height(10.dp))
-
-        if (onlineAgents.isEmpty()) {
-            EmptySection("暂无在线 Agent，点击 Scan 扫描本地安装")
-        } else {
-            // 2-column grid via Rows
-            onlineAgents.chunked(2).forEach { rowAgents ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    rowAgents.forEachIndexed { idxInRow, agent ->
-                        // Find the original index in displayAgents for color/letter mapping
-                        val colorIdx = displayAgents.indexOf(agent).coerceAtLeast(0)
-                        AgentCard(
-                            agent = agent,
-                            colorIndex = colorIdx,
-                            onConfigClick = { onConfigClick(agent) },
-                            modifier = Modifier.weight(1f)
+        // ── Scrollable content ─────────────────────────────────────
+        Column(modifier = Modifier.padding(24.dp, 20.dp, 24.dp, 20.dp)) {
+            // Swarm Visualization
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Ac.withAlpha(0.1f), Color.Transparent),
+                            center = androidx.compose.ui.geometry.Offset(0.5f, 0.5f),
+                            radius = 0.7f
                         )
-                    }
-                    // Pad last row if odd count
-                    if (rowAgents.size < 2) {
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── Pending Install section ──────────────────────────────────
-        SectionHeader(title = "待安装", count = pendingAgents.size)
-
-        Spacer(Modifier.height(10.dp))
-
-        if (pendingAgents.isEmpty()) {
-            EmptySection("所有已知 Agent 均已安装")
-        } else {
-            pendingAgents.forEachIndexed { idx, agent ->
-                val colorIdx = displayAgents.indexOf(agent).coerceAtLeast(0)
-                AgentCard(
-                    agent = agent,
-                    colorIndex = colorIdx,
-                    onConfigClick = { onConfigClick(agent) },
-                    modifier = Modifier.fillMaxWidth()
+                    )
+                    .background(Bg0.withAlpha(0.5f))
+                    .border(1.dp, Line, RoundedCornerShape(11.dp))
+            ) {
+                SwarmVisualization(
+                    agents = displayAgents,
+                    onNodeClick = onConfigClick,
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(Modifier.height(10.dp))
             }
-        }
 
-        // Bottom spacer for scroll comfort
-        Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
+
+            // ── Online Agents ────────────────────────────────────────
+            SectionLabel("在线 Agents", onlineAgents.size)
+            Spacer(Modifier.height(10.dp))
+
+            if (onlineAgents.isEmpty()) {
+                EmptySection("暂无在线 Agent，点击 Scan 扫描本地安装")
+            } else {
+                onlineAgents.forEachIndexed { idx, agent ->
+                    val colorIdx = displayAgents.indexOf(agent).coerceAtLeast(0)
+                    AgentCard(
+                        agent = agent,
+                        colorIndex = colorIdx,
+                        onConfigClick = { onConfigClick(agent) }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // ── Pending Install ──────────────────────────────────────
+            SectionLabel("待安装", pendingAgents.size)
+            Spacer(Modifier.height(10.dp))
+
+            if (pendingAgents.isEmpty()) {
+                EmptySection("所有已知 Agent 均已安装")
+            } else {
+                pendingAgents.forEachIndexed { idx, agent ->
+                    val colorIdx = displayAgents.indexOf(agent).coerceAtLeast(0)
+                    AgentCard(
+                        agent = agent,
+                        colorIndex = colorIdx,
+                        onConfigClick = { onConfigClick(agent) }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+        }
     }
 }
 
 @Composable
-private fun SectionHeader(title: String, count: Int) {
+private fun SectionLabel(title: String, count: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             title.uppercase(),
             color = Tx3,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = 0.8.sp
+            letterSpacing = 0.6.sp
         )
         Spacer(Modifier.width(8.dp))
         Text(
             "($count)",
             color = Tx3,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace
+            fontSize = 10.5.sp
         )
     }
 }
@@ -315,17 +264,16 @@ private fun EmptySection(text: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Glass)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Bg2)
+            .border(1.dp, Line, RoundedCornerShape(8.dp))
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text,
             color = Tx3,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace
+            fontSize = 12.sp
         )
     }
 }

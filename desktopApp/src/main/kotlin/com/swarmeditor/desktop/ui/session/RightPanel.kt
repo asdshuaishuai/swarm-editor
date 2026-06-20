@@ -24,6 +24,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
@@ -135,7 +139,7 @@ private val PLACEHOLDER_LOGS = listOf(
 
 // ── Extension chip color helper ──────────────────────────────────────────
 private fun extColor(ext: String): Color = when (ext) {
-    "kt", "json", "kts" -> Gd
+    "kt", "json", "kts" -> AgentKimi
     "md" -> Tx
     "toml", "yaml", "yml" -> Ac
     else -> Tx2
@@ -143,7 +147,7 @@ private fun extColor(ext: String): Color = when (ext) {
 
 private fun logDotColor(type: String): Color = when (type) {
     "mcp" -> Gn
-    "file" -> Pr
+    "file" -> AgentClaude
     "cmd" -> Ac
     else -> Tx3
 }
@@ -162,7 +166,7 @@ fun RightPanel(
     gitStatus: GitStatusDto = GitStatusDto(),
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.width(320.dp).background(Glass2).border(1.dp, Bd)) {
+    Column(modifier = modifier.width(320.dp).background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         // ── Tab header row ───────────────────────────────────────────────
         TabHeader(currentTab, onTabChange)
 
@@ -181,34 +185,31 @@ fun RightPanel(
 
 @Composable
 private fun TabHeader(currentTab: String, onTabChange: (String) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().border(1.dp, Bd)) {
+    Row(modifier = Modifier.fillMaxWidth().border(1.dp, Line)) {
         TABS.forEach { (id, label) ->
             val isActive = currentTab == id
-            Box(
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .clickable { onTabChange(id) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        label,
-                        color = if (isActive) Ac else Tx3,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 0.3.sp,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .width(16.dp)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(if (isActive) Ac else Color.Transparent),
-                    )
-                }
+                Text(
+                    label,
+                    color = if (isActive) Ac else Tx3,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = SansFont,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (isActive) Ac else Color.Transparent),
+                )
             }
         }
     }
@@ -241,21 +242,21 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                 color = Tx3,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = SansFont,
                 letterSpacing = 0.7.sp,
             )
             Spacer(Modifier.weight(1f))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Ac.copy(alpha = 0.12f))
-                    .border(1.dp, Ac.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    .background(Ac.withAlpha(0.12f))
+                    .border(1.dp, Ac.withAlpha(0.3f), RoundedCornerShape(4.dp))
                     .clickable {
                         changes.forEach { fileStates[it.path] = "accepted" }
                     }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
-                Text("全部接受", color = Ac, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                Text("全部接受", color = Ac, fontSize = 9.sp, fontFamily = SansFont)
             }
         }
 
@@ -275,9 +276,9 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) Bg3 else Surface2)
-                        .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Bg3.copy(alpha = 0.35f))
+                        .border(1.dp, if (isSelected) Ac.withAlpha(0.4f) else Line, RoundedCornerShape(9.dp))
                         .clickable { selectedFile = if (isSelected) null else change.path }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -292,7 +293,7 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                         color = Tx,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = SansFont,
                     )
                     if (change.isNew) {
                         Spacer(Modifier.width(4.dp))
@@ -301,48 +302,50 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                             color = Ac,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = SansFont,
                         )
                     }
                     Spacer(Modifier.width(6.dp))
 
                     // Diff stats
                     if (change.added > 0) {
-                        Text("+${change.added}", color = Gn, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text("+${change.added}", color = Gn, fontSize = 10.sp, fontFamily = SansFont)
                     }
                     if (change.removed > 0) {
                         Spacer(Modifier.width(4.dp))
-                        Text("-${change.removed}", color = Rd, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text("-${change.removed}", color = Rd, fontSize = 10.sp, fontFamily = SansFont)
                     }
 
                     Spacer(Modifier.weight(1f))
 
-                    // Accept / Reject buttons
+                    // Accept / Reject icon buttons (✓ / ✗) — 对齐核心稿 .btn-accept / .btn-reject
                     if (state != "accepted") {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .border(1.dp, Gn.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                                .clickable { fileStates[change.path] = "accepted" }
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .border(1.dp, Line, RoundedCornerShape(5.dp))
+                                .clickable { fileStates[change.path] = "accepted" },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text("✓", color = Gn, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            Icon(Icons.Filled.Check, contentDescription = "接受", tint = Gn, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state != "rejected") {
-                        Spacer(Modifier.width(3.dp))
+                        Spacer(Modifier.width(4.dp))
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .border(1.dp, Rd.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                                .clickable { fileStates[change.path] = "rejected" }
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .border(1.dp, Line, RoundedCornerShape(5.dp))
+                                .clickable { fileStates[change.path] = "rejected" },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text("✗", color = Rd, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            Icon(Icons.Filled.Close, contentDescription = "拒绝", tint = Rd, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state == "accepted") {
-                        Text("✓ 已接受", color = Gn, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Icon(Icons.Filled.Check, contentDescription = "已接受", tint = Gn, modifier = Modifier.size(14.dp))
                     }
                 }
 
@@ -358,15 +361,15 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                             .padding(start = 12.dp, end = 12.dp, bottom = 4.dp)
                             .clip(RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
                             .background(Bg3)
-                            .border(1.dp, Bd, RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
+                            .border(1.dp, Line, RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     ) {
                         change.diffLines.forEach { line ->
                             val isAdd = line.startsWith("+")
                             val isDel = line.startsWith("-")
                             val bgColor = when {
-                                isAdd -> Gn.copy(alpha = 0.06f)
-                                isDel -> Rd.copy(alpha = 0.06f)
+                                isAdd -> Gn.withAlpha(0.06f)
+                                isDel -> Rd.withAlpha(0.06f)
                                 else -> Color.Transparent
                             }
                             val fgColor = when {
@@ -378,7 +381,7 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                                 line,
                                 color = fgColor,
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = CodeFont,
                                 lineHeight = 16.sp,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -406,10 +409,10 @@ private fun ExtensionChip(ext: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(3.dp))
-            .background(color.copy(alpha = 0.15f))
+            .background(color.withAlpha(0.15f))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     ) {
-        Text(ext, color = color, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+        Text(ext, color = color, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
     }
 }
 
@@ -430,7 +433,7 @@ private fun SessionStatsGrid() {
             color = Tx3,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
             letterSpacing = 0.7.sp,
         )
         Spacer(Modifier.height(6.dp))
@@ -454,13 +457,13 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(6.dp))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
-        Text(label, color = Tx3, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+        Text(label, color = Tx3, fontSize = 9.sp, fontFamily = SansFont)
         Spacer(Modifier.height(2.dp))
-        Text(value, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+        Text(value, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
     }
 }
 
@@ -488,7 +491,7 @@ private fun ColumnScope.InspectorTab() {
             color = Tx3,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
             letterSpacing = 0.7.sp,
         )
         Spacer(Modifier.height(12.dp))
@@ -502,7 +505,7 @@ private fun ColumnScope.InspectorTab() {
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(extColor(ext).copy(alpha = 0.15f)),
+                    .background(extColor(ext).withAlpha(0.15f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -510,7 +513,7 @@ private fun ColumnScope.InspectorTab() {
                     color = extColor(ext),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = SansFont,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -519,7 +522,7 @@ private fun ColumnScope.InspectorTab() {
                 color = Tx,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = SansFont,
             )
         }
 
@@ -540,13 +543,13 @@ private fun InspectorRow(label: String, value: String) {
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(6.dp))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Tx3, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(56.dp))
-        Text(value, color = Tx, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        Text(label, color = Tx3, fontSize = 10.sp, fontFamily = SansFont, modifier = Modifier.width(56.dp))
+        Text(value, color = Tx, fontSize = 11.sp, fontFamily = SansFont)
     }
 }
 
@@ -570,7 +573,7 @@ private fun ColumnScope.LogTab() {
                 color = Tx3,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = SansFont,
                 letterSpacing = 0.6.sp,
             )
             Spacer(Modifier.weight(1f))
@@ -581,7 +584,7 @@ private fun ColumnScope.LogTab() {
                         .padding(start = 4.dp)
                         .clip(RoundedCornerShape(5.dp))
                         .then(
-                            if (isActive) Modifier.border(1.dp, Ac, RoundedCornerShape(5.dp)).background(AcD)
+                            if (isActive) Modifier.border(1.dp, Ac, RoundedCornerShape(5.dp)).background(Ac.withAlpha(0.12f))
                             else Modifier,
                         )
                         .clickable { activeFilter = label }
@@ -591,7 +594,7 @@ private fun ColumnScope.LogTab() {
                         label,
                         color = if (isActive) Ac else Tx3,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = SansFont,
                     )
                 }
             }
@@ -637,9 +640,9 @@ private fun TimelineEntry(entry: LogEntry) {
         // Timestamp
         Text(
             entry.time,
-            color = Tx4,
+            color = Tx3,
             fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
             modifier = Modifier.width(36.dp),
         )
         Spacer(Modifier.width(4.dp))
@@ -650,7 +653,7 @@ private fun TimelineEntry(entry: LogEntry) {
             color = Ac,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
             modifier = Modifier.width(44.dp),
         )
 
@@ -662,7 +665,7 @@ private fun TimelineEntry(entry: LogEntry) {
                 else -> Tx
             },
             fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
             modifier = Modifier.weight(1f),
         )
 
@@ -671,7 +674,7 @@ private fun TimelineEntry(entry: LogEntry) {
             entry.detail,
             color = Tx3,
             fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = SansFont,
         )
     }
 }

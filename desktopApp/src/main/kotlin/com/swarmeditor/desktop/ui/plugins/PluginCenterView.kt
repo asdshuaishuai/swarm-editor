@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,7 +95,7 @@ fun PluginCenterView(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text(
-                                text = "Plugin Center",
+                                text = "插件中心",
                                 color = Tx,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
@@ -102,19 +103,28 @@ fun PluginCenterView(
                             Spacer(Modifier.height(4.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "${mcpServers.size} MCP Servers",
+                                    text = "${mcpServers.size} MCP",
                                     color = Tx2,
                                     fontSize = 12.sp,
-                                    fontFamily = MonoFont
+                                    fontFamily = SansFont
                                 )
-                                Spacer(Modifier.width(12.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text("·", color = Tx4, fontSize = 12.sp)
-                                Spacer(Modifier.width(12.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = "${skills.size} Skills",
                                     color = Tx2,
                                     fontSize = 12.sp,
-                                    fontFamily = MonoFont
+                                    fontFamily = SansFont
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("·", color = Tx4, fontSize = 12.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "扩展 Agent 能力",
+                                    color = Tx3,
+                                    fontSize = 12.sp,
+                                    fontFamily = SansFont
                                 )
                             }
                         }
@@ -123,12 +133,12 @@ fun PluginCenterView(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search plugins...", color = Tx3, fontSize = 12.sp) },
+                            placeholder = { Text("搜索插件…", color = Tx3, fontSize = 12.sp) },
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 color = Tx,
                                 fontSize = 12.sp,
-                                fontFamily = MonoFont
+                                fontFamily = SansFont
                             ),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -142,45 +152,27 @@ fun PluginCenterView(
 
                     Spacer(Modifier.height(14.dp))
 
-                    // Sub-tab toggle: MCP / Skills
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(RR))
-                            .background(Glass2)
-                            .border(1.dp, Bd, RoundedCornerShape(RR))
-                    ) {
-                        PluginSubTab.entries.forEach { tab ->
-                            val isActive = activeSubTab == tab
-                            Text(
-                                text = tab.label,
-                                color = if (isActive) Bg else Tx2,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = MonoFont,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(if (isActive) Ac else androidx.compose.ui.graphics.Color.Transparent)
-                                    .clickable { activeSubTab = tab }
-                                    .padding(horizontal = 16.dp, vertical = 7.dp)
-                            )
-                        }
+                    // 扫描 / 添加 按钮（对齐核心稿；MCP/Skills 切换在左侧栏）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("扫描", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
+                            modifier = Modifier.clip(RoundedCornerShape(7.dp)).border(1.dp, Bd, RoundedCornerShape(7.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("+ 添加", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
+                            modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 7.dp))
                     }
                 }
 
-                // Category filter chips
-                val categories = when (activeSubTab) {
-                    PluginSubTab.MCP -> mcpServers.flatMap { it.categories }.distinct()
-                    PluginSubTab.SKILLS -> skills.flatMap { it.tags }.distinct()
-                }
+                // 分类标签（合并 MCP 分类 + Skills 标签）
+                val categories = (mcpServers.flatMap { it.categories } + skills.flatMap { it.tags }).distinct()
 
                 if (categories.isNotEmpty()) {
                     Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
                         Text(
-                            text = "Categories",
+                            text = "分类",
                             color = Tx3,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = MonoFont,
+                            fontFamily = SansFont,
                             letterSpacing = 0.8.sp
                         )
                         Spacer(Modifier.height(6.dp))
@@ -193,7 +185,7 @@ fun PluginCenterView(
                                     text = category,
                                     color = Tx2,
                                     fontSize = 10.sp,
-                                    fontFamily = MonoFont,
+                                    fontFamily = SansFont,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(5.dp))
                                         .background(Surface2)
@@ -206,21 +198,13 @@ fun PluginCenterView(
                     }
                 }
 
-                // Card grid
-                val items: List<PluginItem> = when (activeSubTab) {
-                    PluginSubTab.MCP -> {
-                        val q = searchQuery.text.lowercase()
-                        mcpServers
-                            .filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
-                            .map { PluginItem.Mcp(it) }
-                    }
-                    PluginSubTab.SKILLS -> {
-                        val q = searchQuery.text.lowercase()
-                        skills
-                            .filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
-                            .map { PluginItem.Skill(it) }
-                    }
-                }
+                // 卡片网格：合并 MCP + Skills（按搜索过滤）
+                val q = searchQuery.text.lowercase()
+                val items: List<PluginItem> =
+                    mcpServers.filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
+                        .map { PluginItem.Mcp(it) } +
+                        skills.filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
+                        .map { PluginItem.Skill(it) }
 
                 if (items.isEmpty()) {
                     Box(
@@ -229,17 +213,17 @@ fun PluginCenterView(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (searchQuery.text.isNotEmpty()) "No results found" else "No ${activeSubTab.label.lowercase()} available",
+                                text = if (searchQuery.text.isNotEmpty()) "未找到结果" else "暂无插件",
                                 color = Tx3,
                                 fontSize = 13.sp,
-                                fontFamily = MonoFont
+                                fontFamily = SansFont
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = if (searchQuery.text.isNotEmpty()) "Try a different search term" else "Add plugins to get started",
+                                text = if (searchQuery.text.isNotEmpty()) "换个关键词试试" else "添加插件以开始",
                                 color = Tx4,
                                 fontSize = 11.sp,
-                                fontFamily = MonoFont
+                                fontFamily = SansFont
                             )
                         }
                     }

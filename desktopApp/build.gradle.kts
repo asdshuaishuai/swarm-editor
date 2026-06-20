@@ -20,6 +20,7 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.foundation)
     implementation(compose.runtime)
+    implementation(compose.materialIconsExtended)
     implementation(libs.compose.uiToolingPreview)
 
     // Coroutines

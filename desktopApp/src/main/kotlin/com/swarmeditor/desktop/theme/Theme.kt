@@ -1,76 +1,51 @@
 package com.swarmeditor.desktop.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
-val Bg = Color(0xFF0a0a0f)
-val Bg2 = Color(0xFF111118)
-val Bg3 = Color(0xFF1a1a24)
-val Bg4 = Color(0xFF242430)
-val Surface = Color(0xDD111118)
-val Surface2 = Color(0xB31a1a24)
-val Glass = Color(0xCC0a0a0f)
-val Glass2 = Color(0x99111118)
-val Tx = Color(0xFFe8e8f0)
-val Tx2 = Color(0xFF8888a0)
-val Tx3 = Color(0xFF505068)
-val Tx4 = Color(0xFF38384a)
-val Ac = Color(0xFF00d4ff)
-val Ac2 = Color(0xFF40e0ff)
-val AcD = Color(0x1400d4ff)
-val Gn = Color(0xFF00ff88)
-val GnD = Color(0x1400ff88)
-val Rd = Color(0xFFff3366)
-val RdD = Color(0x14ff3366)
-val RdD2 = Color(0x14ff3366)
-val Gd = Color(0xFFffcc00)
-val GdD = Color(0x14ffcc00)
-val Or = Color(0xFFff8800)
-val Pr = Color(0xFFaa66ff)
-val PrD = Color(0x14aa66ff)
-val Bd = Color(0x0FFFFFFF)
-val Bd2 = Color(0x19FFFFFF)
+// Radii
+val R4 = 4.dp
+val R6 = 6.dp
+val R7 = 7.dp
+val R8 = 8.dp
+val R9 = 9.dp
+val R10 = 10.dp
+val R11 = 11.dp
+val R12 = 12.dp
+val R14 = 14.dp
+val R16 = 16.dp
 
-val Glow = Color(0x4D00d4ff)
-val GlowGn = Color(0x4D00ff88)
+// Fonts — use system default fonts for full CJK support
+val SansFont = FontFamily.Default
+val MonoFont = FontFamily.Default  // System font (has CJK fallback on Linux)
+val CodeFont = FontFamily.Monospace  // Monospace for code blocks only
 
-val RR: Dp = 8.dp
-val RR2: Dp = 12.dp
-val RR3: Dp = 16.dp
-
-fun Modifier.Shadow(): Modifier = this.shadow(
-    elevation = 30.dp,
-    shape = RoundedCornerShape(RR)
-)
-
+// Material3 ColorScheme override
 val GeekColorScheme = darkColorScheme(
     primary = Ac,
-    onPrimary = Bg,
-    primaryContainer = AcD,
-    onPrimaryContainer = Ac,
-    secondary = Pr,
-    onSecondary = Bg,
-    secondaryContainer = PrD,
-    onSecondaryContainer = Pr,
-    tertiary = Gn,
-    onTertiary = Bg,
-    tertiaryContainer = GnD,
-    onTertiaryContainer = Gn,
-    error = Rd,
-    onError = Bg,
-    errorContainer = RdD,
-    onErrorContainer = Rd,
-    background = Bg,
+    onPrimary = Bg0,
+    primaryContainer = Ac.withAlpha(0.12f),
+    onPrimaryContainer = AcLight,
+    secondary = AgentQwen,
+    onSecondary = Bg0,
+    secondaryContainer = AgentQwen.withAlpha(0.12f),
+    onSecondaryContainer = Color(0xFF93c5fd),
+    tertiary = AgentGemini,
+    onTertiary = Bg0,
+    tertiaryContainer = AgentGemini.withAlpha(0.12f),
+    onTertiaryContainer = Color(0xFF6ee7b7),
+    error = Err,
+    onError = Bg0,
+    errorContainer = Err.withAlpha(0.12f),
+    onErrorContainer = ErrLight,
+    background = Bg0,
     onBackground = Tx,
     surface = Bg2,
     onSurface = Tx,
     surfaceVariant = Bg3,
     onSurfaceVariant = Tx2,
-    outline = Bd,
-    outlineVariant = Bd2,
+    outline = Line,
+    outlineVariant = Line2,
 )

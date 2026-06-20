@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,7 +59,7 @@ fun McpDetailView(
                 text = "← 返回",
                 color = Ac,
                 fontSize = 12.sp,
-                fontFamily = MonoFont,
+                fontFamily = SansFont,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -76,8 +79,8 @@ fun McpDetailView(
                 modifier = Modifier
                     .size(84.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(accent.copy(alpha = 0.15f))
-                    .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                    .background(accent.withAlpha(0.15f))
+                    .border(1.dp, accent.withAlpha(0.3f), RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -104,14 +107,14 @@ fun McpDetailView(
                     text = server.id,
                     color = Tx3,
                     fontSize = 11.sp,
-                    fontFamily = MonoFont
+                    fontFamily = SansFont
                 )
                 Spacer(Modifier.height(6.dp))
                 if (server.rating > 0) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 12.sp, fontFamily = MonoFont)
+                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 12.sp, fontFamily = SansFont)
                         Spacer(Modifier.width(6.dp))
-                        Text("(${server.ratingCount})", color = Tx3, fontSize = 11.sp, fontFamily = MonoFont)
+                        Text("(${server.ratingCount})", color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
                     }
                     Spacer(Modifier.height(4.dp))
                 }
@@ -139,7 +142,7 @@ fun McpDetailView(
         ) {
             ActionButton(text = "⟳ 重启", color = Ac)
             ActionButton(text = "⎘ 复制配置", color = Tx2)
-            ActionButton(text = "✕ 卸载", color = Rd)
+            ActionButton(text = "Remove", color = Rd)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -215,11 +218,11 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
         color = color,
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
-        fontFamily = MonoFont,
+        fontFamily = SansFont,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.06f))
+            .border(1.dp, color.withAlpha(0.3f), RoundedCornerShape(6.dp))
+            .background(color.withAlpha(0.06f))
             .clickable { /* placeholder */ }
             .padding(horizontal = 14.dp, vertical = 6.dp)
     )
@@ -243,7 +246,7 @@ private fun McpDetailsTab(server: McpServerDto) {
             text = server.command,
             color = Ac,
             fontSize = 12.sp,
-            fontFamily = MonoFont,
+            fontFamily = SansFont,
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(6.dp))
@@ -259,7 +262,7 @@ private fun McpDetailsTab(server: McpServerDto) {
                 text = arg,
                 color = Tx2,
                 fontSize = 12.sp,
-                fontFamily = MonoFont,
+                fontFamily = SansFont,
                 modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
             )
         }
@@ -271,7 +274,7 @@ private fun McpDetailsTab(server: McpServerDto) {
             text = server.url,
             color = Ac,
             fontSize = 12.sp,
-            fontFamily = MonoFont
+            fontFamily = SansFont
         )
         Spacer(Modifier.height(16.dp))
     }
@@ -279,7 +282,7 @@ private fun McpDetailsTab(server: McpServerDto) {
         SectionTitle("Tags")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             server.tags.forEach { tag ->
-                StatusChip(text = tag, color = Pr)
+                StatusChip(text = tag, color = AgentClaude)
             }
         }
     }
@@ -292,7 +295,7 @@ private fun McpToolsTab(server: McpServerDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No tools available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+            Text("No tools available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
@@ -305,9 +308,9 @@ private fun McpToolsTab(server: McpServerDto) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(RR))
-                    .background(Surface2)
-                    .border(1.dp, Bd, RoundedCornerShape(RR))
+                    .clip(RoundedCornerShape(R8))
+                    .background(Bg3)
+                    .border(1.dp, Line, RoundedCornerShape(R8))
                     .padding(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -316,7 +319,7 @@ private fun McpToolsTab(server: McpServerDto) {
                         color = Tx,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = MonoFont
+                        fontFamily = SansFont
                     )
                     Spacer(Modifier.weight(1f))
                     if (tool.params.any { it.required }) {
@@ -334,7 +337,7 @@ private fun McpToolsTab(server: McpServerDto) {
                 }
                 if (tool.params.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Parameters:", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont)
+                    Text("Parameters:", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                     Spacer(Modifier.height(4.dp))
                     tool.params.forEach { param ->
                         Row(
@@ -345,7 +348,7 @@ private fun McpToolsTab(server: McpServerDto) {
                                 text = param.name,
                                 color = Ac,
                                 fontSize = 11.sp,
-                                fontFamily = MonoFont
+                                fontFamily = SansFont
                             )
                             if (param.required) {
                                 Spacer(Modifier.width(4.dp))
@@ -353,10 +356,10 @@ private fun McpToolsTab(server: McpServerDto) {
                                     text = "required",
                                     color = Or,
                                     fontSize = 9.sp,
-                                    fontFamily = MonoFont,
+                                    fontFamily = SansFont,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(3.dp))
-                                        .background(Or.copy(alpha = 0.12f))
+                                        .background(Or.withAlpha(0.12f))
                                         .padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
                             }
@@ -375,9 +378,9 @@ private fun McpConfigTab(server: McpServerDto) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(RR))
-                .background(Surface2)
-                .border(1.dp, Bd, RoundedCornerShape(RR))
+                .clip(RoundedCornerShape(R8))
+                .background(Bg3)
+                .border(1.dp, Line, RoundedCornerShape(R8))
                 .padding(12.dp)
         ) {
             Text(
@@ -387,7 +390,7 @@ private fun McpConfigTab(server: McpServerDto) {
                 },
                 color = Ac,
                 fontSize = 12.sp,
-                fontFamily = MonoFont
+                fontFamily = SansFont
             )
         }
         Spacer(Modifier.height(16.dp))
@@ -399,20 +402,20 @@ private fun McpConfigTab(server: McpServerDto) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(RR))
-                .background(Surface2)
-                .border(1.dp, Bd, RoundedCornerShape(RR))
+                .clip(RoundedCornerShape(R8))
+                .background(Bg3)
+                .border(1.dp, Line, RoundedCornerShape(R8))
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row {
-                Text("Key", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, modifier = Modifier.weight(1f))
-                Text("Value", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont, modifier = Modifier.weight(2f))
+                Text("Key", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(1f))
+                Text("Value", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(2f))
             }
             server.env.forEach { (key, value) ->
                 Row {
-                    Text(key, color = Ac, fontSize = 11.sp, fontFamily = MonoFont, modifier = Modifier.weight(1f))
-                    Text(value, color = Tx2, fontSize = 11.sp, fontFamily = MonoFont, modifier = Modifier.weight(2f))
+                    Text(key, color = Ac, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.weight(1f))
+                    Text(value, color = Tx2, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.weight(2f))
                 }
             }
         }
@@ -423,7 +426,7 @@ private fun McpConfigTab(server: McpServerDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No configuration available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+            Text("No configuration available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
     }
 }
@@ -436,7 +439,7 @@ private fun McpChangelogTab(server: McpServerDto) {
             text = server.updated,
             color = Tx2,
             fontSize = 12.sp,
-            fontFamily = MonoFont
+            fontFamily = SansFont
         )
         Spacer(Modifier.height(12.dp))
     }
@@ -446,7 +449,7 @@ private fun McpChangelogTab(server: McpServerDto) {
             text = server.published,
             color = Tx2,
             fontSize = 12.sp,
-            fontFamily = MonoFont
+            fontFamily = SansFont
         )
         Spacer(Modifier.height(12.dp))
     }
@@ -454,7 +457,7 @@ private fun McpChangelogTab(server: McpServerDto) {
         modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text("Changelog not available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+        Text("Changelog not available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
     }
 }
 
@@ -465,9 +468,9 @@ private fun McpSidePanel(server: McpServerDto) {
             .width(220.dp)
             .fillMaxHeight()
             .verticalScroll(rememberScrollState())
-            .clip(RoundedCornerShape(RR))
-            .background(Glass2)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(R8))
             .padding(14.dp)
     ) {
         SidePanelRow("Identifier", server.id)
@@ -477,31 +480,31 @@ private fun McpSidePanel(server: McpServerDto) {
         }
         if (server.categories.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
-            Text("Categories", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Text("Categories", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 server.categories.forEach { cat ->
-                    StatusChip(text = cat, color = Pr)
+                    StatusChip(text = cat, color = AgentClaude)
                 }
             }
         }
         if (server.agents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("Authorized Agents", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Text("Authorized Agents", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.agents.forEach { agent ->
                 Text(
                     text = "• $agent",
                     color = Tx2,
                     fontSize = 11.sp,
-                    fontFamily = MonoFont,
+                    fontFamily = SansFont,
                     modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
                 )
             }
         }
         if (server.enabledAgents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("Enabled Agents", color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+            Text("Enabled Agents", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.enabledAgents.filter { it.value }.keys.forEach { agent ->
                 StatusChip(text = agent, color = Gn)
@@ -513,13 +516,13 @@ private fun McpSidePanel(server: McpServerDto) {
 
 @Composable
 private fun SidePanelRow(label: String, value: String) {
-    Text(label, color = Tx3, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+    Text(label, color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(2.dp))
     Text(
         text = value,
         color = Tx2,
         fontSize = 11.sp,
-        fontFamily = MonoFont,
+        fontFamily = SansFont,
         maxLines = 3,
         overflow = Ellipsis
     )
@@ -533,7 +536,7 @@ private fun SectionTitle(title: String) {
         color = Tx3,
         fontSize = 10.sp,
         fontWeight = FontWeight.SemiBold,
-        fontFamily = MonoFont,
+        fontFamily = SansFont,
         letterSpacing = 0.8.sp
     )
     Spacer(Modifier.height(6.dp))

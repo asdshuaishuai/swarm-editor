@@ -42,7 +42,7 @@ fun SkillPanel(
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp, 12.dp, 12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Skills", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text("扫描", color = Tx2, fontSize = 11.sp, fontFamily = MonoFont,
+            Text("扫描", color = Tx2, fontSize = 11.sp, fontFamily = SansFont,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable(onClick = onScan).padding(horizontal = 12.dp, vertical = 5.dp))
         }
 
@@ -50,7 +50,7 @@ fun SkillPanel(
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
             if (skills.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
-                    Text("暂无 Skills，点击扫描发现", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+                    Text("暂无 Skills，点击扫描发现", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
                 }
             }
             skills.forEach { skill ->
@@ -59,9 +59,9 @@ fun SkillPanel(
                         .border(1.dp, Bd, RoundedCornerShape(8.dp)).padding(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(skill.name, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = MonoFont)
+                        Text(skill.name, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont)
                         Spacer(Modifier.weight(1f))
-                        Text(skill.source, color = Tx3, fontSize = 10.sp, fontFamily = MonoFont,
+                        Text(skill.source, color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                             modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Surface).padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                     if (skill.description.isNotEmpty()) {
@@ -70,7 +70,7 @@ fun SkillPanel(
                     }
                     if (skill.path.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
-                        Text(skill.path, color = Tx4, fontSize = 10.sp, fontFamily = MonoFont)
+                        Text(skill.path, color = Tx4, fontSize = 10.sp, fontFamily = SansFont)
                     }
                     Spacer(Modifier.height(8.dp))
                     Row {
@@ -84,7 +84,7 @@ fun SkillPanel(
                             ) {
                                 Spacer(Modifier.width(5.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(if (isOn) Ac else Tx3))
                                 Spacer(Modifier.width(4.dp))
-                                Text(name, color = if (isOn) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium, fontFamily = MonoFont)
+                                Text(name, color = if (isOn) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont)
                             }
                         }
                     }

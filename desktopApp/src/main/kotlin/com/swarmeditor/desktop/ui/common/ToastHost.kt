@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,13 +35,13 @@ import com.swarmeditor.desktop.viewmodel.ToastData
 import com.swarmeditor.desktop.viewmodel.ToastType
 import kotlinx.coroutines.delay
 
-private val ToastShape = RoundedCornerShape(RR)
+private val ToastShape = RoundedCornerShape(R8)
 private const val DISMISS_AFTER_MS = 2600L
 
 private val ToastIcon = mapOf(
-    ToastType.SUCCESS to "✓",
+    ToastType.SUCCESS to "OK",
     ToastType.INFO to "ⓘ",
-    ToastType.ERROR to "✗"
+    ToastType.ERROR to "Error"
 )
 
 private val ToastColor = mapOf(
@@ -77,7 +81,7 @@ private fun ToastItem(
     onDismiss: () -> Unit
 ) {
     val color = ToastColor[toast.type] ?: Ac
-    val icon = ToastIcon[toast.type] ?: "ⓘ"
+    val iconText = ToastIcon[toast.type] ?: "ⓘ"
 
     // Auto-dismiss after 2.6s
     LaunchedEffect(toast.id) {
@@ -94,8 +98,8 @@ private fun ToastItem(
             modifier = Modifier
                 .width(260.dp)
                 .clip(ToastShape)
-                .background(Glass)
-                .border(1.dp, Bd, ToastShape)
+                .background(Bg2)
+                .border(1.dp, Line, ToastShape)
                 .clickable { onDismiss() }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -105,15 +109,19 @@ private fun ToastItem(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(RoundedCornerShape(11.dp))
-                    .background(color.copy(alpha = 0.15f)),
+                    .background(color.withAlpha(0.15f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = icon,
-                    color = color,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                when (toast.type) {
+                    ToastType.SUCCESS -> Icon(Icons.Default.Check, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                    ToastType.ERROR -> Icon(Icons.Default.Close, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                    else -> Text(
+                        text = iconText,
+                        color = color,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Spacer(Modifier.size(10.dp))

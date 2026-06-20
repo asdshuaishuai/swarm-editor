@@ -10,8 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -30,7 +35,7 @@ import com.swarmeditor.desktop.theme.*
 
 enum class DiffLineType { ADD, DEL, CONTEXT }
 
-data class DiffLine(val type: DiffLineType, val lineNum: Int, val content: String)
+data class DiffLine(val type: DiffLineType, val oldLineNum: Int?, val newLineNum: Int?, val content: String)
 
 data class CodeCardData(
     val filename: String,
@@ -65,7 +70,7 @@ private fun highlightSyntax(text: String): AnnotatedString {
             }
             val word = match.value
             when {
-                word in KOTLIN_KEYWORDS -> withStyle(SpanStyle(color = Pr)) { append(word) }
+                word in KOTLIN_KEYWORDS -> withStyle(SpanStyle(color = AgentClaude)) { append(word) }
                 word.startsWith("\"") -> withStyle(SpanStyle(color = Gn)) { append(word) }
                 word.startsWith("'") -> withStyle(SpanStyle(color = Gn)) { append(word) }
                 else -> {
@@ -91,31 +96,32 @@ fun CodeCard(
     card: CodeCardData,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(RR)
-    val lineNumWidth = card.diffLines.maxOfOrNull { it.lineNum.toString().length } ?: 1
+    val shape = RoundedCornerShape(R8)
+    val oldLineNumWidth = card.diffLines.maxOfOrNull { it.oldLineNum?.toString()?.length ?: 1 } ?: 1
+    val newLineNumWidth = card.diffLines.maxOfOrNull { it.newLineNum?.toString()?.length ?: 1 } ?: 1
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Glass)
-            .border(1.dp, Bd, shape)
+            .background(Bg2)
+            .border(1.dp, Line, shape)
     ) {
         // File header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Surface2)
+                .background(Bg2)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("📄", fontSize = 12.sp)
+            Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = "File", modifier = Modifier.size(14.dp), tint = Tx2)
             Spacer(Modifier.width(6.dp))
             // Extension badge
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(3.dp))
-                    .background(Ac.copy(alpha = 0.12f))
+                    .background(Ac.withAlpha(0.12f))
                     .padding(horizontal = 4.dp, vertical = 1.dp)
             ) {
                 Text(
@@ -123,23 +129,28 @@ fun CodeCard(
                     color = Ac,
                     fontSize = 8.sp,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = MonoFont
+                    fontFamily = SansFont
                 )
             }
             Spacer(Modifier.width(6.dp))
-            Text(card.filename, color = Tx, fontSize = 12.sp, fontFamily = MonoFont)
+            Text(card.filename, color = Tx, fontSize = 12.sp, fontFamily = SansFont)
             Spacer(Modifier.weight(1f))
             // Diff stats
             if (card.additions > 0) {
-                Text("+${card.additions}", color = Gn, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+                Text("+${card.additions}", color = Gn, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(4.dp))
             }
             if (card.deletions > 0) {
-                Text("-${card.deletions}", color = Rd, fontSize = 10.sp, fontFamily = MonoFont, fontWeight = FontWeight.SemiBold)
+                Text("-${card.deletions}", color = Rd, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(4.dp))
             }
             // Copy button
-            Text("📋", fontSize = 11.sp, modifier = Modifier.clickable { /* copy to clipboard */ })
+            Icon(
+                imageVector = Icons.Filled.ContentCopy,
+                contentDescription = "Copy",
+                tint = Tx3,
+                modifier = Modifier.size(14.dp).clickable { /* copy to clipboard */ }
+            )
         }
 
         // Diff lines
@@ -151,7 +162,7 @@ fun CodeCard(
                     DiffLineType.CONTEXT -> androidx.compose.ui.graphics.Color.Transparent
                 }
                 val textColor = when (line.type) {
-                    DiffLineType.DEL -> Rd.copy(alpha = 0.7f)
+                    DiffLineType.DEL -> Rd.withAlpha(0.7f)
                     else -> Tx
                 }
                 Row(
@@ -161,25 +172,36 @@ fun CodeCard(
                         .padding(horizontal = 12.dp, vertical = 1.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Line number (right-aligned)
+                    // Old line number (left)
                     Text(
-                        text = line.lineNum.toString().padStart(lineNumWidth),
+                        text = line.oldLineNum?.toString()?.padStart(oldLineNumWidth) ?: "",
                         color = Tx3,
                         fontSize = 10.sp,
-                        fontFamily = MonoFont
+                        fontFamily = CodeFont
                     )
-                    Spacer(Modifier.width(12.dp))
-                    // Content with syntax highlighting
-                    val content = when (line.type) {
-                        DiffLineType.ADD -> "+${line.content}"
-                        DiffLineType.DEL -> "-${line.content}"
-                        DiffLineType.CONTEXT -> line.content
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    // New line number (right)
                     Text(
-                        text = highlightSyntax(content),
+                        text = line.newLineNum?.toString()?.padStart(newLineNumWidth) ?: "",
+                        color = Tx3,
+                        fontSize = 10.sp,
+                        fontFamily = CodeFont
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    // Diff marker
+                    val marker = when (line.type) {
+                        DiffLineType.ADD -> "+"
+                        DiffLineType.DEL -> "-"
+                        DiffLineType.CONTEXT -> " "
+                    }
+                    Text(marker, color = Tx3, fontSize = 10.sp, fontFamily = CodeFont)
+                    Spacer(Modifier.width(6.dp))
+                    // Content with syntax highlighting
+                    Text(
+                        text = highlightSyntax(line.content),
                         color = textColor,
                         fontSize = 11.sp,
-                        fontFamily = MonoFont,
+                        fontFamily = CodeFont,
                         lineHeight = 18.sp
                     )
                 }

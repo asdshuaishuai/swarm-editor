@@ -163,7 +163,7 @@ private fun TimelineEntry(event: TimelineEvent) {
                     text = event.timestamp,
                     color = Tx3,
                     fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = SansFont
                 )
                 Spacer(Modifier.width(6.dp))
                 // Actor chip
@@ -196,7 +196,7 @@ private fun TimelineEntry(event: TimelineEvent) {
                     fontSize = 10.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = SansFont
                 )
             }
         }

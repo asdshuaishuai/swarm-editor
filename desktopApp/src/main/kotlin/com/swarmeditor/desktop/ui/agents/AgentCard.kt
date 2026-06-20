@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,27 +20,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.*
 
-/**
- * Agent info card with gradient top bar, logo, name, version, status chip,
- * description, stats grid (tasks / successRate / avgLatency), and config button.
- */
-
-// Agent color palette — one per adapter type
-val AGENT_COLORS = listOf(
-    Color(0xFFaa66ff), // Claude Code  — purple
-    Color(0xFF0088ff), // QwenCode     — blue
-    Color(0xFF00cc66), // Gemini CLI   — green
-    Color(0xFFffcc00), // Kimi Code    — gold
-    Color(0xFFff8800)  // OpenCode     — orange
-)
-
+val AGENT_COLORS = listOf(AgentClaude, AgentQwen, AgentGemini, AgentKimi, AgentOpenCode)
 val AGENT_LETTERS = listOf("C", "Q", "G", "K", "O")
 
 fun agentColor(index: Int): Color = AGENT_COLORS[index.coerceIn(AGENT_COLORS.indices)]
@@ -65,186 +50,231 @@ fun AgentCard(
         else -> "未安装"
     }
 
-    val (statusBg, statusFg) = when {
-        isConnected -> Gn to Gn
-        isInstalled -> Tx3 to Tx3
-        else -> Or.copy(alpha = 0.1f) to Or
+    val (statusBg, statusFg, statusDotColor) = when {
+        isConnected -> Triple(Ok.withAlpha(0.12f), OkLight, OkLight)
+        isInstalled -> Triple(Err.withAlpha(0.12f), ErrLight, ErrLight)
+        else -> Triple(Warn.withAlpha(0.12f), WarnLight, WarnLight)
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Glass)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .hoverLift(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(Bg2.withAlpha(0.5f), Bg1.withAlpha(0.4f))
+                )
+            )
+            .border(1.dp, Line, RoundedCornerShape(12.dp))
+            .clickable(onClick = onConfigClick)
     ) {
-        // Gradient top bar (2dp)
+        // 顶部彩色条（2dp，Agent 配色）
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(3.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(agentColor, agentColor.copy(alpha = 0.3f))
-                    )
-                )
+                .height(2.dp)
+                .background(agentColor.withAlpha(0.6f))
         )
 
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Row 1: Logo + Name + Command + Version + Status chip
+        Column(modifier = Modifier.padding(20.dp)) {
+            // 第 1 行：Logo + 名称/元信息 + 状态 + 配置按钮
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Logo circle
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(agentColor.copy(alpha = 0.15f)),
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(agentColor, agentColor.withAlpha(0.7f))
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         letter,
-                        color = agentColor,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            agent.config.name,
-                            color = Tx,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1
-                        )
+                    Text(
+                        agent.config.name,
+                        color = Tx,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    val meta = buildString {
+                        if (agent.config.command.isNotEmpty()) append(agent.config.command)
                         if (agent.version.isNotEmpty()) {
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "v${agent.version}",
-                                color = Tx3,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            if (isNotEmpty()) append(" · ")
+                            append("v${agent.version}")
                         }
                     }
-                    if (agent.config.command.isNotEmpty()) {
+                    if (meta.isNotEmpty()) {
                         Text(
-                            agent.config.command,
+                            meta,
                             color = Tx3,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
                             maxLines = 1
                         )
                     }
                 }
 
-                // Status chip
-                Box(
+                Spacer(Modifier.width(8.dp))
+
+                // 状态胶囊
+                Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(7.dp))
                         .background(statusBg)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(RoundedCornerShape(3.5.dp))
+                            .background(statusDotColor)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         statusText,
                         color = statusFg,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = FontFamily.Monospace
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-            }
 
-            // Description
-            if (agent.description.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    agent.description,
-                    color = Tx2,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 2
-                )
-            }
+                Spacer(Modifier.width(8.dp))
 
-            Spacer(Modifier.height(10.dp))
-
-            // Stats grid: 3 columns
-            Row(modifier = Modifier.fillMaxWidth()) {
-                StatCell("Tasks", "${agent.stats.tasks}", modifier = Modifier.weight(1f))
-                StatCell("Success", formatPercent(agent.stats.successRate), modifier = Modifier.weight(1f))
-                StatCell("Latency", agent.stats.avgLatency.ifEmpty { "--" }, modifier = Modifier.weight(1f))
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // Config button
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // 配置按钮（描边）
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(RR))
-                        .background(Surface2)
-                        .border(1.dp, Bd, RoundedCornerShape(RR))
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Bg3)
+                        .border(1.dp, Line, RoundedCornerShape(7.dp))
                         .clickable(onClick = onConfigClick)
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        "Config",
+                        "配置",
                         color = Tx2,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = FontFamily.Monospace
+                        fontWeight = FontWeight.Medium
                     )
                 }
+            }
 
-                Spacer(Modifier.weight(1f))
+            // 描述
+            if (agent.description.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    agent.description,
+                    color = Tx2,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    maxLines = 2
+                )
+            }
 
-                if (isConnected) {
+            // 待安装：💡 安装提示 + 命令 + 安装按钮（对齐核心稿）
+            if (!isInstalled) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Warn.withAlpha(0.08f))
+                        .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(7.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("💡", fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("请先安装", color = WarnLight, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "npm install -g @anthropic-ai/${agent.config.id}",
+                            color = WarnLight,
+                            fontSize = 11.sp,
+                            fontFamily = CodeFont,
+                            maxLines = 1
+                        )
+                    }
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Gn)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Online",
-                        color = Gn,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(Brush.linearGradient(listOf(Ac, Ac2)))
+                            .clickable(onClick = onConfigClick)
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text("安装", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
+            }
+
+            // 统计三联格（顶部细分隔线，对齐 .agent-stats）
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                StatCell(
+                    label = "任务",
+                    value = if (agent.stats.tasks > 0) "${agent.stats.tasks}" else "—",
+                    valueColor = if (agent.stats.tasks > 0) agentColor else Tx3,
+                    modifier = Modifier.weight(1f)
+                )
+                StatCell(
+                    label = "成功率",
+                    value = formatPercent(agent.stats.successRate),
+                    valueColor = Tx,
+                    modifier = Modifier.weight(1f)
+                )
+                StatCell(
+                    label = "平均延迟",
+                    value = agent.stats.avgLatency.ifEmpty { "—" },
+                    valueColor = Tx,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
 }
 
 @Composable
-private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
+private fun StatCell(
+    label: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(
             value,
-            color = Tx,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace
+            color = valueColor,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(2.dp))
         Text(
             label,
             color = Tx3,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.4.sp
         )
     }
 }
 
 private fun formatPercent(rate: Double): String {
-    if (rate <= 0.0) return "--"
+    if (rate <= 0.0) return "—"
     return "${(rate * 100).toInt()}%"
 }

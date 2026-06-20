@@ -55,7 +55,7 @@ fun SkillDetailView(
                 text = "← 返回",
                 color = Ac,
                 fontSize = 12.sp,
-                fontFamily = MonoFont,
+                fontFamily = SansFont,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -102,7 +102,7 @@ fun SkillDetailView(
                     text = skill.id,
                     color = Tx3,
                     fontSize = 11.sp,
-                    fontFamily = MonoFont
+                    fontFamily = SansFont
                 )
                 Spacer(Modifier.height(6.dp))
                 if (skill.description.isNotEmpty()) {
@@ -189,7 +189,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
         text = skill.source,
         color = Ac,
         fontSize = 12.sp,
-        fontFamily = MonoFont
+        fontFamily = SansFont
     )
     Spacer(Modifier.height(16.dp))
 
@@ -198,7 +198,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
         text = skill.scope,
         color = Tx2,
         fontSize = 12.sp,
-        fontFamily = MonoFont
+        fontFamily = SansFont
     )
     Spacer(Modifier.height(16.dp))
 
@@ -208,7 +208,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
             text = skill.path,
             color = Tx2,
             fontSize = 12.sp,
-            fontFamily = MonoFont,
+            fontFamily = SansFont,
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(RR))
@@ -236,7 +236,7 @@ private fun SkillStructureTab(skill: SkillDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No file structure available", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+            Text("No file structure available", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
@@ -246,7 +246,7 @@ private fun SkillStructureTab(skill: SkillDto) {
         text = skill.path,
         color = Ac,
         fontSize = 12.sp,
-        fontFamily = MonoFont,
+        fontFamily = SansFont,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RR))
@@ -275,7 +275,7 @@ private fun SkillStructureTab(skill: SkillDto) {
                     text = "$indent$prefix$segment",
                     color = if (index == segments.lastIndex) Ac else Tx2,
                     fontSize = 12.sp,
-                    fontFamily = MonoFont
+                    fontFamily = SansFont
                 )
             }
         }
@@ -289,7 +289,7 @@ private fun SkillAgentsTab(skill: SkillDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("No agents linked to this skill", color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+            Text("No agents linked to this skill", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
@@ -329,7 +329,7 @@ private fun SkillAgentsTab(skill: SkillDto) {
                         color = Tx,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        fontFamily = MonoFont
+                        fontFamily = SansFont
                     )
                 }
                 StatusChip(
@@ -418,7 +418,7 @@ private fun InfoRow(label: String, value: String) {
             text = label,
             color = Tx3,
             fontSize = 11.sp,
-            fontFamily = MonoFont,
+            fontFamily = SansFont,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.width(100.dp)
         )
@@ -426,7 +426,7 @@ private fun InfoRow(label: String, value: String) {
             text = value,
             color = Tx2,
             fontSize = 11.sp,
-            fontFamily = MonoFont,
+            fontFamily = SansFont,
             maxLines = 2,
             overflow = Ellipsis,
             modifier = Modifier.weight(1f)
@@ -442,14 +442,14 @@ private fun StatBlock(label: String, value: String) {
             color = Tx,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = MonoFont
+            fontFamily = SansFont
         )
         Spacer(Modifier.height(4.dp))
         Text(
             text = label,
             color = Tx3,
             fontSize = 10.sp,
-            fontFamily = MonoFont
+            fontFamily = SansFont
         )
     }
 }
@@ -461,7 +461,7 @@ private fun SkillSectionTitle(title: String) {
         color = Tx3,
         fontSize = 10.sp,
         fontWeight = FontWeight.SemiBold,
-        fontFamily = MonoFont,
+        fontFamily = SansFont,
         letterSpacing = 0.8.sp
     )
     Spacer(Modifier.height(6.dp))

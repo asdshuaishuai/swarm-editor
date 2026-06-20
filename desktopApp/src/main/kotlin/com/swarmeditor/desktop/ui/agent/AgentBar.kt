@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,15 +38,15 @@ fun AgentBar(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(58.dp).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, Bd).padding(vertical = 14.dp),
+        modifier = modifier.width(58.dp).background(Bg0).border(1.dp, Line).padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Logo
         Box(
-            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(Brush.linearGradient(listOf(Ac, Pr))),
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(Brush.linearGradient(listOf(Ac, AgentClaude))),
             contentAlignment = Alignment.Center
         ) {
-            Text("S", color = Bg, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
+            Text("S", color = Bg0, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, fontFamily = SansFont)
         }
         Spacer(Modifier.height(14.dp))
 
@@ -51,11 +54,11 @@ fun AgentBar(
         agents.forEach { agent ->
             Box(
                 modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
-                    .background(if (agent.id == selectedAgent.id) Surface else Color.Transparent)
+                    .background(if (agent.id == selectedAgent.id) Bg2 else Color.Transparent)
                     .clickable { onSelectAgent(agent) },
                 contentAlignment = Alignment.Center
             ) {
-                Text(agent.emoji, fontSize = 20.sp)
+                Text(agent.letter, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 val dotColor = when { agent.isConnected -> Gn; else -> Tx3 }
                 Box(modifier = Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(dotColor).align(Alignment.BottomEnd))
             }
@@ -67,11 +70,11 @@ fun AgentBar(
         // 扫描按钮
         Box(
             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Bd, RoundedCornerShape(8.dp))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
                 .clickable(onClick = onScan),
             contentAlignment = Alignment.Center
         ) {
-            Text("🔍", fontSize = 16.sp)
+            Icon(Icons.Default.Search, contentDescription = "Scan", modifier = Modifier.size(16.dp), tint = Tx2)
         }
     }
 }

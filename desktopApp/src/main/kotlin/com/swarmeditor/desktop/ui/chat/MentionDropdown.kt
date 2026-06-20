@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,13 +42,7 @@ import com.swarmeditor.desktop.theme.*
 import androidx.compose.ui.graphics.Color
 
 /**
- * @agent mention dropdown — pops up when user types "@" in composer.
- * Shows filtered agent list with keyboard navigation.
- *
- * @param agents       All available agents
- * @param filter       Text typed after "@" (e.g. "cl" for "@cl")
- * @param onSelect     Called with selected agent name → inserts "@AgentName "
- * @param onDismiss    Called when user presses Escape or clicks outside
+ * @agent mention dropdown — aligned with mvp-design-mockup.html.
  */
 @Composable
 fun MentionDropdown(
@@ -66,12 +59,10 @@ fun MentionDropdown(
     var selectedIndex by remember(filter) { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
 
-    // Clamp selectedIndex when filter changes
     LaunchedEffect(filtered.size) {
         if (selectedIndex >= filtered.size) selectedIndex = (filtered.size - 1).coerceAtLeast(0)
     }
 
-    // Scroll to keep selection visible
     LaunchedEffect(selectedIndex) {
         if (selectedIndex in filtered.indices) {
             listState.animateScrollToItem(selectedIndex)
@@ -81,9 +72,10 @@ fun MentionDropdown(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR2))
-            .background(Glass)
-            .border(1.dp, Bd, RoundedCornerShape(RR2))
+            .clip(RoundedCornerShape(10.dp))
+            .background(Bg1.copy(alpha = 0.98f))
+            .border(1.dp, Line2, RoundedCornerShape(10.dp))
+            .padding(6.dp)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -109,12 +101,11 @@ fun MentionDropdown(
                 }
             }
     ) {
-        // Header
         Text(
-            "选择 Agent",
+            "AGENTS",
             color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-            fontFamily = MonoFont, letterSpacing = 0.5.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            fontFamily = SansFont, letterSpacing = 0.5.sp,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
 
         LazyColumn(
@@ -126,30 +117,29 @@ fun MentionDropdown(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) Ac.withAlpha(0.12f) else Color.Transparent)
                         .clickable { onSelect(agent.name) }
-                        .background(if (isSelected) Surface2 else Color.Transparent)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Agent avatar circle
                     Box(
-                        modifier = Modifier.size(24.dp).clip(CircleShape)
-                            .background(agent.color.copy(alpha = 0.15f)),
+                        modifier = Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
+                            .background(agent.color),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(agent.emoji, fontSize = 10.sp)
+                        Text(agent.letter, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(9.dp))
                     Text(
                         agent.name,
-                        color = if (isSelected) Tx else Tx2,
+                        color = if (isSelected) Ac else Tx,
                         fontSize = 12.sp, fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.weight(1f))
-                    // Status dot
-                    Box(
-                        modifier = Modifier.size(6.dp).clip(CircleShape)
-                            .background(if (agent.isConnected) Gn else Tx3)
+                    Text(
+                        if (agent.isConnected) "online" else "offline",
+                        color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont
                     )
                 }
             }

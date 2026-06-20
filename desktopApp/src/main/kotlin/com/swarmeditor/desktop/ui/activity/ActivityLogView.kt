@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.activity
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.ApiClient
+import com.swarmeditor.desktop.api.ContentBlockDto
+import com.swarmeditor.desktop.api.MessageDto
 import com.swarmeditor.desktop.api.SessionDto
 import com.swarmeditor.desktop.theme.*
 
@@ -40,14 +43,22 @@ fun ActivityLogView(
     var filter by remember { mutableStateOf("全部") }
     var timelineEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
-    // Load sessions from API
+    // Load sessions from API; fall back to demo data
     LaunchedEffect(Unit) {
-        sessions = ApiClient.getSessions()
+        sessions = ApiClient.getSessions().ifEmpty { demoSessions() }
     }
 
     // Convert SessionDto list to archive tree data
     val archiveYears = remember(sessions) {
         buildArchiveTree(sessions)
+    }
+
+    // 默认选中最近一个会话，使时间线有内容
+    LaunchedEffect(archiveYears) {
+        if (selectedSession == null) {
+            selectedSession = archiveYears.firstOrNull()
+                ?.months?.firstOrNull()?.days?.firstOrNull()?.sessions?.firstOrNull()
+        }
     }
 
     // When session selected, build timeline events from its messages
@@ -107,12 +118,13 @@ fun ActivityLogView(
 
         // Main content: ArchiveTree (left) + EventTimeline (right)
         Row(Modifier.weight(1f).fillMaxWidth()) {
-            // Left sidebar: Archive tree
+            // 左：归档树侧栏（260dp，对齐全局侧栏样式）
             Box(
                 modifier = Modifier
-                    .width(240.dp)
+                    .width(260.dp)
                     .fillMaxHeight()
-                    .background(Glass2)
+                    .background(Bg1.copy(alpha = 0.85f))
+                    .border(1.dp, Line)
             ) {
                 if (archiveYears.isNotEmpty()) {
                     ArchiveTree(
@@ -198,6 +210,44 @@ private fun ActivityTopBar(
         }
     }
 }
+
+// 设计稿示例会话历史（mvp-design-mockup.html · archiveData）
+private fun demoSessions(): List<SessionDto> = listOf(
+    SessionDto(
+        id = "s1", agentId = "Claude", status = "closed",
+        createdAt = "2026-06-09T17:08:00+08:00", updatedAt = "2026-06-09T17:11:00+08:00",
+        messages = listOf(
+            MessageDto("s1-1", "user", listOf(ContentBlockDto(text = "重构 ACP 协议层，使用官方 SDK 封装连接管理")), "2026-06-09T17:08:00+08:00"),
+            MessageDto("s1-2", "assistant", listOf(ContentBlockDto(text = "探索项目：grep class AcpConnection，命中 2 处")), "2026-06-09T17:09:00+08:00"),
+            MessageDto("s1-3", "assistant", listOf(ContentBlockDto(text = "写入文件 AcpConnectionManager.kt +67")), "2026-06-09T17:10:00+08:00"),
+            MessageDto("s1-4", "assistant", listOf(ContentBlockDto(text = "运行 ./gradlew :backend:compileKotlin，验证通过 BUILD SUCCESSFUL")), "2026-06-09T17:11:00+08:00")
+        )
+    ),
+    SessionDto(
+        id = "s2", agentId = "Claude", status = "closed",
+        createdAt = "2026-06-09T14:22:00+08:00", updatedAt = "2026-06-09T14:35:00+08:00",
+        messages = listOf(
+            MessageDto("s2-1", "user", listOf(ContentBlockDto(text = "修复 MCP 配置同步问题")), "2026-06-09T14:22:00+08:00"),
+            MessageDto("s2-2", "assistant", listOf(ContentBlockDto(text = "写入配置 mcp.json +5 -2，重启 mcp-server-github")), "2026-06-09T14:35:00+08:00")
+        )
+    ),
+    SessionDto(
+        id = "s3", agentId = "Qwen", status = "closed",
+        createdAt = "2026-06-08T16:20:00+08:00", updatedAt = "2026-06-08T17:45:00+08:00",
+        messages = listOf(
+            MessageDto("s3-1", "user", listOf(ContentBlockDto(text = "创建 Gradle 项目骨架")), "2026-06-08T16:20:00+08:00"),
+            MessageDto("s3-2", "assistant", listOf(ContentBlockDto(text = "创建目录 src/main/kotlin，写入 build.gradle.kts +128，运行 gradlew 验证通过")), "2026-06-08T17:45:00+08:00")
+        )
+    ),
+    SessionDto(
+        id = "s4", agentId = "Claude", status = "closed",
+        createdAt = "2026-06-06T20:10:00+08:00", updatedAt = "2026-06-06T22:30:00+08:00",
+        messages = listOf(
+            MessageDto("s4-1", "user", listOf(ContentBlockDto(text = "设计 Swarm 协议规范")), "2026-06-06T20:10:00+08:00"),
+            MessageDto("s4-2", "assistant", listOf(ContentBlockDto(text = "写入文档 protocol-spec.md +320")), "2026-06-06T22:30:00+08:00")
+        )
+    )
+)
 
 private fun buildArchiveTree(sessions: List<SessionDto>): List<ArchiveYearNode> {
     val grouped = mutableMapOf<String, MutableMap<String, MutableMap<String, MutableList<ArchiveSessionItem>>>>()

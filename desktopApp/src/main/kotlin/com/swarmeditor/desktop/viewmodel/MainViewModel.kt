@@ -21,7 +21,9 @@ data class ToastData(
 class MainViewModel {
     private val scope = CoroutineScope(Dispatchers.Default)
 
-    private val _currentView = MutableStateFlow("chat")
+    private val _currentView = MutableStateFlow(
+        System.getProperty("swarm.view")?.takeIf { it.isNotBlank() } ?: "chat"
+    )
     val currentView: StateFlow<String> = _currentView
 
     private val _showCmdK = MutableStateFlow(false)

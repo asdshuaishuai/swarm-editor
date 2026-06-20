@@ -40,12 +40,12 @@ fun ConfirmDialog(
             Text(message, color = Tx2, fontSize = 13.sp, lineHeight = 20.sp)
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.align(Alignment.End)) {
-                Text(cancelText, color = Tx2, fontSize = 12.sp, fontFamily = MonoFont,
+                Text(cancelText, color = Tx2, fontSize = 12.sp, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Bd2, RoundedCornerShape(6.dp)).clickable(onClick = onCancel).padding(horizontal = 14.dp, vertical = 7.dp))
                 Spacer(Modifier.width(8.dp))
                 val confirmBg = if (isDanger) Rd else Ac
                 val confirmColor = if (isDanger) Color.White else Bg
-                Text(confirmText, color = confirmColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = MonoFont,
+                Text(confirmText, color = confirmColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(confirmBg).clickable(onClick = onConfirm).padding(horizontal = 14.dp, vertical = 7.dp))
             }
         }

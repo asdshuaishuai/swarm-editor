@@ -53,9 +53,9 @@ fun ThinkingIndicator(
                     .clip(CircleShape)
                     .background(Ac.copy(alpha = opacity.value))
             )
-            if (index < 2) Spacer(Modifier.width(4.dp))
+            if (index < 2) Spacer(Modifier.width(3.dp))
         }
         Spacer(Modifier.width(8.dp))
-        Text(text, color = Tx3, fontSize = 12.sp, fontFamily = MonoFont)
+        Text(text, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
     }
 }

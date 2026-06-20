@@ -4,6 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,18 +34,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.sin
 
 @Composable
 fun EnhancedTopBar(
@@ -48,27 +53,42 @@ fun EnhancedTopBar(
     onNotifications: () -> Unit = {},
     onSettings: () -> Unit = {},
     onUserAvatar: () -> Unit = {},
+    onProjectSwitcher: () -> Unit = {},
+    onSwarmStatus: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(Glass2)
-            .border(1.dp, Bd)
-            .padding(horizontal = 16.dp),
+            .background(
+                Brush.linearGradient(
+                    listOf(Bg2.copy(alpha = 0.9f), Bg1.copy(alpha = 0.9f))
+                )
+            )
+            .border(1.dp, Line)
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Logo: conic-gradient ring + "Swarm Editor" + MVP badge
-        ConicGradientLogo(size = 34.dp, strokeWidth = 8f)
+        // Logo（conic 五色渐变 + 内挖 + 白点，对齐核心稿 .logo-mark）
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.matchParentSize().background(Brush.sweepGradient(listOf(AgentClaude, AgentQwen, AgentGemini, AgentKimi, AgentOpenCode, AgentClaude))))
+            Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).background(Bg1))
+            Box(Modifier.size(6.dp).clip(CircleShape).background(Color.White))
+        }
         Spacer(Modifier.width(8.dp))
         Text(
             "Swarm Editor",
             color = Tx,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = (-0.3).sp
+            fontFamily = SansFont,
+            letterSpacing = 0.2.sp
         )
         Spacer(Modifier.width(6.dp))
         // MVP badge
@@ -76,33 +96,31 @@ fun EnhancedTopBar(
             modifier = Modifier
                 .height(16.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Ac.copy(alpha = 0.12f))
+                .background(Ac.withAlpha(0.15f))
                 .padding(horizontal = 5.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 "MVP",
-                color = Ac,
+                color = AcLight,
                 fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = SansFont
             )
         }
 
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(14.dp))
+        Box(Modifier.width(1.dp).height(18.dp).background(Line))
+        Spacer(Modifier.width(10.dp))
 
-        // Separator
-        Box(Modifier.width(1.dp).height(20.dp).background(Bd))
-
-        Spacer(Modifier.width(12.dp))
-
-        // Project switcher: "swarm-editor · main"
+        // Project switcher
         Box(
             modifier = Modifier
                 .height(26.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Bg3)
-                .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(7.dp))
+                .background(Bg3.copy(alpha = 0.5f))
+                .border(1.dp, Line, RoundedCornerShape(7.dp))
+                .clickable(onClick = onProjectSwitcher)
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -110,55 +128,56 @@ fun EnhancedTopBar(
                 Text(
                     projectName,
                     color = Tx2,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    fontFamily = SansFont,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     " · ",
-                    color = Tx4,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
+                    color = Tx3,
+                    fontSize = 12.sp,
+                    fontFamily = SansFont
                 )
                 Text(
                     branchName,
-                    color = Gn,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
+                    color = OkLight,
+                    fontSize = 12.sp,
+                    fontFamily = SansFont,
                     fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(14.dp))
+        Box(Modifier.width(1.dp).height(18.dp).background(Line))
+        Spacer(Modifier.width(10.dp))
 
-        // Separator
-        Box(Modifier.width(1.dp).height(20.dp).background(Bd))
-
-        Spacer(Modifier.width(12.dp))
-
-        // Swarm status: agent avatars + "5 Agents" + online count
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // Agent avatar stack (first letter + gradient bg)
+        HoverTipBox("查看 Swarm 状态") {
+        // Swarm status: agent avatars（点击 → Agent 编排台）
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(7.dp))
+                .clickable(onClick = onSwarmStatus)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             val avatarColors = listOf(
-                listOf(Ac, Color(0xFF0088ff)),
-                listOf(Pr, Color(0xFF6633cc)),
-                listOf(Gn, Color(0xFF009955)),
-                listOf(Or, Color(0xFFcc5500)),
-                listOf(Gd, Color(0xFFcc9900))
+                listOf(AgentClaude, Ac2),
+                listOf(AgentQwen, Ac2),
+                listOf(AgentGemini, Ac2)
             )
-            val avatarLetters = listOf("C", "G", "K", "Q", "O")
+            val avatarLetters = listOf("C", "Q", "G")
 
             avatarLetters.take(minOf(3, agentCount)).forEachIndexed { i, letter ->
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
-                        .offset(x = ((-i) * 6).dp)
+                        .size(20.dp)
+                        .offset(x = if (i > 0) ((-6).dp) else 0.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(avatarColors[i])
                         )
-                        .border(1.5.dp, Bg2, CircleShape),
+                        .border(2.dp, Bg1, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -166,19 +185,18 @@ fun EnhancedTopBar(
                         color = Color.White,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = SansFont
                     )
                 }
             }
-            // Overflow indicator if more than 3 agents
             if (agentCount > 3) {
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
-                        .offset(x = (-18).dp)
+                        .size(20.dp)
+                        .offset(x = ((-6).dp))
                         .clip(CircleShape)
-                        .background(Bg4)
-                        .border(1.5.dp, Bg2, CircleShape),
+                        .background(Bg3)
+                        .border(2.dp, Bg1, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -186,51 +204,43 @@ fun EnhancedTopBar(
                         color = Tx2,
                         fontSize = 7.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = SansFont
                     )
                 }
             }
 
             Spacer(Modifier.width(8.dp))
-
             Text(
                 "$agentCount Agents",
                 color = Tx2,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
+                fontSize = 12.sp,
+                fontFamily = SansFont
             )
-
             Spacer(Modifier.width(6.dp))
-
-            // Online count dot + number
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(Gn)
-                )
+                PulseDot(OkLight, dotSize = 6.dp)
                 Spacer(Modifier.width(3.dp))
                 Text(
                     "$onlineCount",
-                    color = Gn,
-                    fontSize = 11.sp,
+                    color = OkLight,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = SansFont
                 )
             }
         }
+        }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(14.dp))
 
-        // CmdK trigger: search box style
+        // CmdK trigger
         Box(
             modifier = Modifier
                 .height(28.dp)
-                .width(180.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Bg3)
-                .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                .width(340.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg3.copy(alpha = 0.6f))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
                 .clickable(onClick = onCmdK)
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.CenterStart
@@ -239,96 +249,84 @@ fun EnhancedTopBar(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "Search",
+                    tint = Tx3,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    "Search",
+                    "搜索命令、文件、Agent…",
                     color = Tx3,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontSize = 12.sp,
+                    fontFamily = SansFont
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     "⌘K",
-                    color = Tx4,
+                    color = Tx3,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = SansFont
                 )
             }
         }
 
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.weight(1f))
 
         // Notification bell
-        NotificationBell(
-            count = unreadNotifications,
-            onClick = onNotifications
-        )
+        HoverTipBox("通知") {
+            NotificationBell(
+                count = unreadNotifications,
+                onClick = onNotifications
+            )
+        }
 
         Spacer(Modifier.width(4.dp))
 
         // Settings gear
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onSettings),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("⚙️", color = Tx3, fontSize = 15.sp)
+        val settingsInteraction = remember { MutableInteractionSource() }
+        val settingsHovered by settingsInteraction.collectIsHoveredAsState()
+        HoverTipBox("设置") {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (settingsHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
+                    .hoverable(settingsInteraction)
+                    .clickable(onClick = onSettings),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = if (settingsHovered) Tx2 else Tx3,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
 
         Spacer(Modifier.width(4.dp))
 
-        // User avatar "S"
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(Ac, Pr)))
-                .clickable(onClick = onUserAvatar),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                "S",
-                color = Bg,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConicGradientLogo(
-    size: androidx.compose.ui.unit.Dp,
-    strokeWidth: Float
-) {
-    val sizePx = size.value
-    Canvas(modifier = Modifier.size(size)) {
-        val center = Offset(sizePx / 2, sizePx / 2)
-        val radius = (sizePx / 2) - strokeWidth
-        val colors = listOf(
-            Color(0xFFaa66ff), // purple
-            Color(0xFF0088ff), // blue
-            Color(0xFF00ff88), // green
-            Color(0xFFffcc00), // yellow
-            Color(0xFFff8800), // orange
-            Color(0xFFaa66ff)  // back to purple
-        )
-
-        val sweepAngle = 360f / (colors.size - 1)
-        for (i in 0 until colors.size - 1) {
-            val startAngle = i * sweepAngle - 90f
-            drawArc(
-                color = colors[i],
-                startAngle = startAngle,
-                sweepAngle = sweepAngle + 2f, // slight overlap to avoid gaps
-                useCenter = false,
-                topLeft = Offset(center.x - radius, center.y - radius),
-                size = Size(radius * 2, radius * 2),
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+        // User avatar
+        HoverTipBox("Swarmer") {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(Ac, AgentQwen)))
+                    .clickable(onClick = onUserAvatar),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "S",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = SansFont
+                )
+            }
         }
     }
 }
@@ -338,32 +336,32 @@ private fun NotificationBell(
     count: Int,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .size(30.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(if (isHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
+            .hoverable(interactionSource)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text("🔔", color = Tx3, fontSize = 15.sp)
+        Icon(
+            imageVector = Icons.Filled.Notifications,
+            contentDescription = "Notifications",
+            tint = if (isHovered) Tx2 else Tx3,
+            modifier = Modifier.size(18.dp)
+        )
         if (count > 0) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = (-2).dp, y = 2.dp)
-                    .size(14.dp)
+                    .size(6.dp)
                     .clip(CircleShape)
-                    .background(Rd),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    if (count > 9) "9+" else count.toString(),
-                    color = Color.White,
-                    fontSize = 7.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
+                    .background(Err),
+            )
         }
     }
 }

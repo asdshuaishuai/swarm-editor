@@ -21,6 +21,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -71,7 +74,7 @@ fun CommandPalette(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Color.Black.withAlpha(0.5f))
             .clickable { onDismiss() },
         contentAlignment = Alignment.Center
     ) {
@@ -119,14 +122,14 @@ private fun CommandPaletteModal(
         focusRequester.requestFocus()
     }
 
-    val modalShape = RoundedCornerShape(RR2)
+    val modalShape = RoundedCornerShape(R12)
 
     Column(
         modifier = Modifier
             .width(580.dp)
             .clip(modalShape)
-            .background(Glass)
-            .border(1.dp, Bd, modalShape)
+            .background(Bg2)
+            .border(1.dp, Line, modalShape)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
@@ -177,7 +180,7 @@ private fun CommandPaletteModal(
                     .weight(1f)
                     .focusRequester(focusRequester),
                 placeholder = {
-                    Text("Type a command...", color = Tx3, fontSize = 14.sp)
+                    Text("输入命令或搜索…", color = Tx3, fontSize = 14.sp)
                 },
                 singleLine = true,
                 colors = TextFieldDefaults.colors(
@@ -196,7 +199,7 @@ private fun CommandPaletteModal(
             // ESC label
             Box(
                 modifier = Modifier
-                    .background(Surface2, RoundedCornerShape(4.dp))
+                    .background(Bg3, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text("ESC", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium)
@@ -208,7 +211,7 @@ private fun CommandPaletteModal(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Bd)
+                .background(Line)
         )
 
         // Command list
@@ -282,7 +285,7 @@ private fun CommandItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isSelected) Pr.copy(alpha = 0.12f) else Color.Transparent
+    val bgColor = if (isSelected) AgentClaude.withAlpha(0.12f) else Color.Transparent
 
     Row(
         modifier = Modifier
@@ -301,7 +304,11 @@ private fun CommandItem(
             contentAlignment = Alignment.Center
         ) {
             if (command.icon.isNotBlank()) {
-                Text(command.icon, fontSize = 13.sp)
+                if (command.icon == "📁") {
+                    Icon(Icons.Default.Folder, contentDescription = "Files", modifier = Modifier.size(14.dp), tint = Tx2)
+                } else {
+                    Text(command.icon, fontSize = 13.sp)
+                }
             } else {
                 Text(
                     command.name.first().uppercase(),
@@ -325,7 +332,7 @@ private fun CommandItem(
         if (command.shortcut.isNotBlank()) {
             Box(
                 modifier = Modifier
-                    .background(Surface2, RoundedCornerShape(4.dp))
+                    .background(Bg3, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(command.shortcut, color = Tx3, fontSize = 10.sp)
@@ -337,33 +344,40 @@ private fun CommandItem(
 private fun buildCommands(agentNames: List<String>): List<Command> {
     val commands = mutableListOf<Command>()
 
-    // Commands group
-    commands.add(Command("new-session", "New Session", "Commands", "⌘N"))
-    commands.add(Command("open-settings", "Open Settings", "Commands", "⌘,"))
+    // 命令
+    commands.add(Command("new-session", "新建会话", "命令", "⌘N"))
+    commands.add(Command("open-settings", "打开设置", "命令", "⌘,"))
 
-    // Agents group
+    // Agent 配置
     val defaultAgents = listOf("Claude Code", "QwenCode", "Gemini CLI", "Kimi Code", "OpenCode")
     val agents = if (agentNames.isEmpty()) defaultAgents else agentNames
     agents.forEach { agent ->
         commands.add(
             Command(
                 id = "cfg-${agent.lowercase(Locale.ROOT).replace(" ", "-")}",
-                name = "Configure $agent",
-                group = "Agents"
+                name = "配置 $agent",
+                group = "Agent 配置"
             )
         )
     }
 
-    // Views group
-    val views = listOf("Chat" to "⌘1", "Agents" to "⌘2", "Plugins" to "⌘3", "Files" to "⌘4", "Activity" to "⌘5")
-    views.forEach { (name, shortcut) ->
+    // 视图（id 保持英文以兼容路由，显示名中文）
+    val views = listOf(
+        "Chat" to "会话" to "⌘1",
+        "Agents" to "Agent 编排" to "⌘2",
+        "Plugins" to "插件" to "⌘3",
+        "Files" to "文件" to "⌘4",
+        "Activity" to "活动日志" to "⌘5"
+    )
+    views.forEach { (keyAndLabel, shortcut) ->
+        val (key, label) = keyAndLabel
         commands.add(
             Command(
-                id = "view-${name.lowercase()}",
-                name = name,
-                group = "Views",
+                id = "view-${key.lowercase()}",
+                name = label,
+                group = "视图",
                 shortcut = shortcut,
-                icon = when (name) {
+                icon = when (key) {
                     "Chat" -> "💬"
                     "Agents" -> "🤖"
                     "Plugins" -> "🧩"

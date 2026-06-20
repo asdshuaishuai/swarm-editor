@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.files
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,10 +13,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,7 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,13 +90,9 @@ private fun demoTree(): FileNodeDto = FileNodeDto(
 // ── Filter chip ────────────────────────────────────────────────────
 
 @Composable
-private fun FilterChip(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit
-) {
-    val bg = if (active) Ac.copy(alpha = 0.12f) else Bg2
-    val fg = if (active) Ac else Tx2
+private fun FilterChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val bg = if (active) Ac.withAlpha(0.12f) else Bg2
+    val fg = if (active) AcLight else Tx2
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
@@ -100,26 +104,7 @@ private fun FilterChip(
     }
 }
 
-// ── Stat card ──────────────────────────────────────────────────────
-
-@Composable
-private fun StatCard(label: String, value: String, accentColor: androidx.compose.ui.graphics.Color) {
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Surface2)
-            .then(
-                Modifier.background(Bd.copy(alpha = 0.3f)) // border simulation
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-    ) {
-        Text(value, color = accentColor, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-        Spacer(Modifier.height(2.dp))
-        Text(label, color = Tx2, fontSize = 10.sp)
-    }
-}
-
-// ── Main composable ────────────────────────────────────────────────
+// ── Main composable：左 全高文件树侧栏 | 右 统计+详情 ─────────────
 
 @Composable
 fun FileExplorerView(modifier: Modifier = Modifier) {
@@ -129,20 +114,19 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
     val filterChangesOnly = remember { mutableStateOf(false) }
     val isLoading = remember { mutableStateOf(true) }
 
-    // Fetch project tree from API; fall back to demo data
     LaunchedEffect(Unit) {
         isLoading.value = true
         val result = ApiClient.getProjectTree()
-        tree.value = if (result.name.isBlank()) demoTree() else result
+        val root = if (result.name.isBlank()) demoTree() else result
+        tree.value = root
+        expandedDirs[root.path] = true
+        root.children.filter { it.isDirectory }.forEach { expandedDirs[it.path] = true }
         isLoading.value = false
     }
 
     val rootNode = tree.value
     if (rootNode == null || isLoading.value) {
-        Box(
-            modifier.fillMaxSize().background(Glass),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier.fillMaxSize().background(Bg2), contentAlignment = Alignment.Center) {
             Text("加载中...", color = Tx2, fontSize = 14.sp)
         }
         return
@@ -152,79 +136,70 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
     val modifiedCount = countByStatus(rootNode, "modified")
     val newCount = countByStatus(rootNode, "new")
 
-    Column(modifier.fillMaxSize().background(Glass)) {
-        // ── Top bar ────────────────────────────────────────────
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+    Row(modifier.fillMaxSize().background(Bg0)) {
+        // ── 左：文件树侧栏（全高，对齐全局侧栏样式 260dp）──────────
+        Column(
+            Modifier.width(260.dp).fillMaxHeight()
+                .background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("📁", fontSize = 16.sp)
-                Column {
-                    Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(rootNode.path, color = Tx3, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("文件".uppercase(), color = Tx2, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp)
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).clickable { }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = Tx3, modifier = Modifier.size(15.dp))
                 }
             }
-            Text("$totalFiles 文件", color = Tx2, fontSize = 11.sp)
-        }
-
-        // ── Filter chips ───────────────────────────────────────
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            FilterChip("全部", !filterChangesOnly.value) { filterChangesOnly.value = false }
-            FilterChip("仅变更", filterChangesOnly.value) { filterChangesOnly.value = true }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // ── Stats cards ────────────────────────────────────────
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            StatCard("Total", totalFiles.toString(), Ac)
-            StatCard("Modified", modifiedCount.toString(), Gd)
-            StatCard("New", newCount.toString(), Gn)
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // ── Split: file tree (left) + content area (right) ─────
-        Row(Modifier.fillMaxWidth().weight(1f)) {
-            // Left: FileTreeView
-            Column(
-                Modifier
-                    .width(280.dp)
-                    .fillMaxHeight()
-                    .background(Glass2)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 6.dp)
-            ) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(6.dp)) {
                 FileTreeView(
                     tree = rootNode,
                     expanded = expandedDirs,
                     selectedPath = selectedPath.value,
                     onSelectFile = { selectedPath.value = it.path },
-                    onToggleDir = { path ->
-                        expandedDirs[path] = !(expandedDirs[path] ?: false)
-                    },
+                    onToggleDir = { path -> expandedDirs[path] = !(expandedDirs[path] ?: false) },
                     filterChangesOnly = filterChangesOnly.value
                 )
             }
+        }
 
-            // Right: content placeholder
-            Box(
-                Modifier.weight(1f).fillMaxHeight().background(Glass),
-                contentAlignment = Alignment.Center
+        // ── 右：主区（topbar + 过滤 + 统计 + 详情）─────────────────
+        Column(Modifier.weight(1f).fillMaxHeight().background(Bg2)) {
+            // topbar
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(Icons.Filled.Folder, contentDescription = "项目", tint = Gd, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("~/code/${rootNode.name} · $totalFiles 文件", color = Tx3, fontSize = 10.5.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                FilterChip("全部", !filterChangesOnly.value) { filterChangesOnly.value = false }
+                Spacer(Modifier.width(6.dp))
+                FilterChip("仅变更", filterChangesOnly.value) { filterChangesOnly.value = true }
+            }
+
+            // 统计卡
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard("总文件", totalFiles.toString(), Tx)
+                StatCard("已修改", modifiedCount.toString(), WarnLight)
+                StatCard("新增", newCount.toString(), OkLight)
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // 详情
+            Box(Modifier.weight(1f).fillMaxWidth().background(Bg2), contentAlignment = Alignment.Center) {
                 if (selectedPath.value != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("📄", fontSize = 32.sp)
+                        Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = "文件", modifier = Modifier.size(32.dp), tint = Tx2)
                         Spacer(Modifier.height(8.dp))
-                        Text(selectedPath.value!!, color = Tx, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        Text(selectedPath.value!!, color = Tx, fontSize = 13.sp)
                         Spacer(Modifier.height(4.dp))
                         Text("选择文件查看详情", color = Tx3, fontSize = 11.sp)
                     }
@@ -233,5 +208,20 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatCard(label: String, value: String, accentColor: Color) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(8.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Text(value, color = accentColor, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = CodeFont)
+        Spacer(Modifier.height(2.dp))
+        Text(label, color = Tx2, fontSize = 10.sp)
     }
 }
