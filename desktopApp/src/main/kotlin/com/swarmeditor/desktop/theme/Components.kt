@@ -151,7 +151,7 @@ fun PulseDot(
 fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val elev by animateDpAsState(if (hovered) 8.dp else 0.dp, label = "hoverLift")
+    val elev by animateDpAsState(if (hovered) 8.dp else 2.dp, label = "hoverLift")
     return this
         .hoverable(interaction)
         .offset(y = if (hovered) (-1).dp else 0.dp)

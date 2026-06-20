@@ -139,9 +139,11 @@ fun PluginSideBar(
     onSelectMcp: (McpServerDto) -> Unit,
     onSelectSkill: (SkillDto) -> Unit,
     onAdd: () -> Unit = {},
+    activeTab: String = "mcp",
+    onTabChange: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var tab by remember { mutableStateOf(PluginSideTab.MCP) }
+    val tab = if (activeTab == "skills") PluginSideTab.SKILLS else PluginSideTab.MCP
     Column(modifier.width(260.dp).fillMaxHeight().background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         SideHeader("插件", onAdd)
         // 子 tab
@@ -151,7 +153,7 @@ fun PluginSideBar(
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                         .background(if (active) Ac.withAlpha(0.12f) else Color.Transparent)
-                        .clickable { tab = st }.padding(vertical = 6.dp),
+                        .clickable { onTabChange(if (st == PluginSideTab.MCP) "mcp" else "skills") }.padding(vertical = 6.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {

@@ -86,6 +86,7 @@ fun App(onClose: () -> Unit = {}) {
     var showSettings by remember { mutableStateOf(false) }
     var showRightPanel by remember { mutableStateOf(true) }
     var rightTab by remember { mutableStateOf("changes") }
+    var pluginSubTab by remember { mutableStateOf("mcp") }
     var showMcpConfig by remember { mutableStateOf<String?>(null) }
     var inputText by remember { mutableStateOf("") }
     val showAgentConfig by mainVm.showAgentConfig.collectAsState()
@@ -203,6 +204,8 @@ fun App(onClose: () -> Unit = {}) {
                     onSelectMcp = { showMcpConfig = it.id },
                     onSelectSkill = { mainVm.switchView("plugins") },
                     onAdd = { mainVm.showToast("添加插件") },
+                    activeTab = pluginSubTab,
+                    onTabChange = { pluginSubTab = it },
                     modifier = Modifier.fillMaxHeight()
                 )
                 else -> {}
@@ -242,7 +245,8 @@ fun App(onClose: () -> Unit = {}) {
                             PluginCenterView(
                                 mcpServers = mcpServers,
                                 skills = skills,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                activeTab = pluginSubTab
                             )
                         }
                         "files" -> {

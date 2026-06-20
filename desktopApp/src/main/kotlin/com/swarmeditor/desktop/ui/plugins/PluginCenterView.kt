@@ -60,7 +60,8 @@ enum class PluginSubTab(val label: String) {
 fun PluginCenterView(
     mcpServers: List<McpServerDto>,
     skills: List<SkillDto>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activeTab: String = "mcp"
 ) {
     // State: list vs detail
     var selectedItem by remember { mutableStateOf<PluginItem?>(null) }
@@ -162,8 +163,8 @@ fun PluginCenterView(
                     }
                 }
 
-                // 分类标签（合并 MCP 分类 + Skills 标签）
-                val categories = (mcpServers.flatMap { it.categories } + skills.flatMap { it.tags }).distinct()
+                // 分类标签（按当前 tab 筛选）
+                val categories = if (activeTab == "mcp") mcpServers.flatMap { it.categories }.distinct() else skills.flatMap { it.tags }.distinct()
 
                 if (categories.isNotEmpty()) {
                     Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
@@ -198,13 +199,15 @@ fun PluginCenterView(
                     }
                 }
 
-                // 卡片网格：合并 MCP + Skills（按搜索过滤）
+                // 卡片网格：按当前 tab 筛选 MCP 或 Skills
                 val q = searchQuery.text.lowercase()
-                val items: List<PluginItem> =
+                val items: List<PluginItem> = if (activeTab == "mcp") {
                     mcpServers.filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
-                        .map { PluginItem.Mcp(it) } +
-                        skills.filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
+                        .map { PluginItem.Mcp(it) }
+                } else {
+                    skills.filter { q.isEmpty() || it.name.lowercase().contains(q) || it.description.lowercase().contains(q) }
                         .map { PluginItem.Skill(it) }
+                }
 
                 if (items.isEmpty()) {
                     Box(
