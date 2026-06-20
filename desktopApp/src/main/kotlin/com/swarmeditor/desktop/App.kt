@@ -64,7 +64,7 @@ data class AgentInfo(
 )
 
 @Composable
-fun App() {
+fun App(onClose: () -> Unit = {}) {
     val agentVm = remember { AgentViewModel() }
     val sessionVm = remember { SessionViewModel() }
     val settingsVm = remember { SettingsViewModel() }
@@ -165,7 +165,8 @@ fun App() {
             onSettings = { showSettings = true },
             onUserAvatar = { mainVm.showToast("Swarmer", ToastType.INFO) },
             onProjectSwitcher = { mainVm.showToast("项目切换器", ToastType.INFO) },
-            onSwarmStatus = { mainVm.switchView("agents") }
+            onSwarmStatus = { mainVm.switchView("agents") },
+            onClose = onClose
         )
 
         // Main content: Rail | SessionPanel | Center | RightPanel

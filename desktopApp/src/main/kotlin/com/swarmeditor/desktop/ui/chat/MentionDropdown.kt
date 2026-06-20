@@ -139,7 +139,7 @@ fun MentionDropdown(
                     Spacer(Modifier.weight(1f))
                     Text(
                         if (agent.isConnected) "online" else "offline",
-                        color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont
+                        color = Tx3, fontSize = 11.sp, fontFamily = SansFont
                     )
                 }
             }

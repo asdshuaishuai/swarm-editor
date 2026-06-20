@@ -89,10 +89,10 @@ fun PluginTile(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hoverLift(RoundedCornerShape(11.dp))
-            .clip(RoundedCornerShape(11.dp))
+            .hoverLift(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(listOf(Bg2.withAlpha(0.5f), Bg1.withAlpha(0.3f))))
-            .border(1.dp, Line, RoundedCornerShape(11.dp))
+            .border(1.dp, Line, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(14.dp)
     ) {
@@ -119,7 +119,7 @@ fun PluginTile(
                     Text(
                         text = name,
                         color = Tx,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = Ellipsis
@@ -142,7 +142,7 @@ fun PluginTile(
             Text(
                 text = description,
                 color = Tx2,
-                fontSize = 11.5.sp,
+                fontSize = 12.sp,
                 maxLines = 2,
                 overflow = Ellipsis,
                 lineHeight = 16.sp

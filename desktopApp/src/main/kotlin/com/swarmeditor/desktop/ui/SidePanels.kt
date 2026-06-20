@@ -53,7 +53,7 @@ private fun SideHeader(title: String, onAdd: (() -> Unit)? = null) {
         Text(
             title.uppercase(),
             color = Tx2,
-            fontSize = 11.5.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.4.sp
         )
@@ -100,7 +100,7 @@ fun AgentSideBar(
                 ) {
                     Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
                         Box(
-                            Modifier.size(26.dp).clip(RoundedCornerShape(7.dp))
+                            Modifier.size(26.dp).clip(RoundedCornerShape(8.dp))
                                 .background(Brush.linearGradient(listOf(a.color, a.color.copy(alpha = 0.7f)))),
                             contentAlignment = Alignment.Center
                         ) { Text(a.letter, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
@@ -111,13 +111,13 @@ fun AgentSideBar(
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(a.name, color = Tx, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                        Text(a.name, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(6.dp).clip(CircleShape).background(dotColor))
                             Spacer(Modifier.width(5.dp))
-                            Text(label, color = Tx3, fontSize = 10.5.sp)
+                            Text(label, color = Tx3, fontSize = 11.sp)
                             if (a.version.isNotEmpty()) {
-                                Text(" · ${a.version}", color = Tx3, fontSize = 10.5.sp)
+                                Text(" · ${a.version}", color = Tx3, fontSize = 11.sp)
                             }
                         }
                     }
@@ -149,17 +149,17 @@ fun PluginSideBar(
             PluginSideTab.entries.forEach { st ->
                 val active = tab == st
                 Row(
-                    Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                         .background(if (active) Ac.withAlpha(0.12f) else Color.Transparent)
                         .clickable { tab = st }.padding(vertical = 6.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(st.label, color = if (active) AcLight else Tx3, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                    Text(st.label, color = if (active) AcLight else Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.width(5.dp))
                     Text(
                         if (st == PluginSideTab.MCP) "${mcpServers.size}" else "${skills.size}",
-                        color = Tx3, fontSize = 9.5.sp,
+                        color = Tx3, fontSize = 10.sp,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 4.dp, vertical = 1.dp)
                     )
                 }
@@ -213,13 +213,13 @@ private fun PluginSideRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)).background(iconBg.withAlpha(0.15f)),
+            Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).background(iconBg.withAlpha(0.15f)),
             contentAlignment = Alignment.Center
         ) { Text(iconText.uppercase(), color = iconBg, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Tx, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-            Text(meta, color = Tx3, fontSize = 10.5.sp, maxLines = 1)
+            Text(title, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(meta, color = Tx3, fontSize = 11.sp, maxLines = 1)
         }
         Box(Modifier.size(7.dp).clip(CircleShape).background(if (online) OkLight else Tx3))
     }

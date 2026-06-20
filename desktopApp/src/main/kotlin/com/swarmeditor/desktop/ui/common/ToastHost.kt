@@ -108,7 +108,7 @@ private fun ToastItem(
             Box(
                 modifier = Modifier
                     .size(22.dp)
-                    .clip(RoundedCornerShape(11.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(color.withAlpha(0.15f)),
                 contentAlignment = Alignment.Center
             ) {

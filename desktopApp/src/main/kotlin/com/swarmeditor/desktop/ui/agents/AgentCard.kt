@@ -131,7 +131,7 @@ fun AgentCard(
                 // 状态胶囊
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(statusBg)
                         .padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -146,7 +146,7 @@ fun AgentCard(
                     Text(
                         statusText,
                         color = statusFg,
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -156,9 +156,9 @@ fun AgentCard(
                 // 配置按钮（描边）
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Bg3)
-                        .border(1.dp, Line, RoundedCornerShape(7.dp))
+                        .border(1.dp, Line, RoundedCornerShape(8.dp))
                         .clickable(onClick = onConfigClick)
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
@@ -189,16 +189,16 @@ fun AgentCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Warn.withAlpha(0.08f))
-                        .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(7.dp))
+                        .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("💡", fontSize = 13.sp)
                     Spacer(Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("请先安装", color = WarnLight, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("请先安装", color = WarnLight, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             "npm install -g @anthropic-ai/${agent.config.id}",
                             color = WarnLight,
@@ -209,7 +209,7 @@ fun AgentCard(
                     }
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(Brush.linearGradient(listOf(Ac, Ac2)))
                             .clickable(onClick = onConfigClick)
                             .padding(horizontal = 12.dp, vertical = 5.dp)

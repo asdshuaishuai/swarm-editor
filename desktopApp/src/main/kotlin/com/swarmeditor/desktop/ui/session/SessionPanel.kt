@@ -119,7 +119,7 @@ fun SessionPanel(
                 Text("会话", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Box(
-                    modifier = Modifier.size(26.dp).clip(RoundedCornerShape(5.dp))
+                    modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp))
                         .clickable(onClick = onCreateSession),
                     contentAlignment = Alignment.Center
                 ) {
@@ -135,17 +135,17 @@ fun SessionPanel(
             // Search box
             Box(
                 modifier = Modifier.fillMaxWidth().padding(6.dp)
-                    .border(1.dp, Line, RoundedCornerShape(7.dp))
+                    .border(1.dp, Line, RoundedCornerShape(8.dp))
                     .background(Bg3.copy(alpha = 0.5f))
                     .padding(horizontal = 9.dp, vertical = 6.dp)
             ) {
                 if (searchQuery.isEmpty()) {
-                    Text("搜索会话…", color = Tx3, fontSize = 11.5.sp, fontFamily = SansFont)
+                    Text("搜索会话…", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
                 }
                 BasicTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(color = Tx, fontSize = 11.5.sp, fontFamily = SansFont),
+                    textStyle = TextStyle(color = Tx, fontSize = 12.sp, fontFamily = SansFont),
                     cursorBrush = SolidColor(Ac),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -231,7 +231,7 @@ private fun SessionCard(
                 Box(
                     modifier = Modifier
                         .size(26.dp)
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(agentColor.withAlpha(0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -254,7 +254,7 @@ private fun SessionCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         session.title,
-                        color = Tx, fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
+                        color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
@@ -275,7 +275,7 @@ private fun SessionCard(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     "$agentName · ${relativeTime(session.createdAt)}",
-                    color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont
+                    color = Tx3, fontSize = 11.sp, fontFamily = SansFont
                 )
             }
         }

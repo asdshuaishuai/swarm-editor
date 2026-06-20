@@ -276,9 +276,9 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Bg3.copy(alpha = 0.35f))
-                        .border(1.dp, if (isSelected) Ac.withAlpha(0.4f) else Line, RoundedCornerShape(9.dp))
+                        .border(1.dp, if (isSelected) Ac.withAlpha(0.4f) else Line, RoundedCornerShape(8.dp))
                         .clickable { selectedFile = if (isSelected) null else change.path }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -323,8 +323,8 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                         Box(
                             modifier = Modifier
                                 .size(22.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .border(1.dp, Line, RoundedCornerShape(5.dp))
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, Line, RoundedCornerShape(6.dp))
                                 .clickable { fileStates[change.path] = "accepted" },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -336,8 +336,8 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                         Box(
                             modifier = Modifier
                                 .size(22.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .border(1.dp, Line, RoundedCornerShape(5.dp))
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, Line, RoundedCornerShape(6.dp))
                                 .clickable { fileStates[change.path] = "rejected" },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -582,9 +582,9 @@ private fun ColumnScope.LogTab() {
                 Box(
                     modifier = Modifier
                         .padding(start = 4.dp)
-                        .clip(RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .then(
-                            if (isActive) Modifier.border(1.dp, Ac, RoundedCornerShape(5.dp)).background(Ac.withAlpha(0.12f))
+                            if (isActive) Modifier.border(1.dp, Ac, RoundedCornerShape(6.dp)).background(Ac.withAlpha(0.12f))
                             else Modifier,
                         )
                         .clickable { activeFilter = label }

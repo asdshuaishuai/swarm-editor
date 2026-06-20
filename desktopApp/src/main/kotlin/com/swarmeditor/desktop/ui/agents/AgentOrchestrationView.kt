@@ -127,7 +127,7 @@ fun AgentOrchestrationView(
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Ac.withAlpha(0.12f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -164,7 +164,7 @@ fun AgentOrchestrationView(
                 Text(
                     "+ 添加 Agent",
                     color = Color.White,
-                    fontSize = 12.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -177,7 +177,7 @@ fun AgentOrchestrationView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp)
-                    .clip(RoundedCornerShape(11.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(
                         Brush.radialGradient(
                             listOf(Ac.withAlpha(0.1f), Color.Transparent),
@@ -186,7 +186,7 @@ fun AgentOrchestrationView(
                         )
                     )
                     .background(Bg0.withAlpha(0.5f))
-                    .border(1.dp, Line, RoundedCornerShape(11.dp))
+                    .border(1.dp, Line, RoundedCornerShape(12.dp))
             ) {
                 SwarmVisualization(
                     agents = displayAgents,
@@ -254,7 +254,7 @@ private fun SectionLabel(title: String, count: Int) {
         Text(
             "($count)",
             color = Tx3,
-            fontSize = 10.5.sp
+            fontSize = 11.sp
         )
     }
 }

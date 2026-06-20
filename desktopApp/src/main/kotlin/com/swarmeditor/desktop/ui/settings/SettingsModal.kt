@@ -78,7 +78,7 @@ fun SettingsModal(
             Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont, letterSpacing = 0.5.sp)
                 Spacer(Modifier.weight(1f))
-                Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Tx3, modifier = Modifier.size(14.dp))
                 }
             }
@@ -244,35 +244,35 @@ private fun SkillMgmtCard(skill: SkillDto, settingsVm: SettingsViewModel) {
     val accent = if (isMcp) AgentQwen else AgentGemini
     val enabled = skill.enabledAgents.isEmpty() || skill.enabledAgents.values.any { it }
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
-            .background(Bg2.withAlpha(0.5f)).border(1.dp, Line, RoundedCornerShape(11.dp)).padding(14.dp)
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(Bg2.withAlpha(0.5f)).border(1.dp, Line, RoundedCornerShape(12.dp)).padding(14.dp)
     ) {
         // 头部：图标 + 名称/来源 + 状态
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)).background(accent.withAlpha(0.15f)),
+                Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(accent.withAlpha(0.15f)),
                 contentAlignment = Alignment.Center
             ) { Text(if (isMcp) "🔌" else "🧩", fontSize = 16.sp) }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(skill.name, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text("${skill.source} · ${skill.tags.size} 标签", color = Tx3, fontSize = 10.5.sp)
+                Text("${skill.source} · ${skill.tags.size} 标签", color = Tx3, fontSize = 11.sp)
             }
             Text(
                 if (enabled) "已启用" else "已禁用", color = if (enabled) OkLight else Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(5.dp)).background((if (enabled) Ok else Tx3).withAlpha(0.12f)).padding(horizontal = 7.dp, vertical = 2.dp)
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background((if (enabled) Ok else Tx3).withAlpha(0.12f)).padding(horizontal = 7.dp, vertical = 2.dp)
             )
         }
         if (skill.description.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text(skill.description, color = Tx2, fontSize = 11.5.sp, lineHeight = 16.sp, maxLines = 2)
+            Text(skill.description, color = Tx2, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2)
         }
         // Agent 标签
         if (skill.tags.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 skill.tags.take(4).forEach { t ->
-                    Text(t, color = AcLight, fontSize = 9.5.sp, fontWeight = FontWeight.Medium,
+                    Text(t, color = AcLight, fontSize = 10.sp, fontWeight = FontWeight.Medium,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Ac.withAlpha(0.12f)).padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
@@ -325,8 +325,8 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
 
 @Composable
 private fun AgentToggle(name: String, enabled: Boolean, onToggle: () -> Unit) {
-    Row(modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(if (enabled) Ac.withAlpha(0.12f) else Bg3)
-        .border(1.dp, if (enabled) Ac else Line, RoundedCornerShape(5.dp))
+    Row(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(if (enabled) Ac.withAlpha(0.12f) else Bg3)
+        .border(1.dp, if (enabled) Ac else Line, RoundedCornerShape(6.dp))
         .clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(5.dp).clip(RoundedCornerShape(2.5.dp)).background(if (enabled) Ac else Tx3))
         Spacer(Modifier.width(4.dp))
@@ -397,7 +397,7 @@ private fun ToggleRow(label: String, defaultOn: Boolean) {
 
 @Composable
 private fun ToggleChip(on: Boolean) {
-    Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(9.dp)).background(if (on) Ac else Bg3).border(1.dp, if (on) Ac else Line2, RoundedCornerShape(9.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
+    Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(8.dp)).background(if (on) Ac else Bg3).border(1.dp, if (on) Ac else Line2, RoundedCornerShape(8.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(modifier = Modifier.size(14.dp).padding(horizontal = 2.dp).clip(CircleShape).background(if (on) Bg else Tx3))
     }
 }

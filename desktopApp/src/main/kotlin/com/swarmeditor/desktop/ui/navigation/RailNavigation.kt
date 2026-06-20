@@ -137,7 +137,7 @@ private fun RailNavItem(
         modifier = Modifier
             .width(38.dp)
             .height(38.dp)
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(bgColor)
             .hoverable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
@@ -183,7 +183,7 @@ private fun RailNavItem(
                 Text(
                     if (item.badge > 9) "9+" else item.badge.toString(),
                     color = Color.White,
-                    fontSize = 8.5.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = SansFont
                 )
@@ -231,7 +231,7 @@ private fun RailButton(
         modifier = Modifier
             .width(38.dp)
             .height(38.dp)
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(bgColor)
             .hoverable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),

@@ -116,7 +116,7 @@ fun ToolCard(
                 Text(
                     "· ${card.duration}",
                     color = Tx3,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     fontFamily = SansFont
                 )
             }
@@ -164,21 +164,21 @@ fun ToolCard(
             // OK pill
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(if (card.resultOk) Ok.withAlpha(0.12f) else Err.withAlpha(0.12f))
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
                     if (card.resultOk) "OK" else "FAIL",
                     color = if (card.resultOk) OkLight else ErrLight,
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = SansFont
                 )
             }
             if (card.resultDuration.isNotEmpty()) {
                 Spacer(Modifier.width(8.dp))
-                Text(card.resultDuration, color = Tx3, fontSize = 11.5.sp, fontFamily = SansFont)
+                Text(card.resultDuration, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
             }
         }
     }

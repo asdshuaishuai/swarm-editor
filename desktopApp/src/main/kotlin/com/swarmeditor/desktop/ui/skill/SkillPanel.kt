@@ -77,8 +77,8 @@ fun SkillPanel(
                         listOf("claude-code" to "Claude", "qwen-code" to "Qwen", "gemini-cli" to "Gemini", "kimi-code" to "Kimi", "opencode" to "OpenCode").forEach { (id, name) ->
                             val isOn = skill.enabledAgents[id] == true
                             Row(
-                                modifier = Modifier.padding(end = 5.dp).clip(RoundedCornerShape(5.dp))
-                                    .background(if (isOn) AcD else Surface).border(1.dp, if (isOn) Ac else Bd, RoundedCornerShape(5.dp))
+                                modifier = Modifier.padding(end = 5.dp).clip(RoundedCornerShape(6.dp))
+                                    .background(if (isOn) AcD else Surface).border(1.dp, if (isOn) Ac else Bd, RoundedCornerShape(6.dp))
                                     .clickable { onToggleAgent(skill.id, id, !isOn) }.padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {

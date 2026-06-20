@@ -76,7 +76,7 @@ fun AgentConfigDialog(agentId: String?, onDismiss: () -> Unit) {
                 Text("未连接", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(R8)).background(Bg3).border(1.dp, Line2, RoundedCornerShape(R8)).padding(horizontal = 8.dp, vertical = 3.dp))
                 Spacer(Modifier.width(8.dp))
-                Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Tx3, modifier = Modifier.size(14.dp))
                 }
             }

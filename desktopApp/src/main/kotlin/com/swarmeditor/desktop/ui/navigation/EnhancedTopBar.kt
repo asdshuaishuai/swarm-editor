@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -55,6 +56,7 @@ fun EnhancedTopBar(
     onUserAvatar: () -> Unit = {},
     onProjectSwitcher: () -> Unit = {},
     onSwarmStatus: () -> Unit = {},
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -117,9 +119,9 @@ fun EnhancedTopBar(
         Box(
             modifier = Modifier
                 .height(26.dp)
-                .clip(RoundedCornerShape(7.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Bg3.copy(alpha = 0.5f))
-                .border(1.dp, Line, RoundedCornerShape(7.dp))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
                 .clickable(onClick = onProjectSwitcher)
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
@@ -156,7 +158,7 @@ fun EnhancedTopBar(
         // Swarm status: agent avatars（点击 → Agent 编排台）
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(7.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .clickable(onClick = onSwarmStatus)
                 .padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -292,7 +294,7 @@ fun EnhancedTopBar(
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(if (settingsHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
                     .hoverable(settingsInteraction)
                     .clickable(onClick = onSettings),
@@ -328,6 +330,19 @@ fun EnhancedTopBar(
                 )
             }
         }
+
+        // 关闭按钮（undecorated 下自定义窗口控制）
+        HoverTipBox("关闭") {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(16.dp))
+            }
+        }
     }
 }
 
@@ -341,7 +356,7 @@ private fun NotificationBell(
     Box(
         modifier = Modifier
             .size(30.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(if (isHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
             .hoverable(interactionSource)
             .clickable(onClick = onClick),

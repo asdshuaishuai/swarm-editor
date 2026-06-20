@@ -47,8 +47,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
+import kotlinx.coroutines.delay
 
-// ── Hover tooltip（对齐核心稿 [data-tip]，包裹元素在悬停时显示气泡）──
+// ── Hover tooltip（对齐核心稿 [data-tip]，300ms 防抖避免闪烁）──
 @Composable
 fun HoverTipBox(
     tip: String,
@@ -58,9 +59,14 @@ fun HoverTipBox(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    var showTip by remember { mutableStateOf(false) }
+    // 防抖：hover 持续 300ms 才显示；离开立即隐藏。避免 Popup 弹出后鼠标循环触发的闪烁。
+    LaunchedEffect(hovered) {
+        if (hovered) { delay(300); showTip = true } else { showTip = false }
+    }
     Box(modifier.hoverable(interaction)) {
         content()
-        if (hovered && tip.isNotEmpty()) {
+        if (showTip && tip.isNotEmpty()) {
             Popup(
                 alignment = if (below) Alignment.BottomCenter else Alignment.TopCenter,
                 offset = IntOffset(0, if (below) 8 else -8)
@@ -142,7 +148,7 @@ fun PulseDot(
 
 // ── 卡片悬停上浮 + 阴影（对齐核心稿 :hover{translateY(-1px);box-shadow}）──
 @Composable
-fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(11.dp)): Modifier {
+fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val elev by animateDpAsState(if (hovered) 8.dp else 0.dp, label = "hoverLift")
@@ -221,7 +227,7 @@ fun SessionCard(
         Text(
             text = title,
             color = Tx,
-            fontSize = 12.5.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1
         )
@@ -230,16 +236,16 @@ fun SessionCard(
             Box(
                 modifier = Modifier
                     .size(18.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(agentBackground),
                 contentAlignment = Alignment.Center
             ) {
                 Text(agentLetter, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(6.dp))
-            Text(agentName, color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont)
-            Text(" · ", color = Tx3.withAlpha(0.5f), fontSize = 10.5.sp)
-            Text(timeAgo, color = Tx3, fontSize = 10.5.sp)
+            Text(agentName, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
+            Text(" · ", color = Tx3.withAlpha(0.5f), fontSize = 11.sp)
+            Text(timeAgo, color = Tx3, fontSize = 11.sp)
         }
     }
 }
@@ -325,9 +331,9 @@ fun ActivityEntry(
             .padding(vertical = 3.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(time, color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont)
+        Text(time, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
         Spacer(Modifier.width(6.dp))
-        Text(actor, color = actorColor, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
+        Text(actor, color = actorColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
         Spacer(Modifier.width(4.dp))
         Text(action, color = actionColor, fontSize = 12.sp, fontFamily = SansFont)
         Spacer(Modifier.width(4.dp))
@@ -348,9 +354,9 @@ fun AgentToggleChip(
     val textColor = if (enabled) AcLight else Tx3
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(5.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .border(1.dp, border, RoundedCornerShape(5.dp))
+            .border(1.dp, border, RoundedCornerShape(6.dp))
             .clickable(onClick = onToggle)
             .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -383,7 +389,7 @@ fun TagChip(
         Text(
             label,
             color = color,
-            fontSize = 9.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.3.sp
         )
@@ -410,7 +416,7 @@ fun FilterChip(
         Text(
             label,
             color = if (active) AcLight else Tx3,
-            fontSize = 10.5.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = SansFont
         )
@@ -445,7 +451,7 @@ fun GlowButton(
         Text(
             text,
             color = textColor,
-            fontSize = 12.5.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = SansFont
         )
@@ -473,7 +479,7 @@ fun GhostButton(
         Text(
             text,
             color = textColor,
-            fontSize = 12.5.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = SansFont
         )
@@ -559,7 +565,7 @@ fun FormField(
             Text(
                 if (isPassword) "•".repeat(value.length.coerceIn(6, 16)) else value,
                 color = if (value.isEmpty()) Tx3 else Tx,
-                fontSize = 12.5.sp,
+                fontSize = 13.sp,
                 fontFamily = SansFont
             )
         }

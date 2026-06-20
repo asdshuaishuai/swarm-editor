@@ -194,7 +194,7 @@ private fun ActivityTopBar(
                 val isActive = filter == chip
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(5.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(if (isActive) AcD else Bg.copy(alpha = 0f))
                         .clickable { onFilterChange(chip) }
                         .padding(horizontal = 7.dp, vertical = 3.dp)

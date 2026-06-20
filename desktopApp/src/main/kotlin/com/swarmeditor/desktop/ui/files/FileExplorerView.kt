@@ -146,7 +146,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("文件".uppercase(), color = Tx2, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp)
+                Text("文件".uppercase(), color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp)
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).clickable { }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = Tx3, modifier = Modifier.size(15.dp))
@@ -176,7 +176,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("~/code/${rootNode.name} · $totalFiles 文件", color = Tx3, fontSize = 10.5.sp)
+                    Text("~/code/${rootNode.name} · $totalFiles 文件", color = Tx3, fontSize = 11.sp)
                 }
                 Spacer(Modifier.weight(1f))
                 FilterChip("全部", !filterChangesOnly.value) { filterChangesOnly.value = false }

@@ -155,10 +155,10 @@ fun PluginCenterView(
                     // 扫描 / 添加 按钮（对齐核心稿；MCP/Skills 切换在左侧栏）
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("扫描", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                            modifier = Modifier.clip(RoundedCornerShape(7.dp)).border(1.dp, Bd, RoundedCornerShape(7.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, Bd, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("+ 添加", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
-                            modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 7.dp))
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 7.dp))
                     }
                 }
 
@@ -187,9 +187,9 @@ fun PluginCenterView(
                                     fontSize = 10.sp,
                                     fontFamily = SansFont,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(5.dp))
+                                        .clip(RoundedCornerShape(6.dp))
                                         .background(Surface2)
-                                        .border(1.dp, Bd, RoundedCornerShape(5.dp))
+                                        .border(1.dp, Bd, RoundedCornerShape(6.dp))
                                         .clickable { /* filter by category - placeholder */ }
                                         .padding(horizontal = 10.dp, vertical = 4.dp)
                                 )

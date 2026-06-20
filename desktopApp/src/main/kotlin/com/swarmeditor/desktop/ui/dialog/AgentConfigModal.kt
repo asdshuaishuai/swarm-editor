@@ -92,14 +92,14 @@ fun AgentConfigModal(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            Modifier.size(52.dp).clip(RoundedCornerShape(13.dp))
+                            Modifier.size(52.dp).clip(RoundedCornerShape(12.dp))
                                 .background(Brush.linearGradient(listOf(agent.color, agent.color.withAlpha(0.7f)))),
                             contentAlignment = Alignment.Center
                         ) { Text(agent.letter, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
                         Spacer(Modifier.width(14.dp))
                         Column {
                             Text(agent.name, color = Tx, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Text("$cmd · ${agent.version.ifEmpty { "—" }}", color = Tx3, fontSize = 11.5.sp, fontFamily = CodeFont)
+                            Text("$cmd · ${agent.version.ifEmpty { "—" }}", color = Tx3, fontSize = 12.sp, fontFamily = CodeFont)
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -114,17 +114,17 @@ fun AgentConfigModal(
                 if (desc.isNotEmpty()) {
                     Spacer(Modifier.height(16.dp))
                     Box(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Bg2.withAlpha(0.5f))
-                            .border(1.dp, Line, RoundedCornerShape(9.dp)).padding(10.dp, 12.dp)
-                    ) { Text(desc, color = Tx2, fontSize = 12.5.sp, lineHeight = 18.sp) }
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.5f))
+                            .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(10.dp, 12.dp)
+                    ) { Text(desc, color = Tx2, fontSize = 13.sp, lineHeight = 18.sp) }
                 }
 
                 // 安装指引（未安装时）
                 if (!isInstalled) {
                     Spacer(Modifier.height(14.dp))
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Warn.withAlpha(0.08f))
-                            .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(9.dp)).padding(12.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Warn.withAlpha(0.08f))
+                            .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(8.dp)).padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -135,8 +135,8 @@ fun AgentConfigModal(
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(Brush.linearGradient(listOf(Ac, Ac2))).clickable(onClick = onDismiss).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        Text("开始安装", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Brush.linearGradient(listOf(Ac, Ac2))).clickable(onClick = onDismiss).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        Text("开始安装", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 } else {
                     // 连接配置
@@ -164,8 +164,8 @@ fun AgentConfigModal(
                     SectionLabel("运行时信息")
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Bg2.withAlpha(0.4f))
-                            .border(1.dp, Line, RoundedCornerShape(9.dp)).padding(12.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.4f))
+                            .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         RuntimeStat("任务数", tasks, agent.color, Modifier.weight(1f))
@@ -178,11 +178,11 @@ fun AgentConfigModal(
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (agent.isConnected) {
-                        Text("断开连接", color = ErrLight, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                        Text("断开连接", color = ErrLight, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
                                 .clickable(onClick = onDismiss).padding(horizontal = 14.dp, vertical = 7.dp))
                     } else if (isInstalled) {
-                        Text("重新连接", color = Tx2, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                        Text("重新连接", color = Tx2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
                                 .clickable(onClick = onDismiss).padding(horizontal = 14.dp, vertical = 7.dp))
                     }
@@ -217,13 +217,13 @@ private fun StatusChip(isConnected: Boolean, isInstalled: Boolean) {
 @Composable
 private fun ModelSelect(label: String, value: String) {
     Column {
-        Text(label, color = Tx3, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label, color = Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg3.withAlpha(0.6f))
                 .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(horizontal = 11.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(value, color = Tx, fontSize = 12.5.sp, fontFamily = CodeFont, modifier = Modifier.weight(1f))
+            Text(value, color = Tx, fontSize = 13.sp, fontFamily = CodeFont, modifier = Modifier.weight(1f))
             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Tx3, modifier = Modifier.size(18.dp))
         }
     }

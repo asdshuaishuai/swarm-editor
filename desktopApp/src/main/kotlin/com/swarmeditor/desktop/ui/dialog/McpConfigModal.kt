@@ -63,8 +63,8 @@ fun McpConfigModal(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            Modifier.size(52.dp).clip(RoundedCornerShape(13.dp)).background(Bg0.withAlpha(0.6f))
-                                .border(1.dp, Line2, RoundedCornerShape(13.dp)),
+                            Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(Bg0.withAlpha(0.6f))
+                                .border(1.dp, Line2, RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(server.icon.ifEmpty { "🔌" }, fontSize = 24.sp)
@@ -72,7 +72,7 @@ fun McpConfigModal(
                         Spacer(Modifier.width(14.dp))
                         Column {
                             Text(server.name, color = Tx, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Text("${server.type} · MCP Server", color = Tx3, fontSize = 11.5.sp, fontFamily = CodeFont)
+                            Text("${server.type} · MCP Server", color = Tx3, fontSize = 12.sp, fontFamily = CodeFont)
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -99,7 +99,7 @@ fun McpConfigModal(
                 Spacer(Modifier.height(8.dp))
                 FormField("启动命令", cmd, { cmd = it }, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
-                Text("传输协议", color = Tx3, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
+                Text("传输协议", color = Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("stdio", "sse", "http").forEach { p ->
                         val active = protocol == p
@@ -148,10 +148,10 @@ fun McpConfigModal(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AUTH_AGENTS.forEach { (id, name) ->
                         val allowed = server.agents.any { it.equals(id.substringBefore("-"), true) || it == id }
-                        Text(name, color = if (allowed) AcLight else Tx3, fontSize = 11.5.sp, fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clip(RoundedCornerShape(7.dp))
+                        Text(name, color = if (allowed) AcLight else Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                 .background(if (allowed) Ac.withAlpha(0.12f) else Color.Transparent)
-                                .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(7.dp))
+                                .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                 }
@@ -159,11 +159,11 @@ fun McpConfigModal(
                 // 底部按钮
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("重启服务", color = Tx2, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                    Text("重启服务", color = Tx2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
                             .clickable(onClick = onDismiss).padding(horizontal = 12.dp, vertical = 7.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("删除", color = ErrLight, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                    Text("删除", color = ErrLight, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
                             .clickable(onClick = onDismiss).padding(horizontal = 12.dp, vertical = 7.dp))
                     Spacer(Modifier.weight(1f))

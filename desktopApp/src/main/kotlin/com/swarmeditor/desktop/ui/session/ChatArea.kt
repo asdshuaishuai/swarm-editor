@@ -135,7 +135,7 @@ fun ChatArea(
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(Brush.linearGradient(listOf(Ac, Ac2))),
                         contentAlignment = Alignment.Center
                     ) {
@@ -241,12 +241,12 @@ fun ChatArea(
                             } else false
                         } else false
                     },
-                    textStyle = TextStyle(color = Tx, fontSize = 13.5.sp, fontFamily = SansFont, lineHeight = 20.sp),
+                    textStyle = TextStyle(color = Tx, fontSize = 14.sp, fontFamily = SansFont, lineHeight = 20.sp),
                     cursorBrush = SolidColor(Ac),
                     interactionSource = interactionSource,
                     decorationBox = { innerTextField ->
                         Box {
-                            if (inputText.isEmpty()) Text("告诉 Swarm 你想做什么…  可以 @agent 指派，或 #file 引用", color = Tx3, fontSize = 13.5.sp)
+                            if (inputText.isEmpty()) Text("告诉 Swarm 你想做什么…  可以 @agent 指派，或 #file 引用", color = Tx3, fontSize = 14.sp)
                             innerTextField()
                         }
                     }
@@ -287,7 +287,7 @@ fun ChatArea(
                         Text(
                             "发送",
                             color = Color.White,
-                            fontSize = 12.5.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = SansFont
                         )
@@ -325,9 +325,9 @@ fun ChatArea(
 private fun ChipButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(7.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Bg3.copy(alpha = 0.8f))
-            .border(1.dp, Line, RoundedCornerShape(7.dp))
+            .border(1.dp, Line, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -339,7 +339,7 @@ private fun ChipButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             modifier = Modifier.size(12.dp)
         )
         Spacer(Modifier.width(4.dp))
-        Text(label, color = Tx2, fontSize = 11.5.sp, fontFamily = SansFont)
+        Text(label, color = Tx2, fontSize = 12.sp, fontFamily = SansFont)
     }
 }
 
@@ -350,7 +350,7 @@ private fun UserMessage(text: String, timestamp: String) {
         Box(
             modifier = Modifier
                 .size(32.dp)
-                .clip(RoundedCornerShape(9.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Brush.linearGradient(listOf(AgentClaude, AgentQwen))),
             contentAlignment = Alignment.Center
         ) {
@@ -370,10 +370,10 @@ private fun UserMessage(text: String, timestamp: String) {
                     Text("YOU", color = Tx2, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, letterSpacing = 0.5.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                Text(timestamp, color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont)
+                Text(timestamp, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
             }
             Spacer(Modifier.height(6.dp))
-            AnnotatedText(text, color = Tx, fontSize = 13.5.sp)
+            AnnotatedText(text, color = Tx, fontSize = 14.sp)
         }
     }
 }
@@ -395,7 +395,7 @@ private fun AssistantMessage(
         Box(
             modifier = Modifier
                 .size(32.dp)
-                .clip(RoundedCornerShape(9.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Brush.linearGradient(listOf(agentColor, lerp(agentColor, Color.Black, 0.3f)))),
             contentAlignment = Alignment.Center
         ) {
@@ -445,7 +445,7 @@ private fun AssistantMessage(
                             Text(
                                 "ACP",
                                 color = AcLight,
-                                fontSize = 9.5.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = SansFont,
                                 letterSpacing = 0.3.sp
@@ -454,19 +454,19 @@ private fun AssistantMessage(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                Text(timestamp, color = Tx3, fontSize = 10.5.sp, fontFamily = SansFont)
+                Text(timestamp, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
             }
             Spacer(Modifier.height(6.dp))
 
             // 对齐核心稿：文本 + 内联闪烁点（同一行）；纯思考态只显示点
             if (text != null && text.isNotEmpty() && isThinking) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AnnotatedText(text, color = Tx2, fontSize = 13.5.sp)
+                    AnnotatedText(text, color = Tx2, fontSize = 14.sp)
                     Spacer(Modifier.width(6.dp))
                     ThinkingIndicator()
                 }
             } else {
-                if (text != null && text.isNotEmpty()) AnnotatedText(text, color = Tx, fontSize = 13.5.sp)
+                if (text != null && text.isNotEmpty()) AnnotatedText(text, color = Tx, fontSize = 14.sp)
                 if (isThinking) ThinkingIndicator()
             }
 
@@ -482,7 +482,7 @@ private fun AssistantMessage(
 
             activities.forEach { act ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(7.dp)).background(Bg3).padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).background(Bg3).padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(act.icon, fontSize = 12.sp)
@@ -497,7 +497,7 @@ private fun AssistantMessage(
 }
 
 @Composable
-private fun AnnotatedText(text: String, color: Color = Tx, fontSize: TextUnit = 13.5.sp) {
+private fun AnnotatedText(text: String, color: Color = Tx, fontSize: TextUnit = 14.sp) {
     val annotated = buildAnnotatedString {
         var remaining = text
         while (true) {
@@ -550,7 +550,7 @@ private fun ChatTopBar(
         Box(
             modifier = Modifier
                 .size(28.dp)
-                .clip(RoundedCornerShape(7.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Ac.withAlpha(0.15f)),
             contentAlignment = Alignment.Center
         ) {
@@ -568,13 +568,13 @@ private fun ChatTopBar(
             Text(
                 text = sessionTitle,
                 color = Tx,
-                fontSize = 13.5.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = "使用官方 SDK 封装连接管理 · ${messages.size} 轮对话 · 3 个变更文件",
                 color = Tx3,
-                fontSize = 11.5.sp
+                fontSize = 12.sp
             )
         }
 
@@ -594,9 +594,9 @@ private fun ChatTopBar(
                     }
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent)
-                            .border(1.dp, if (isActive) Ac.withAlpha(0.2f) else Color.Transparent, RoundedCornerShape(7.dp))
+                            .border(1.dp, if (isActive) Ac.withAlpha(0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
                             .clickable { onSelectAgent(agent.id) }
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -611,7 +611,7 @@ private fun ChatTopBar(
                         Text(
                             agent.name.removeSuffix(" CLI"),
                             color = if (isActive) AcLight else Tx3,
-                            fontSize = 11.5.sp
+                            fontSize = 12.sp
                         )
                     }
                 }
@@ -625,7 +625,7 @@ private fun ChatTopBar(
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .clickable { /* branch */ },
                 contentAlignment = Alignment.Center
             ) {
@@ -639,7 +639,7 @@ private fun ChatTopBar(
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .clickable { /* share */ },
                 contentAlignment = Alignment.Center
             ) {
