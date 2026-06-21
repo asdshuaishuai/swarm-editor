@@ -216,6 +216,8 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                     onAdd = { mainVm.showToast("添加插件") },
                     activeTab = pluginSubTab,
                     onTabChange = { pluginSubTab = it },
+                    selectedMcpId = null,
+                    selectedSkillId = null,
                     modifier = Modifier.fillMaxHeight()
                 )
                 else -> {}

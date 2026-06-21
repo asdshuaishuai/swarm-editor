@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,11 @@ fun PluginCenterView(
     var selectedItem by remember { mutableStateOf<PluginItem?>(null) }
     var activeSubTab by remember { mutableStateOf(PluginSubTab.MCP) }
     var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
+
+    // 设计稿 setPluginSideTab：切换 tab 时强制退出详情页
+    LaunchedEffect(activeTab) {
+        selectedItem = null
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (selectedItem != null) {

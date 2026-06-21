@@ -141,6 +141,8 @@ fun PluginSideBar(
     onAdd: () -> Unit = {},
     activeTab: String = "mcp",
     onTabChange: (String) -> Unit = {},
+    selectedMcpId: String? = null,
+    selectedSkillId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val tab = if (activeTab == "skills") PluginSideTab.SKILLS else PluginSideTab.MCP
@@ -174,19 +176,22 @@ fun PluginSideBar(
                     PluginSideRow(
                         iconText = s.icon.ifEmpty { s.name.take(1) },
                         iconBg = Ac,
-                        title = s.name,
-                        meta = "${s.type}${if (s.version.isNotEmpty()) " · v${s.version}" else ""}",
-                        online = true,
+                        title = s.id,
+                        meta = "${s.tools.size} tools · ${s.version}",
+                        showDot = true,
+                        isActive = s.id == selectedMcpId,
                         onClick = { onSelectMcp(s) }
                     )
                 }
                 PluginSideTab.SKILLS -> skills.forEach { s ->
                     PluginSideRow(
-                        iconText = if (s.source == "MCP") "🔌" else "🧩",
+                        iconText = s.name.take(1),
                         iconBg = if (s.source == "MCP") AgentQwen else AgentGemini,
                         title = s.name,
-                        meta = "${s.tags.size} tags · ${s.source}",
-                        online = true,
+                        titleSuffix = s.source,
+                        meta = s.source,
+                        showDot = false,
+                        isActive = s.id == selectedSkillId,
                         onClick = { onSelectSkill(s) }
                     )
                 }
@@ -201,14 +206,21 @@ private fun PluginSideRow(
     iconBg: Color,
     title: String,
     meta: String,
-    online: Boolean,
+    showDot: Boolean = false,
+    isActive: Boolean = false,
+    titleSuffix: String? = null,
     onClick: () -> Unit
 ) {
     val hovInt = remember { MutableInteractionSource() }
     val hov by hovInt.collectIsHoveredAsState()
+    val rowBg = when {
+        isActive -> Ac.withAlpha(0.08f)
+        hov -> Bg3.copy(alpha = 0.6f)
+        else -> Color.Transparent
+    }
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-            .background(if (hov) Bg3.copy(alpha = 0.6f) else Color.Transparent)
+            .background(rowBg)
             .hoverable(hovInt)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -220,9 +232,18 @@ private fun PluginSideRow(
         ) { Text(iconText.uppercase(), color = iconBg, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-            Text(meta, color = Tx3, fontSize = 11.sp, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                if (titleSuffix != null) {
+                    Spacer(Modifier.width(5.dp))
+                    Text(titleSuffix, color = if (titleSuffix == "MCP") AgentQwen else OkLight, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(3.dp)).background((if (titleSuffix == "MCP") AgentQwen else OkLight).withAlpha(0.15f)).padding(horizontal = 4.dp, vertical = 1.dp))
+                }
+            }
+            Text(meta, color = Tx3, fontSize = 11.sp, maxLines = 1, fontFamily = CodeFont)
         }
-        Box(Modifier.size(7.dp).clip(CircleShape).background(if (online) OkLight else Tx3))
+        if (showDot) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(OkLight))
+        }
     }
 }
