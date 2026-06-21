@@ -84,9 +84,9 @@ fun McpDetailView(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = server.name.take(1).uppercase(),
+                    text = server.icon.ifEmpty { server.name.take(1).uppercase() },
                     color = accent,
-                    fontSize = 32.sp,
+                    fontSize = 40.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -100,7 +100,7 @@ fun McpDetailView(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    StatusChip(text = "active", color = Gn)
+                    StatusChip(text = "运行中", color = Gn)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(

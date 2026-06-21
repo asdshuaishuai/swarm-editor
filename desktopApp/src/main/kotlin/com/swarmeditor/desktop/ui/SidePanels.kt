@@ -182,7 +182,7 @@ fun PluginSideBar(
                 }
                 PluginSideTab.SKILLS -> skills.forEach { s ->
                     PluginSideRow(
-                        iconText = s.name.take(1),
+                        iconText = if (s.source == "MCP") "🔌" else "🧩",
                         iconBg = if (s.source == "MCP") AgentQwen else AgentGemini,
                         title = s.name,
                         meta = "${s.tags.size} tags · ${s.source}",

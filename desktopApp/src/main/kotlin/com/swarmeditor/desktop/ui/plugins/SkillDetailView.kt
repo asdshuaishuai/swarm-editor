@@ -79,9 +79,9 @@ fun SkillDetailView(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = skill.name.take(1).uppercase(),
+                    text = if (skill.source == "MCP") "🔌" else "🧩",
                     color = accent,
-                    fontSize = 32.sp,
+                    fontSize = 40.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
