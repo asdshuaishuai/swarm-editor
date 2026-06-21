@@ -68,7 +68,7 @@ fun ToolCard(
             .clip(shape)
             .background(
                 Brush.linearGradient(
-                    listOf(Bg3.copy(alpha = 0.6f), Bg2.copy(alpha = 0.4f))
+                    listOf(Bg3.copy(alpha = 0.7f), Bg2.copy(alpha = 0.5f))
                 )
             )
             .border(1.dp, Line, shape)

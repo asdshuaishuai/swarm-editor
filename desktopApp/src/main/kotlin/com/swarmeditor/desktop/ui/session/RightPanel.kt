@@ -249,14 +249,14 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Ac.withAlpha(0.12f))
-                    .border(1.dp, Ac.withAlpha(0.3f), RoundedCornerShape(4.dp))
+                    .background(OkLight.withAlpha(0.1f))
+                    .border(1.dp, OkLight.withAlpha(0.3f), RoundedCornerShape(4.dp))
                     .clickable {
                         changes.forEach { fileStates[it.path] = "accepted" }
                     }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
-                Text("全部接受", color = Ac, fontSize = 9.sp, fontFamily = SansFont)
+                Text("全部接受", color = OkLight, fontSize = 9.sp, fontFamily = SansFont)
             }
         }
 

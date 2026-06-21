@@ -172,7 +172,7 @@ fun SessionPanel(
                             group.label,
                             color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
                             fontFamily = SansFont, letterSpacing = 0.6.sp,
-                            modifier = Modifier.padding(8.dp, 10.dp, 10.dp, 4.dp)
+                            modifier = Modifier.padding(start = 10.dp, top = 10.dp, bottom = 4.dp)
                         )
                         group.sessions.forEach { session ->
                             SessionCard(
