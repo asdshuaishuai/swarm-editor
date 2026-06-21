@@ -306,14 +306,6 @@ fun ChatArea(
                 Text("Shift+Enter", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
                 Text(" 换行", color = Tx3, fontSize = 11.sp)
-                Spacer(Modifier.width(16.dp))
-                Text("@", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
-                Text(" 指派", color = Tx3, fontSize = 11.sp)
-                Spacer(Modifier.width(16.dp))
-                Text("#", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
-                Text(" 引用", color = Tx3, fontSize = 11.sp)
                 Spacer(Modifier.weight(1f))
                 Text("Token: 1,247 / 128K", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
             }
