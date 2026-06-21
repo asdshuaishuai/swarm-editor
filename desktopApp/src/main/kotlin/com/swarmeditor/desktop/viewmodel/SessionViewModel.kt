@@ -7,7 +7,11 @@ import com.swarmeditor.desktop.ui.chat.ToolCardData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class UiMessage(
@@ -44,6 +48,11 @@ class SessionViewModel {
     val messages: StateFlow<List<UiMessage>> = _messages
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
+
+    /** 当前会话标题（业务逻辑，不在 composable 中 find） */
+    val currentSessionTitle: StateFlow<String?> = combine(_sessions, _currentSessionId) { list, id ->
+        list.find { it.id == id }?.title
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), null)
 
     private val now = System.currentTimeMillis()
 

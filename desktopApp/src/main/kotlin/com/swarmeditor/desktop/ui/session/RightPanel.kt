@@ -612,7 +612,7 @@ private fun ColumnScope.LogTab() {
         LazyColumn(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         ) {
-            items(filtered) { entry ->
+            items(filtered, key = { "${it.time}-${it.action}-${it.detail}" }) { entry ->
                 TimelineEntry(entry)
             }
         }

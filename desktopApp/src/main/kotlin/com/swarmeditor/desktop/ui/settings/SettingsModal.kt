@@ -465,7 +465,7 @@ private fun ShortcutsTab() {
         }
         Spacer(Modifier.height(12.dp))
         LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            items(shortcuts) { item ->
+            items(shortcuts, key = { it.command }) { item ->
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(item.command, color = Tx, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont)

@@ -105,8 +105,10 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
         }
     }
 
-    val selectedAgent = agents.firstOrNull { it.isSelected } ?: agents.firstOrNull()
+    val selectedAgent = agentVm.selectedAgent.collectAsState().value
         ?: AgentInfo("claude-code", "Claude Code", "🟣", AgentClaude, true, "1.0.0", true, "C")
+    val derivedOnlineCount by agentVm.onlineCount.collectAsState()
+    val derivedSessionTitle by sessionVm.currentSessionTitle.collectAsState()
 
     val handleCommand: (Command) -> Unit = { cmd ->
         when (cmd.id) {
@@ -159,7 +161,7 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
             projectName = "swarm-editor",
             branchName = "main",
             agentCount = agents.ifEmpty { listOf(selectedAgent) }.size,
-            onlineCount = agents.count { it.isConnected }.coerceAtLeast(2),
+            onlineCount = derivedOnlineCount,
             unreadNotifications = 3,
             onCmdK = { mainVm.showCmdKDialog() },
             onNotifications = { mainVm.showToast("没有新通知", ToastType.INFO) },
@@ -228,7 +230,7 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                                 onSend = { sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
                                 modifier = Modifier.fillMaxSize(),
                                 agents = agents,
-                                sessionTitle = sessions.find { it.id == currentSessionId }?.title ?: selectedAgent.name,
+                                sessionTitle = derivedSessionTitle ?: selectedAgent.name,
                                 onSelectAgent = { agentVm.selectAgent(it) },
                                 onMcpClick = { mainVm.switchView("plugins") },
                                 onSkillClick = { mainVm.switchView("plugins") }

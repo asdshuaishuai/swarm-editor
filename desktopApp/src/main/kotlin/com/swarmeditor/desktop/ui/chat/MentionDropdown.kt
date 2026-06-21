@@ -112,7 +112,7 @@ fun MentionDropdown(
             state = listState,
             modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
         ) {
-            itemsIndexed(filtered) { index, agent ->
+            itemsIndexed(filtered, key = { _, agent -> agent.id }) { index, agent ->
                 val isSelected = index == selectedIndex
                 Row(
                     modifier = Modifier
