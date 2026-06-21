@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
 import androidx.compose.ui.unit.dp
@@ -44,13 +46,15 @@ fun SkillDetailView(
     val accent = accentFor(skill.name)
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Back button row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // pd-header
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .background(Brush.radialGradient(listOf(accent.withAlpha(0.08f), androidx.compose.ui.graphics.Color.Transparent)))
+                .border(1.dp, Line)
+                .padding(horizontal = 32.dp, vertical = 24.dp)
         ) {
+            Text("← 返回", color = Ac, fontSize = 12.sp, fontFamily = SansFont, fontWeight = FontWeight.Medium,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onBack).padding(horizontal = 8.dp, vertical = 4.dp))
             Text(
                 text = "← 返回",
                 color = Ac,
@@ -64,18 +68,14 @@ fun SkillDetailView(
             )
         }
 
-        // Hero section
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-        ) {
+        // pd-top
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            // pd-icon 84px
             Box(
-                modifier = Modifier
-                    .size(84.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(accent.copy(alpha = 0.15f))
-                    .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                modifier = Modifier.size(84.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Bg0.copy(alpha = 0.6f))
+                    .border(1.dp, Line2, RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -85,13 +85,12 @@ fun SkillDetailView(
                     fontWeight = FontWeight.Bold
                 )
             }
-            Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = skill.name,
                         color = Tx,
-                        fontSize = 20.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
@@ -120,11 +119,12 @@ fun SkillDetailView(
 
         Spacer(Modifier.height(16.dp))
 
-        // Tab headers
+        // pd-tabs
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+            modifier = Modifier.fillMaxWidth()
+                .background(Bg1.copy(alpha = 0.4f))
+                .border(1.dp, Line)
+                .padding(horizontal = 32.dp)
         ) {
             SkillTabs.forEachIndexed { index, tab ->
                 val isActive = selectedTab.intValue == index
@@ -159,7 +159,7 @@ fun SkillDetailView(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 32.dp)
         ) {
             when (selectedTab.intValue) {
                 0 -> SkillOverviewTab(skill)

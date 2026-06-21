@@ -1,4 +1,5 @@
 package com.swarmeditor.desktop.ui.plugins
+import com.swarmeditor.desktop.ui.dialog.McpConfigModal
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,7 +26,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +52,7 @@ fun McpDetailView(
 ) {
     val selectedTab = remember { mutableIntStateOf(0) }
     val accent = accentFor(server.name)
+    var showConfigModal by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         // pd-header（对齐设计稿 .pd-header: padding 24px 32px, radial gradient bg）
@@ -142,7 +147,7 @@ fun McpDetailView(
         ) {
             ActionButton(text = "⟳ 重启服务", color = Ac)
             ActionButton(text = "⎘ 复制配置", color = Tx2)
-            ActionButton(text = "⚙ 配置", color = Tx2)
+            ActionButton(text = "⚙ 配置", color = Tx2, onClick = { showConfigModal = true })
             Spacer(Modifier.weight(1f))
             ActionButton(text = "卸载", color = Rd)
         }
@@ -213,10 +218,15 @@ fun McpDetailView(
             }
         }
     }
+
+    // 配置弹窗（点击"配置"按钮触发）
+    if (showConfigModal) {
+        McpConfigModal(serverId = server.id, servers = listOf(server), onDismiss = { showConfigModal = false })
+    }
 }
 
 @Composable
-private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color) {
+private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit = {}) {
     Text(
         text = text,
         color = color,
@@ -227,7 +237,7 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
             .clip(RoundedCornerShape(6.dp))
             .border(1.dp, color.withAlpha(0.3f), RoundedCornerShape(6.dp))
             .background(color.withAlpha(0.06f))
-            .clickable { /* placeholder */ }
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp)
     )
 }
