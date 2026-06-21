@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
@@ -49,12 +50,12 @@ fun McpDetailView(
     val accent = accentFor(server.name)
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Back button row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // pd-header（对齐设计稿 .pd-header: padding 24px 32px, radial gradient bg）
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .background(Brush.radialGradient(listOf(accent.withAlpha(0.08f), Color.Transparent)))
+                .border(1.dp, Line)
+                .padding(horizontal = 32.dp, vertical = 24.dp)
         ) {
             Text(
                 text = "← 返回",
@@ -69,19 +70,18 @@ fun McpDetailView(
             )
         }
 
-        // Hero section
+        // Hero section（pd-top: icon 84px + meta, gap 18px）
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // 84px icon
+            // pd-icon: 84px, radius 18dp, bg Bg0 0.6 + Line2 border（设计稿 .pd-icon）
             Box(
                 modifier = Modifier
                     .size(84.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(accent.withAlpha(0.15f))
-                    .border(1.dp, accent.withAlpha(0.3f), RoundedCornerShape(16.dp)),
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Bg0.copy(alpha = 0.6f))
+                    .border(1.dp, Line2, RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -91,13 +91,13 @@ fun McpDetailView(
                     fontWeight = FontWeight.Bold
                 )
             }
-            Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // pd-name: 22sp（设计稿 .pd-name）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = server.name,
                         color = Tx,
-                        fontSize = 20.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
@@ -134,25 +134,28 @@ fun McpDetailView(
 
         Spacer(Modifier.height(14.dp))
 
-        // Action buttons row
+        // pd-actions（设计稿 .pd-actions: gap 8dp; 卸载 margin-left:auto 推到最右）
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            ActionButton(text = "⟳ 重启", color = Ac)
+            ActionButton(text = "⟳ 重启服务", color = Ac)
             ActionButton(text = "⎘ 复制配置", color = Tx2)
-            ActionButton(text = "删除", color = Rd)
+            ActionButton(text = "⚙ 配置", color = Tx2)
+            Spacer(Modifier.weight(1f))
+            ActionButton(text = "卸载", color = Rd)
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Tab headers
+        // pd-tabs（设计稿 .pd-tabs: padding 0 32px, sticky, backdrop blur）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .background(Bg1.copy(alpha = 0.4f))
+                .border(1.dp, Line)
+                .padding(horizontal = 32.dp)
         ) {
             DetailTabs.forEachIndexed { index, tab ->
                 val isActive = selectedTab.intValue == index
@@ -181,20 +184,20 @@ fun McpDetailView(
 
         Spacer(Modifier.height(8.dp))
 
-        // Tab content + side panel
+        // pd-body（设计稿 grid 1fr:280px, gap 28px, padding 24px 32px 40px）
         Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 32.dp, vertical = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            // Main content area
+            // pd-main
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
-                    .padding(end = 16.dp)
             ) {
                 when (selectedTab.intValue) {
                     0 -> McpDetailsTab(server)
