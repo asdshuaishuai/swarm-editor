@@ -95,6 +95,8 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
     var rightTab by remember { mutableStateOf("changes") }
     var pluginSubTab by remember { mutableStateOf("mcp") }
     var showMcpConfig by remember { mutableStateOf<String?>(null) }
+    // 插件侧栏点击 → 切换到详情页（如 VS Code 插件页）
+    var pluginSelectedItem by remember { mutableStateOf<com.swarmeditor.desktop.ui.plugins.PluginItem?>(null) }
     var inputText by remember { mutableStateOf("") }
     val showAgentConfig by mainVm.showAgentConfig.collectAsState()
 
@@ -211,13 +213,13 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                 "plugins" -> PluginSideBar(
                     mcpServers = mcpServers,
                     skills = skills,
-                    onSelectMcp = { showMcpConfig = it.id },
-                    onSelectSkill = { mainVm.switchView("plugins") },
+                    onSelectMcp = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp(it) },
+                    onSelectSkill = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Skill(it) },
                     onAdd = { mainVm.showToast("添加插件") },
                     activeTab = pluginSubTab,
                     onTabChange = { pluginSubTab = it },
-                    selectedMcpId = null,
-                    selectedSkillId = null,
+                    selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
+                    selectedSkillId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Skill)?.skill?.id,
                     modifier = Modifier.fillMaxHeight()
                 )
                 else -> {}
@@ -258,7 +260,9 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                                 mcpServers = mcpServers,
                                 skills = skills,
                                 modifier = Modifier.fillMaxSize(),
-                                activeTab = pluginSubTab
+                                activeTab = pluginSubTab,
+                                selectedItem = pluginSelectedItem,
+                                onSelectedItemChange = { pluginSelectedItem = it }
                             )
                         }
                         "files" -> {

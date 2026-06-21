@@ -62,30 +62,30 @@ fun PluginCenterView(
     mcpServers: List<McpServerDto>,
     skills: List<SkillDto>,
     modifier: Modifier = Modifier,
-    activeTab: String = "mcp"
+    activeTab: String = "mcp",
+    selectedItem: PluginItem? = null,
+    onSelectedItemChange: (PluginItem?) -> Unit = {}
 ) {
-    // State: list vs detail
-    var selectedItem by remember { mutableStateOf<PluginItem?>(null) }
     var activeSubTab by remember { mutableStateOf(PluginSubTab.MCP) }
     var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
 
     // 设计稿 setPluginSideTab：切换 tab 时强制退出详情页
     LaunchedEffect(activeTab) {
-        selectedItem = null
+        onSelectedItemChange(null)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (selectedItem != null) {
             // Detail view
-            when (val item = selectedItem!!) {
+            when (selectedItem) {
                 is PluginItem.Mcp -> McpDetailView(
-                    server = item.server,
-                    onBack = { selectedItem = null },
+                    server = selectedItem.server,
+                    onBack = { onSelectedItemChange(null) },
                     modifier = Modifier.fillMaxSize()
                 )
                 is PluginItem.Skill -> SkillDetailView(
-                    skill = item.skill,
-                    onBack = { selectedItem = null },
+                    skill = selectedItem.skill,
+                    onBack = { onSelectedItemChange(null) },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -237,7 +237,7 @@ fun PluginCenterView(
                         items(items, key = { it.key() }) { item ->
                             PluginTile(
                                 item = item,
-                                onClick = { selectedItem = item }
+                                onClick = { onSelectedItemChange(item) }
                             )
                         }
                     }
