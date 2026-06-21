@@ -26,9 +26,9 @@ fun main() = application {
         resizable = true,
         undecorated = true
     ) {
+        val awtWindow = window
         MaterialTheme(colorScheme = GeekColorScheme) {
             CompositionLocalProvider(
-                // 细滚动条
                 LocalScrollbarStyle provides ScrollbarStyle(
                     minimalHeight = 16.dp,
                     thickness = 8.dp,
@@ -37,15 +37,21 @@ fun main() = application {
                     unhoverColor = Color(0xFF1a1f2c),
                     hoverColor = Color(0xFF2a3040)
                 ),
-                // 紫色选区
                 LocalTextSelectionColors provides TextSelectionColors(
                     handleColor = Ac,
                     backgroundColor = Ac.copy(alpha = 0.3f)
                 ),
-                // 禁用默认 ripple（深色背景上白涟漪闪烁）
                 LocalRippleConfiguration provides null
             ) {
-                App(onClose = ::exitApplication)
+                App(
+                    onClose = ::exitApplication,
+                    onDragWindow = { dx, dy ->
+                        awtWindow.location = java.awt.Point(
+                            awtWindow.location.x + dx.toInt(),
+                            awtWindow.location.y + dy.toInt()
+                        )
+                    }
+                )
             }
         }
     }

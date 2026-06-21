@@ -1,6 +1,8 @@
 package com.swarmeditor.desktop.ui.navigation
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +59,7 @@ fun EnhancedTopBar(
     onProjectSwitcher: () -> Unit = {},
     onSwarmStatus: () -> Unit = {},
     onClose: () -> Unit = {},
+    onDragWindow: (Float, Float) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -69,6 +72,11 @@ fun EnhancedTopBar(
                 )
             )
             .border(1.dp, Line)
+            .pointerInput(Unit) {
+                detectDragGestures { _, dragAmount ->
+                    onDragWindow(dragAmount.x, dragAmount.y)
+                }
+            }
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
