@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -373,63 +374,122 @@ private fun McpToolsTab(server: McpServerDto) {
 
 @Composable
 private fun McpConfigTab(server: McpServerDto) {
+    // 启动配置（对齐核心稿 openMcpConfig）
+    SectionTitle("启动配置")
+    Spacer(Modifier.height(8.dp))
     if (server.command.isNotEmpty()) {
-        SectionTitle("命令")
+        Text("启动命令", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont)
+        Spacer(Modifier.height(6.dp))
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(R8))
-                .background(Bg3)
-                .border(1.dp, Line, RoundedCornerShape(R8))
-                .padding(12.dp)
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg3.copy(alpha = 0.6f))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
+                .padding(horizontal = 11.dp, vertical = 8.dp)
         ) {
+            Text(server.command, color = Tx, fontSize = 12.sp, fontFamily = SansFont)
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+    // 传输协议
+    Text("传输协议", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont)
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("stdio", "sse", "http").forEach { p ->
+            val active = server.type == p
             Text(
-                text = buildString {
-                    append(server.command)
-                    server.args.forEach { append(" "); append(it) }
-                },
-                color = Ac,
-                fontSize = 12.sp,
-                fontFamily = SansFont
+                p, color = if (active) Color.White else Tx2,
+                fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (active) Ac else Bg2)
+                    .border(1.dp, if (active) Ac else Line, RoundedCornerShape(8.dp))
+                    .padding(vertical = 8.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
-        Spacer(Modifier.height(16.dp))
     }
-
+    Spacer(Modifier.height(16.dp))
+    // 环境变量
+    SectionTitle("环境变量")
+    Spacer(Modifier.height(8.dp))
     if (server.env.isNotEmpty()) {
-        SectionTitle("环境变量")
-        Spacer(Modifier.height(6.dp))
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(R8))
-                .background(Bg3)
-                .border(1.dp, Line, RoundedCornerShape(R8))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg3.copy(alpha = 0.3f))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row {
-                Text("键", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(1f))
-                Text("值", color = Tx3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont, modifier = Modifier.weight(2f))
-            }
             server.env.forEach { (key, value) ->
-                Row {
-                    Text(key, color = Ac, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.weight(1f))
-                    Text(value, color = Tx2, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.weight(2f))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(key, color = Tx, fontSize = 12.sp, fontFamily = SansFont,
+                        modifier = Modifier.weight(1f)
+                            .clip(RoundedCornerShape(8.dp)).background(Bg3.copy(alpha = 0.6f))
+                            .border(1.dp, Line, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 11.dp, vertical = 8.dp))
+                    Text("*".repeat(value.length.coerceIn(6, 16)), color = Tx2, fontSize = 12.sp, fontFamily = SansFont,
+                        modifier = Modifier.weight(1.5f)
+                            .clip(RoundedCornerShape(8.dp)).background(Bg3.copy(alpha = 0.6f))
+                            .border(1.dp, Line, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 11.dp, vertical = 8.dp))
                 }
             }
         }
+    } else {
+        Text("暂无环境变量", color = Tx3, fontSize = 12.sp,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .background(Bg2.copy(alpha = 0.3f)).border(1.dp, Line, RoundedCornerShape(8.dp)).padding(12.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
-
-    if (server.command.isEmpty() && server.env.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
-            contentAlignment = Alignment.Center
+    Spacer(Modifier.height(16.dp))
+    // 可用工具
+    SectionTitle("可用工具 (${server.tools.size})")
+    Spacer(Modifier.height(8.dp))
+    if (server.tools.isNotEmpty()) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg2.copy(alpha = 0.3f))
+                .border(1.dp, Line, RoundedCornerShape(8.dp))
+                .padding(10.dp)
         ) {
-            Text("暂无配置", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            server.tools.forEach { tool ->
+                Row(modifier = Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(5.dp).clip(CircleShape).background(OkLight))
+                    Spacer(Modifier.width(6.dp))
+                    Text(tool.name, color = Tx2, fontSize = 11.sp, fontFamily = SansFont)
+                    if (tool.description.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text("- ${tool.description}", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
+                    }
+                }
+            }
+        }
+    } else {
+        Text("暂无工具", color = Tx3, fontSize = 12.sp,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .background(Bg2.copy(alpha = 0.3f)).border(1.dp, Line, RoundedCornerShape(8.dp)).padding(12.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+    Spacer(Modifier.height(16.dp))
+    // 授权 Agent
+    SectionTitle("授权 Agent")
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("claude-code" to "Claude Code", "qwen-code" to "QwenCode", "gemini-cli" to "Gemini",
+            "kimi-code" to "Kimi", "opencode" to "OpenCode").forEach { (id, name) ->
+            val allowed = server.agents.any { it.equals(id.substringBefore("-"), true) || it == id }
+            Text(name, color = if (allowed) AcLight else Tx3, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(if (allowed) Ac.withAlpha(0.12f) else Color.Transparent)
+                    .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
 }
+
 
 @Composable
 private fun McpChangelogTab(server: McpServerDto) {

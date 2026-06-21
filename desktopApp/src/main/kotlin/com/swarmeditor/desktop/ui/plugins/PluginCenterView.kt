@@ -96,45 +96,34 @@ fun PluginCenterView(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text(
-                                text = "插件中心",
+                                text = if (activeTab == "mcp") "MCP Servers" else "Skills",
                                 color = Tx,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${mcpServers.size} MCP",
-                                    color = Tx2,
-                                    fontSize = 12.sp,
-                                    fontFamily = SansFont
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("·", color = Tx4, fontSize = 12.sp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "${skills.size} Skills",
-                                    color = Tx2,
-                                    fontSize = 12.sp,
-                                    fontFamily = SansFont
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("·", color = Tx4, fontSize = 12.sp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "扩展 Agent 能力",
-                                    color = Tx3,
-                                    fontSize = 12.sp,
-                                    fontFamily = SansFont
-                                )
-                            }
+                            Text(
+                                text = if (activeTab == "mcp")
+                                    "Model Context Protocol 服务，让 Agent 能够连接外部工具和数据源。"
+                                else
+                                    "可复用的 Agent 能力模块。基于 SKILL.md 规范，一次定义，多 Agent 共享使用。",
+                                color = Tx2,
+                                fontSize = 12.sp,
+                                fontFamily = SansFont,
+                                maxLines = 2
+                            )
                         }
                         Spacer(Modifier.weight(1f))
                         // Search field
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("搜索插件…", color = Tx3, fontSize = 12.sp) },
+                            placeholder = {
+                                Text(
+                                    if (activeTab == "mcp") "搜索 MCP Server…" else "搜索 Skill…",
+                                    color = Tx3, fontSize = 12.sp
+                                )
+                            },
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 color = Tx,

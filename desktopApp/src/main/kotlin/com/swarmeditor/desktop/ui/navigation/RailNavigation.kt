@@ -63,7 +63,7 @@ fun RailNavigation(
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
-        RailItem("chat", Icons.AutoMirrored.Filled.Chat, "Chat", "会话", badge = 6),
+        RailItem("chat", Icons.AutoMirrored.Filled.Chat, "Chat", "会话"),
         RailItem("agents", Icons.Filled.SmartToy, "Agents", "Agent 编排"),
         RailItem("plugins", Icons.Filled.Extension, "Plugins", "插件"),
         RailItem("files", Icons.Filled.Folder, "Files", "文件"),
