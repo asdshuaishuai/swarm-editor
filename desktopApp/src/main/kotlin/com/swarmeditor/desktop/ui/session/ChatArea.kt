@@ -611,7 +611,9 @@ private fun ChatTopBar(
                         Text(
                             agent.name.removeSuffix(" CLI"),
                             color = if (isActive) AcLight else Tx3,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }

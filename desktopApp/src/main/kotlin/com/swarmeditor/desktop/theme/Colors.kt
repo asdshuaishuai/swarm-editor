@@ -26,12 +26,12 @@ val Ac = Color(0xFFa78bfa)         // Primary accent
 val Ac2 = Color(0xFF7c3aed)      // Deep accent (gradients)
 val AcLight = Color(0xFFc4b5fd)   // Light accent (text on dark bg)
 
-// Agent brand colors
-val AgentClaude = Color(0xFFa78bfa)
-val AgentQwen = Color(0xFF60a5fa)
-val AgentGemini = Color(0xFF34d399)
-val AgentKimi = Color(0xFFfbbf24)
-val AgentOpenCode = Color(0xFFfb923c)
+// Agent brand colors — 提高饱和度/亮度，深色背景下更鲜明
+val AgentClaude = Color(0xFFb794f6)    // Claude 紫 — 提亮，深底更跳
+val AgentQwen = Color(0xFF60a5fa)      // Qwen 蓝 — 保持
+val AgentGemini = Color(0xFF4ade80)    // Gemini 绿 — 提亮
+val AgentKimi = Color(0xFFfcd34d)      // Kimi 金 — 提亮
+val AgentOpenCode = Color(0xFFfb923c)  // OpenCode 橙 — 保持
 
 // Status colors
 val Ok = Color(0xFF22c55e)       // Success / online

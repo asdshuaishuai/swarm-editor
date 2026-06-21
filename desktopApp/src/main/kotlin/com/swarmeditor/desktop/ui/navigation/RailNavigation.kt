@@ -199,7 +199,7 @@ private fun RailNavItem(
 
         // 悬停 tooltip（对齐核心稿 data-tip，显示在按钮右侧）
         if (showTip) {
-            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(46, 0)) {
+            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(60, 0)) {
                 RailTip(item.tip)
             }
         }
@@ -256,7 +256,7 @@ private fun RailButton(
         )
 
         if (showTip) {
-            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(46, 0)) {
+            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(60, 0)) {
                 RailTip(label)
             }
         }

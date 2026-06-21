@@ -285,62 +285,54 @@ fun EnhancedTopBar(
 
         Spacer(Modifier.weight(1f))
 
-        // Notification bell
-        HoverTipBox("通知") {
-            NotificationBell(
-                count = unreadNotifications,
-                onClick = onNotifications
-            )
-        }
+        // Notification bell（去掉 tooltip，避免闪烁）
+        NotificationBell(
+            count = unreadNotifications,
+            onClick = onNotifications
+        )
 
         Spacer(Modifier.width(4.dp))
 
-        // Settings gear（hover 由 HoverTipBox 统一管理，消除嵌套 hoverable 闪烁）
-        HoverTipBox("设置") {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onSettings),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Tx3, modifier = Modifier.size(18.dp))
-            }
+        // Settings gear
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onSettings),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Tx3, modifier = Modifier.size(18.dp))
         }
 
         Spacer(Modifier.width(4.dp))
 
         // User avatar
-        HoverTipBox("Swarmer") {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(Ac, AgentQwen)))
-                    .clickable(onClick = onUserAvatar),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "S",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = SansFont
-                )
-            }
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(Ac, AgentQwen)))
+                .clickable(onClick = onUserAvatar),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "S",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = SansFont
+            )
         }
 
-        // 关闭按钮（undecorated 下自定义窗口控制）
-        HoverTipBox("关闭") {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(16.dp))
-            }
+        // 关闭按钮
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClose),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(16.dp))
         }
     }
 }

@@ -258,19 +258,6 @@ private fun SessionCard(
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
-                    // Message count badge
-                    if (session.messageCount > 0) {
-                        Box(
-                            modifier = Modifier.size(18.dp).clip(CircleShape).background(Ac.withAlpha(0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                if (session.messageCount < 10) "${session.messageCount}" else "9+",
-                                color = Ac, fontSize = 8.sp, fontWeight = FontWeight.Bold,
-                                fontFamily = SansFont
-                            )
-                        }
-                    }
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
