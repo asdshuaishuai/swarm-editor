@@ -295,25 +295,16 @@ fun EnhancedTopBar(
 
         Spacer(Modifier.width(4.dp))
 
-        // Settings gear
-        val settingsInteraction = remember { MutableInteractionSource() }
-        val settingsHovered by settingsInteraction.collectIsHoveredAsState()
+        // Settings gear（hover 由 HoverTipBox 统一管理，消除嵌套 hoverable 闪烁）
         HoverTipBox("设置") {
             Box(
                 modifier = Modifier
                     .size(30.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (settingsHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
-                    .hoverable(settingsInteraction)
                     .clickable(onClick = onSettings),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = if (settingsHovered) Tx2 else Tx3,
-                    modifier = Modifier.size(18.dp)
-                )
+                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Tx3, modifier = Modifier.size(18.dp))
             }
         }
 
@@ -359,21 +350,17 @@ private fun NotificationBell(
     count: Int,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
     Box(
         modifier = Modifier
             .size(30.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isHovered) Bg3.copy(alpha = 0.6f) else Color.Transparent)
-            .hoverable(interactionSource)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Filled.Notifications,
             contentDescription = "Notifications",
-            tint = if (isHovered) Tx2 else Tx3,
+            tint = Tx3,
             modifier = Modifier.size(18.dp)
         )
         if (count > 0) {

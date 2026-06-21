@@ -28,8 +28,11 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,6 +129,10 @@ private fun RailNavItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    var showTip by remember { mutableStateOf(false) }
+    LaunchedEffect(isHovered) {
+        if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
+    }
     val bgColor = when {
         isActive -> Ac.withAlpha(0.1f)
         isHovered -> Bg3.copy(alpha = 0.6f)
@@ -191,7 +198,7 @@ private fun RailNavItem(
         }
 
         // 悬停 tooltip（对齐核心稿 data-tip，显示在按钮右侧）
-        if (isHovered) {
+        if (showTip) {
             Popup(alignment = Alignment.CenterEnd, offset = IntOffset(46, 0)) {
                 RailTip(item.tip)
             }
@@ -220,6 +227,10 @@ private fun RailButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    var showTip by remember { mutableStateOf(false) }
+    LaunchedEffect(isHovered) {
+        if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
+    }
     val bgColor = when {
         isActive -> Ac.withAlpha(0.1f)
         isHovered -> Bg3.copy(alpha = 0.6f)
@@ -244,7 +255,7 @@ private fun RailButton(
             modifier = Modifier.size(17.dp)
         )
 
-        if (isHovered) {
+        if (showTip) {
             Popup(alignment = Alignment.CenterEnd, offset = IntOffset(46, 0)) {
                 RailTip(label)
             }
