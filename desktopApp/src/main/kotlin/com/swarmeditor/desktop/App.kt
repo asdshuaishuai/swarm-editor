@@ -57,6 +57,7 @@ import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.api.AgentDto
 
+@androidx.compose.runtime.Immutable
 data class AgentInfo(
     val id: String, val name: String, val emoji: String, val color: Color,
     val isConnected: Boolean = false, val version: String = "", val isSelected: Boolean = false,
@@ -80,7 +81,13 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
     val mcpServers by mcpVm.servers.collectAsState()
     val skills by skillVm.skills.collectAsState()
     val currentView by mainVm.currentView.collectAsState()
-    val toasts by mainVm.toasts.collectAsState()
+    // Toast: 从 Channel 收集到本地 mutableStateListOf（compose-skill Effect 模式）
+    val toastList = remember { androidx.compose.runtime.mutableStateListOf<com.swarmeditor.desktop.viewmodel.ToastData>() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        mainVm.toastEvents.collect { toast ->
+            toastList.add(toast)
+        }
+    }
     val showCmdK by mainVm.showCmdK.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
@@ -313,8 +320,8 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
     )
 
     ToastHost(
-        toasts = toasts,
-        onDismiss = { mainVm.dismissToast(it) }
+        toasts = toastList,
+        onDismiss = { toastList.removeAll { t -> t.id == it } }
     )
     }
 }

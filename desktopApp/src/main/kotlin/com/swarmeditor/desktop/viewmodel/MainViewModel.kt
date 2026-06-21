@@ -2,8 +2,10 @@ package com.swarmeditor.desktop.viewmodel
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -29,8 +31,9 @@ class MainViewModel {
     private val _showCmdK = MutableStateFlow(false)
     val showCmdK: StateFlow<Boolean> = _showCmdK
 
-    private val _toasts = MutableStateFlow<List<ToastData>>(emptyList())
-    val toasts: StateFlow<List<ToastData>> = _toasts
+    // Toast 改为 Channel（compose-skill：one-shot 事件用 Channel 而非 StateFlow）
+    private val _toastChannel = Channel<ToastData>(Channel.BUFFERED)
+    val toastEvents = _toastChannel.receiveAsFlow()
 
     private val _showAgentConfig = MutableStateFlow<String?>(null)
     val showAgentConfig: StateFlow<String?> = _showAgentConfig
@@ -53,14 +56,12 @@ class MainViewModel {
 
     fun showToast(message: String, type: ToastType = ToastType.INFO) {
         scope.launch {
-            val newToast = ToastData(message = message, type = type)
-            val updated = (_toasts.value + newToast).takeLast(3)
-            _toasts.value = updated
+            _toastChannel.send(ToastData(message = message, type = type))
         }
     }
 
     fun dismissToast(id: String) {
-        _toasts.value = _toasts.value.filter { it.id != id }
+        // Channel 模式下无需手动 dismiss（ToastHost 自动超时移除）
     }
 
     fun showAgentConfigDialog(agentId: String) {
