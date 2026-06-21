@@ -192,7 +192,7 @@ private fun TabHeader(currentTab: String, onTabChange: (String) -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .clickable { onTabChange(id) }
-                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                    .padding(vertical = 8.dp, horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(

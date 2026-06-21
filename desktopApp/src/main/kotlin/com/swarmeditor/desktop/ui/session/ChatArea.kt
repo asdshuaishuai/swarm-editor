@@ -128,7 +128,7 @@ fun ChatArea(
                         agentColor = msgAgent.color
                     )
                 }
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(18.dp))
             }
             if (isSending) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -568,7 +568,7 @@ private fun ChatTopBar(
             Text(
                 text = sessionTitle,
                 color = Tx,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
