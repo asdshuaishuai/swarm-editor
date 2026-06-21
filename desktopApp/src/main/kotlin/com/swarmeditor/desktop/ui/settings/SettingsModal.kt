@@ -69,7 +69,7 @@ fun SettingsModal(
 
     val tabs = listOf(
         "agent" to "Agent 配置", "mcp" to "MCP 管理", "skills" to "Skills 管理",
-        "general" to "通用", "appearance" to "外观", "shortcuts" to "快捷键", "about" to "关于"
+        "general" to "通用", "appearance" to "外观", "shortcuts" to "快捷键"
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black.withAlpha(0.5f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
@@ -83,7 +83,7 @@ fun SettingsModal(
                 }
             }
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Column(modifier = Modifier.width(130.dp).fillMaxHeight().background(Bg).padding(vertical = 4.dp)) {
+                Column(modifier = Modifier.width(220.dp).fillMaxHeight().background(Bg).padding(vertical = 4.dp)) {
                     tabs.forEach { (id, label) ->
                         val isActive = activeTab == id
                         Row(modifier = Modifier.fillMaxWidth().clickable { activeTab = id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -106,7 +106,6 @@ fun SettingsModal(
                         "general" -> GeneralTab(agents)
                         "appearance" -> AppearanceTab()
                         "shortcuts" -> ShortcutsTab()
-                        "about" -> AboutTab()
                     }
                 }
             }

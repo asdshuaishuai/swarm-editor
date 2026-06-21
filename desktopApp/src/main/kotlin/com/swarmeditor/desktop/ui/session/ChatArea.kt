@@ -128,7 +128,7 @@ fun ChatArea(
                         agentColor = msgAgent.color
                     )
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(22.dp))
             }
             if (isSending) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
