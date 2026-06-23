@@ -48,8 +48,16 @@ class RootComponent {
         }
     }
 
-    // Navigation state - using StateFlow for now (will be replaced by Decompose stack/slot)
-    private val _stack = MutableStateFlow<MainConfig>(MainConfig.Chat)
+    // Navigation state
+    private val _stack = MutableStateFlow<MainConfig>(
+        when (System.getProperty("swarm.view")) {
+            "agents" -> MainConfig.Agents
+            "plugins" -> MainConfig.Plugins
+            "files" -> MainConfig.Files
+            "activity" -> MainConfig.Activity
+            else -> MainConfig.Chat
+        }
+    )
     val stack: StateFlow<MainConfig> = _stack
 
     private val _dialog = MutableStateFlow<DialogConfig?>(null)
