@@ -53,8 +53,6 @@ fun SkillDetailView(
                 .border(1.dp, Line)
                 .padding(horizontal = 32.dp, vertical = 24.dp)
         ) {
-            Text("← 返回", color = Ac, fontSize = 12.sp, fontFamily = SansFont, fontWeight = FontWeight.Medium,
-                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onBack).padding(horizontal = 8.dp, vertical = 4.dp))
             Text(
                 text = "← 返回",
                 color = Ac,
@@ -66,7 +64,8 @@ fun SkillDetailView(
                     .clickable(onClick = onBack)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
-        }
+
+            Spacer(Modifier.height(18.dp))
 
         // pd-top
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -94,15 +93,16 @@ fun SkillDetailView(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    StatusChip(text = skill.scope, color = Pr)
+                    StatusChip(text = skill.source, color = if (skill.source == "MCP") AgentQwen else Gn)
+                    Spacer(Modifier.width(4.dp))
+                    StatusChip(text = "已启用", color = Gn)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = skill.id,
-                    color = Tx3,
-                    fontSize = 11.sp,
-                    fontFamily = SansFont
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(skill.source, color = AcLight, fontSize = 11.sp, fontFamily = CodeFont)
+                    Text("·", color = Tx3, fontSize = 11.sp)
+                    Text(skill.scope, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
+                }
                 Spacer(Modifier.height(6.dp))
                 if (skill.description.isNotEmpty()) {
                     Text(
@@ -115,7 +115,25 @@ fun SkillDetailView(
                     )
                 }
             }
-        }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            // pd-actions（设计稿：测试运行 + 编辑SKILL.md + 禁用）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("▶ 测试运行", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Brush.linearGradient(listOf(Ac, Ac2))).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+                Text("✎ 编辑 SKILL.md", color = Tx2, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+                Spacer(Modifier.weight(1f))
+                Text("禁用", color = Rd, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Rd.withAlpha(0.3f), RoundedCornerShape(6.dp)).background(Rd.withAlpha(0.06f)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+            }
+        }  // 关闭 pd-header
 
         Spacer(Modifier.height(16.dp))
 
@@ -131,10 +149,10 @@ fun SkillDetailView(
                 Column(
                     modifier = Modifier
                         .clickable { selectedTab.intValue = index }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = tab,
+                        text = if (index == 2) "$tab ${skill.enabledAgents.size}" else tab,
                         color = if (isActive) Ac else Tx3,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
