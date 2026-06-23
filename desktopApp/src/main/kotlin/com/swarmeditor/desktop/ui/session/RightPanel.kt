@@ -24,9 +24,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Check
+import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -342,7 +342,7 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                                 .clickable { fileStates[change.path] = "accepted" },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Check, contentDescription = "接受", tint = Gn, modifier = Modifier.size(12.dp))
+                            Icon(imageVector = Feather.Check, contentDescription = "接受", tint = Gn, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state != "rejected") {
@@ -355,11 +355,11 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                                 .clickable { fileStates[change.path] = "rejected" },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = "拒绝", tint = Rd, modifier = Modifier.size(12.dp))
+                            Icon(imageVector = Feather.X, contentDescription = "拒绝", tint = Rd, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state == "accepted") {
-                        Icon(Icons.Filled.Check, contentDescription = "已接受", tint = Gn, modifier = Modifier.size(14.dp))
+                        Icon(imageVector = Feather.Check, contentDescription = "已接受", tint = Gn, modifier = Modifier.size(14.dp))
                     }
                 }
 

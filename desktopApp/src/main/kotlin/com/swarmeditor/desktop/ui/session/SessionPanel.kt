@@ -21,13 +21,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.MergeType
-import androidx.compose.material.icons.filled.Source
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Plus
+import com.woowla.compose.icon.collections.feather.feather.Archive
+import com.woowla.compose.icon.collections.feather.feather.Trash2
+import com.woowla.compose.icon.collections.feather.feather.Folder
+import com.woowla.compose.icon.collections.feather.feather.GitBranch
+import com.woowla.compose.icon.collections.feather.feather.Code
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -124,7 +124,7 @@ fun SessionPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Add,
+                        imageVector = Feather.Plus,
                         contentDescription = "New",
                         tint = Tx3,
                         modifier = Modifier.size(18.dp)
@@ -281,7 +281,7 @@ private fun SessionCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Delete,
+                        imageVector = Feather.Trash2,
                         contentDescription = "Delete",
                         tint = Tx3,
                         modifier = Modifier.size(12.dp)
@@ -296,7 +296,7 @@ private fun SessionCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Archive,
+                        imageVector = Feather.Archive,
                         contentDescription = "Archive",
                         tint = Tx3,
                         modifier = Modifier.size(12.dp)

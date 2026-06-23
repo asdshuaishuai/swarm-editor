@@ -19,10 +19,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Folder
+import com.woowla.compose.icon.collections.feather.feather.RefreshCw
+import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -149,7 +149,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Text("文件".uppercase(), color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp)
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).clickable { }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = Tx3, modifier = Modifier.size(15.dp))
+                    Icon(imageVector = Feather.RefreshCw, contentDescription = "刷新", tint = Tx3, modifier = Modifier.size(15.dp))
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
@@ -172,7 +172,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.Folder, contentDescription = "项目", tint = Gd, modifier = Modifier.size(18.dp))
+                Icon(imageVector = Feather.Folder, contentDescription = "项目", tint = Gd, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -197,7 +197,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
             Box(Modifier.weight(1f).fillMaxWidth().background(Bg2), contentAlignment = Alignment.Center) {
                 if (selectedPath.value != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = "文件", modifier = Modifier.size(32.dp), tint = Tx2)
+                        Icon(imageVector = Feather.File, contentDescription = "文件", modifier = Modifier.size(32.dp), tint = Tx2)
                         Spacer(Modifier.height(8.dp))
                         Text(selectedPath.value!!, color = Tx, fontSize = 13.sp)
                         Spacer(Modifier.height(4.dp))

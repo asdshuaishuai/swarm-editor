@@ -25,13 +25,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MergeType
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.GitBranch
+import com.woowla.compose.icon.collections.feather.feather.Grid
+import com.woowla.compose.icon.collections.feather.feather.Paperclip
+import com.woowla.compose.icon.collections.feather.feather.Settings
+import com.woowla.compose.icon.collections.feather.feather.Share2
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -254,11 +253,11 @@ fun ChatArea(
                 Spacer(Modifier.height(10.dp))
                 // composer-bar：chips 左 + 发送按钮右（对齐核心稿 .composer-bar）
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ChipButton(Icons.Filled.AttachFile, "附件", onClick = { /* placeholder */ })
+                    ChipButton(Feather.Paperclip, "附件", onClick = { /* placeholder */ })
                     Spacer(Modifier.width(6.dp))
-                    ChipButton(Icons.Filled.Settings, "MCP", onClick = onMcpClick)
+                    ChipButton(Feather.Settings, "MCP", onClick = onMcpClick)
                     Spacer(Modifier.width(6.dp))
-                    ChipButton(Icons.Filled.Extension, "Skill", onClick = onSkillClick)
+                    ChipButton(Feather.Grid, "Skill", onClick = onSkillClick)
                     Spacer(Modifier.weight(1f))
                     // Send button
                     Box(
@@ -547,7 +546,7 @@ private fun ChatTopBar(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.MergeType,
+                imageVector = Feather.GitBranch,
                 contentDescription = "Session",
                 tint = Ac,
                 modifier = Modifier.size(14.dp)
@@ -624,7 +623,7 @@ private fun ChatTopBar(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Filled.AccountTree,
+                    imageVector = Feather.Grid,
                     contentDescription = "Branch",
                     tint = Tx3,
                     modifier = Modifier.size(14.dp)
@@ -638,7 +637,7 @@ private fun ChatTopBar(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Share,
+                    imageVector = Feather.Share2,
                     contentDescription = "Share",
                     tint = Tx3,
                     modifier = Modifier.size(14.dp)

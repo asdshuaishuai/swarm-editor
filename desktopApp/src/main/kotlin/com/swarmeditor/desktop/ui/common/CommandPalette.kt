@@ -21,8 +21,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -310,7 +310,7 @@ private fun CommandItem(
         ) {
             if (command.icon.isNotBlank()) {
                 if (command.icon == "📁") {
-                    Icon(Icons.Default.Folder, contentDescription = "Files", modifier = Modifier.size(14.dp), tint = Tx2)
+                    Icon(imageVector = Feather.Folder, contentDescription = "Files", modifier = Modifier.size(14.dp), tint = Tx2)
                 } else {
                     Text(command.icon, fontSize = 13.sp)
                 }

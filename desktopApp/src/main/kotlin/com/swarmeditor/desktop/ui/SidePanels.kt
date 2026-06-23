@@ -21,8 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Plus
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,7 +63,7 @@ private fun SideHeader(title: String, onAdd: (() -> Unit)? = null) {
                 modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onAdd),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加", tint = Tx3, modifier = Modifier.size(16.dp))
+                Icon(imageVector = Feather.Plus, contentDescription = "添加", tint = Tx3, modifier = Modifier.size(16.dp))
             }
         }
     }

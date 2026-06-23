@@ -21,8 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,7 +79,7 @@ fun SettingsModal(
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont, letterSpacing = 0.5.sp)
                 Spacer(Modifier.weight(1f))
                 Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Tx3, modifier = Modifier.size(14.dp))
+                    Icon(imageVector = Feather.X, contentDescription = "Close", tint = Tx3, modifier = Modifier.size(14.dp))
                 }
             }
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {

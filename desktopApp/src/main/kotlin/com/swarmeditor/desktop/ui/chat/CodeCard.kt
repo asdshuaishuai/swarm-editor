@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Copy
+import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -115,7 +115,7 @@ fun CodeCard(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = "File", modifier = Modifier.size(14.dp), tint = Tx2)
+            Icon(imageVector = Feather.File, contentDescription = "File", modifier = Modifier.size(14.dp), tint = Tx2)
             Spacer(Modifier.width(6.dp))
             // Extension badge
             Box(
@@ -146,7 +146,7 @@ fun CodeCard(
             }
             // Copy button
             Icon(
-                imageVector = Icons.Filled.ContentCopy,
+                imageVector = Feather.Copy,
                 contentDescription = "Copy",
                 tint = Tx3,
                 modifier = Modifier.size(14.dp).clickable { /* copy to clipboard */ }

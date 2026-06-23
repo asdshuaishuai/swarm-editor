@@ -68,6 +68,8 @@ data class AgentInfo(
 fun App(
     root: RootComponent,
     onClose: () -> Unit = {},
+    onMinimize: () -> Unit = {},
+    onMaximizeToggle: () -> Unit = {},
     onDragWindow: (Float, Float) -> Unit = { _, _ -> }
 ) {
     // ViewModels are now from RootComponent
@@ -175,6 +177,8 @@ fun App(
             onProjectSwitcher = { root.showToast("项目切换器", ToastType.INFO) },
             onSwarmStatus = { root.switchView("agents") },
             onClose = onClose,
+            onMinimize = onMinimize,
+            onMaximizeToggle = onMaximizeToggle,
             onDragWindow = onDragWindow
         )
 

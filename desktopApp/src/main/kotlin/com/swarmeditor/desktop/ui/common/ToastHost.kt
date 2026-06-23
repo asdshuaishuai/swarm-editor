@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Check
+import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -113,8 +113,8 @@ private fun ToastItem(
                 contentAlignment = Alignment.Center
             ) {
                 when (toast.type) {
-                    ToastType.SUCCESS -> Icon(Icons.Default.Check, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
-                    ToastType.ERROR -> Icon(Icons.Default.Close, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                    ToastType.SUCCESS -> Icon(imageVector = Feather.Check, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                    ToastType.ERROR -> Icon(imageVector = Feather.X, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
                     else -> Text(
                         text = iconText,
                         color = color,

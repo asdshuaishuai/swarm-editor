@@ -20,11 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.X
+import com.woowla.compose.icon.collections.feather.feather.Bell
+import com.woowla.compose.icon.collections.feather.feather.Search
+import com.woowla.compose.icon.collections.feather.feather.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,6 +59,8 @@ fun EnhancedTopBar(
     onProjectSwitcher: () -> Unit = {},
     onSwarmStatus: () -> Unit = {},
     onClose: () -> Unit = {},
+    onMinimize: () -> Unit = {},
+    onMaximizeToggle: () -> Unit = {},
     onDragWindow: (Float, Float) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -260,7 +262,7 @@ fun EnhancedTopBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Search,
+                    imageVector = Feather.Search,
                     contentDescription = "Search",
                     tint = Tx3,
                     modifier = Modifier.size(14.dp)
@@ -301,7 +303,7 @@ fun EnhancedTopBar(
                 .clickable(onClick = onSettings),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Tx3, modifier = Modifier.size(18.dp))
+            Icon(imageVector = Feather.Settings, contentDescription = "Settings", tint = Tx3, modifier = Modifier.size(18.dp))
         }
 
         Spacer(Modifier.width(4.dp))
@@ -324,6 +326,26 @@ fun EnhancedTopBar(
             )
         }
 
+        // 最小化按钮
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onMinimize),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.width(10.dp).height(1.5.dp).background(Tx3))
+        }
+        // 最大化按钮
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onMaximizeToggle),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.size(10.dp).border(1.5.dp, Tx3, RoundedCornerShape(1.dp)))
+        }
         // 关闭按钮
         Box(
             modifier = Modifier
@@ -332,7 +354,7 @@ fun EnhancedTopBar(
                 .clickable(onClick = onClose),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(16.dp))
+            Icon(imageVector = Feather.X, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -350,7 +372,7 @@ private fun NotificationBell(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Filled.Notifications,
+            imageVector = Feather.Bell,
             contentDescription = "Notifications",
             tint = Tx3,
             modifier = Modifier.size(18.dp)

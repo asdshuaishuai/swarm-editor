@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Source
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Code
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,7 +60,7 @@ fun StatusBar(
         SbText("就绪")
 
         Spacer(Modifier.width(14.dp))
-        Icon(Icons.Filled.Source, contentDescription = "Branch", tint = Tx3, modifier = Modifier.size(10.dp))
+        Icon(imageVector = Feather.Code, contentDescription = "Branch", tint = Tx3, modifier = Modifier.size(10.dp))
         Spacer(Modifier.width(5.dp))
         SbText(branch)
 

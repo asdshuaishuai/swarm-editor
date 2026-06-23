@@ -15,14 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Description
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.ChevronDown
+import com.woowla.compose.icon.collections.feather.feather.ChevronRight
+import com.woowla.compose.icon.collections.feather.feather.Search
+import com.woowla.compose.icon.collections.feather.feather.Terminal
+import com.woowla.compose.icon.collections.feather.feather.Settings
+import com.woowla.compose.icon.collections.feather.feather.Code
+import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -90,11 +90,11 @@ fun ToolCard(
                 contentAlignment = Alignment.Center
             ) {
                 val iconVector = when (card.iconType) {
-                    "terminal" -> Icons.Filled.Terminal
-                    "settings" -> Icons.Filled.Settings
-                    "code" -> Icons.Filled.Code
-                    "file" -> Icons.Filled.Description
-                    else -> Icons.Filled.Search
+                    "terminal" -> Feather.Terminal
+                    "settings" -> Feather.Settings
+                    "code" -> Feather.Code
+                    "file" -> Feather.File
+                    else -> Feather.Search
                 }
                 Icon(
                     imageVector = iconVector,
@@ -122,7 +122,7 @@ fun ToolCard(
             }
             Spacer(Modifier.weight(1f))
             Icon(
-                imageVector = if (expanded.value) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                imageVector = if (expanded.value) Feather.ChevronDown else Feather.ChevronRight,
                 contentDescription = "Toggle",
                 tint = Tx3,
                 modifier = Modifier.size(16.dp)

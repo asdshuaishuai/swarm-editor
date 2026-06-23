@@ -5,9 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.ChevronDown
+import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -106,7 +106,7 @@ fun AgentConfigModal(
                         StatusChip(agent.isConnected, isInstalled)
                         Spacer(Modifier.width(8.dp))
                         Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = Feather.X, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -224,7 +224,7 @@ private fun ModelSelect(label: String, value: String) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(value, color = Tx, fontSize = 13.sp, fontFamily = CodeFont, modifier = Modifier.weight(1f))
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Tx3, modifier = Modifier.size(18.dp))
+            Icon(imageVector = Feather.ChevronDown, contentDescription = null, tint = Tx3, modifier = Modifier.size(18.dp))
         }
     }
 }

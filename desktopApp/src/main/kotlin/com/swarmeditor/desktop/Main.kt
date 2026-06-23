@@ -50,6 +50,14 @@ fun main() = application {
                 App(
                     root = root,
                     onClose = ::exitApplication,
+                    onMinimize = { (awtWindow as? java.awt.Frame)?.extendedState = java.awt.Frame.ICONIFIED },
+                    onMaximizeToggle = {
+                        val frame = awtWindow as? java.awt.Frame
+                        if (frame != null) {
+                            frame.extendedState = if (frame.extendedState and java.awt.Frame.MAXIMIZED_BOTH != 0)
+                                java.awt.Frame.NORMAL else java.awt.Frame.MAXIMIZED_BOTH
+                        }
+                    },
                     onDragWindow = { dx, dy ->
                         awtWindow.location = java.awt.Point(
                             awtWindow.location.x + dx.toInt(),
