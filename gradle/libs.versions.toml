@@ -11,6 +11,9 @@ ktor = "3.2.2"
 # Compose
 compose-multiplatform = "1.10.0"
 
+# Decompose (navigation & lifecycle)
+decompose = "3.5.0"
+
 # UI libs (Hybrid redesign)
 haze = "1.6.6"
 line-icons = "4.29.2"
@@ -77,6 +80,10 @@ compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-previ
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 lucide-icons = { module = "com.woowla.compose.icon.collections:feather", version.ref = "line-icons" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
+
+# Decompose
+decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }
+decompose-extensions-compose = { module = "com.arkivanov.decompose:extensions-compose", version.ref = "decompose" }
 
 # AndroidX (for Compose lifecycle)
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version = "2.9.0" }

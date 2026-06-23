@@ -47,18 +47,15 @@ import com.swarmeditor.desktop.ui.session.RightPanel
 import com.swarmeditor.desktop.ui.chat.ChatArea
 import com.swarmeditor.desktop.ui.AgentSideBar
 import com.swarmeditor.desktop.ui.PluginSideBar
-import com.swarmeditor.desktop.viewmodel.AgentViewModel
-import com.swarmeditor.desktop.viewmodel.SessionViewModel
-import com.swarmeditor.desktop.viewmodel.SettingsViewModel
-import com.swarmeditor.desktop.viewmodel.McpViewModel
-import com.swarmeditor.desktop.viewmodel.SkillViewModel
-import com.swarmeditor.desktop.viewmodel.MainViewModel
 import com.swarmeditor.desktop.viewmodel.ToastType
 import com.swarmeditor.desktop.ui.agents.AgentOrchestrationView
 import com.swarmeditor.desktop.ui.plugins.PluginCenterView
 import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.api.AgentDto
+import com.swarmeditor.desktop.navigation.RootComponent
+import com.swarmeditor.desktop.navigation.MainConfig
+import com.swarmeditor.desktop.navigation.DialogConfig
 
 @androidx.compose.runtime.Immutable
 data class AgentInfo(
@@ -68,71 +65,66 @@ data class AgentInfo(
 )
 
 @Composable
-fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ -> }) {
-    val agentVm = remember { AgentViewModel() }
-    val sessionVm = remember { SessionViewModel() }
-    val settingsVm = remember { SettingsViewModel() }
-    val mcpVm = remember { McpViewModel() }
-    val skillVm = remember { SkillViewModel() }
-    val mainVm = remember { MainViewModel() }
-
-    val agents by agentVm.agents.collectAsState()
-    val sessions by sessionVm.sessions.collectAsState()
-    val messages by sessionVm.messages.collectAsState()
-    val isSending by sessionVm.isSending.collectAsState()
-    val currentSessionId by sessionVm.currentSessionId.collectAsState()
-    val mcpServers by mcpVm.servers.collectAsState()
-    val skills by skillVm.skills.collectAsState()
-    val currentView by mainVm.currentView.collectAsState()
+fun App(
+    root: RootComponent,
+    onClose: () -> Unit = {},
+    onDragWindow: (Float, Float) -> Unit = { _, _ -> }
+) {
+    // ViewModels are now from RootComponent
+    val agents by root.agentVm.agents.collectAsState()
+    val sessions by root.sessionVm.sessions.collectAsState()
+    val messages by root.sessionVm.messages.collectAsState()
+    val isSending by root.sessionVm.isSending.collectAsState()
+    val currentSessionId by root.sessionVm.currentSessionId.collectAsState()
+    val mcpServers by root.mcpVm.servers.collectAsState()
+    val skills by root.skillVm.skills.collectAsState()
+    val currentView by root.stack.collectAsState()
     // Toast: 从 Channel 收集到本地 mutableStateListOf（compose-skill Effect 模式）
     val toastList = remember { androidx.compose.runtime.mutableStateListOf<com.swarmeditor.desktop.viewmodel.ToastData>() }
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        mainVm.toastEvents.collect { toast ->
+        root.toastEvents.collect { toast ->
             toastList.add(toast)
         }
     }
-    val showCmdK by mainVm.showCmdK.collectAsState()
+    val dialog by root.dialog.collectAsState()
     val hazeState = rememberHazeState()
 
-    var showSettings by remember { mutableStateOf(false) }
     var showRightPanel by remember { mutableStateOf(true) }
     var rightTab by remember { mutableStateOf("changes") }
     var pluginSubTab by remember { mutableStateOf("mcp") }
-    var showMcpConfig by remember { mutableStateOf<String?>(null) }
     // 插件侧栏点击 → 切换到详情页（如 VS Code 插件页）
     var pluginSelectedItem by remember { mutableStateOf<com.swarmeditor.desktop.ui.plugins.PluginItem?>(null) }
     var inputText by remember { mutableStateOf("") }
-    val showAgentConfig by mainVm.showAgentConfig.collectAsState()
 
     LaunchedEffect(Unit) {
-        agentVm.load()
-        sessionVm.loadSessions()
-        mcpVm.load()
-        skillVm.load()
+        root.agentVm.load()
+        root.sessionVm.loadSessions()
+        root.mcpVm.load()
+        root.skillVm.load()
         // 截图/测试用：启动时打开指定浮层
         when (System.getProperty("swarm.modal")) {
-            "settings" -> showSettings = true
-            "agent" -> mainVm.showAgentConfigDialog("claude-code")
-            "mcp" -> showMcpConfig = "github"
-            "cmdk" -> mainVm.showCmdKDialog()
+            "settings" -> root.showSettingsDialog()
+            "agent" -> root.showAgentConfigDialog("claude-code")
+            "mcp" -> root.showMcpConfigDialog("github")
+            "cmdk" -> root.showCmdKDialog()
         }
     }
 
-    val selectedAgent = agentVm.selectedAgent.collectAsState().value
+    val selectedAgent = root.agentVm.selectedAgent.collectAsState().value
         ?: AgentInfo("claude-code", "Claude Code", "🟣", AgentClaude, true, "1.0.0", true, "C")
-    val derivedOnlineCount by agentVm.onlineCount.collectAsState()
-    val derivedSessionTitle by sessionVm.currentSessionTitle.collectAsState()
+    val derivedOnlineCount by root.agentVm.onlineCount.collectAsState()
+    val derivedSessionTitle by root.sessionVm.currentSessionTitle.collectAsState()
 
     val handleCommand: (Command) -> Unit = { cmd ->
         when (cmd.id) {
-            "new-session" -> sessionVm.createSession(selectedAgent.id)
-            "open-settings" -> { showSettings = true }
-            "view-chat" -> mainVm.switchView("chat")
-            "view-agents" -> mainVm.switchView("agents")
-            "view-plugins" -> mainVm.switchView("plugins")
-            "view-files" -> mainVm.switchView("files")
-            "view-activity" -> mainVm.switchView("activity")
-            else -> mainVm.showToast("Command: ${cmd.name}")
+            "new-session" -> root.sessionVm.createSession(selectedAgent.id)
+            "open-settings" -> { root.showSettingsDialog() }
+            "view-chat" -> root.switchView("chat")
+            "view-agents" -> root.switchView("agents")
+            "view-plugins" -> root.switchView("plugins")
+            "view-files" -> root.switchView("files")
+            "view-activity" -> root.switchView("activity")
+            else -> root.showToast("Command: ${cmd.name}")
         }
     }
 
@@ -142,23 +134,23 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
-                    keyEvent.isCtrlPressed && keyEvent.key == Key.K -> { mainVm.showCmdKDialog(); true }
-                    keyEvent.isCtrlPressed && keyEvent.key == Key.Comma -> { showSettings = true; true }
+                    keyEvent.isCtrlPressed && keyEvent.key == Key.K -> { root.showCmdKDialog(); true }
+                    keyEvent.isCtrlPressed && keyEvent.key == Key.Comma -> { root.showSettingsDialog(); true }
                     keyEvent.isCtrlPressed -> when (keyEvent.key) {
-                        Key.One -> { mainVm.switchView("chat"); true }
-                        Key.Two -> { mainVm.switchView("agents"); true }
-                        Key.Three -> { mainVm.switchView("plugins"); true }
-                        Key.Four -> { mainVm.switchView("files"); true }
-                        Key.Five -> { mainVm.switchView("activity"); true }
-                        Key.N -> { sessionVm.createSession(selectedAgent.id); true }
+                        Key.One -> { root.switchView("chat"); true }
+                        Key.Two -> { root.switchView("agents"); true }
+                        Key.Three -> { root.switchView("plugins"); true }
+                        Key.Four -> { root.switchView("files"); true }
+                        Key.Five -> { root.switchView("activity"); true }
+                        Key.N -> { root.sessionVm.createSession(selectedAgent.id); true }
                         Key.B -> { showRightPanel = !showRightPanel; true }
                         else -> false
                     }
                     keyEvent.key == Key.Escape -> when {
-                        showCmdK -> { mainVm.hideCmdKDialog(); true }
-                        showSettings -> { showSettings = false; true }
-                        showAgentConfig != null -> { mainVm.dismissAgentConfigDialog(); true }
-                        showMcpConfig != null -> { showMcpConfig = null; true }
+                        dialog == DialogConfig.CommandPalette -> { root.closeDialog(); true }
+                        dialog == DialogConfig.Settings -> { root.closeDialog(); true }
+                        dialog is DialogConfig.AgentConfig -> { root.closeDialog(); true }
+                        dialog is DialogConfig.McpConfig -> { root.closeDialog(); true }
                         else -> false
                     }
                     else -> false
@@ -176,12 +168,12 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
             agentCount = agents.ifEmpty { listOf(selectedAgent) }.size,
             onlineCount = derivedOnlineCount,
             unreadNotifications = 3,
-            onCmdK = { mainVm.showCmdKDialog() },
-            onNotifications = { mainVm.showToast("没有新通知", ToastType.INFO) },
-            onSettings = { showSettings = true },
-            onUserAvatar = { mainVm.showToast("Swarmer", ToastType.INFO) },
-            onProjectSwitcher = { mainVm.showToast("项目切换器", ToastType.INFO) },
-            onSwarmStatus = { mainVm.switchView("agents") },
+            onCmdK = { root.showCmdKDialog() },
+            onNotifications = { root.showToast("没有新通知", ToastType.INFO) },
+            onSettings = { root.showSettingsDialog() },
+            onUserAvatar = { root.showToast("Swarmer", ToastType.INFO) },
+            onProjectSwitcher = { root.showToast("项目切换器", ToastType.INFO) },
+            onSwarmStatus = { root.switchView("agents") },
             onClose = onClose,
             onDragWindow = onDragWindow
         )
@@ -190,36 +182,42 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
         Row(Modifier.weight(1f).fillMaxWidth()) {
             // Left Rail Navigation
             RailNavigation(
-                currentView = currentView,
-                onSwitchView = { mainVm.switchView(it) },
-                onOpenGit = { mainVm.showToast("Git: 3 commits ahead") },
-                onOpenTerminal = { mainVm.showToast("终端功能即将上线") },
+                currentView = when (currentView) {
+                    MainConfig.Chat -> "chat"
+                    MainConfig.Agents -> "agents"
+                    MainConfig.Plugins -> "plugins"
+                    MainConfig.Files -> "files"
+                    MainConfig.Activity -> "activity"
+                },
+                onSwitchView = { root.switchView(it) },
+                onOpenGit = { root.showToast("Git: 3 commits ahead") },
+                onOpenTerminal = { root.showToast("终端功能即将上线") },
                 modifier = Modifier.fillMaxHeight()
             )
 
             // 左侧栏：按视图切换（对齐核心稿 renderSide）
             when (currentView) {
-                "chat" -> SessionPanel(
+                MainConfig.Chat -> SessionPanel(
                     selectedAgent = selectedAgent,
                     sessions = sessions,
                     currentSessionId = currentSessionId,
-                    onSelectSession = { sessionVm.selectSession(it) },
-                    onCreateSession = { sessionVm.createSession(selectedAgent.id) },
+                    onSelectSession = { root.sessionVm.selectSession(it) },
+                    onCreateSession = { root.sessionVm.createSession(selectedAgent.id) },
                     modifier = Modifier.width(260.dp).fillMaxHeight(),
                     agents = agents
                 )
-                "agents" -> AgentSideBar(
+                MainConfig.Agents -> AgentSideBar(
                     agents = agents,
-                    onSelect = { mainVm.showAgentConfigDialog(it.id) },
-                    onAdd = { mainVm.showToast("添加 Agent 向导即将上线") },
+                    onSelect = { root.showAgentConfigDialog(it.id) },
+                    onAdd = { root.showToast("添加 Agent 向导即将上线") },
                     modifier = Modifier.fillMaxHeight()
                 )
-                "plugins" -> PluginSideBar(
+                MainConfig.Plugins -> PluginSideBar(
                     mcpServers = mcpServers,
                     skills = skills,
                     onSelectMcp = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp(it) },
                     onSelectSkill = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Skill(it) },
-                    onAdd = { mainVm.showToast("添加插件") },
+                    onAdd = { root.showToast("添加插件") },
                     activeTab = pluginSubTab,
                     onTabChange = { pluginSubTab = it },
                     selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
@@ -238,28 +236,28 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                     label = "viewSwitch"
                 ) { view ->
                     when (view) {
-                        "chat" -> {
+                        MainConfig.Chat -> {
                             ChatArea(
                                 selectedAgent = selectedAgent, messages = messages, isSending = isSending,
                                 inputText = inputText, onInputChange = { inputText = it },
-                                onSend = { sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
+                                onSend = { root.sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
                                 modifier = Modifier.fillMaxSize(),
                                 agents = agents,
                                 sessionTitle = derivedSessionTitle ?: selectedAgent.name,
-                                onSelectAgent = { agentVm.selectAgent(it) },
-                                onMcpClick = { mainVm.switchView("plugins") },
-                                onSkillClick = { mainVm.switchView("plugins") }
+                                onSelectAgent = { root.agentVm.selectAgent(it) },
+                                onMcpClick = { root.switchView("plugins") },
+                                onSkillClick = { root.switchView("plugins") }
                             )
                         }
-                        "agents" -> {
+                        MainConfig.Agents -> {
                             AgentOrchestrationView(
                                 agents = emptyList(),
-                                onConfigClick = { mainVm.showAgentConfigDialog(it.config.id) },
-                                onAddAgent = { mainVm.showToast("Add Agent clicked") },
+                                onConfigClick = { root.showAgentConfigDialog(it.config.id) },
+                                onAddAgent = { root.showToast("Add Agent clicked") },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                        "plugins" -> {
+                        MainConfig.Plugins -> {
                             PluginCenterView(
                                 mcpServers = mcpServers,
                                 skills = skills,
@@ -269,10 +267,10 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
                                 onSelectedItemChange = { pluginSelectedItem = it }
                             )
                         }
-                        "files" -> {
+                        MainConfig.Files -> {
                             FileExplorerView(modifier = Modifier.fillMaxSize())
                         }
-                        "activity" -> {
+                        MainConfig.Activity -> {
                             ActivityLogView(
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -304,28 +302,36 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
         )
     }
 
-    if (showSettings) {
+    if (dialog == DialogConfig.Settings) {
         SettingsModal(
             agents = agents.ifEmpty { listOf(selectedAgent) },
-            settingsVm = settingsVm,
-            onClose = { showSettings = false },
+            settingsVm = root.settingsVm,
+            onClose = { root.closeDialog() },
             mcpServers = mcpServers,
             skills = skills
         )
     }
 
-    if (showAgentConfig != null) {
-        AgentConfigModal(agentId = showAgentConfig, agents = agents, onDismiss = { mainVm.dismissAgentConfigDialog() })
+    if (dialog is DialogConfig.AgentConfig) {
+        AgentConfigModal(
+            agentId = (dialog as DialogConfig.AgentConfig).agentId,
+            agents = agents,
+            onDismiss = { root.closeDialog() }
+        )
     }
 
-    if (showMcpConfig != null) {
-        McpConfigModal(serverId = showMcpConfig, servers = mcpServers, onDismiss = { showMcpConfig = null })
+    if (dialog is DialogConfig.McpConfig) {
+        McpConfigModal(
+            serverId = (dialog as DialogConfig.McpConfig).serverId,
+            servers = mcpServers,
+            onDismiss = { root.closeDialog() }
+        )
     }
 
     CommandPalette(
-        isVisible = showCmdK,
+        isVisible = dialog == DialogConfig.CommandPalette,
         hazeState = hazeState,
-        onDismiss = { mainVm.hideCmdKDialog() },
+        onDismiss = { root.closeDialog() },
         onCommand = handleCommand,
         agentNames = agents.map { it.name }
     )

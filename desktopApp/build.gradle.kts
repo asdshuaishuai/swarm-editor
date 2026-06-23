@@ -38,6 +38,10 @@ dependencies {
     // AndroidX Lifecycle (for ViewModel in Compose)
     implementation(libs.androidx.lifecycle.viewmodelCompose)
     implementation(libs.androidx.lifecycle.runtimeCompose)
+
+    // Decompose (navigation & lifecycle)
+    implementation(libs.decompose)
+    implementation(libs.decompose.extensions.compose)
 }
 
 compose.desktop {

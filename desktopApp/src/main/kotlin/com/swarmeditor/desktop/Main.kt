@@ -8,17 +8,21 @@ import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.GeekColorScheme
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun main() = application {
+    val root = remember { RootComponent() }
+
     Window(
         onCloseRequest = ::exitApplication,
         title = "Swarm Editor",
@@ -44,6 +48,7 @@ fun main() = application {
                 LocalRippleConfiguration provides null
             ) {
                 App(
+                    root = root,
                     onClose = ::exitApplication,
                     onDragWindow = { dx, dy ->
                         awtWindow.location = java.awt.Point(
