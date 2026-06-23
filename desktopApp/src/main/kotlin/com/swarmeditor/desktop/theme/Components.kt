@@ -89,8 +89,8 @@ fun HoverTipBox(
 fun Modifier.modalEnter(): Modifier {
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(220), label = "modalAlpha")
-    val scale by animateFloatAsState(if (shown) 1f else 0.96f, tween(240, easing = FastOutSlowInEasing), label = "modalScale")
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, Motion.floatSnappy, label = "modalAlpha")
+    val scale by animateFloatAsState(if (shown) 1f else 0.96f, Motion.floatDefault, label = "modalScale")
     return this.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }
 }
 
@@ -151,7 +151,7 @@ fun PulseDot(
 fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val elev by animateDpAsState(if (hovered) 8.dp else 2.dp, label = "hoverLift")
+    val elev by animateDpAsState(if (hovered) 8.dp else 2.dp, Motion.dpDefault, label = "hoverLift")
     return this
         .hoverable(interaction)
         .offset(y = if (hovered) (-1).dp else 0.dp)

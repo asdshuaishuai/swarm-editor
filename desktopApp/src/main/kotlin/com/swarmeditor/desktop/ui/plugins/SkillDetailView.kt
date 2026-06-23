@@ -200,11 +200,9 @@ fun SkillDetailView(
 private fun SkillOverviewTab(skill: SkillDto) {
     if (skill.description.isNotEmpty()) {
         SkillSectionTitle("描述")
-        Text(
-            text = skill.description,
-            color = Tx2,
-            fontSize = 13.sp,
-            lineHeight = 19.sp
+        com.mikepenz.markdown.m3.Markdown(
+            content = skill.description,
+            modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(16.dp))
     }

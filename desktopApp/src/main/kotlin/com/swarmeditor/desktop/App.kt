@@ -4,6 +4,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -236,7 +237,7 @@ fun App(
                 Crossfade(
                     targetState = currentView,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
-                    animationSpec = tween(250),
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
                     label = "viewSwitch"
                 ) { view ->
                     when (view) {
