@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -146,14 +147,20 @@ fun PulseDot(
     }
 }
 
-// ── 卡片悬停上浮 + 阴影（对齐核心稿 :hover{translateY(-1px);box-shadow}）──
+// ── 卡片悬停上浮 + 阴影 + scale（Mac 式微交互）──
 @Composable
 fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
     val elev by animateDpAsState(if (hovered) 8.dp else 2.dp, Motion.dpDefault, label = "hoverLift")
+    val scale by animateFloatAsState(
+        when { pressed -> 0.97f; hovered -> 1.02f; else -> 1f },
+        Motion.floatDefault, label = "hoverScale"
+    )
     return this
         .hoverable(interaction)
+        .graphicsLayer { scaleX = scale; scaleY = scale }
         .offset(y = if (hovered) (-1).dp else 0.dp)
         .shadow(elev, shape, clip = false)
 }
