@@ -195,13 +195,27 @@ private fun TabHeader(currentTab: String, onTabChange: (String) -> Unit) {
                     .padding(vertical = 8.dp, horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    label,
-                    color = if (isActive) Ac else Tx3,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = SansFont,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        label,
+                        color = if (isActive) Ac else Tx3,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = SansFont,
+                    )
+                    if (id == "changes") {
+                        Text(
+                            "3",
+                            color = if (isActive) AcLight else Tx3,
+                            fontSize = 10.sp,
+                            fontFamily = CodeFont,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Bg3)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier

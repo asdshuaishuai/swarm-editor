@@ -3,6 +3,10 @@ package com.swarmeditor.desktop.theme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.dp
 
 // Radii
@@ -17,10 +21,27 @@ val R12 = 12.dp
 val R14 = 14.dp
 val R16 = 16.dp
 
-// Fonts — use system default fonts for full CJK support
-val SansFont = FontFamily.Default
-val MonoFont = FontFamily.Default  // System font (has CJK fallback on Linux)
-val CodeFont = FontFamily.Monospace  // Monospace for code blocks only
+// Fonts — Inter 为主（设计稿本意 / SF Pro 合法替身），CJK 由系统回退
+// 从 JVM 资源取 Inter.ttf 到临时文件，用 platform.Font + FontVariation 取变体字重（非 @Composable）
+private val interFile: java.io.File by lazy {
+    val tmp = java.io.File.createTempFile("inter-", ".ttf").apply { deleteOnExit() }
+    val cl = Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()
+    cl.getResourceAsStream("fonts/Inter.ttf")!!.use { input ->
+        tmp.outputStream().use { output -> input.copyTo(output) }
+    }
+    tmp
+}
+
+@OptIn(ExperimentalTextApi::class)
+val InterFontFamily: FontFamily = FontFamily(
+    Font(interFile, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(interFile, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(interFile, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(interFile, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+)
+val SansFont = InterFontFamily
+val MonoFont = FontFamily.Default   // 系统等宽（CJK 回退；后续可换 JetBrains Mono）
+val CodeFont = FontFamily.Monospace // 代码块专用
 
 // Material3 ColorScheme override
 val GeekColorScheme = darkColorScheme(

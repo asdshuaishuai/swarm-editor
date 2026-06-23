@@ -9,7 +9,12 @@ kotlinx-datetime = "0.7.1"
 ktor = "3.2.2"
 
 # Compose
-compose-multiplatform = "1.8.1"
+compose-multiplatform = "1.10.0"
+
+# UI libs (Hybrid redesign)
+haze = "1.6.6"
+line-icons = "4.29.2"
+markdown-renderer = "0.33.0-b05"
 
 # JetBrains AI
 koog = "0.7.3"
@@ -67,6 +72,11 @@ compose-material3 = { module = "org.jetbrains.compose.material3:material3", vers
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-multiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "compose-multiplatform" }
+
+# UI libs (Hybrid redesign)
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
+lucide-icons = { module = "com.woowla.compose.icon.collections:feather", version.ref = "line-icons" }
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
 
 # AndroidX (for Compose lifecycle)
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version = "2.9.0" }

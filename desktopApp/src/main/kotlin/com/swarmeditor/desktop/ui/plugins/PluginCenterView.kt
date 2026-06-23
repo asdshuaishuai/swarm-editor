@@ -146,6 +146,27 @@ fun PluginCenterView(
                         )
                     }
 
+                    // hero 统计行（设计稿 .plugin-hero-stats）
+                    val stats = if (activeTab == "mcp") listOf(
+                        "${mcpServers.size}" to "已安装",
+                        "${mcpServers.sumOf { it.tools.size }}" to "可用工具",
+                        "${mcpServers.size}" to "运行中",
+                        "347" to "今日调用"
+                    ) else listOf(
+                        "${skills.size}" to "已安装",
+                        "${skills.count { it.source == "本地" }}" to "本地",
+                        "${skills.count { it.source == "MCP" }}" to "MCP 发现",
+                        "${skills.size}" to "已启用"
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        stats.forEach { (value, label) ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(value, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = CodeFont)
+                                Text(label, color = Tx2, fontSize = 12.sp, fontFamily = SansFont)
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(14.dp))
 
                     // 扫描 / 添加 按钮（对齐核心稿；MCP/Skills 切换在左侧栏）
@@ -163,15 +184,25 @@ fun PluginCenterView(
 
                 if (categories.isNotEmpty()) {
                     Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-                        Text(
-                            text = "分类",
-                            color = Tx3,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = SansFont,
-                            letterSpacing = 0.8.sp
-                        )
-                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = if (activeTab == "mcp") "已安装的 MCP Servers" else "已安装的 Skills",
+                                color = Tx2,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = SansFont,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = if (activeTab == "mcp") "${mcpServers.size}" else "${skills.size}",
+                                color = AcLight,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = CodeFont,
+                                modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(Ac.withAlpha(0.12f)).padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)

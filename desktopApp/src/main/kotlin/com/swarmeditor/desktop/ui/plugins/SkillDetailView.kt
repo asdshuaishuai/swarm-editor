@@ -153,20 +153,27 @@ fun SkillDetailView(
 
         Spacer(Modifier.height(8.dp))
 
-        // Tab content
-        Column(
+        // pd-body（设计稿 grid 1fr:280px, gap 28）
+        Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 32.dp)
+                .padding(horizontal = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            when (selectedTab.intValue) {
-                0 -> SkillOverviewTab(skill)
-                1 -> SkillStructureTab(skill)
-                2 -> SkillAgentsTab(skill)
-                3 -> SkillUsageTab(skill)
+            // pd-main
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
+            ) {
+                when (selectedTab.intValue) {
+                    0 -> SkillOverviewTab(skill)
+                    1 -> SkillStructureTab(skill)
+                    2 -> SkillAgentsTab(skill)
+                    3 -> SkillUsageTab(skill)
+                }
             }
+            // pd-side（设计稿三面板：技能信息 / 标签 / 关联 Agent）
+            SkillSidePanel(skill)
         }
     }
 }
@@ -431,6 +438,41 @@ private fun InfoRow(label: String, value: String) {
             overflow = Ellipsis,
             modifier = Modifier.weight(1f)
         )
+    }
+}
+
+@Composable
+private fun SkillSidePanel(skill: SkillDto) {
+    Column(
+        modifier = Modifier
+            .width(280.dp)
+            .fillMaxHeight()
+            .verticalScroll(rememberScrollState())
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(R8))
+            .padding(14.dp)
+    ) {
+        InfoRow("名称", skill.name)
+        InfoRow("来源", skill.source)
+        InfoRow("作用域", skill.scope)
+        if (skill.path.isNotEmpty()) InfoRow("路径", skill.path)
+        if (skill.tags.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("标签", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                skill.tags.forEach { StatusChip(text = it, color = AgentClaude) }
+            }
+        }
+        if (skill.enabledAgents.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("关联 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            skill.enabledAgents.keys.forEach { agent ->
+                Text("• $agent", color = Tx2, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+            }
+        }
     }
 }
 

@@ -1,5 +1,8 @@
 package com.swarmeditor.desktop
 
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -89,6 +92,7 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
         }
     }
     val showCmdK by mainVm.showCmdK.collectAsState()
+    val hazeState = rememberHazeState()
 
     var showSettings by remember { mutableStateOf(false) }
     var showRightPanel by remember { mutableStateOf(true) }
@@ -164,7 +168,7 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
         // Background effects (z-index: 0)
         BackgroundEffects()
 
-    Column(Modifier.fillMaxSize().background(Bg)) {
+    Column(Modifier.fillMaxSize().hazeSource(hazeState).background(Bg)) {
         // Enhanced TopBar — spans full width
         EnhancedTopBar(
             projectName = "swarm-editor",
@@ -320,6 +324,7 @@ fun App(onClose: () -> Unit = {}, onDragWindow: (Float, Float) -> Unit = { _, _ 
 
     CommandPalette(
         isVisible = showCmdK,
+        hazeState = hazeState,
         onDismiss = { mainVm.hideCmdKDialog() },
         onCommand = handleCommand,
         agentNames = agents.map { it.name }

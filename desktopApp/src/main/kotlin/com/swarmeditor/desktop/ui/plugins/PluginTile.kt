@@ -22,6 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +95,7 @@ fun PluginTile(
             .hoverLift(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(listOf(Bg2.withAlpha(0.5f), Bg1.withAlpha(0.3f))))
+            .drawBehind { drawRect(accent, topLeft = Offset.Zero, size = Size(size.width, 3.dp.toPx())) }
             .border(1.dp, Line, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(14.dp)
@@ -100,7 +104,7 @@ fun PluginTile(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(54.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Bg0.copy(alpha = 0.6f))
                     .border(1.dp, Line, RoundedCornerShape(12.dp)),
@@ -109,7 +113,7 @@ fun PluginTile(
                 Text(
                     text = if (icon.isNotEmpty()) icon else name.take(1).uppercase(),
                     color = if (icon.isNotEmpty()) Color.Unspecified else accent,
-                    fontSize = if (icon.isNotEmpty()) 22.sp else 18.sp,
+                    fontSize = if (icon.isNotEmpty()) 24.sp else 20.sp,
                     fontWeight = FontWeight.Bold
                 )
             }

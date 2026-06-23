@@ -17,14 +17,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.MergeType
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Terminal
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Activity
+import com.woowla.compose.icon.collections.feather.feather.Folder
+import com.woowla.compose.icon.collections.feather.feather.GitBranch
+import com.woowla.compose.icon.collections.feather.feather.Grid
+import com.woowla.compose.icon.collections.feather.feather.MessageSquare
+import com.woowla.compose.icon.collections.feather.feather.Terminal
+import com.woowla.compose.icon.collections.feather.feather.Users
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,11 +63,11 @@ fun RailNavigation(
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
-        RailItem("chat", Icons.AutoMirrored.Filled.Chat, "Chat", "会话"),
-        RailItem("agents", Icons.Filled.SmartToy, "Agents", "Agent 编排"),
-        RailItem("plugins", Icons.Filled.Extension, "Plugins", "插件"),
-        RailItem("files", Icons.Filled.Folder, "Files", "文件"),
-        RailItem("activity", Icons.Filled.Assessment, "Activity", "活动日志")
+        RailItem("chat", Feather.MessageSquare, "Chat", "会话"),
+        RailItem("agents", Feather.Users, "Agents", "Agent 编排"),
+        RailItem("plugins", Feather.Grid, "Plugins", "插件"),
+        RailItem("files", Feather.Folder, "Files", "文件"),
+        RailItem("activity", Feather.Activity, "Activity", "活动日志")
     )
 
     Column(
@@ -103,7 +103,7 @@ fun RailNavigation(
 
         // Git button
         RailButton(
-            icon = Icons.AutoMirrored.Filled.MergeType,
+            icon = Feather.GitBranch,
             label = "Git",
             isActive = false,
             onClick = onOpenGit
@@ -113,7 +113,7 @@ fun RailNavigation(
 
         // Terminal button
         RailButton(
-            icon = Icons.Filled.Terminal,
+            icon = Feather.Terminal,
             label = "Terminal",
             isActive = false,
             onClick = onOpenTerminal

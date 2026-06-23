@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.theme.*
+import com.mikepenz.markdown.m3.Markdown
 
 private val DetailTabs = listOf("详情", "工具", "配置", "更新日志")
 
@@ -73,9 +74,10 @@ fun McpDetailView(
                     .clickable(onClick = onBack)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
-        }
 
-        // Hero section（pd-top: icon 84px + meta, gap 18px）
+            Spacer(Modifier.height(18.dp))
+
+        // Hero section（pd-top: icon 84px + meta, gap 18px）— 并入 pd-header 渐变容器
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(18.dp)
@@ -109,21 +111,16 @@ fun McpDetailView(
                     StatusChip(text = "运行中", color = Gn)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = server.id,
-                    color = Tx3,
-                    fontSize = 11.sp,
-                    fontFamily = SansFont
-                )
-                Spacer(Modifier.height(6.dp))
-                if (server.rating > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 12.sp, fontFamily = SansFont)
-                        Spacer(Modifier.width(6.dp))
-                        Text("(${server.ratingCount})", color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
+                // pd-pub（设计稿单行：v · ★rating(count) · downloads）
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (server.version.isNotEmpty()) Text("v${server.version}", color = AcLight, fontSize = 11.sp, fontFamily = CodeFont)
+                    if (server.rating > 0) {
+                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 11.sp, fontFamily = SansFont)
+                        Text("(${server.ratingCount})", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                     }
-                    Spacer(Modifier.height(4.dp))
+                    if (server.downloads.isNotEmpty()) Text("${server.downloads} 下载", color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
                 }
+                Spacer(Modifier.height(6.dp))
                 if (server.description.isNotEmpty()) {
                     Text(
                         text = server.description,
@@ -145,12 +142,13 @@ fun McpDetailView(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ActionButton(text = "⟳ 重启服务", color = Ac)
+            ActionButton(text = "⟳ 重启服务", color = Ac, primary = true)
             ActionButton(text = "⎘ 复制配置", color = Tx2)
             ActionButton(text = "⚙ 配置", color = Tx2, onClick = { showConfigModal = true })
             Spacer(Modifier.weight(1f))
             ActionButton(text = "卸载", color = Rd)
         }
+        }  // 关闭 pd-header（渐变容器包住 返回 + hero + actions）
 
         Spacer(Modifier.height(16.dp))
 
@@ -167,10 +165,10 @@ fun McpDetailView(
                 Column(
                     modifier = Modifier
                         .clickable { selectedTab.intValue = index }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = tab,
+                        text = if (index == 1) "$tab ${server.tools.size}" else tab,
                         color = if (isActive) Ac else Tx3,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
@@ -212,10 +210,8 @@ fun McpDetailView(
                 }
             }
 
-            // Side info panel (only for Details tab)
-            if (selectedTab.intValue == 0) {
-                McpSidePanel(server)
-            }
+            // Side info panel（设计稿 pd-side，全 tab 常驻）
+            McpSidePanel(server)
         }
     }
 
@@ -226,17 +222,23 @@ fun McpDetailView(
 }
 
 @Composable
-private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit = {}) {
+private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, primary: Boolean = false, onClick: () -> Unit = {}) {
+    val textColor = if (primary) Color.White else color
+    val bgMod = if (primary) {
+        Modifier.background(Brush.linearGradient(listOf(Ac, Ac2)))
+    } else {
+        Modifier.border(1.dp, color.withAlpha(0.3f), RoundedCornerShape(6.dp))
+            .background(color.withAlpha(0.06f))
+    }
     Text(
         text = text,
-        color = color,
+        color = textColor,
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
         fontFamily = SansFont,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, color.withAlpha(0.3f), RoundedCornerShape(6.dp))
-            .background(color.withAlpha(0.06f))
+            .then(bgMod)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp)
     )
@@ -246,11 +248,9 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
 private fun McpDetailsTab(server: McpServerDto) {
     if (server.description.isNotEmpty()) {
         SectionTitle("描述")
-        Text(
-            text = server.description,
-            color = Tx2,
-            fontSize = 13.sp,
-            lineHeight = 19.sp
+        Markdown(
+            content = server.description,
+            modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(16.dp))
     }
@@ -538,7 +538,7 @@ private fun McpChangelogTab(server: McpServerDto) {
 private fun McpSidePanel(server: McpServerDto) {
     Column(
         modifier = Modifier
-            .width(220.dp)
+            .width(280.dp)
             .fillMaxHeight()
             .verticalScroll(rememberScrollState())
             .clip(RoundedCornerShape(R8))

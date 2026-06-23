@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
 import java.util.Locale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 
 data class Command(
     val id: String,
@@ -63,6 +65,7 @@ data class Command(
 @Composable
 fun CommandPalette(
     isVisible: Boolean,
+    hazeState: HazeState,
     onDismiss: () -> Unit,
     onCommand: (Command) -> Unit,
     agentNames: List<String> = emptyList(),
@@ -84,6 +87,7 @@ fun CommandPalette(
                 .clickable(enabled = false) { /* consume */ }
         ) {
             CommandPaletteModal(
+                hazeState = hazeState,
                 agentNames = agentNames,
                 onDismiss = onDismiss,
                 onCommand = onCommand
@@ -94,6 +98,7 @@ fun CommandPalette(
 
 @Composable
 private fun CommandPaletteModal(
+    hazeState: HazeState,
     agentNames: List<String>,
     onDismiss: () -> Unit,
     onCommand: (Command) -> Unit
@@ -128,7 +133,7 @@ private fun CommandPaletteModal(
         modifier = Modifier
             .width(580.dp)
             .clip(modalShape)
-            .background(Bg2)
+            .hazeEffect(hazeState)
             .border(1.dp, Line, modalShape)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

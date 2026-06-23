@@ -23,6 +23,11 @@ dependencies {
     implementation(compose.materialIconsExtended)
     implementation(libs.compose.uiToolingPreview)
 
+    // UI libs (Hybrid redesign: haze blur, Lucide icons, markdown render)
+    implementation(libs.haze)
+    implementation(libs.lucide.icons)  // woowla feather icons (Lucide 前身，同款线性)
+    implementation(libs.markdown.renderer)
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.swing)

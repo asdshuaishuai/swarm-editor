@@ -6,32 +6,32 @@ import androidx.compose.ui.graphics.Color
    Swarm Editor — Design System Colors (from MVP mockup)
    ═══════════════════════════════════════════════════════════════ */
 
-// Backgrounds — 深色分层（越深越靠后，营造深度感）
-val Bg0 = Color(0xFF060709)      // 最深背景（app 底）
-val Bg1 = Color(0xFF0a0b11)      // 侧栏/面板底（比 Bg0 稍亮，与卡片拉开层次）
-val Bg2 = Color(0xFF12151e)      // 卡片/输入框底
-val Bg3 = Color(0xFF1a1f2c)      // hover/高亮底（足够亮，反馈明显）
+// Backgrounds — Hybrid 柔和深色分层（紫调身份 + Apple 克制：抬底、去刺眼）
+val Bg0 = Color(0xFF13141c)      // 最深背景（app 底，比旧近黑抬一档）
+val Bg1 = Color(0xFF1a1c28)      // 侧栏/面板底（配 haze 半透明用）
+val Bg2 = Color(0xFF232739)      // 卡片/输入框底（磨砂感）
+val Bg3 = Color(0xFF2d3247)      // hover/高亮底（柔和反馈）
 
-// Lines / Borders — 分隔线层次
-val Line = Color(0xFF1e2330)     // 主分隔线
-val Line2 = Color(0xFF2b3142)    // hover 分隔线
+// Lines / Borders — 柔化分隔线（降对比，Apple 式细边）
+val Line = Color(0xFF2a2e40)     // 主分隔线
+val Line2 = Color(0xFF363b52)    // hover 分隔线
 
-// Text — 三级文字层次（对比度递减）
-val Tx = Color(0xFFf0f1f6)       // 主文字（更亮，可读性优）
-val Tx2 = Color(0xFF9aa3b8)      // 次文字
-val Tx3 = Color(0xFF6b7388)      // 弱化/标签文字（稍亮，减少疲劳）
+// Text — 三级文字（稍收亮度，避免刺眼）
+val Tx = Color(0xFFe8eaf2)       // 主文字
+val Tx2 = Color(0xFF969cb2)      // 次文字
+val Tx3 = Color(0xFF6a7088)      // 弱化/标签文字
 
-// Accent (purple)
+// Accent (purple) — 紫身份保留；Hybrid 克制：仅 CTA/激活态用（使用面靠组件层收）
 val Ac = Color(0xFFa78bfa)         // Primary accent
 val Ac2 = Color(0xFF7c3aed)      // Deep accent (gradients)
 val AcLight = Color(0xFFc4b5fd)   // Light accent (text on dark bg)
 
-// Agent brand colors — 提高饱和度/亮度，深色背景下更鲜明
-val AgentClaude = Color(0xFFb794f6)    // Claude 紫 — 提亮，深底更跳
-val AgentQwen = Color(0xFF60a5fa)      // Qwen 蓝 — 保持
-val AgentGemini = Color(0xFF4ade80)    // Gemini 绿 — 提亮
-val AgentKimi = Color(0xFFfcd34d)      // Kimi 金 — 提亮
-val AgentOpenCode = Color(0xFFfb923c)  // OpenCode 橙 — 保持
+// Agent brand colors — 还原设计稿值（比旧"提亮版"更柔，符合 Hybrid 克制）
+val AgentClaude = Color(0xFFa78bfa)    // Claude 紫
+val AgentQwen = Color(0xFF60a5fa)      // Qwen 蓝
+val AgentGemini = Color(0xFF34d399)    // Gemini 绿
+val AgentKimi = Color(0xFFfbbf24)      // Kimi 金
+val AgentOpenCode = Color(0xFFfb923c)  // OpenCode 橙
 
 // Status colors
 val Ok = Color(0xFF22c55e)       // Success / online

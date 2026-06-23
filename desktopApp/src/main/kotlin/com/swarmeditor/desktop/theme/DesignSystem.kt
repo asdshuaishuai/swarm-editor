@@ -32,14 +32,14 @@ object Spacing {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Shapes — 圆角阶梯（4/6/8/12dp，JetBrains 标准）
+// Shapes — 圆角阶梯（Hybrid：整体上调一档，更柔；6/8/12/16/20dp）
 // ═══════════════════════════════════════════════════════════════
 object AppShapes {
-    val xs = RoundedCornerShape(4.dp)   // badge/tag/ext
-    val sm = RoundedCornerShape(6.dp)   // chip/button
-    val md = RoundedCornerShape(8.dp)   // card/input
-    val lg = RoundedCornerShape(12.dp)  // large card/modal
-    val xl = RoundedCornerShape(16.dp)  // modal/hero
+    val xs = RoundedCornerShape(6.dp)   // badge/tag/ext
+    val sm = RoundedCornerShape(8.dp)   // chip/button
+    val md = RoundedCornerShape(12.dp)  // card/input
+    val lg = RoundedCornerShape(16.dp)  // large card/modal
+    val xl = RoundedCornerShape(20.dp)  // modal/hero
 }
 
 // ═══════════════════════════════════════════════════════════════
