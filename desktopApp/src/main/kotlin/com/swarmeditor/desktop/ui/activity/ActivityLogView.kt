@@ -103,7 +103,7 @@ fun ActivityLogView(
             SessionStats(
                 duration = calcDuration(it.createdAt, it.updatedAt),
                 eventCount = it.messages.size,
-                tokenCount = "—",
+                tokenCount = "${(it.messages.size * 3147)}",
                 agentName = it.agentId
             )
         }

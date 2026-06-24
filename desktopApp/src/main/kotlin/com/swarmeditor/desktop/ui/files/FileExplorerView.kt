@@ -200,11 +200,21 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                         Icon(imageVector = Feather.File, contentDescription = "文件", modifier = Modifier.size(32.dp), tint = Tx2)
                         Spacer(Modifier.height(8.dp))
                         Text(selectedPath.value!!, color = Tx, fontSize = 13.sp)
-                        Spacer(Modifier.height(4.dp))
-                        Text("选择文件查看详情", color = Tx3, fontSize = 11.sp)
                     }
                 } else {
-                    Text("选择文件查看详情", color = Tx3, fontSize = 13.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier.size(56.dp).clip(RoundedCornerShape(14.dp))
+                                .background(Bg3.copy(alpha = 0.6f)).border(1.dp, Line, RoundedCornerShape(14.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(imageVector = Feather.Folder, contentDescription = null, tint = Tx3, modifier = Modifier.size(26.dp))
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("选择文件查看详情", color = Tx3, fontSize = 13.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text("从左侧文件树点击任意文件", color = Tx4, fontSize = 11.sp)
+                    }
                 }
             }
         }

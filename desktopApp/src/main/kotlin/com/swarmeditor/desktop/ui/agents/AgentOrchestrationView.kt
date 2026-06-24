@@ -195,7 +195,7 @@ fun AgentOrchestrationView(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // ── Online Agents ────────────────────────────────────────
             SectionLabel("在线 Agents", onlineAgents.size)
