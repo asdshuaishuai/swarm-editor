@@ -83,7 +83,7 @@ fun AgentConfigModal(
             contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier.width(620.dp).shadow(24.dp, RoundedCornerShape(R16), ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f)).modalEnter().clip(RoundedCornerShape(R16))
+                modifier = Modifier.width(620.dp).shadow(8.dp, RoundedCornerShape(R16), ambientColor = Ac.withAlpha(0.06f), spotColor = Ac.withAlpha(0.08f)).modalEnter().clip(RoundedCornerShape(R16))
                     .background(Brush.linearGradient(listOf(Color(0xFF0f1220), Color(0xFF0a0c14))))
                     .border(1.dp, Line2, RoundedCornerShape(R16))
                     .clickable(enabled = false) {}
