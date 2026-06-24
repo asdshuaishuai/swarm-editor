@@ -19,6 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,7 +53,16 @@ fun StatusBar(
             .fillMaxWidth()
             .height(26.dp)
             .background(Bg0)
-            .border(1.dp, Line)
+            .drawBehind {
+                // Gradient top border (fade-in from transparent to Line)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(Color.Transparent, Line)
+                    ),
+                    topLeft = androidx.compose.ui.geometry.Offset.Zero,
+                    size = androidx.compose.ui.geometry.Size(size.width, 1f)
+                )
+            }
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -98,7 +110,18 @@ fun StatusBar(
 
 @Composable
 private fun SbDot(color: Color) {
-    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
+    Box(
+        modifier = Modifier
+            .size(7.dp)
+            .clip(CircleShape)
+            .background(color)
+            .shadow(
+                elevation = 2.dp,
+                shape = CircleShape,
+                ambientColor = color.withAlpha(0.3f),
+                spotColor = color.withAlpha(0.2f)
+            )
+    )
 }
 
 @Composable

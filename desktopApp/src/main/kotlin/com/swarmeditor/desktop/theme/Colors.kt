@@ -6,20 +6,20 @@ import androidx.compose.ui.graphics.Color
    Swarm Editor — Design System Colors (from MVP mockup)
    ═══════════════════════════════════════════════════════════════ */
 
-// Backgrounds — Hybrid 柔和深色分层（紫调身份 + Apple 克制：抬底、去刺眼）
-val Bg0 = Color(0xFF13141c)      // 最深背景（app 底，比旧近黑抬一档）
-val Bg1 = Color(0xFF1a1c28)      // 侧栏/面板底（配 haze 半透明用）
-val Bg2 = Color(0xFF232739)      // 卡片/输入框底（磨砂感）
-val Bg3 = Color(0xFF2d3247)      // hover/高亮底（柔和反馈）
+// Backgrounds — Hybrid 柔和深色分层（紫调身份 + Apple 克制）
+val Bg0 = Color(0xFF0f1018)      // 最深背景（微调：更深一档，增加深度层次）
+val Bg1 = Color(0xFF171823)      // 侧栏/面板底
+val Bg2 = Color(0xFF1f2030)      // 卡片/输入框底（磨砂感）
+val Bg3 = Color(0xFF2a2c40)      // hover/高亮底（柔和反馈）
 
-// Lines / Borders — 柔化分隔线（降对比，Apple 式细边）
-val Line = Color(0xFF2a2e40)     // 主分隔线
-val Line2 = Color(0xFF363b52)    // hover 分隔线
+// Lines / Borders — 柔化分隔线
+val Line = Color(0xFF252637)     // 主分隔线（微调：降饱和）
+val Line2 = Color(0xFF33354a)    // hover 分隔线
 
-// Text — 三级文字（稍收亮度，避免刺眼）
-val Tx = Color(0xFFe8eaf2)       // 主文字
-val Tx2 = Color(0xFF969cb2)      // 次文字
-val Tx3 = Color(0xFF6a7088)      // 弱化/标签文字
+// Text — 三级文字（微调：提高主文字对比度）
+val Tx = Color(0xFFeaecf4)       // 主文字（微提亮）
+val Tx2 = Color(0xFF949bb0)      // 次文字
+val Tx3 = Color(0xFF62677d)      // 弱化/标签文字
 
 // Accent (purple) — 紫身份保留；Hybrid 克制：仅 CTA/激活态用（使用面靠组件层收）
 val Ac = Color(0xFFa78bfa)         // Primary accent

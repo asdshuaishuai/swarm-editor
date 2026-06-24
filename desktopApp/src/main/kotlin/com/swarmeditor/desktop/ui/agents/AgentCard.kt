@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -227,19 +228,22 @@ fun AgentCard(
                     label = "任务",
                     value = if (agent.stats.tasks > 0) "${agent.stats.tasks}" else "—",
                     valueColor = if (agent.stats.tasks > 0) agentColor else Tx3,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    showDivider = false
                 )
                 StatCell(
                     label = "成功率",
                     value = formatPercent(agent.stats.successRate),
                     valueColor = Tx,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    showDivider = true
                 )
                 StatCell(
                     label = "平均延迟",
                     value = agent.stats.avgLatency.ifEmpty { "—" },
                     valueColor = Tx,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    showDivider = true
                 )
             }
         }
@@ -251,26 +255,40 @@ private fun StatCell(
     label: String,
     value: String,
     valueColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showDivider: Boolean = false
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            value,
-            color = valueColor,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            color = Tx3,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.4.sp
-        )
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                value,
+                color = valueColor,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                label,
+                color = Tx3,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.4.sp
+            )
+        }
+        // Subtle divider line after the cell (except last)
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = (-8).dp)
+                    .width(1.dp)
+                    .height(24.dp)
+                    .background(Line2)
+            )
+        }
     }
 }
 

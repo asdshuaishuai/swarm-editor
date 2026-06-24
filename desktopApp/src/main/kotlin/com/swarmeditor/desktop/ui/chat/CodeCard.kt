@@ -3,6 +3,9 @@ package com.swarmeditor.desktop.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +22,7 @@ import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -117,11 +121,16 @@ fun CodeCard(
         ) {
             Icon(imageVector = Feather.File, contentDescription = "File", modifier = Modifier.size(14.dp), tint = Tx2)
             Spacer(Modifier.width(6.dp))
-            // Extension badge
+            // Extension badge with hover effect
+            val chipInteractionSource = remember { MutableInteractionSource() }
+            val isChipHovered by chipInteractionSource.collectIsHoveredAsState()
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(3.dp))
-                    .background(Ac.withAlpha(0.12f))
+                    .background(
+                        if (isChipHovered) Ac.withAlpha(0.1f) else Ac.withAlpha(0.12f)
+                    )
+                    .hoverable(chipInteractionSource)
                     .padding(horizontal = 4.dp, vertical = 1.dp)
             ) {
                 Text(

@@ -191,10 +191,10 @@ fun ChatArea(
                 .then(
                     if (isFocused) {
                         Modifier.shadow(
-                            elevation = 8.dp,
+                            elevation = 12.dp,
                             shape = RoundedCornerShape(14.dp),
-                            ambientColor = Ac.copy(alpha = 0.12f),
-                            spotColor = Color.Transparent
+                            ambientColor = Ac.withAlpha(0.15f),
+                            spotColor = Ac.withAlpha(0.2f)
                         )
                     } else Modifier
                 )

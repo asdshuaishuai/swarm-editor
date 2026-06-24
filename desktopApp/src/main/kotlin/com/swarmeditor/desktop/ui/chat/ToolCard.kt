@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,11 +27,13 @@ import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -61,6 +64,13 @@ fun ToolCard(
 ) {
     val expanded = remember { mutableStateOf(defaultExpanded) }
     val shape = RoundedCornerShape(10.dp)
+
+    // Chevr rotation animation with spring
+    val rotationAngle by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expanded.value) 90f else 0f,
+        animationSpec = Motion.floatDefault,
+        label = "chevronRotation"
+    )
 
     Column(
         modifier = modifier
@@ -122,10 +132,12 @@ fun ToolCard(
             }
             Spacer(Modifier.weight(1f))
             Icon(
-                imageVector = if (expanded.value) Feather.ChevronDown else Feather.ChevronRight,
+                imageVector = Feather.ChevronRight,
                 contentDescription = "Toggle",
                 tint = Tx3,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier
+                    .size(16.dp)
+                    .rotate(rotationAngle)
             )
         }
 

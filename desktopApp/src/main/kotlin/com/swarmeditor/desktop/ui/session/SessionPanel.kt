@@ -205,24 +205,38 @@ private fun SessionCard(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val hoverBg = if (isHovered && !isActive) Bg3.copy(alpha = 0.6f) else Color.Transparent
 
+    val baseModifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(8.dp))
+        .background(hoverBg)
+        .clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onSelect
+        )
+
+    val activeModifier = if (isActive) {
+        baseModifier
+            .border(1.dp, Ac.withAlpha(0.2f), RoundedCornerShape(8.dp))
+            .background(Ac.withAlpha(0.08f))
+    } else {
+        baseModifier
+    }
+
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(hoverBg)
-            .then(
-                if (isActive) Modifier.border(1.dp, Ac.withAlpha(0.2f), RoundedCornerShape(8.dp))
-                    .background(Ac.withAlpha(0.08f))
-                else Modifier
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onSelect
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+        modifier = activeModifier.padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            // Active left accent bar (2dp, Ac.withAlpha(0.6f))
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .height(48.dp) // Match the approximate content height
+                        .background(Ac.withAlpha(0.6f))
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             // Agent avatar with status dot
             Box(
                 modifier = Modifier.size(26.dp),

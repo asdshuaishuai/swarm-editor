@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -140,6 +142,13 @@ private fun RailNavItem(
     }
     val iconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
 
+    // Scale animation on hover (spring to 1.1f)
+    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isHovered) 1.1f else 1f,
+        animationSpec = Motion.floatDefault,
+        label = "railIconScale"
+    )
+
     Box(
         modifier = Modifier
             .width(38.dp)
@@ -161,7 +170,7 @@ private fun RailNavItem(
                     .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
                     .background(Ac)
                     .shadow(
-                        elevation = 8.dp,
+                        elevation = 4.dp,
                         shape = RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp),
                         ambientColor = Ac,
                         spotColor = Ac
@@ -173,7 +182,9 @@ private fun RailNavItem(
             imageVector = item.icon,
             contentDescription = item.label,
             tint = iconColor,
-            modifier = Modifier.size(17.dp)
+            modifier = Modifier
+                .size(17.dp)
+                .graphicsLayer { scaleX = animatedScale; scaleY = animatedScale }
         )
 
         // Badge

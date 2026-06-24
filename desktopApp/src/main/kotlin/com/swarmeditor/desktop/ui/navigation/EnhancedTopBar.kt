@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -70,7 +71,7 @@ fun EnhancedTopBar(
             .height(48.dp)
             .background(
                 Brush.linearGradient(
-                    listOf(Bg2.copy(alpha = 0.9f), Bg1.copy(alpha = 0.9f))
+                    listOf(Bg2.copy(alpha = 0.6f), Bg1.copy(alpha = 0.4f))
                 )
             )
             .border(1.dp, Line)
@@ -86,7 +87,13 @@ fun EnhancedTopBar(
         Box(
             modifier = Modifier
                 .size(22.dp)
-                .clip(RoundedCornerShape(6.dp)),
+                .clip(RoundedCornerShape(6.dp))
+                .shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(6.dp),
+                    ambientColor = AgentClaude.withAlpha(0.3f),
+                    spotColor = AgentClaude.withAlpha(0.4f)
+                ),
             contentAlignment = Alignment.Center
         ) {
             Box(Modifier.matchParentSize().background(Brush.sweepGradient(listOf(AgentClaude, AgentQwen, AgentGemini, AgentKimi, AgentOpenCode, AgentClaude))))
@@ -107,17 +114,19 @@ fun EnhancedTopBar(
         Box(
             modifier = Modifier
                 .height(16.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Ac.withAlpha(0.15f))
-                .padding(horizontal = 5.dp),
+                .clip(RoundedCornerShape(4.dp)),
             contentAlignment = Alignment.Center
         ) {
+            // Background with inner glow overlay
+            Box(modifier = Modifier.matchParentSize().background(Ac.withAlpha(0.15f)))
+            Box(modifier = Modifier.matchParentSize().background(Ac.withAlpha(0.05f)))
             Text(
                 "MVP",
                 color = AcLight,
                 fontSize = 8.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = SansFont
+                fontFamily = SansFont,
+                modifier = Modifier.padding(horizontal = 5.dp)
             )
         }
 

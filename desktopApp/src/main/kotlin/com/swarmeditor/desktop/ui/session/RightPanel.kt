@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.session
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
@@ -195,6 +196,9 @@ private fun TabHeader(currentTab: String, onTabChange: (String) -> Unit) {
                     .padding(vertical = 8.dp, horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // Underline color
+                val underlineColor = if (isActive) Ac else Color.Transparent
+
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         label,
@@ -222,7 +226,7 @@ private fun TabHeader(currentTab: String, onTabChange: (String) -> Unit) {
                         .fillMaxWidth()
                         .height(2.dp)
                         .clip(RoundedCornerShape(1.dp))
-                        .background(if (isActive) Ac else Color.Transparent),
+                        .background(underlineColor),
                 )
             }
         }
