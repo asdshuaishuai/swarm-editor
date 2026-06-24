@@ -57,6 +57,9 @@ import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.navigation.MainConfig
 import com.swarmeditor.desktop.navigation.DialogConfig
+import com.arkivanov.decompose.extensions.compose.subscribeAsState
+import com.arkivanov.decompose.router.stack.active
+import com.swarmeditor.desktop.navigation.MainChild
 
 @androidx.compose.runtime.Immutable
 data class AgentInfo(
@@ -81,7 +84,9 @@ fun App(
     val currentSessionId by root.sessionVm.currentSessionId.collectAsState()
     val mcpServers by root.mcpVm.servers.collectAsState()
     val skills by root.skillVm.skills.collectAsState()
-    val currentView by root.stack.collectAsState()
+    val stackState by root.stack.subscribeAsState()
+    val currentConfig = stackState.active.configuration
+    val currentChild = stackState.active.instance
     // Toast: 从 Channel 收集到本地 mutableStateListOf（compose-skill Effect 模式）
     val toastList = remember { androidx.compose.runtime.mutableStateListOf<com.swarmeditor.desktop.viewmodel.ToastData>() }
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -89,7 +94,8 @@ fun App(
             toastList.add(toast)
         }
     }
-    val dialog by root.dialog.collectAsState()
+    val dialogSlot by root.dialog.subscribeAsState()
+    val dialog = dialogSlot.child?.configuration
     val hazeState = rememberHazeState()
 
     var showRightPanel by remember { mutableStateOf(true) }
@@ -187,7 +193,7 @@ fun App(
         Row(Modifier.weight(1f).fillMaxWidth()) {
             // Left Rail Navigation
             RailNavigation(
-                currentView = when (currentView) {
+                currentView = when (currentConfig) {
                     MainConfig.Chat -> "chat"
                     MainConfig.Agents -> "agents"
                     MainConfig.Plugins -> "plugins"
@@ -201,7 +207,7 @@ fun App(
             )
 
             // 左侧栏：按视图切换（对齐核心稿 renderSide）
-            when (currentView) {
+            when (currentConfig) {
                 MainConfig.Chat -> SessionPanel(
                     selectedAgent = selectedAgent,
                     sessions = sessions,
@@ -235,7 +241,7 @@ fun App(
             // Center content + Right panel
             Row(Modifier.weight(1f).fillMaxHeight()) {
                 Crossfade(
-                    targetState = currentView,
+                    targetState = currentConfig,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     animationSpec = tween(450, delayMillis = 30, easing = FastOutSlowInEasing),
                     label = "viewSwitch"

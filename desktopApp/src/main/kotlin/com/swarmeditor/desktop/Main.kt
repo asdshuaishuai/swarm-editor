@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.arkivanov.decompose.DefaultComponentContext
+import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.Bg1
@@ -24,7 +26,7 @@ import com.swarmeditor.desktop.theme.Line
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun main() = application {
-    val root = remember { RootComponent() }
+    val root = remember { RootComponent(DefaultComponentContext(LifecycleRegistry())) }
 
     Window(
         onCloseRequest = ::exitApplication,
