@@ -237,7 +237,7 @@ fun App(
                 Crossfade(
                     targetState = currentView,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    animationSpec = tween(450, delayMillis = 30, easing = FastOutSlowInEasing),
                     label = "viewSwitch"
                 ) { view ->
                     when (view) {

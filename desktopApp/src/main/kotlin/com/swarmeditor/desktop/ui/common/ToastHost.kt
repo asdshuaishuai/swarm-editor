@@ -91,8 +91,8 @@ private fun ToastItem(
 
     AnimatedVisibility(
         visible = true,
-        enter = slideInHorizontally(initialOffsetX = { it }),
-        exit = slideOutHorizontally(targetOffsetX = { it })
+        enter = slideInHorizontally(initialOffsetX = { it }, animationSpec = Motion.intOffsetSnappy),
+        exit = slideOutHorizontally(targetOffsetX = { it }, animationSpec = Motion.intOffsetSnappy)
     ) {
         Row(
             modifier = Modifier

@@ -370,8 +370,8 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                 // ── Expanded diff preview ─────────────────────────────────
                 AnimatedVisibility(
                     visible = isSelected && change.diffLines.isNotEmpty(),
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
+                    enter = expandVertically(animationSpec = Motion.intSizeGentle),
+                    exit = shrinkVertically(animationSpec = Motion.intSizeGentle),
                 ) {
                     Column(
                         modifier = Modifier

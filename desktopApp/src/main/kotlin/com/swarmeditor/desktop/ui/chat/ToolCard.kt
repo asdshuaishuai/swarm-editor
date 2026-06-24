@@ -144,8 +144,8 @@ fun ToolCard(
         // Expanded body — command output
         AnimatedVisibility(
             visible = expanded.value,
-            enter = expandVertically(),
-            exit = shrinkVertically()
+            enter = expandVertically(animationSpec = Motion.intSizeGentle),
+            exit = shrinkVertically(animationSpec = Motion.intSizeGentle)
         ) {
             if (card.output.isNotEmpty()) {
                 Column(
