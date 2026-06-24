@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -49,11 +50,11 @@ fun McpConfigModal(
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
-            modifier = Modifier.fillMaxSize().background(Color.Black.withAlpha(0.6f)).clickable(onClick = onDismiss),
+            modifier = Modifier.fillMaxSize().background(Bg0.copy(alpha = 0.72f)).clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier.width(620.dp).modalEnter().clip(RoundedCornerShape(R16))
+                modifier = Modifier.width(620.dp).shadow(24.dp, RoundedCornerShape(R16), ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f)).modalEnter().clip(RoundedCornerShape(R16))
                     .background(Brush.linearGradient(listOf(Color(0xFF0f1220), Color(0xFF0a0c14))))
                     .border(1.dp, Line2, RoundedCornerShape(R16))
                     .clickable(enabled = false) {}

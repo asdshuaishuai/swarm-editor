@@ -34,6 +34,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -72,8 +74,8 @@ fun SettingsModal(
         "general" to "通用", "appearance" to "外观", "shortcuts" to "快捷键"
     )
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.withAlpha(0.5f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.width(760.dp).height(520.dp).modalEnter().clip(RoundedCornerShape(R12)).background(Bg2).border(1.dp, Line2, RoundedCornerShape(R12)).clickable(enabled = false) {}) {
+    Box(modifier = Modifier.fillMaxSize().background(Bg0.copy(alpha = 0.65f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+        Column(modifier = Modifier.width(760.dp).height(520.dp).shadow(24.dp, RoundedCornerShape(R12), ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f)).modalEnter().clip(RoundedCornerShape(R12)).background(Brush.linearGradient(listOf(Bg2, Bg1))).border(1.dp, Line2, RoundedCornerShape(R12)).clickable(enabled = false) {}) {
             // Header
             Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont, letterSpacing = 0.5.sp)

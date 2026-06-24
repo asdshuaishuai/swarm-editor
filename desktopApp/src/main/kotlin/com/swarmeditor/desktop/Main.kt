@@ -17,7 +17,10 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.theme.Ac
+import com.swarmeditor.desktop.theme.Bg1
+import com.swarmeditor.desktop.theme.Bg3
 import com.swarmeditor.desktop.theme.GeekColorScheme
+import com.swarmeditor.desktop.theme.Line
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun main() = application {
@@ -35,11 +38,11 @@ fun main() = application {
             CompositionLocalProvider(
                 LocalScrollbarStyle provides ScrollbarStyle(
                     minimalHeight = 16.dp,
-                    thickness = 8.dp,
-                    shape = RoundedCornerShape(4.dp),
-                    hoverDurationMillis = 300,
-                    unhoverColor = Color(0xFF1a1f2c),
-                    hoverColor = Color(0xFF2a3040)
+                    thickness = 6.dp,
+                    shape = RoundedCornerShape(3.dp),
+                    hoverDurationMillis = 200,
+                    unhoverColor = Line,
+                    hoverColor = Bg3
                 ),
                 LocalTextSelectionColors provides TextSelectionColors(
                     handleColor = Ac,

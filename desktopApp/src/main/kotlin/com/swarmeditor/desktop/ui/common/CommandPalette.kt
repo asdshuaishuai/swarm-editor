@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -77,7 +78,7 @@ fun CommandPalette(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.withAlpha(0.5f))
+            .background(Bg0.copy(alpha = 0.65f))
             .clickable { onDismiss() },
         contentAlignment = Alignment.Center
     ) {
@@ -132,6 +133,7 @@ private fun CommandPaletteModal(
     Column(
         modifier = Modifier
             .width(580.dp)
+            .shadow(24.dp, modalShape, ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f))
             .clip(modalShape)
             .hazeEffect(hazeState)
             .border(1.dp, Line, modalShape)
