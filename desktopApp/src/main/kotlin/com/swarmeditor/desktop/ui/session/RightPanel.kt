@@ -631,7 +631,7 @@ private fun ColumnScope.LogTab() {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         ) {
             items(filtered, key = { "${it.time}-${it.action}-${it.detail}" }) { entry ->
-                TimelineEntry(entry)
+                Box(Modifier.animateItem()) { TimelineEntry(entry) }
             }
         }
     }

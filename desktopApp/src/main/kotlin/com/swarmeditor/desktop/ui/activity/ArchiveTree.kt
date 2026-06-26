@@ -135,11 +135,13 @@ fun ArchiveTree(
                             if (dayExpanded) {
                                 items(day.sessions, key = { "session-${it.id}" }) { session ->
                                     val isSelected = session.id == selectedSessionId
+                                    Box(Modifier.animateItem()) {
                                     SessionRow(
                                         session = session,
                                         isSelected = isSelected,
                                         onClick = { onSelectSession(session) }
                                     )
+                                    }
                                 }
                             }
                         }

@@ -268,7 +268,8 @@ fun PluginCenterView(
                         items(items, key = { it.key() }) { item ->
                             PluginTile(
                                 item = item,
-                                onClick = { onSelectedItemChange(item) }
+                                onClick = { onSelectedItemChange(item) },
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }

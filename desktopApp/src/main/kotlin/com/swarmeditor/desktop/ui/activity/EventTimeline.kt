@@ -84,7 +84,7 @@ fun EventTimeline(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
         ) {
             items(filtered, key = { it.id }) { event ->
-                TimelineEntry(event = event)
+                Box(Modifier.animateItem()) { TimelineEntry(event = event) }
             }
 
             if (filtered.isEmpty()) {

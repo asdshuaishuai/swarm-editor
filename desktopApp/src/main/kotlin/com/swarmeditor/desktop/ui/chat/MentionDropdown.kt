@@ -116,7 +116,7 @@ fun MentionDropdown(
                 val isSelected = index == selectedIndex
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth().animateItem()
                         .clip(RoundedCornerShape(6.dp))
                         .background(if (isSelected) Ac.withAlpha(0.12f) else Color.Transparent)
                         .clickable { onSelect(agent.name) }
