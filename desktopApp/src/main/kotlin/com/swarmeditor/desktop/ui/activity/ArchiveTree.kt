@@ -30,22 +30,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
 
+@androidx.compose.runtime.Immutable
 data class ArchiveDayNode(
     val day: String,
     val dateStr: String,
     val sessions: List<ArchiveSessionItem>
 )
 
+@androidx.compose.runtime.Immutable
 data class ArchiveMonthNode(
     val month: String,
     val days: List<ArchiveDayNode>
 )
 
+@androidx.compose.runtime.Immutable
 data class ArchiveYearNode(
     val year: String,
     val months: List<ArchiveMonthNode>
 )
 
+@androidx.compose.runtime.Immutable
 data class ArchiveSessionItem(
     val id: String,
     val title: String,
@@ -75,9 +79,9 @@ fun ArchiveTree(
     }
 
     LazyColumn(modifier = modifier
-        .clip(RoundedCornerShape(RR))
-        .background(Glass2)
-        .border(1.dp, Bd, RoundedCornerShape(RR))
+        .clip(RoundedCornerShape(R8))
+        .background(Bg3)
+        .border(1.dp, Line, RoundedCornerShape(R8))
     ) {
         years.forEach { year ->
             val yearKey = year.year
@@ -183,12 +187,12 @@ private fun TreeNodeRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Pr.copy(0.15f))
+                    .background(AgentClaude.copy(0.15f))
                     .padding(horizontal = 5.dp, vertical = 1.dp)
             ) {
                 Text(
                     text = count.toString(),
-                    color = Pr,
+                    color = AgentClaude,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -200,12 +204,12 @@ private fun TreeNodeRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Pr.copy(0.2f))
+                    .background(AgentClaude.copy(0.2f))
                     .padding(horizontal = 5.dp, vertical = 1.dp)
             ) {
                 Text(
                     text = badge,
-                    color = Pr,
+                    color = AgentClaude,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -226,7 +230,7 @@ private fun SessionRow(
             .clickable(onClick = onClick)
             .padding(start = 56.dp, top = 2.dp, bottom = 2.dp, end = 8.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Surface else Surface2)
+            .background(if (isSelected) Bg2 else Bg3)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -235,12 +239,12 @@ private fun SessionRow(
             modifier = Modifier
                 .size(18.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(PrD),
+                .background(AgentClaude.withAlpha(0.12f)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = session.agentId.firstOrNull()?.uppercase() ?: "?",
-                color = Pr,
+                color = AgentClaude,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold
             )

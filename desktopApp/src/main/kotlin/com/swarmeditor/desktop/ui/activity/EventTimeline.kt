@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
 
+@androidx.compose.runtime.Immutable
 data class TimelineEvent(
     val id: String,
     val type: String,       // "mcp" | "file" | "cmd" | "message"
@@ -37,6 +38,7 @@ data class TimelineEvent(
     val detail: String = ""
 )
 
+@androidx.compose.runtime.Immutable
 data class SessionStats(
     val duration: String = "—",
     val eventCount: Int = 0,
@@ -104,7 +106,7 @@ private fun StatChip(icon: String, label: String, value: String) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Surface2)
+            .background(Bg3)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -119,8 +121,8 @@ private fun StatChip(icon: String, label: String, value: String) {
 @Composable
 private fun TimelineEntry(event: TimelineEvent) {
     val dotColor = when (event.type) {
-        "mcp" -> Gn
-        "file" -> Pr
+        "mcp" -> AgentGemini
+        "file" -> AgentClaude
         "cmd" -> Ac
         else -> Tx2
     }
@@ -149,7 +151,7 @@ private fun TimelineEntry(event: TimelineEvent) {
                     .width(1.dp)
                     .fillMaxHeight()
                     .height(20.dp)
-                    .background(Bd)
+                    .background(Line)
             )
         }
 

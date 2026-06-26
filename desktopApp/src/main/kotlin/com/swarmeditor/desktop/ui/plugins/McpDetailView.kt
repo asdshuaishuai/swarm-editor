@@ -108,14 +108,14 @@ fun McpDetailView(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    StatusChip(text = "运行中", color = Gn)
+                    StatusChip(text = "运行中", color = AgentGemini)
                 }
                 Spacer(Modifier.height(4.dp))
                 // pd-pub（设计稿单行：v · ★rating(count) · downloads）
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (server.version.isNotEmpty()) Text("v${server.version}", color = AcLight, fontSize = 11.sp, fontFamily = CodeFont)
                     if (server.rating > 0) {
-                        Text("★ ${"%.1f".format(server.rating)}", color = Gd, fontSize = 11.sp, fontFamily = SansFont)
+                        Text("★ ${"%.1f".format(server.rating)}", color = Warn, fontSize = 11.sp, fontFamily = SansFont)
                         Text("(${server.ratingCount})", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                     }
                     if (server.downloads.isNotEmpty()) Text("${server.downloads} 下载", color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
@@ -146,7 +146,7 @@ fun McpDetailView(
             ActionButton(text = "⎘ 复制配置", color = Tx2)
             ActionButton(text = "⚙ 配置", color = Tx2, onClick = { showConfigModal = true })
             Spacer(Modifier.weight(1f))
-            ActionButton(text = "卸载", color = Rd)
+            ActionButton(text = "卸载", color = Err)
         }
         }  // 关闭 pd-header（渐变容器包住 返回 + hero + actions）
 
@@ -337,7 +337,7 @@ private fun McpToolsTab(server: McpServerDto) {
                     )
                     Spacer(Modifier.weight(1f))
                     if (tool.params.any { it.required }) {
-                        StatusChip(text = "req", color = Or)
+                        StatusChip(text = "req", color = AgentOpenCode)
                     }
                 }
                 if (tool.description.isNotEmpty()) {
@@ -368,12 +368,12 @@ private fun McpToolsTab(server: McpServerDto) {
                                 Spacer(Modifier.width(4.dp))
                                 Text(
                                     text = "required",
-                                    color = Or,
+                                    color = AgentOpenCode,
                                     fontSize = 9.sp,
                                     fontFamily = SansFont,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(3.dp))
-                                        .background(Or.withAlpha(0.12f))
+                                        .background(AgentOpenCode.withAlpha(0.12f))
                                         .padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
                             }
@@ -580,7 +580,7 @@ private fun McpSidePanel(server: McpServerDto) {
             Text("已启用 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.enabledAgents.filter { it.value }.keys.forEach { agent ->
-                StatusChip(text = agent, color = Gn)
+                StatusChip(text = agent, color = AgentGemini)
                 Spacer(Modifier.height(2.dp))
             }
         }

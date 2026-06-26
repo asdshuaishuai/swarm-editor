@@ -93,9 +93,9 @@ fun SkillDetailView(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    StatusChip(text = skill.source, color = if (skill.source == "MCP") AgentQwen else Gn)
+                    StatusChip(text = skill.source, color = if (skill.source == "MCP") AgentQwen else AgentGemini)
                     Spacer(Modifier.width(4.dp))
-                    StatusChip(text = "已启用", color = Gn)
+                    StatusChip(text = "已启用", color = AgentGemini)
                 }
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -130,8 +130,8 @@ fun SkillDetailView(
                 Text("✎ 编辑 SKILL.md", color = Tx2, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
                 Spacer(Modifier.weight(1f))
-                Text("禁用", color = Rd, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Rd.withAlpha(0.3f), RoundedCornerShape(6.dp)).background(Rd.withAlpha(0.06f)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+                Text("禁用", color = Err, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Err.withAlpha(0.3f), RoundedCornerShape(6.dp)).background(Err.withAlpha(0.06f)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
             }
         }  // 关闭 pd-header
 
@@ -234,9 +234,9 @@ private fun SkillOverviewTab(skill: SkillDto) {
             fontFamily = SansFont,
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(RR))
-                .background(Surface2)
-                .border(1.dp, Bd, RoundedCornerShape(RR))
+                .clip(RoundedCornerShape(R8))
+                .background(Bg3)
+                .border(1.dp, Line, RoundedCornerShape(R8))
                 .padding(10.dp)
         )
         Spacer(Modifier.height(16.dp))
@@ -246,7 +246,7 @@ private fun SkillOverviewTab(skill: SkillDto) {
         SkillSectionTitle("标签")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             skill.tags.forEach { tag ->
-                StatusChip(text = tag, color = Pr)
+                StatusChip(text = tag, color = AgentClaude)
             }
         }
     }
@@ -272,8 +272,8 @@ private fun SkillStructureTab(skill: SkillDto) {
         fontFamily = SansFont,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Surface2)
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
             .padding(10.dp)
     )
     Spacer(Modifier.height(16.dp))
@@ -284,9 +284,9 @@ private fun SkillStructureTab(skill: SkillDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(R8))
             .padding(12.dp)
     ) {
         val segments = skill.path.split("/")
@@ -325,9 +325,9 @@ private fun SkillAgentsTab(skill: SkillDto) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(RR))
-                    .background(Surface2)
-                    .border(1.dp, Bd, RoundedCornerShape(RR))
+                    .clip(RoundedCornerShape(R8))
+                    .background(Bg3)
+                    .border(1.dp, Line, RoundedCornerShape(R8))
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -335,12 +335,12 @@ private fun SkillAgentsTab(skill: SkillDto) {
                     modifier = Modifier
                         .size(32.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Pr.copy(alpha = 0.12f)),
+                        .background(AgentClaude.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = agentId.take(1).uppercase(),
-                        color = Pr,
+                        color = AgentClaude,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -357,7 +357,7 @@ private fun SkillAgentsTab(skill: SkillDto) {
                 }
                 StatusChip(
                     text = if (enabled) "enabled" else "disabled",
-                    color = if (enabled) Gn else Tx3
+                    color = if (enabled) AgentGemini else Tx3
                 )
             }
         }
@@ -371,9 +371,9 @@ private fun SkillAgentsTab(skill: SkillDto) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(R8))
             .padding(14.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
@@ -402,9 +402,9 @@ private fun SkillUsageTab(skill: SkillDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RR))
-            .background(Surface2)
-            .border(1.dp, Bd, RoundedCornerShape(RR))
+            .clip(RoundedCornerShape(R8))
+            .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(R8))
             .padding(12.dp)
     ) {
         InfoRow("Skill ID", skill.id)
@@ -421,7 +421,7 @@ private fun SkillUsageTab(skill: SkillDto) {
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             skill.enabledAgents.filter { it.value }.keys.forEach { agent ->
-                StatusChip(text = agent, color = Gn)
+                StatusChip(text = agent, color = AgentGemini)
             }
             skill.enabledAgents.filter { !it.value }.keys.forEach { agent ->
                 StatusChip(text = agent, color = Tx3)

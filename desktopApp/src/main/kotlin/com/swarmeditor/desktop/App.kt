@@ -169,7 +169,7 @@ fun App(
         // Background effects (z-index: 0)
         BackgroundEffects()
 
-    Column(Modifier.fillMaxSize().hazeSource(hazeState).background(Bg)) {
+    Column(Modifier.fillMaxSize().hazeSource(hazeState).background(Bg0)) {
         // Enhanced TopBar — spans full width
         EnhancedTopBar(
             projectName = "swarm-editor",

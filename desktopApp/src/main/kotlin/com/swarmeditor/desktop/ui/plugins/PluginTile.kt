@@ -42,7 +42,7 @@ sealed interface PluginItem {
 }
 
 /** Accent colors assigned to plugin tiles based on name hash. */
-internal val TileAccents = listOf(Ac, AgentClaude, Gn, Or, Gd, Color(0xFF66bbff), Color(0xFFff66aa))
+internal val TileAccents = listOf(Ac, AgentClaude, AgentGemini, AgentOpenCode, Warn, Color(0xFF66bbff), Color(0xFFff66aa))
 
 internal fun accentFor(name: String): Color = TileAccents[name.hashCode().mod(TileAccents.size).let { if (it < 0) -it else it }]
 
@@ -136,7 +136,7 @@ fun PluginTile(
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     StatusChip(text = tag, color = accent)
-                    if (category != null) StatusChip(text = category, color = Gd)
+                    if (category != null) StatusChip(text = category, color = Warn)
                 }
             }
         }
@@ -161,11 +161,11 @@ fun PluginTile(
                 Spacer(Modifier.width(10.dp))
             }
             if (rating > 0) {
-                Text("★ ${"%.1f".format(rating)}", color = Gd, fontSize = 10.sp, fontFamily = SansFont)
+                Text("★ ${"%.1f".format(rating)}", color = Warn, fontSize = 10.sp, fontFamily = SansFont)
                 Spacer(Modifier.width(10.dp))
             }
             Spacer(Modifier.weight(1f))
-            StatusChip(text = "运行中", color = Gn)
+            StatusChip(text = "运行中", color = AgentGemini)
         }
     }
 }

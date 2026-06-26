@@ -39,8 +39,10 @@ import com.swarmeditor.desktop.theme.*
 
 enum class DiffLineType { ADD, DEL, CONTEXT }
 
+@androidx.compose.runtime.Immutable
 data class DiffLine(val type: DiffLineType, val oldLineNum: Int?, val newLineNum: Int?, val content: String)
 
+@androidx.compose.runtime.Immutable
 data class CodeCardData(
     val filename: String,
     val extension: String,
@@ -75,8 +77,8 @@ private fun highlightSyntax(text: String): AnnotatedString {
             val word = match.value
             when {
                 word in KOTLIN_KEYWORDS -> withStyle(SpanStyle(color = AgentClaude)) { append(word) }
-                word.startsWith("\"") -> withStyle(SpanStyle(color = Gn)) { append(word) }
-                word.startsWith("'") -> withStyle(SpanStyle(color = Gn)) { append(word) }
+                word.startsWith("\"") -> withStyle(SpanStyle(color = AgentGemini)) { append(word) }
+                word.startsWith("'") -> withStyle(SpanStyle(color = AgentGemini)) { append(word) }
                 else -> {
                     // Check if followed by '(' — function name
                     val afterIndex = match.range.last + 1
@@ -146,11 +148,11 @@ fun CodeCard(
             Spacer(Modifier.weight(1f))
             // Diff stats
             if (card.additions > 0) {
-                Text("+${card.additions}", color = Gn, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+                Text("+${card.additions}", color = AgentGemini, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(4.dp))
             }
             if (card.deletions > 0) {
-                Text("-${card.deletions}", color = Rd, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+                Text("-${card.deletions}", color = Err, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(4.dp))
             }
             // Copy button
@@ -166,12 +168,12 @@ fun CodeCard(
         Column(modifier = Modifier.fillMaxWidth()) {
             card.diffLines.forEach { line ->
                 val bgColor = when (line.type) {
-                    DiffLineType.ADD -> GnD
-                    DiffLineType.DEL -> RdD
+                    DiffLineType.ADD -> AgentGemini.withAlpha(0.12f)
+                    DiffLineType.DEL -> Err.withAlpha(0.12f)
                     DiffLineType.CONTEXT -> androidx.compose.ui.graphics.Color.Transparent
                 }
                 val textColor = when (line.type) {
-                    DiffLineType.DEL -> Rd.withAlpha(0.7f)
+                    DiffLineType.DEL -> Err.withAlpha(0.7f)
                     else -> Tx
                 }
                 val lineNumColor = when (line.type) {

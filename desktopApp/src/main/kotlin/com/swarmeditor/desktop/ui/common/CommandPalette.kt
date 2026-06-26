@@ -55,6 +55,7 @@ import java.util.Locale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 
+@androidx.compose.runtime.Immutable
 data class Command(
     val id: String,
     val name: String,

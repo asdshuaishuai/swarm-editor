@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+@androidx.compose.runtime.Immutable
 data class AgentConfigField(val label: String, val value: String, val isPassword: Boolean = false, val isSelect: Boolean = false, val options: List<String> = emptyList())
 
 class SettingsViewModel {

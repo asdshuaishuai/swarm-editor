@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
 
+@androidx.compose.runtime.Immutable
 data class ToolCardData(
     val title: String,
     val iconType: String = "search",

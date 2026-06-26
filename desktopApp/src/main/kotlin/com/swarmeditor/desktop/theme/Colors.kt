@@ -44,28 +44,3 @@ val ErrLight = Color(0xFFf87171) // Brighter error
 // Derived alpha helper (renamed to avoid conflict with Color.alpha property)
 fun Color.withAlpha(a: Float) = this.copy(alpha = a)
 
-// ── Backward-compatible aliases (old UI → new design system) ──
-val Pr = AgentClaude
-val Gn = AgentGemini
-val Rd = Err
-val Or = AgentOpenCode
-val Gd = Warn
-val Bd = Line
-val Bd2 = Line2
-val Tx4 = Tx3
-val Glass = Bg2
-val Glass2 = Bg3
-val Surface = Bg2
-val Surface2 = Bg3
-val RR = R8
-val RR2 = R12
-val RR3 = R16
-val AcD = Ac.withAlpha(0.12f)
-val PrD = AgentClaude.withAlpha(0.12f)
-val GnD = AgentGemini.withAlpha(0.12f)
-val RdD = Err.withAlpha(0.12f)
-val RdD2 = Err.withAlpha(0.12f)
-val GdD = Warn.withAlpha(0.12f)
-val Glow = Ac.withAlpha(0.3f)
-val GlowGn = AgentGemini.withAlpha(0.3f)
-val Bg = Bg0

@@ -96,7 +96,7 @@ fun PluginCenterView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Glass)
+                        .background(Bg2)
                         .padding(horizontal = 24.dp, vertical = 18.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,10 +139,10 @@ fun PluginCenterView(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Ac,
-                                unfocusedBorderColor = Bd,
+                                unfocusedBorderColor = Line,
                                 cursorColor = Ac
                             ),
-                            modifier = Modifier.width(240.dp).clip(RoundedCornerShape(RR))
+                            modifier = Modifier.width(240.dp).clip(RoundedCornerShape(R8))
                         )
                     }
 
@@ -172,7 +172,7 @@ fun PluginCenterView(
                     // 扫描 / 添加 按钮（对齐核心稿；MCP/Skills 切换在左侧栏）
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("扫描", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, Bd, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, Line, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("+ 添加", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 7.dp))
@@ -215,8 +215,8 @@ fun PluginCenterView(
                                     fontFamily = SansFont,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(Surface2)
-                                        .border(1.dp, Bd, RoundedCornerShape(6.dp))
+                                        .background(Bg3)
+                                        .border(1.dp, Line, RoundedCornerShape(6.dp))
                                         .clickable { /* filter by category - placeholder */ }
                                         .padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
@@ -250,7 +250,7 @@ fun PluginCenterView(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 text = if (searchQuery.text.isNotEmpty()) "换个关键词试试" else "添加插件以开始",
-                                color = Tx4,
+                                color = Tx3,
                                 fontSize = 11.sp,
                                 fontFamily = SansFont
                             )

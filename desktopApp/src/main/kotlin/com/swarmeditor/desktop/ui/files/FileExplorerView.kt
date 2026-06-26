@@ -172,7 +172,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(imageVector = Feather.Folder, contentDescription = "项目", tint = Gd, modifier = Modifier.size(18.dp))
+                Icon(imageVector = Feather.Folder, contentDescription = "项目", tint = Warn, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -213,7 +213,7 @@ fun FileExplorerView(modifier: Modifier = Modifier) {
                         Spacer(Modifier.height(12.dp))
                         Text("选择文件查看详情", color = Tx3, fontSize = 13.sp)
                         Spacer(Modifier.height(4.dp))
-                        Text("从左侧文件树点击任意文件", color = Tx4, fontSize = 11.sp)
+                        Text("从左侧文件树点击任意文件", color = Tx3, fontSize = 11.sp)
                     }
                 }
             }

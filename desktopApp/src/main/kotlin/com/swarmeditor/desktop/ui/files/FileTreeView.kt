@@ -35,11 +35,11 @@ import com.swarmeditor.desktop.theme.*
 
 /** Color for a file name based on its extension. */
 private fun fileColor(name: String) = when {
-    name.endsWith(".kt") -> Gd
-    name.endsWith(".json") -> Gd
+    name.endsWith(".kt") -> Warn
+    name.endsWith(".json") -> Warn
     name.endsWith(".md") -> Tx
     name.endsWith(".toml") || name.endsWith(".yaml") || name.endsWith(".yml") -> Ac
-    name.endsWith(".xml") || name.endsWith(".html") -> Or
+    name.endsWith(".xml") || name.endsWith(".html") -> AgentOpenCode
     else -> Tx2
 }
 
@@ -162,22 +162,22 @@ fun FileTreeView(
             when (tree.changeStatus) {
                 "modified" -> Text(
                     text = "M",
-                    color = Gd,
+                    color = Warn,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(3.dp))
-                        .background(Gd.withAlpha(0.12f))
+                        .background(Warn.withAlpha(0.12f))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
                 "new" -> Text(
                     text = "N",
-                    color = Gn,
+                    color = AgentGemini,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(3.dp))
-                        .background(Gn.withAlpha(0.12f))
+                        .background(AgentGemini.withAlpha(0.12f))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }

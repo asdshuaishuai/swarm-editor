@@ -77,7 +77,7 @@ fun SettingsModal(
     Box(modifier = Modifier.fillMaxSize().background(Bg0.copy(alpha = 0.65f)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
         Column(modifier = Modifier.width(760.dp).height(520.dp).shadow(24.dp, RoundedCornerShape(R12), ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f)).modalEnter().clip(RoundedCornerShape(R12)).background(Brush.linearGradient(listOf(Bg2, Bg1))).border(1.dp, Line2, RoundedCornerShape(R12)).clickable(enabled = false) {}) {
             // Header
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Bg0).padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("设置", color = Ac, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont, letterSpacing = 0.5.sp)
                 Spacer(Modifier.weight(1f))
                 Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
@@ -85,7 +85,7 @@ fun SettingsModal(
                 }
             }
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Column(modifier = Modifier.width(220.dp).fillMaxHeight().background(Bg).padding(vertical = 4.dp)) {
+                Column(modifier = Modifier.width(220.dp).fillMaxHeight().background(Bg0).padding(vertical = 4.dp)) {
                     tabs.forEach { (id, label) ->
                         val isActive = activeTab == id
                         Row(modifier = Modifier.fillMaxWidth().clickable { activeTab = id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -112,7 +112,7 @@ fun SettingsModal(
                 }
             }
             // Footer
-            Row(modifier = Modifier.fillMaxWidth().background(Bg).border(1.dp, Line).padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().background(Bg0).border(1.dp, Line).padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 Text("关闭", color = Tx2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable(onClick = onClose).padding(horizontal = 16.dp, vertical = 7.dp))
@@ -140,7 +140,7 @@ private fun AgentConfigTab(agents: List<AgentInfo>, selectedId: String, onSelect
         val agent = agents.find { it.id == selectedId }
         if (agent != null) {
             Section("连接") {
-                InfoRow("状态", if (agent.isConnected) "已连接" else "未连接", if (agent.isConnected) Gn else Tx3)
+                InfoRow("状态", if (agent.isConnected) "已连接" else "未连接", if (agent.isConnected) AgentGemini else Tx3)
                 if (agent.version.isNotEmpty()) InfoRow("版本", agent.version)
                 InfoRow("配置文件", configPath.ifEmpty { "未检测" }, Tx3, 11)
             }
@@ -169,7 +169,7 @@ private fun McpManagementTab(servers: List<McpServerDto>, settingsVm: SettingsVi
             Text("导入", color = Tx2, fontSize = 11.sp, fontFamily = SansFont,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 6.dp))
             Spacer(Modifier.width(6.dp))
-            Text("+ 添加", color = Bg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
+            Text("+ 添加", color = Bg0, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 6.dp))
         }
         Spacer(Modifier.height(16.dp))
@@ -195,8 +195,8 @@ private fun McpMgmtCard(server: McpServerDto, settingsVm: SettingsViewModel) {
             Text("编辑", color = Tx2, fontSize = 11.sp, fontFamily = SansFont,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, Line2, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp))
             Spacer(Modifier.width(4.dp))
-            Text("删除", color = Rd, fontSize = 11.sp, fontFamily = SansFont,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, Rd.withAlpha(0.3f), RoundedCornerShape(4.dp))
+            Text("删除", color = Err, fontSize = 11.sp, fontFamily = SansFont,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, Err.withAlpha(0.3f), RoundedCornerShape(4.dp))
                     .clickable { settingsVm.deleteMcpServer(server.id) }.padding(horizontal = 10.dp, vertical = 4.dp))
         }
         Spacer(Modifier.height(6.dp))
@@ -222,7 +222,7 @@ private fun SkillsManagementTab(skills: List<SkillDto>, settingsVm: SettingsView
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp))
                     .clickable { settingsVm.scanSkills() }.padding(horizontal = 14.dp, vertical = 6.dp))
             Spacer(Modifier.width(6.dp))
-            Text("+ 创建 Skill", color = Bg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
+            Text("+ 创建 Skill", color = Bg0, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Ac).padding(horizontal = 14.dp, vertical = 6.dp))
         }
         Spacer(Modifier.height(12.dp))
@@ -399,7 +399,7 @@ private fun ToggleRow(label: String, defaultOn: Boolean) {
 @Composable
 private fun ToggleChip(on: Boolean) {
     Box(modifier = Modifier.size(32.dp, 18.dp).clip(RoundedCornerShape(8.dp)).background(if (on) Ac else Bg3).border(1.dp, if (on) Ac else Line2, RoundedCornerShape(8.dp)), contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
-        Box(modifier = Modifier.size(14.dp).padding(horizontal = 2.dp).clip(CircleShape).background(if (on) Bg else Tx3))
+        Box(modifier = Modifier.size(14.dp).padding(horizontal = 2.dp).clip(CircleShape).background(if (on) Bg0 else Tx3))
     }
 }
 
@@ -415,7 +415,7 @@ private fun AppearanceTab() {
                 themes.forEach { (id, label) ->
                     val isActive = selectedTheme == id
                     Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(R8)).background(if (isActive) Ac.withAlpha(0.12f) else Bg3).border(1.dp, if (isActive) Ac else Line2, RoundedCornerShape(R8)).clickable { selectedTheme = id }.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(if (id == "dark") Bg else if (id == "light") Color(0xFFe0e0e8) else Color(0xFF2a2a34)).border(1.dp, Line2, RoundedCornerShape(8.dp)))
+                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(if (id == "dark") Bg0 else if (id == "light") Color(0xFFe0e0e8) else Color(0xFF2a2a34)).border(1.dp, Line2, RoundedCornerShape(8.dp)))
                         Spacer(Modifier.height(8.dp))
                         Text(label, color = if (isActive) Ac else Tx2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
                     }

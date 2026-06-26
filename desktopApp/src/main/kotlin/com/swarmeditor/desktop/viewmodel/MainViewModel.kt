@@ -13,6 +13,7 @@ enum class ToastType {
     INFO, SUCCESS, ERROR
 }
 
+@androidx.compose.runtime.Immutable
 data class ToastData(
     val id: String = UUID.randomUUID().toString(),
     val message: String,

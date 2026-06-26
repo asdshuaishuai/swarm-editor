@@ -147,7 +147,7 @@ private fun extColor(ext: String): Color = when (ext) {
 }
 
 private fun logDotColor(type: String): Color = when (type) {
-    "mcp" -> Gn
+    "mcp" -> AgentGemini
     "file" -> AgentClaude
     "cmd" -> Ac
     else -> Tx3
@@ -327,11 +327,11 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
 
                     // Diff stats
                     if (change.added > 0) {
-                        Text("+${change.added}", color = Gn, fontSize = 10.sp, fontFamily = SansFont)
+                        Text("+${change.added}", color = AgentGemini, fontSize = 10.sp, fontFamily = SansFont)
                     }
                     if (change.removed > 0) {
                         Spacer(Modifier.width(4.dp))
-                        Text("-${change.removed}", color = Rd, fontSize = 10.sp, fontFamily = SansFont)
+                        Text("-${change.removed}", color = Err, fontSize = 10.sp, fontFamily = SansFont)
                     }
 
                     Spacer(Modifier.weight(1f))
@@ -346,7 +346,7 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                                 .clickable { fileStates[change.path] = "accepted" },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(imageVector = Feather.Check, contentDescription = "接受", tint = Gn, modifier = Modifier.size(12.dp))
+                            Icon(imageVector = Feather.Check, contentDescription = "接受", tint = AgentGemini, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state != "rejected") {
@@ -359,11 +359,11 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                                 .clickable { fileStates[change.path] = "rejected" },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(imageVector = Feather.X, contentDescription = "拒绝", tint = Rd, modifier = Modifier.size(12.dp))
+                            Icon(imageVector = Feather.X, contentDescription = "拒绝", tint = Err, modifier = Modifier.size(12.dp))
                         }
                     }
                     if (state == "accepted") {
-                        Icon(imageVector = Feather.Check, contentDescription = "已接受", tint = Gn, modifier = Modifier.size(14.dp))
+                        Icon(imageVector = Feather.Check, contentDescription = "已接受", tint = AgentGemini, modifier = Modifier.size(14.dp))
                     }
                 }
 
@@ -386,13 +386,13 @@ private fun ColumnScope.ChangesTab(gitStatus: GitStatusDto) {
                             val isAdd = line.startsWith("+")
                             val isDel = line.startsWith("-")
                             val bgColor = when {
-                                isAdd -> Gn.withAlpha(0.06f)
-                                isDel -> Rd.withAlpha(0.06f)
+                                isAdd -> AgentGemini.withAlpha(0.06f)
+                                isDel -> Err.withAlpha(0.06f)
                                 else -> Color.Transparent
                             }
                             val fgColor = when {
-                                isAdd -> Gn
-                                isDel -> Rd
+                                isAdd -> AgentGemini
+                                isDel -> Err
                                 else -> Tx3
                             }
                             Text(
@@ -679,7 +679,7 @@ private fun TimelineEntry(entry: LogEntry) {
         Text(
             entry.action,
             color = when (entry.action) {
-                "验证通过" -> Gn
+                "验证通过" -> AgentGemini
                 else -> Tx
             },
             fontSize = 11.sp,

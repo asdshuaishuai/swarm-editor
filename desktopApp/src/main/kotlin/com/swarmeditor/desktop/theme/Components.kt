@@ -116,20 +116,6 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-// ── Status dot ─────────────────────────────────────────────
-@Composable
-fun StatusDot(
-    color: Color,
-    modifier: Modifier = Modifier,
-    size: androidx.compose.ui.unit.Dp = 6.dp
-) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(color)
-    )
-}
 
 // ── Pulse dot (扩散环动画，对齐核心稿 .pulse) ────────────────
 @Composable
@@ -165,45 +151,6 @@ fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
         .shadow(elev, shape, clip = false)
 }
 
-// ── Agent icon (rail / sidebar) ─────────────────────────────
-@Composable
-fun AgentIcon(
-    letter: String,
-    background: Color,
-    isActive: Boolean,
-    statusColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(R8))
-            .background(if (isActive) Bg3 else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(R7))
-                .background(background),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                letter,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = SansFont
-            )
-        }
-        StatusDot(
-            color = statusColor,
-            modifier = Modifier.align(Alignment.BottomEnd)
-        )
-    }
-}
 
 // ── Session card (sidebar) ──────────────────────────────────
 @Composable
@@ -257,151 +204,6 @@ fun SessionCard(
     }
 }
 
-// ── Message bubble ──────────────────────────────────────────
-@Composable
-fun MessageBubble(
-    isUser: Boolean,
-    sender: String,
-    senderBg: Color,
-    content: @Composable () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        if (!isUser) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(R9))
-                    .background(senderBg),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    sender.first().toString(),
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
-        ) {
-            if (!isUser) {
-                Text(
-                    text = sender,
-                    color = Tx3,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = SansFont,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-            content()
-        }
-        if (isUser) {
-            Spacer(Modifier.width(12.dp))
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(R9))
-                    .background(
-                        Brush.linearGradient(listOf(AgentClaude, AgentQwen))
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("S", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-// ── Activity entry (timeline) ───────────────────────────────
-@Composable
-fun ActivityEntry(
-    time: String,
-    actor: String,
-    action: String,
-    resource: String,
-    actorColor: Color = Ac,
-    actionColor: Color = Tx2,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(time, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
-        Spacer(Modifier.width(6.dp))
-        Text(actor, color = actorColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
-        Spacer(Modifier.width(4.dp))
-        Text(action, color = actionColor, fontSize = 12.sp, fontFamily = SansFont)
-        Spacer(Modifier.width(4.dp))
-        Text(resource, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
-    }
-}
-
-// ── Agent toggle chip ───────────────────────────────────────
-@Composable
-fun AgentToggleChip(
-    name: String,
-    enabled: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val bg = if (enabled) Ac.withAlpha(0.12f) else Bg2
-    val border = if (enabled) Ac else Line
-    val textColor = if (enabled) AcLight else Tx3
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(bg)
-            .border(1.dp, border, RoundedCornerShape(6.dp))
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(5.dp)
-                .clip(CircleShape)
-                .background(if (enabled) Ac else Tx3)
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(name, color = textColor, fontSize = 10.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont)
-    }
-}
-
-// ── Tag chip ────────────────────────────────────────────────
-@Composable
-fun TagChip(
-    label: String,
-    color: Color = Ac,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(color.withAlpha(0.15f))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            color = color,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.3.sp
-        )
-    }
-}
 
 // ── Filter chip ─────────────────────────────────────────────
 @Composable
@@ -430,7 +232,7 @@ fun FilterChip(
     }
 }
 
-// ── Glow button (gradient primary) ──────────────────────────
+// ── Ac.withAlpha(0.3f) button (gradient primary) ──────────────────────────
 @Composable
 fun GlowButton(
     text: String,
@@ -493,55 +295,7 @@ fun GhostButton(
     }
 }
 
-// ── Extension badge ─────────────────────────────────────────
-@Composable
-fun ExtBadge(
-    ext: String,
-    modifier: Modifier = Modifier
-) {
-    val color = when (ext.lowercase()) {
-        "kt", "kts" -> AgentKimi
-        "json" -> AgentQwen
-        "md" -> Tx
-        "toml", "yaml", "yml" -> Ac
-        else -> Tx2
-    }
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(3.dp))
-            .background(color.withAlpha(0.15f))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            ext.uppercase(),
-            color = color,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = SansFont
-        )
-    }
-}
 
-// ── Kbd (keyboard shortcut) display ─────────────────────────
-@Composable
-fun Kbd(text: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(Bg3)
-            .border(1.dp, Line2, RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = Tx3,
-            fontSize = 10.sp,
-            fontFamily = SansFont
-        )
-    }
-}
 
 // ── FormField (labeled input row) ──────────────────────────
 @Composable
