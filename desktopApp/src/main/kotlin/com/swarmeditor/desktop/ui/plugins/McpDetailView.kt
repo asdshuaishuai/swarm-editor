@@ -4,6 +4,10 @@ import androidx.compose.animation.animateColorAsState
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -230,6 +234,11 @@ fun McpDetailView(
 
 @Composable
 private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, primary: Boolean = false, onClick: () -> Unit = {}) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val hoverScale by androidx.compose.animation.core.animateFloatAsState(
+        if (hovered) 1.03f else 1f, Motion.floatDefault, label = "btnScale"
+    )
     val textColor = if (primary) Color.White else color
     val bgMod = if (primary) {
         Modifier.background(Brush.linearGradient(listOf(Ac, Ac2)))
@@ -246,6 +255,8 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .then(bgMod)
+            .hoverable(interaction)
+            .graphicsLayer { scaleX = hoverScale; scaleY = hoverScale }
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp)
     )

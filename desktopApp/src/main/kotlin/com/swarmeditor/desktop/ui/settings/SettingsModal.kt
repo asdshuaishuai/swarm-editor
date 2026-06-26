@@ -89,14 +89,12 @@ fun SettingsModal(
                 Column(modifier = Modifier.width(220.dp).fillMaxHeight().background(Bg0).padding(vertical = 4.dp)) {
                     tabs.forEach { (id, label) ->
                         val isActive = activeTab == id
+                        val tabText by animateColorAsState(if (isActive) Ac else Tx3, Motion.colorDefault, label = "settingsTab_$id")
+                        val indicatorColor by animateColorAsState(if (isActive) Ac else Color.Transparent, Motion.colorDefault, label = "settingsInd_$id")
                         Row(modifier = Modifier.fillMaxWidth().clickable { activeTab = id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (isActive) {
-                                Box(modifier = Modifier.width(2.dp).height(14.dp).clip(RoundedCornerShape(1.dp)).background(Ac))
-                            } else {
-                                Box(modifier = Modifier.width(2.dp).height(14.dp))
-                            }
+                            Box(modifier = Modifier.width(2.dp).height(14.dp).clip(RoundedCornerShape(1.dp)).background(indicatorColor))
                             Spacer(Modifier.width(8.dp))
-                            Text(label, color = if (isActive) Ac else Tx3, fontSize = 11.sp, fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal, fontFamily = SansFont)
+                            Text(label, color = tabText, fontSize = 11.sp, fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal, fontFamily = SansFont)
                         }
                     }
                 }

@@ -121,14 +121,16 @@ fun FileTreeView(
     } else {
         // File node
         val isSelected = tree.path == selectedPath
-        val borderColor = if (isSelected) Ac.withAlpha(0.4f) else androidx.compose.ui.graphics.Color.Transparent
         val hoverInteraction = remember { MutableInteractionSource() }
         val hovered by hoverInteraction.collectIsHoveredAsState()
-        val rowBg = when {
-            isSelected -> Bg3
-            hovered -> Bg3.copy(alpha = 0.5f)
-            else -> androidx.compose.ui.graphics.Color.Transparent
-        }
+        val rowBg by androidx.compose.animation.animateColorAsState(
+            when {
+                isSelected -> Bg3
+                hovered -> Bg3.copy(alpha = 0.5f)
+                else -> androidx.compose.ui.graphics.Color.Transparent
+            },
+            Motion.colorDefault, label = "fileRowBg_${tree.name}"
+        )
 
         Row(
             modifier = Modifier
@@ -138,7 +140,7 @@ fun FileTreeView(
                 .background(rowBg)
                 .then(
                     if (isSelected) Modifier.clip(RoundedCornerShape(4.dp))
-                        .background(borderColor.withAlpha(0.08f))
+                        .background(Ac.withAlpha(0.08f))
                     else Modifier
                 )
                 .clickable { onSelectFile(tree) }
