@@ -336,11 +336,20 @@ fun EnhancedTopBar(
             )
         }
 
+        // 窗口控制按钮组（hover bg spring）
+        val winBtnInteraction = remember { MutableInteractionSource() }
+        val winBtnHovered by winBtnInteraction.collectIsHoveredAsState()
+        val winBtnBg by animateColorAsState(
+            if (winBtnHovered) Bg3.copy(alpha = 0.8f) else Color.Transparent,
+            Motion.colorDefault, label = "winBtnBg"
+        )
         // 最小化按钮
         Box(
             modifier = Modifier
                 .size(28.dp)
                 .clip(CircleShape)
+                .background(winBtnBg)
+                .hoverable(winBtnInteraction)
                 .clickable(onClick = onMinimize),
             contentAlignment = Alignment.Center
         ) {
@@ -351,6 +360,7 @@ fun EnhancedTopBar(
             modifier = Modifier
                 .size(28.dp)
                 .clip(CircleShape)
+                .background(winBtnBg)
                 .clickable(onClick = onMaximizeToggle),
             contentAlignment = Alignment.Center
         ) {
@@ -361,6 +371,7 @@ fun EnhancedTopBar(
             modifier = Modifier
                 .size(28.dp)
                 .clip(CircleShape)
+                .background(winBtnBg)
                 .clickable(onClick = onClose),
             contentAlignment = Alignment.Center
         ) {

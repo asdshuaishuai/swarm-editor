@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.activity
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -192,16 +194,18 @@ private fun ActivityTopBar(
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             listOf("全部", "MCP", "文件", "命令").forEach { chip ->
                 val isActive = filter == chip
+                val chipBg by animateColorAsState(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent, Motion.colorDefault, label = "filterChipBg")
+                val chipFg by animateColorAsState(if (isActive) Ac else Tx3, Motion.colorDefault, label = "filterChipFg")
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (isActive) Ac.withAlpha(0.12f) else Bg0.copy(alpha = 0f))
+                        .background(chipBg)
                         .clickable { onFilterChange(chip) }
                         .padding(horizontal = 7.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = chip,
-                        color = if (isActive) Ac else Tx3,
+                        color = chipFg,
                         fontSize = 10.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                     )

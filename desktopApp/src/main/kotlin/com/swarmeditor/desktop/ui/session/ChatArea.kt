@@ -5,6 +5,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -323,11 +325,22 @@ fun ChatArea(
 
 @Composable
 private fun ChipButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val chipBg by animateColorAsState(
+        if (hovered) Ac.withAlpha(0.1f) else Bg3.copy(alpha = 0.8f),
+        Motion.colorDefault, label = "chipBg"
+    )
+    val chipBorder by animateColorAsState(
+        if (hovered) Ac.withAlpha(0.3f) else Line,
+        Motion.colorDefault, label = "chipBorder"
+    )
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Bg3.copy(alpha = 0.8f))
-            .border(1.dp, Line, RoundedCornerShape(8.dp))
+            .background(chipBg)
+            .border(1.dp, chipBorder, RoundedCornerShape(8.dp))
+            .hoverable(interaction)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
