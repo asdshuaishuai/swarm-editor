@@ -6,6 +6,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -373,17 +374,29 @@ private fun NotificationBell(
     count: Int,
     onClick: () -> Unit
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val bg by animateColorAsState(
+        if (hovered) Bg3.copy(alpha = 0.8f) else Color.Transparent,
+        Motion.colorDefault, label = "bellBg"
+    )
+    val tint by animateColorAsState(
+        if (hovered) Tx else Tx3,
+        Motion.colorDefault, label = "bellTint"
+    )
     Box(
         modifier = Modifier
             .size(30.dp)
             .clip(RoundedCornerShape(8.dp))
+            .background(bg)
+            .hoverable(interaction)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Feather.Bell,
             contentDescription = "Notifications",
-            tint = Tx3,
+            tint = tint,
             modifier = Modifier.size(18.dp)
         )
         if (count > 0) {
