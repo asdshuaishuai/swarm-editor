@@ -134,7 +134,7 @@ private fun CommandPaletteModal(
     Column(
         modifier = Modifier
             .width(580.dp)
-            .shadow(24.dp, modalShape, ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f))
+            .shadow(8.dp, modalShape, ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f))
             .clip(modalShape)
             .hazeEffect(hazeState)
             .border(1.dp, Line, modalShape)
