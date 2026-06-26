@@ -1,5 +1,6 @@
 package com.swarmeditor.desktop.ui.plugins
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -151,9 +153,15 @@ fun SkillDetailView(
                         .clickable { selectedTab.intValue = index }
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
+                    val tabTextColor by animateColorAsState(
+                        if (isActive) Ac else Tx3, Motion.colorDefault, label = "skillTabText"
+                    )
+                    val underlineColor by animateColorAsState(
+                        if (isActive) Ac else Color.Transparent, Motion.colorDefault, label = "skillTabUnderline"
+                    )
                     Text(
                         text = if (index == 2) "$tab ${skill.enabledAgents.size}" else tab,
-                        color = if (isActive) Ac else Tx3,
+                        color = tabTextColor,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                     )
@@ -163,7 +171,7 @@ fun SkillDetailView(
                             .height(2.dp)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(1.dp))
-                            .background(if (isActive) Ac else androidx.compose.ui.graphics.Color.Transparent)
+                            .background(underlineColor)
                     )
                 }
             }

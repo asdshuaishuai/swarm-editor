@@ -1,5 +1,6 @@
 package com.swarmeditor.desktop.ui.plugins
 import com.swarmeditor.desktop.ui.dialog.McpConfigModal
+import androidx.compose.animation.animateColorAsState
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -167,9 +168,15 @@ fun McpDetailView(
                         .clickable { selectedTab.intValue = index }
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
+                    val tabTextColor by animateColorAsState(
+                        if (isActive) Ac else Tx3, Motion.colorDefault, label = "mcpTabText"
+                    )
+                    val underlineColor by animateColorAsState(
+                        if (isActive) Ac else Color.Transparent, Motion.colorDefault, label = "mcpTabUnderline"
+                    )
                     Text(
                         text = if (index == 1) "$tab ${server.tools.size}" else tab,
-                        color = if (isActive) Ac else Tx3,
+                        color = tabTextColor,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                     )
@@ -179,7 +186,7 @@ fun McpDetailView(
                             .height(2.dp)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(1.dp))
-                            .background(if (isActive) Ac else Color.Transparent)
+                            .background(underlineColor)
                     )
                 }
             }
