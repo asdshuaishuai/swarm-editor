@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -129,8 +130,10 @@ private fun AgentConfigTab(agents: List<AgentInfo>, selectedId: String, onSelect
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).padding(4.dp)) {
             agents.forEach { agent ->
                 val isActive = agent.id == selectedId
-                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent).clickable { onSelect(agent.id) }.padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
-                    Text("${agent.letter} ${agent.name}", color = if (isActive) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
+                val selBg by animateColorAsState(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent, Motion.colorDefault, label = "agentSelBg")
+                val selFg by animateColorAsState(if (isActive) Ac else Tx3, Motion.colorDefault, label = "agentSelFg")
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(selBg).clickable { onSelect(agent.id) }.padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
+                    Text("${agent.letter} ${agent.name}", color = selFg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
                 }
             }
         }
@@ -358,8 +361,10 @@ private fun GeneralTab(agents: List<AgentInfo>) {
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).padding(4.dp)) {
                 agents.forEach { agent ->
                     val isActive = agent.id == defaultAgent
-                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent).clickable { defaultAgent = agent.id }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("${agent.letter} ${agent.name}", color = if (isActive) Ac else Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
+                    val defBg by animateColorAsState(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent, Motion.colorDefault, label = "defAgentBg")
+                    val defFg by animateColorAsState(if (isActive) Ac else Tx3, Motion.colorDefault, label = "defAgentFg")
+                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(defBg).clickable { defaultAgent = agent.id }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("${agent.letter} ${agent.name}", color = defFg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
                     }
                 }
             }

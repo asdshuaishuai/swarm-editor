@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -591,11 +592,19 @@ private fun ChatTopBar(
                         "opencode" -> AgentOpenCode
                         else -> Ac
                     }
+                    val tabBg by animateColorAsState(
+                        if (isActive) Ac.withAlpha(0.12f) else Color.Transparent,
+                        Motion.colorDefault, label = "agentTabBg"
+                    )
+                    val tabBorder by animateColorAsState(
+                        if (isActive) Ac.withAlpha(0.2f) else Color.Transparent,
+                        Motion.colorDefault, label = "agentTabBorder"
+                    )
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent)
-                            .border(1.dp, if (isActive) Ac.withAlpha(0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                            .background(tabBg)
+                            .border(1.dp, tabBorder, RoundedCornerShape(8.dp))
                             .clickable { onSelectAgent(agent.id) }
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
