@@ -140,7 +140,17 @@ private fun RailNavItem(
         isHovered -> Bg3.copy(alpha = 0.6f)
         else -> Color.Transparent
     }
-    val iconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val animatedBg by androidx.compose.animation.animateColorAsState(
+        targetValue = bgColor,
+        animationSpec = Motion.colorDefault,
+        label = "railBg"
+    )
+    val targetIconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val animatedIconColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetIconColor,
+        animationSpec = Motion.colorDefault,
+        label = "railIcon"
+    )
 
     // Scale animation on hover (spring to 1.1f)
     val animatedScale by androidx.compose.animation.core.animateFloatAsState(
@@ -154,7 +164,7 @@ private fun RailNavItem(
             .width(38.dp)
             .height(38.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
+            .background(animatedBg)
             .hoverable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -181,7 +191,7 @@ private fun RailNavItem(
         Icon(
             imageVector = item.icon,
             contentDescription = item.label,
-            tint = iconColor,
+            tint = animatedIconColor,
             modifier = Modifier
                 .size(17.dp)
                 .graphicsLayer { scaleX = animatedScale; scaleY = animatedScale }
@@ -247,14 +257,24 @@ private fun RailButton(
         isHovered -> Bg3.copy(alpha = 0.6f)
         else -> Color.Transparent
     }
-    val iconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val animatedBg by androidx.compose.animation.animateColorAsState(
+        targetValue = bgColor,
+        animationSpec = Motion.colorDefault,
+        label = "railBtnBg"
+    )
+    val targetIconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val animatedIconColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetIconColor,
+        animationSpec = Motion.colorDefault,
+        label = "railBtnIcon"
+    )
 
     Box(
         modifier = Modifier
             .width(38.dp)
             .height(38.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
+            .background(animatedBg)
             .hoverable(interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -262,7 +282,7 @@ private fun RailButton(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = iconColor,
+            tint = animatedIconColor,
             modifier = Modifier.size(17.dp)
         )
 

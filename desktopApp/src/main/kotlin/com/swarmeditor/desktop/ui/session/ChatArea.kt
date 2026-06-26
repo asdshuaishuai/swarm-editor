@@ -174,11 +174,19 @@ fun ChatArea(
                 }
             }
 
-            // Input field with focus-aware border
+            // Input field with focus-aware border (spring-animated color transition)
             val interactionSource = remember { MutableInteractionSource() }
             val isFocused by interactionSource.collectIsFocusedAsState()
-
-            val composerBorder = if (isFocused) Ac else Line2
+            val composerBorderColor by androidx.compose.animation.animateColorAsState(
+                targetValue = if (isFocused) Ac else Line2,
+                animationSpec = Motion.colorDefault,
+                label = "composerBorder"
+            )
+            val composerShadowElev by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (isFocused) 12.dp else 0.dp,
+                animationSpec = Motion.dpDefault,
+                label = "composerShadow"
+            )
             val composerModifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
@@ -187,11 +195,11 @@ fun ChatArea(
                         listOf(Bg3.copy(alpha = 0.8f), Bg2.copy(alpha = 0.8f))
                     )
                 )
-                .border(1.dp, composerBorder, RoundedCornerShape(14.dp))
+                .border(1.dp, composerBorderColor, RoundedCornerShape(14.dp))
                 .then(
-                    if (isFocused) {
+                    if (composerShadowElev > 0.dp) {
                         Modifier.shadow(
-                            elevation = 12.dp,
+                            elevation = composerShadowElev,
                             shape = RoundedCornerShape(14.dp),
                             ambientColor = Ac.withAlpha(0.15f),
                             spotColor = Ac.withAlpha(0.2f)
