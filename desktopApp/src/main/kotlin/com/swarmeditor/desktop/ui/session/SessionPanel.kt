@@ -204,27 +204,30 @@ private fun SessionCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val hoverBg = if (isHovered && !isActive) Bg3.copy(alpha = 0.6f) else Color.Transparent
+    val animatedBg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isActive) bg else hoverBg,
+        animationSpec = Motion.colorDefault,
+        label = "sessionCardBg"
+    )
+    val animatedBorderColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isActive) Ac.withAlpha(0.2f) else Color.Transparent,
+        animationSpec = Motion.colorDefault,
+        label = "sessionCardBorder"
+    )
 
     val baseModifier = Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
-        .background(hoverBg)
+        .background(animatedBg)
+        .border(1.dp, animatedBorderColor, RoundedCornerShape(8.dp))
         .clickable(
             interactionSource = interactionSource,
             indication = null,
             onClick = onSelect
         )
 
-    val activeModifier = if (isActive) {
-        baseModifier
-            .border(1.dp, Ac.withAlpha(0.2f), RoundedCornerShape(8.dp))
-            .background(Ac.withAlpha(0.08f))
-    } else {
-        baseModifier
-    }
-
     Box(
-        modifier = activeModifier.padding(horizontal = 10.dp, vertical = 8.dp)
+        modifier = baseModifier.padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             // Active left accent bar (2dp, Ac.withAlpha(0.6f))
