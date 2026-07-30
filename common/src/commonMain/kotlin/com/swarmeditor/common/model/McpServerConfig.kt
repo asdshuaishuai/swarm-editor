@@ -14,7 +14,10 @@ data class McpServerConfig(
     val url: String = "",
     val enabledAgents: Map<String, Boolean> = emptyMap(),
     val description: String = "",
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val bearerTokenEnvVar: String = "",
+    val headers: Map<String, String> = emptyMap(),
+    val disabled: Boolean = false
 )
 
 /** MCP Server 类型 */

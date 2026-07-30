@@ -1,7 +1,10 @@
 package com.swarmeditor.desktop.ui.chat
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -11,16 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * 三个依次闪烁的点（对齐核心稿 .thinking <i>×3，blink 动画）。
@@ -31,23 +32,31 @@ fun ThinkingIndicator(
     text: String = "",
     modifier: Modifier = Modifier
 ) {
+    val pulse = rememberInfiniteTransition(label = "thinkingPulse")
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val opacity = remember { Animatable(0.3f) }
-            LaunchedEffect(Unit) {
-                launch {
-                    delay(index * 200L)
-                    while (true) {
-                        opacity.animateTo(1.0f, animationSpec = tween(durationMillis = 600))
-                        opacity.animateTo(0.3f, animationSpec = tween(durationMillis = 600))
-                    }
-                }
-            }
+            val start = index * 140
+            val opacity by pulse.animateFloat(
+                initialValue = 0.28f,
+                targetValue = 0.28f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = 1800
+                        0.28f at start using Motion.appleEaseOut
+                        1f at start + 280 using Motion.appleEaseOut
+                        0.28f at start + 620
+                        0.28f at 1800
+                    },
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "thinkingDot$index",
+            )
             Box(
                 modifier = Modifier
                     .size(5.dp)
+                    .graphicsLayer { alpha = opacity }
                     .clip(CircleShape)
-                    .background(Ac.copy(alpha = opacity.value))
+                    .background(Ac)
             )
             if (index < 2) Spacer(Modifier.width(3.dp))
         }

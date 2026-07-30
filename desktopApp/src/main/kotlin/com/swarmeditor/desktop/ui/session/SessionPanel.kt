@@ -2,12 +2,13 @@ package com.swarmeditor.desktop.ui.session
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,15 +17,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Plus
-import com.woowla.compose.icon.collections.feather.feather.Archive
-import com.woowla.compose.icon.collections.feather.feather.Trash2
 import com.woowla.compose.icon.collections.feather.feather.Folder
 import com.woowla.compose.icon.collections.feather.feather.GitBranch
 import com.woowla.compose.icon.collections.feather.feather.Code
@@ -38,9 +37,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,7 +114,7 @@ fun SessionPanel(
     var searchQuery by remember { mutableStateOf("") }
     val allAgents = if (agents.isEmpty()) listOf(selectedAgent) else agents
 
-    Column(modifier = modifier.width(260.dp).background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
+    Column(modifier = modifier.background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         // Top: Sessions
         Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Row(
@@ -118,25 +123,64 @@ fun SessionPanel(
             ) {
                 Text("会话", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
+                val createInteraction = remember { MutableInteractionSource() }
+                val createFocused by createInteraction.collectIsFocusedAsState()
+                val createHovered by createInteraction.collectIsHoveredAsState()
+                val createBackground by androidx.compose.animation.animateColorAsState(
+                    when {
+                        createFocused -> ControlBlue.withAlpha(0.16f)
+                        createHovered -> ControlBlue.withAlpha(0.1f)
+                        else -> Color.Transparent
+                    },
+                    Motion.colorDefault,
+                    label = "createSessionBackground",
+                )
+                val createTint by androidx.compose.animation.animateColorAsState(
+                    if (createFocused || createHovered) ControlBlue else Tx3,
+                    Motion.colorDefault,
+                    label = "createSessionTint",
+                )
                 Box(
-                    modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp))
-                        .clickable(onClick = onCreateSession),
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(AppShapes.xs)
+                        .background(createBackground)
+                        .border(if (createFocused) 1.dp else 0.dp, if (createFocused) ControlBlue.withAlpha(0.72f) else Color.Transparent, AppShapes.xs)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "新建会话"
+                        }
+                        .fluidClickable(interactionSource = createInteraction, onClick = onCreateSession),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Feather.Plus,
-                        contentDescription = "New",
-                        tint = Tx3,
+                        contentDescription = null,
+                        tint = createTint,
                         modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
             // Search box
+            var searchFocused by remember { mutableStateOf(false) }
+            val searchBorder by androidx.compose.animation.animateColorAsState(
+                if (searchFocused) ControlBlue.withAlpha(0.7f) else Line,
+                Motion.colorDefault,
+                label = "sessionSearchBorder",
+            )
+            val searchSurface by androidx.compose.animation.animateColorAsState(
+                if (searchFocused) ControlBlue.withAlpha(0.065f) else Bg3.copy(alpha = 0.5f),
+                Motion.colorDefault,
+                label = "sessionSearchSurface",
+            )
             Box(
-                modifier = Modifier.fillMaxWidth().padding(6.dp)
-                    .border(1.dp, Line, RoundedCornerShape(8.dp))
-                    .background(Bg3.copy(alpha = 0.5f))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .border(1.dp, searchBorder, AppShapes.sm)
+                    .background(searchSurface)
+                    .semantics { contentDescription = "搜索会话" }
                     .padding(horizontal = 9.dp, vertical = 6.dp)
             ) {
                 if (searchQuery.isEmpty()) {
@@ -146,35 +190,41 @@ fun SessionPanel(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     textStyle = TextStyle(color = Tx, fontSize = 12.sp, fontFamily = SansFont),
-                    cursorBrush = SolidColor(Ac),
+                    cursorBrush = SolidColor(ControlBlue),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { searchFocused = it.isFocused }
                 )
             }
 
             // Session list
-            Column(
-                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(6.dp)
+            val filtered = if (searchQuery.isBlank()) sessions
+                else sessions.filter { it.title.contains(searchQuery, ignoreCase = true) }
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                val filtered = if (searchQuery.isBlank()) sessions
-                    else sessions.filter { it.title.contains(searchQuery, ignoreCase = true) }
-
                 if (filtered.isEmpty()) {
-                    Text(
-                        if (searchQuery.isNotBlank()) "无匹配结果" else "暂无会话",
-                        color = Tx3, fontSize = 11.sp, fontFamily = SansFont,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                } else {
-                    val groups = groupByDate(filtered)
-                    groups.forEach { group ->
+                    item(key = "empty") {
                         Text(
-                            group.label,
-                            color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                            fontFamily = SansFont, letterSpacing = 0.6.sp,
-                            modifier = Modifier.padding(start = 10.dp, top = 10.dp, bottom = 4.dp)
+                            if (searchQuery.isNotBlank()) "无匹配结果" else "暂无会话",
+                            color = Tx3, fontSize = 11.sp, fontFamily = SansFont,
+                            modifier = Modifier.padding(12.dp)
                         )
-                        group.sessions.forEach { session ->
+                    }
+                } else {
+                    groupByDate(filtered).forEach { group ->
+                        item(key = "group-${group.label}") {
+                            Text(
+                                group.label,
+                                color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                                fontFamily = SansFont, letterSpacing = 0.6.sp,
+                                modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 2.dp)
+                            )
+                        }
+                        items(group.sessions, key = UiSession::id) { session ->
                             SessionCard(
                                 session = session,
                                 isActive = session.id == currentSessionId,
@@ -200,125 +250,61 @@ private fun SessionCard(
     val agentName = agent?.name ?: session.agentId
     val agentLetter = agent?.letter ?: "?"
     val agentColor = agent?.color ?: Tx3
-    val bg = if (isActive) Ac.withAlpha(0.08f) else Color.Transparent
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val hoverBg = if (isHovered && !isActive) Bg3.copy(alpha = 0.6f) else Color.Transparent
-    val animatedBg by androidx.compose.animation.animateColorAsState(
-        targetValue = if (isActive) bg else hoverBg,
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val background by androidx.compose.animation.animateColorAsState(
+        targetValue = when {
+            isActive -> Ac.withAlpha(0.08f)
+            isHovered -> Bg3.copy(alpha = 0.6f)
+            else -> Color.Transparent
+        },
         animationSpec = Motion.colorDefault,
-        label = "sessionCardBg"
+        label = "sessionCardBackground"
     )
-    val animatedBorderColor by androidx.compose.animation.animateColorAsState(
-        targetValue = if (isActive) Ac.withAlpha(0.2f) else Color.Transparent,
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        targetValue = when {
+            isFocused -> AcLight
+            isActive -> Ac.withAlpha(0.2f)
+            else -> Color.Transparent
+        },
         animationSpec = Motion.colorDefault,
         label = "sessionCardBorder"
     )
-
-    val baseModifier = Modifier
-        .fillMaxWidth()
-        .clip(RoundedCornerShape(8.dp))
-        .background(animatedBg)
-        .border(1.dp, animatedBorderColor, RoundedCornerShape(8.dp))
-        .clickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onClick = onSelect
-        )
+    val indicatorColor by androidx.compose.animation.animateColorAsState(
+        if (isActive) ControlBlue else Color.Transparent,
+        Motion.colorDefault,
+        label = "sessionCardIndicator",
+    )
 
     Box(
-        modifier = baseModifier.padding(horizontal = 10.dp, vertical = 8.dp)
+        modifier = Modifier.fillMaxWidth().clip(AppShapes.md).background(background)
+            .border(1.dp, borderColor, AppShapes.md)
+            .semantics { role = Role.Button; selected = isActive; contentDescription = "会话：${session.title}" }
+            .fluidClickable(interactionSource = interactionSource, onClick = onSelect)
+            .padding(horizontal = Spacing.md, vertical = 8.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            // Active left accent bar (2dp, Ac.withAlpha(0.6f))
-            if (isActive) {
-                Box(
-                    modifier = Modifier
-                        .width(2.dp)
-                        .height(48.dp) // Match the approximate content height
-                        .background(Ac.withAlpha(0.6f))
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-            // Agent avatar with status dot
             Box(
-                modifier = Modifier.size(26.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(agentColor.withAlpha(0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(agentLetter, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Modifier
+                    .width(3.dp)
+                    .height(32.dp)
+                    .clip(AppShapes.pill)
+                    .background(indicatorColor)
+            )
+            Spacer(Modifier.width(Spacing.sm))
+            Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(28.dp).clip(AppShapes.sm).background(agentColor.withAlpha(0.16f)), contentAlignment = Alignment.Center) {
+                    Text(agentLetter, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = agentColor)
                 }
-                // Status dot (bottom-right, 9px, border 2px Bg1)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 2.dp, y = 2.dp)
-                        .size(9.dp)
-                        .clip(CircleShape)
-                        .background(if (agent?.isConnected == true) OkLight else ErrLight)
-                        .border(2.dp, Bg1, CircleShape)
-                )
+                Box(Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp).size(9.dp).clip(CircleShape)
+                    .background(if (agent?.isConnected == true) OkLight else ErrLight).border(2.dp, Bg1, CircleShape))
             }
-            Spacer(Modifier.width(10.dp))
-            // Content
+            Spacer(Modifier.width(Spacing.md))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        session.title,
-                        color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                Text(session.title, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                 Spacer(Modifier.height(3.dp))
-                Text(
-                    "$agentName · ${relativeTime(session.createdAt)}",
-                    color = Tx3, fontSize = 11.sp, fontFamily = SansFont
-                )
-            }
-        }
-
-        // Hover actions: delete + archive
-        if (isHovered || isActive) {
-            Row(
-                modifier = Modifier.align(Alignment.CenterEnd).padding(start = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp))
-                        .background(Bg1.copy(alpha = 0.95f))
-                        .border(1.dp, Line, RoundedCornerShape(4.dp))
-                        .clickable { /* TODO: delete session */ },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Feather.Trash2,
-                        contentDescription = "Delete",
-                        tint = Tx3,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-                Spacer(Modifier.width(2.dp))
-                Box(
-                    modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp))
-                        .background(Bg1.copy(alpha = 0.95f))
-                        .border(1.dp, Line, RoundedCornerShape(4.dp))
-                        .clickable { /* TODO: archive session */ },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Feather.Archive,
-                        contentDescription = "Archive",
-                        tint = Tx3,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
+                Text("$agentName · ${relativeTime(session.createdAt)}", color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
             }
         }
     }

@@ -1,53 +1,107 @@
 package com.swarmeditor.desktop.viewmodel
 
+import com.swarmeditor.backend.service.AgentService
 import com.swarmeditor.desktop.AgentInfo
-import com.swarmeditor.desktop.theme.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 
-class AgentViewModel {
-    private val scope = CoroutineScope(Dispatchers.Default)
-    private val _agents = MutableStateFlow<List<AgentInfo>>(emptyList())
-    val agents: StateFlow<List<AgentInfo>> = _agents
+data class AgentActionEvent(val message: String, val type: ToastType)
+
+class AgentViewModel(
+    private val service: AgentService,
+    private val scope: CoroutineScope,
+    private val selectionStore: AgentSelectionStore = PreferencesAgentSelectionStore,
+) {
+    private val selectedAgentId = MutableStateFlow(selectionStore.load())
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning
+    private val eventChannel = Channel<AgentActionEvent>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
 
-    /** 当前选中的 Agent（业务逻辑，不在 composable 中计算） */
-    val selectedAgent: StateFlow<AgentInfo?> = _agents
+    val agents: StateFlow<List<AgentInfo>> = combine(service.agents, selectedAgentId) { agents, selectedId ->
+        val effectiveSelectedId = resolveSelectedAgentId(selectedId, agents.map { it.config.id })
+        agents.map { it.toUiAgent(it.config.id == effectiveSelectedId) }
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val selectedAgent: StateFlow<AgentInfo?> = agents
         .map { list -> list.firstOrNull { it.isSelected } ?: list.firstOrNull() }
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), null)
 
-    /** 在线 Agent 数量 */
-    val onlineCount: StateFlow<Int> = _agents
-        .map { list -> list.count { it.isConnected }.coerceAtLeast(if (list.isEmpty()) 0 else 2) }
-        .stateIn(scope, SharingStarted.WhileSubscribed(5000), 2)
+    val onlineCount: StateFlow<Int> = agents
+        .map { list -> list.count { it.isConnected } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), 0)
 
-    fun load() {
-        _agents.value = demoAgents
-    }
+    fun load() = scan()
 
     fun scan() {
-        _isScanning.value = true
-        _agents.value = demoAgents
-        _isScanning.value = false
+        scope.launch {
+            _isScanning.value = true
+            try {
+                service.scan().fold(
+                    onSuccess = {
+                        val resolved = resolveSelectedAgentId(
+                            selectedAgentId.value,
+                            service.agents.value.map { it.config.id }
+                        )
+                        if (resolved != null && resolved != selectedAgentId.value) {
+                            selectAgent(resolved)
+                        }
+                    },
+                    onFailure = { error ->
+                        eventChannel.send(AgentActionEvent(error.message ?: "主智能体扫描失败", ToastType.ERROR))
+                    }
+                )
+            } finally {
+                _isScanning.value = false
+            }
+        }
     }
 
-    // W2: 原子更新，避免快速 connect/disconnect 竞态
     fun connect(id: String) {
-        _agents.update { list -> list.map { if (it.id == id) it.copy(isConnected = true) else it } }
+        scope.launch {
+            service.connect(id).fold(
+                onSuccess = { eventChannel.send(AgentActionEvent("主智能体已连接", ToastType.SUCCESS)) },
+                onFailure = { eventChannel.send(AgentActionEvent(it.message ?: "主智能体连接失败", ToastType.ERROR)) }
+            )
+        }
     }
 
     fun disconnect(id: String) {
-        _agents.update { list -> list.map { if (it.id == id) it.copy(isConnected = false) else it } }
+        scope.launch {
+            service.disconnect(id).fold(
+                onSuccess = { eventChannel.send(AgentActionEvent("主智能体已断开", ToastType.INFO)) },
+                onFailure = { eventChannel.send(AgentActionEvent(it.message ?: "主智能体断开失败", ToastType.ERROR)) }
+            )
+        }
+    }
+
+    fun delete(id: String) {
+        scope.launch {
+            service.delete(id).fold(
+                onSuccess = {
+                    if (selectedAgentId.value == id) {
+                        resolveSelectedAgentId(null, service.agents.value.map { it.config.id })?.let(::selectAgent)
+                    }
+                    eventChannel.send(AgentActionEvent("主智能体配置已删除", ToastType.INFO))
+                },
+                onFailure = { error ->
+                    eventChannel.send(AgentActionEvent(error.message ?: "主智能体配置删除失败", ToastType.ERROR))
+                }
+            )
+        }
     }
 
     fun selectAgent(id: String) {
-        _agents.value = _agents.value.map { it.copy(isSelected = it.id == id) }
+        selectedAgentId.value = id
+        selectionStore.save(id)
     }
 }

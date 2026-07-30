@@ -1,205 +1,498 @@
 package com.swarmeditor.backend.service
 
-import com.swarmeditor.common.config.ConfigPaths
-import com.swarmeditor.backend.agent.AgentAdapter
-import com.swarmeditor.backend.agent.ProviderPreset
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
-import com.swarmeditor.common.model.AgentType
-import io.mockk.coVerify
-import io.mockk.every
-import io.mockk.mockk
+import com.swarmeditor.common.model.SkillConfig
+import com.swarmeditor.common.model.SkillSource
 import kotlinx.coroutines.test.runTest
 import java.io.File
-import java.nio.file.Files
-import org.junit.After
+import java.io.IOException
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SkillServiceTest {
-
-    private val tempDirs = mutableListOf<File>()
-
-    @After
-    fun cleanup() {
-        tempDirs.forEach { it.deleteRecursively() }
-        tempDirs.clear()
-    }
-
-    private fun createService(adapter: AgentAdapter? = null, skillsRootPath: String? = null): SkillService {
-        val store = mockk<SkillStore>(relaxed = true)
-        val scanner = mockk<SkillScanner>(relaxed = true)
-        return SkillService(store, scanner, { adapter }, skillsRootPath ?: ConfigPaths.SWARM_EDITOR_DIR)
-    }
-
-    private fun mockAdapter(skillsDir: String): AgentAdapter {
-        return mockk<AgentAdapter>(relaxed = true).apply {
-            every { skillsDirectory } returns skillsDir
-            every { providerPresets } returns emptyList()
-        }
-    }
-
-    private fun createTempDir(prefix: String = "skill-test"): File {
-        val dir = Files.createTempDirectory(prefix).toFile()
-        tempDirs.add(dir)
-        return dir
-    }
-
-    // ── scanAgentSkills ──────────────────────────────────────────────
-
     @Test
-    fun `scanAgentSkills returns directory names from adapter skillsDirectory`() = runTest {
-        val tempDir = createTempDir("scan")
-        File(tempDir, "skill-a").mkdirs()
-        File(tempDir, "skill-b").mkdirs()
-        // Place a regular file — should NOT be included
-        File(tempDir, "not-a-dir.txt").createNewFile()
-
-        val adapter = mockAdapter(tempDir.absolutePath)
-        val service = createService(adapter)
-
-        val result = service.scanAgentSkills(AgentType.CLAUDE_CODE)
-
-        assertEquals(setOf("skill-a", "skill-b"), result.toSet())
-    }
-
-    @Test
-    fun `scanAgentSkills returns empty list when adapter is null`() = runTest {
-        val service = createService(null)
-
-        val result = service.scanAgentSkills(AgentType.CLAUDE_CODE)
-
-        assertTrue(result.isEmpty())
-    }
-
-    @Test
-    fun `scanAgentSkills returns empty list when directory does not exist`() = runTest {
-        val adapter = mockAdapter("/nonexistent/path/skills")
-        val service = createService(adapter)
-
-        val result = service.scanAgentSkills(AgentType.CLAUDE_CODE)
-
-        assertTrue(result.isEmpty())
-    }
-
-    // ── syncSkillsToAgent (Copy) ─────────────────────────────────────
-
-    @Test
-    fun `syncSkillsToAgent with Copy creates physical copies`() = runTest {
-        val fakeHome = createTempDir("fake-home")
-        val skillsDir = File(fakeHome, "skills")
-        val skillDir = File(skillsDir, "my-skill")
-        skillDir.mkdirs()
-        File(skillDir, "SKILL.md").writeText("# My Skill\nA great skill")
-
-        val agentDir = createTempDir("agent-skills")
-
-        val adapter = mockAdapter(agentDir.absolutePath)
-        val service = createService(adapter, fakeHome.absolutePath)
-
-        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("my-skill"), SyncMethod.Copy)
-
-        val synced = File(agentDir, "my-skill")
-        assertTrue(synced.exists(), "Synced skill directory should exist")
-        assertTrue(synced.isDirectory, "Should be a directory")
-        assertTrue(!Files.isSymbolicLink(synced.toPath()), "Should NOT be a symlink")
-        assertTrue(File(synced, "SKILL.md").exists(), "Files inside should be copied")
-        assertEquals(
-            "# My Skill\nA great skill",
-            File(synced, "SKILL.md").readText(),
-            "File content should match"
-        )
-    }
-
-    // ── syncSkillsToAgent (Symlink) ──────────────────────────────────
-
-    @Test
-    fun `syncSkillsToAgent with Symlink creates symbolic links`() = runTest {
-        val fakeHome = createTempDir("fake-home-sym")
-        val skillsDir = File(fakeHome, "skills")
-        val skillDir = File(skillsDir, "link-skill")
-        skillDir.mkdirs()
-        File(skillDir, "SKILL.md").writeText("# Linked")
-
-        val agentDir = createTempDir("agent-sym")
-
-        val adapter = mockAdapter(agentDir.absolutePath)
-        val service = createService(adapter, fakeHome.absolutePath)
-
-        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("link-skill"), SyncMethod.Symlink)
-
-        val synced = File(agentDir, "link-skill")
-        assertTrue(synced.exists(), "Synced skill should exist")
-        assertTrue(Files.isSymbolicLink(synced.toPath()), "Should be a symlink")
-    }
-
-    // ── syncSkillsToAgent creates target directory ───────────────────
-
-    @Test
-    fun `syncSkillsToAgent creates target directory when it does not exist`() = runTest {
-        val fakeHome = createTempDir("fake-home-mkdir")
-        val skillsDir = File(fakeHome, "skills")
-        val skillDir = File(skillsDir, "mkdir-skill")
-        skillDir.mkdirs()
-        File(skillDir, "SKILL.md").writeText("# Mkdir")
-
-        // Agent dir points to a non-existent path
-        val agentDir = File(createTempDir("agent-parent"), "nested/skills")
-        assertTrue(!agentDir.exists(), "Agent dir should not exist yet")
-
-        val adapter = mockAdapter(agentDir.absolutePath)
-        val service = createService(adapter, fakeHome.absolutePath)
-
-        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("mkdir-skill"), SyncMethod.Copy)
-
-        assertTrue(agentDir.exists(), "Agent dir should be created")
-        assertTrue(File(agentDir, "mkdir-skill").exists(), "Skill should be synced")
-    }
-
-    @Test
-    fun `syncSkillsToAgent does nothing when adapter is null`() = runTest {
-        val service = createService(null)
-        // Should not throw
-        service.syncSkillsToAgent(AgentType.CLAUDE_CODE, listOf("any"), SyncMethod.Copy)
-    }
-
-    // ── applyProviderPreset ──────────────────────────────────────────
-
-    @Test
-    fun `applyProviderPreset writes baseUrl and model to native config`() = runTest {
-        val preset = ProviderPreset("TestProvider", "https://test.com/api", "test-model-v1")
-        val adapter = mockk<AgentAdapter>(relaxed = true) {
-            every { providerPresets } returns listOf(preset)
-        }
-        val service = createService(adapter)
-
-        service.applyProviderPreset(AgentType.CLAUDE_CODE, "TestProvider")
-
-        coVerify { adapter.writeNativeConfigField("Base URL", "https://test.com/api") }
-        coVerify { adapter.writeNativeConfigField("Model", "test-model-v1") }
-    }
-
-    @Test
-    fun `applyProviderPreset does nothing when preset not found`() = runTest {
-        val adapter = mockk<AgentAdapter>(relaxed = true) {
-            every { providerPresets } returns listOf(
-                ProviderPreset("Other", "https://other.com", "other-model")
+    fun `scan synchronizes additions file structure and removals`() = runTest {
+        val root = createTempDirectory("skills-scan-").toFile()
+        try {
+            val skillsDirectory = File(root, "skills").apply { mkdirs() }
+            val review = File(skillsDirectory, "review").apply { mkdirs() }
+            File(review, "SKILL.md").writeText("# Review\n\nReview repository changes.")
+            File(review, "references/checklist.md").apply {
+                parentFile.mkdirs()
+                writeText("Checklist")
+            }
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:stale",
+                    name = "stale",
+                    source = SkillSource.FILESYSTEM,
+                    path = File(skillsDirectory, "stale").absolutePath
+                )
             )
+            val service = SkillService(
+                store,
+                SkillScanner(listOf(skillsDirectory)),
+                root.absolutePath,
+                File(root, "pi-skills").absolutePath
+            )
+
+            assertTrue(service.scan().isSuccess)
+
+            val skills = service.getAll()
+            assertEquals(listOf("fs:review"), skills.map { it.id })
+            assertTrue("SKILL.md" in skills.single().files)
+            assertTrue("references/checklist.md" in skills.single().files)
+        } finally {
+            root.deleteRecursively()
         }
-        val service = createService(adapter)
-
-        // Should not throw and should not write any config
-        service.applyProviderPreset(AgentType.CLAUDE_CODE, "NonExistent")
-
-        coVerify(exactly = 0) { adapter.writeNativeConfigField(any(), any()) }
     }
 
     @Test
-    fun `applyProviderPreset does nothing when adapter is null`() = runTest {
-        val service = createService(null)
-        // Should not throw
-        service.applyProviderPreset(AgentType.CLAUDE_CODE, "AnyPreset")
+    fun `scan preserves per-agent authorization for unchanged skills`() = runTest {
+        val root = createTempDirectory("skills-preserve-").toFile()
+        try {
+            val skillsDirectory = File(root, "skills")
+            val review = createSkill(skillsDirectory, "review")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:review",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = review.absolutePath,
+                    enabledAgents = mapOf("pi-review" to true)
+                )
+            )
+            val service = SkillService(store, SkillScanner(listOf(skillsDirectory)))
+
+            service.scan().getOrThrow()
+
+            assertEquals(mapOf("pi-review" to true), service.getAll().single().enabledAgents)
+        } finally {
+            root.deleteRecursively()
+        }
     }
+
+    @Test
+    fun `copy synchronization writes selected skills into pi directory`() = runTest {
+        val root = createTempDirectory("skills-root-").toFile()
+        val piSkills = File(root, "pi-skills")
+        val source = File(root, "skills/review").apply { mkdirs() }
+        File(source, "SKILL.md").writeText("# Review")
+        val service = SkillService(
+            SkillStore(File(root, "skills.json")),
+            SkillScanner(),
+            root.absolutePath,
+            piSkills.absolutePath
+        )
+
+        service.syncSkillsToPi(listOf("review"), SyncMethod.Copy)
+
+        assertTrue(File(piSkills, "review/SKILL.md").isFile)
+        assertEquals(listOf("review"), service.scanPiSkills())
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun `agent synchronization installs only skills authorized for that profile`() = runTest {
+        val root = createTempDirectory("skills-agent-").toFile()
+        try {
+            val sourceDirectory = File(root, "skills")
+            val shared = createSkill(sourceDirectory, "shared")
+            val reviewer = createSkill(sourceDirectory, "reviewer")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:shared",
+                    name = "shared",
+                    source = SkillSource.FILESYSTEM,
+                    path = shared.absolutePath
+                )
+            )
+            store.upsert(
+                SkillConfig(
+                    id = "fs:reviewer",
+                    name = "reviewer",
+                    source = SkillSource.FILESYSTEM,
+                    path = reviewer.absolutePath,
+                    enabledAgents = mapOf("pi-default" to false)
+                )
+            )
+            val agentsRoot = File(root, "agents")
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(listOf(sourceDirectory)),
+                agentDirectoryProvider = { id -> File(agentsRoot, id) }
+            )
+
+            service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+
+            assertTrue(File(agentsRoot, "pi-default/skills/shared/SKILL.md").isFile)
+            assertFalse(File(agentsRoot, "pi-default/skills/reviewer").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `dynamic profile synchronization uses its own authorization`() = runTest {
+        val root = createTempDirectory("skills-dynamic-agent-").toFile()
+        try {
+            val sourceDirectory = File(root, "skills")
+            val reviewer = createSkill(sourceDirectory, "reviewer")
+            val defaultOnly = createSkill(sourceDirectory, "default-only")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:reviewer",
+                    name = "reviewer",
+                    source = SkillSource.FILESYSTEM,
+                    path = reviewer.absolutePath,
+                    enabledAgents = mapOf("pi-default" to false, "pi-review" to true),
+                )
+            )
+            store.upsert(
+                SkillConfig(
+                    id = "fs:default-only",
+                    name = "default-only",
+                    source = SkillSource.FILESYSTEM,
+                    path = defaultOnly.absolutePath,
+                    enabledAgents = mapOf("pi-default" to true, "pi-review" to false),
+                )
+            )
+            val agentsRoot = File(root, "agents")
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(listOf(sourceDirectory)),
+                agentDirectoryProvider = { id -> File(agentsRoot, id) },
+                agentIdsProvider = { listOf("pi-default", "pi-review") },
+            )
+
+            service.syncSkillsToPi("pi-review", SyncMethod.Copy)
+
+            assertTrue(File(agentsRoot, "pi-review/skills/reviewer/SKILL.md").isFile)
+            assertFalse(File(agentsRoot, "pi-review/skills/default-only").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `disabling dynamic profile access invalidates only that runtime`() = runTest {
+        val root = createTempDirectory("skills-access-").toFile()
+        try {
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:review",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = createSkill(File(root, "skills"), "review").absolutePath
+                )
+            )
+            val invalidated = mutableListOf<String>()
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentIdsProvider = { listOf("pi-default", "pi-review") },
+                invalidateAgentRuntime = invalidated::add
+            )
+
+            service.toggleAgent("fs:review", "pi-review", false).getOrThrow()
+
+            val access = service.getAll().single().enabledAgents
+            assertEquals(mapOf("pi-default" to true, "pi-review" to false), access)
+            assertEquals(listOf("pi-review"), invalidated)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `synchronization rejects skill names that escape the pi skills directory`() = runTest {
+        val root = createTempDirectory("skills-path-").toFile()
+        try {
+            val outside = createSkill(root, "outside")
+            val piSkills = createSkill(File(root, "agent/skills"), "existing")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:escape",
+                    name = "../escape",
+                    source = SkillSource.FILESYSTEM,
+                    path = outside.absolutePath
+                )
+            )
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") }
+            )
+
+            assertFailsWith<IllegalArgumentException> {
+                service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            }
+            assertFalse(File(root, "escape").exists())
+            assertTrue(File(piSkills, "SKILL.md").isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `synchronization removes stale pi skill when its source disappears`() = runTest {
+        val root = createTempDirectory("skills-stale-source-").toFile()
+        try {
+            val piSkills = File(root, "agent/skills")
+            createSkill(piSkills, "stale")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:stale",
+                    name = "stale",
+                    source = SkillSource.FILESYSTEM,
+                    path = File(root, "missing/stale").absolutePath,
+                )
+            )
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+            )
+
+            service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+
+            assertFalse(File(piSkills, "stale").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `synchronization rejects non portable and case colliding skill names before cleanup`() = runTest {
+        val root = createTempDirectory("skills-portable-name-").toFile()
+        try {
+            val piSkills = File(root, "agent/skills")
+            createSkill(piSkills, "existing")
+            val sourceRoot = File(root, "sources")
+            val review = createSkill(sourceRoot, "review")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:upper",
+                    name = "Review",
+                    source = SkillSource.FILESYSTEM,
+                    path = review.absolutePath,
+                )
+            )
+            store.upsert(
+                SkillConfig(
+                    id = "fs:lower",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = review.absolutePath,
+                )
+            )
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+            )
+
+            assertFailsWith<IllegalArgumentException> {
+                service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            }
+            assertTrue(File(piSkills, "existing/SKILL.md").isFile)
+
+            val invalidStore = SkillStore(File(root, "invalid-skills.json"))
+            invalidStore.upsert(
+                SkillConfig(
+                    id = "fs:reserved",
+                    name = "CON",
+                    source = SkillSource.FILESYSTEM,
+                    path = review.absolutePath,
+                )
+            )
+            val invalidService = SkillService(
+                store = invalidStore,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+            )
+            assertFailsWith<IllegalArgumentException> {
+                invalidService.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            }
+            assertTrue(File(piSkills, "existing/SKILL.md").isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `synchronization keeps the previous installation when staging fails`() = runTest {
+        val root = createTempDirectory("skills-stage-failure-").toFile()
+        try {
+            val piSkills = File(root, "agent/skills")
+            val existingReview = createSkill(piSkills, "review")
+            val existingTest = createSkill(piSkills, "test")
+            File(existingReview, "SKILL.md").writeText("old review")
+            File(existingTest, "SKILL.md").writeText("old test")
+
+            val sourceRoot = File(root, "sources")
+            val review = createSkill(sourceRoot, "review")
+            val test = createSkill(sourceRoot, "test")
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:review",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = review.absolutePath,
+                )
+            )
+            store.upsert(
+                SkillConfig(
+                    id = "fs:test",
+                    name = "test",
+                    source = SkillSource.FILESYSTEM,
+                    path = test.absolutePath,
+                )
+            )
+            var installCount = 0
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+                skillInstaller = { _, destination, _ ->
+                    installCount += 1
+                    destination.mkdirs()
+                    File(destination, "SKILL.md").writeText("new ${destination.name}")
+                    if (installCount == 2) error("staging failed")
+                },
+            )
+
+            assertFailsWith<IllegalStateException> {
+                service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            }
+
+            assertEquals("old review", File(existingReview, "SKILL.md").readText())
+            assertEquals("old test", File(existingTest, "SKILL.md").readText())
+            assertFalse(File(root, "agent").listFiles().orEmpty().any { it.name.startsWith(".skills.sync-") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `copy synchronization rejects symbolic links without replacing the installed skill`() = runTest {
+        val root = createTempDirectory("skills-copy-symlink-").toFile()
+        try {
+            val piSkills = File(root, "agent/skills")
+            val existing = createSkill(piSkills, "review")
+            File(existing, "SKILL.md").writeText("old review")
+            val source = createSkill(File(root, "sources"), "review")
+            try {
+                java.nio.file.Files.createSymbolicLink(
+                    File(source, "outside-link").toPath(),
+                    File(root, "outside").toPath(),
+                )
+            } catch (_: IOException) {
+                return@runTest
+            } catch (_: UnsupportedOperationException) {
+                return@runTest
+            } catch (_: SecurityException) {
+                return@runTest
+            }
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:review",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = source.absolutePath,
+                )
+            )
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+            )
+
+            assertFailsWith<IllegalArgumentException> {
+                service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            }
+
+            assertEquals("old review", File(existing, "SKILL.md").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `failed symlink staging cleanup does not delete the source skill`() = runTest {
+        val root = createTempDirectory("skills-symlink-cleanup-").toFile()
+        try {
+            val piSkills = File(root, "agent/skills")
+            val existing = createSkill(piSkills, "review")
+            File(existing, "SKILL.md").writeText("old review")
+            val source = createSkill(File(root, "sources"), "review")
+            val probe = File(root, "symlink-probe")
+            try {
+                java.nio.file.Files.createSymbolicLink(probe.toPath(), source.toPath())
+                java.nio.file.Files.delete(probe.toPath())
+            } catch (_: IOException) {
+                return@runTest
+            } catch (_: UnsupportedOperationException) {
+                return@runTest
+            } catch (_: SecurityException) {
+                return@runTest
+            }
+            val store = SkillStore(File(root, "skills.json"))
+            store.upsert(
+                SkillConfig(
+                    id = "fs:review",
+                    name = "review",
+                    source = SkillSource.FILESYSTEM,
+                    path = source.absolutePath,
+                )
+            )
+            val service = SkillService(
+                store = store,
+                scanner = SkillScanner(),
+                agentDirectoryProvider = { File(root, "agent") },
+                skillInstaller = { skillSource, destination, _ ->
+                    java.nio.file.Files.createSymbolicLink(destination.toPath(), skillSource.toPath())
+                    error("staging failed")
+                },
+            )
+
+            assertFailsWith<IllegalStateException> {
+                service.syncSkillsToPi("pi-default", SyncMethod.Symlink)
+            }
+
+            assertTrue(File(source, "SKILL.md").isFile)
+            assertEquals("old review", File(existing, "SKILL.md").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+}
+
+private fun createSkill(parent: File, name: String): File = File(parent, name).apply {
+    mkdirs()
+    resolve("SKILL.md").writeText(
+        """
+        ---
+        name: $name
+        description: $name skill
+        ---
+        Use this skill for $name tasks.
+        """.trimIndent()
+    )
 }

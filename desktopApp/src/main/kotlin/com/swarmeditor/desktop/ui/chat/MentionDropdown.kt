@@ -2,7 +2,8 @@ package com.swarmeditor.desktop.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -114,12 +115,23 @@ fun MentionDropdown(
         ) {
             itemsIndexed(filtered, key = { _, agent -> agent.id }) { index, agent ->
                 val isSelected = index == selectedIndex
+                val interaction = remember { MutableInteractionSource() }
+                val hovered by interaction.collectIsHoveredAsState()
+                val rowBackground by androidx.compose.animation.animateColorAsState(
+                    when {
+                        isSelected -> agent.color.withAlpha(0.14f)
+                        hovered -> agent.color.withAlpha(0.08f)
+                        else -> Color.Transparent
+                    },
+                    Motion.colorDefault,
+                    label = "mentionRowBackground",
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth().animateItem()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) Ac.withAlpha(0.12f) else Color.Transparent)
-                        .clickable { onSelect(agent.name) }
+                        .background(rowBackground)
+                        .fluidClickable(interactionSource = interaction) { onSelect(agent.name) }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -128,18 +140,20 @@ fun MentionDropdown(
                             .background(agent.color),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(agent.letter, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(agent.letter, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OnAccent)
                     }
                     Spacer(Modifier.width(9.dp))
                     Text(
                         agent.name,
-                        color = if (isSelected) Ac else Tx,
+                        color = if (isSelected || hovered) agent.color else Tx,
                         fontSize = 12.sp, fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
                         if (agent.isConnected) "online" else "offline",
-                        color = Tx3, fontSize = 11.sp, fontFamily = SansFont
+                        color = if (agent.isConnected) ControlGreen else Tx3,
+                        fontSize = 11.sp,
+                        fontFamily = SansFont,
                     )
                 }
             }

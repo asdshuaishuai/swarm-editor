@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.theme.*
@@ -51,7 +52,7 @@ fun StatusBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(26.dp)
+            .height(30.dp)
             .background(Bg0)
             .drawBehind {
                 // Gradient top border (fade-in from transparent to Line)
@@ -74,7 +75,7 @@ fun StatusBar(
         Spacer(Modifier.width(14.dp))
         Icon(imageVector = Feather.Code, contentDescription = "Branch", tint = Tx3, modifier = Modifier.size(10.dp))
         Spacer(Modifier.width(5.dp))
-        SbText(branch)
+            SbText(branch, modifier = Modifier.weight(1f, fill = false))
 
         if (gitStagedAdd > 0 || gitStagedDel > 0) {
             Spacer(Modifier.width(14.dp))
@@ -82,15 +83,17 @@ fun StatusBar(
             Spacer(Modifier.width(3.dp))
             Text("-${gitStagedDel}", color = ErrLight, fontSize = 11.sp, fontFamily = CodeFont)
             Spacer(Modifier.width(3.dp))
-            SbText("staged")
+            SbText("S")
         }
         if (gitModified > 0 || gitUntracked > 0) {
             Spacer(Modifier.width(14.dp))
-            SbText(buildString {
-                if (gitModified > 0) append("$gitModified modified")
-                if (gitModified > 0 && gitUntracked > 0) append(" · ")
-                if (gitUntracked > 0) append("$gitUntracked untracked")
-            })
+            if (gitModified > 0) {
+                Text("M ${gitModified.compactCount()}", color = WarnLight, fontSize = 11.sp, fontFamily = CodeFont)
+            }
+            if (gitModified > 0 && gitUntracked > 0) Spacer(Modifier.width(8.dp))
+            if (gitUntracked > 0) {
+                Text("U ${gitUntracked.compactCount()}", color = Tx2, fontSize = 11.sp, fontFamily = CodeFont)
+            }
         }
 
         Spacer(Modifier.weight(1f))
@@ -98,11 +101,11 @@ fun StatusBar(
         // 当前 Agent
         SbDot(agentColor)
         Spacer(Modifier.width(5.dp))
-        SbText(agentName)
+        SbText(agentName, modifier = Modifier.width(96.dp))
         Spacer(Modifier.width(14.dp))
-        SbText("插件 ${mcpCount + skillCount}")
+        SbText("EXT ${mcpCount + skillCount}")
         Spacer(Modifier.width(14.dp))
-        SbText("Kotlin $kotlinVersion")
+        SbText("K $kotlinVersion")
         Spacer(Modifier.width(14.dp))
         SbText(appVersion)
     }
@@ -115,16 +118,27 @@ private fun SbDot(color: Color) {
             .size(7.dp)
             .clip(CircleShape)
             .background(color)
-            .shadow(
-                elevation = 2.dp,
-                shape = CircleShape,
-                ambientColor = color.withAlpha(0.3f),
-                spotColor = color.withAlpha(0.2f)
-            )
     )
 }
 
 @Composable
-private fun SbText(text: String) {
-    Text(text, color = Tx3, fontSize = 11.sp, fontFamily = CodeFont)
+private fun SbText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = Tx3,
+        fontSize = 11.sp,
+        fontFamily = CodeFont,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
 }
+
+private fun Int.compactCount(): String = when {
+    this >= 1_000_000 -> "${trimCount(this / 1_000_000f)}M"
+    this >= 1_000 -> "${trimCount(this / 1_000f)}K"
+    else -> toString()
+}
+
+private fun trimCount(value: Float): String =
+    if (value >= 10f || value % 1f == 0f) value.toInt().toString() else "%.1f".format(value)

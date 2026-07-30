@@ -1,23 +1,10 @@
 plugins {
     alias(libs.plugins.kotlinJvm)
     alias(libs.plugins.kotlinSerialization)
-    application
-}
-
-application {
-    mainClass.set("com.swarmeditor.backend.MainKt")
 }
 
 dependencies {
     implementation(projects.common)
-
-    // Ktor Server
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.cio)
-    implementation(libs.ktor.server.content.negotiation)
-    implementation(libs.ktor.server.cors)
-    implementation(libs.ktor.server.sse)
-    implementation(libs.ktor.serialization.kotlinx.json)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
@@ -26,16 +13,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // DateTime
-    implementation(libs.kotlinx.datetime)
-
-    // ACP SDK
-    implementation(libs.acp)
-
-    // MCP SDK
-    implementation(libs.mcp.client)
-
-    // Koog (for future AI agent capabilities)
-    implementation(libs.koog.agents)
 
     // Logging
     implementation(libs.oshai.kotlin.logging)
@@ -44,6 +21,60 @@ dependencies {
     // Testing
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.mockk)
+}
+
+val piRoot = rootProject.layout.projectDirectory.dir("pi-0.80.10")
+
+val installPiRuntime by tasks.registering(Exec::class) {
+    workingDir(piRoot)
+    commandLine("npm", "ci", "--ignore-scripts")
+    inputs.files(piRoot.file("package.json"), piRoot.file("package-lock.json"))
+    outputs.file(piRoot.file("node_modules/.package-lock.json"))
+}
+
+val buildPiTui by tasks.registering(Exec::class) {
+    dependsOn(installPiRuntime)
+    workingDir(piRoot)
+    commandLine("npm", "--prefix", "packages/tui", "run", "build")
+    inputs.dir(piRoot.dir("packages/tui/src"))
+    outputs.dir(piRoot.dir("packages/tui/dist"))
+}
+
+val buildPiAi by tasks.registering(Exec::class) {
+    dependsOn(buildPiTui)
+    workingDir(piRoot)
+    commandLine("npm", "exec", "--", "tsgo", "-p", "packages/ai/tsconfig.build.json")
+    inputs.dir(piRoot.dir("packages/ai/src"))
+    outputs.dir(piRoot.dir("packages/ai/dist"))
+}
+
+val buildPiAgent by tasks.registering(Exec::class) {
+    dependsOn(buildPiAi)
+    workingDir(piRoot)
+    commandLine("npm", "exec", "--", "tsgo", "-p", "packages/agent/tsconfig.build.json")
+    inputs.dir(piRoot.dir("packages/agent/src"))
+    outputs.dir(piRoot.dir("packages/agent/dist"))
+}
+
+val buildPiCodingAgent by tasks.registering(Exec::class) {
+    dependsOn(buildPiAgent)
+    workingDir(piRoot)
+    commandLine("npm", "--prefix", "packages/coding-agent", "run", "build")
+    inputs.dir(piRoot.dir("packages/coding-agent/src"))
+    outputs.file(piRoot.file("packages/coding-agent/dist/rpc-entry.js"))
+}
+
+val preparePiRuntime by tasks.registering {
+    group = "build"
+    description = "Builds the vendored pi 0.80.10 RPC runtime without refreshing remote model catalogs."
+    dependsOn(buildPiCodingAgent)
+}
+
+tasks.named("assemble") {
+    dependsOn(preparePiRuntime)
+}
+
+tasks.named("test") {
+    dependsOn(preparePiRuntime)
 }

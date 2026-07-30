@@ -1,11 +1,16 @@
 package com.swarmeditor.desktop.ui.chat
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -65,11 +69,34 @@ fun ToolCard(
 ) {
     val expanded = remember { mutableStateOf(defaultExpanded) }
     val shape = RoundedCornerShape(10.dp)
+    val targetStatusColor = when {
+        !card.showResult -> Ac
+        card.resultOk -> Ok
+        else -> Err
+    }
+    val statusColor by androidx.compose.animation.animateColorAsState(
+        targetStatusColor,
+        Motion.colorDefault,
+        label = "toolStatusColor",
+    )
+    val hasDetails = card.command.isNotEmpty() || card.output.isNotEmpty()
+    val headerInteraction = remember { MutableInteractionSource() }
+    val headerHovered by headerInteraction.collectIsHoveredAsState()
+    val surfaceColor by androidx.compose.animation.animateColorAsState(
+        if (headerHovered || expanded.value) statusColor.withAlpha(0.08f) else Bg3.copy(alpha = 0.66f),
+        Motion.colorDefault,
+        label = "toolSurfaceColor",
+    )
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (expanded.value) statusColor.withAlpha(0.3f) else Line,
+        Motion.colorDefault,
+        label = "toolBorderColor",
+    )
 
     // Chevr rotation animation with spring
     val rotationAngle by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expanded.value) 90f else 0f,
-        animationSpec = Motion.floatDefault,
+        animationSpec = Motion.floatState,
         label = "chevronRotation"
     )
 
@@ -77,18 +104,18 @@ fun ToolCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(Bg3.copy(alpha = 0.7f), Bg2.copy(alpha = 0.5f))
-                )
-            )
-            .border(1.dp, Line, shape)
+            .background(surfaceColor)
+            .border(1.dp, borderColor, shape)
     ) {
         // Header — clickable to toggle
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded.value = !expanded.value }
+                .fluidClickable(
+                    enabled = hasDetails,
+                    interactionSource = headerInteraction,
+                    onClick = { expanded.value = !expanded.value },
+                )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -97,7 +124,7 @@ fun ToolCard(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Ac.withAlpha(0.15f)),
+                    .background(statusColor.withAlpha(0.15f)),
                 contentAlignment = Alignment.Center
             ) {
                 val iconVector = when (card.iconType) {
@@ -109,8 +136,8 @@ fun ToolCard(
                 }
                 Icon(
                     imageVector = iconVector,
-                    contentDescription = "Tool",
-                    tint = Ac,
+                    contentDescription = card.title,
+                    tint = statusColor,
                     modifier = Modifier.size(14.dp)
                 )
             }
@@ -132,77 +159,115 @@ fun ToolCard(
                 )
             }
             Spacer(Modifier.weight(1f))
-            Icon(
-                imageVector = Feather.ChevronRight,
-                contentDescription = "Toggle",
-                tint = Tx3,
-                modifier = Modifier
-                    .size(16.dp)
-                    .rotate(rotationAngle)
-            )
+            if (hasDetails) {
+                Icon(
+                    imageVector = Feather.ChevronRight,
+                    contentDescription = "Toggle",
+                    tint = if (expanded.value) statusColor else Tx2,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .rotate(rotationAngle)
+                )
+            }
         }
 
-        // Expanded body — command output
         AnimatedVisibility(
-            visible = expanded.value,
-            enter = expandVertically(animationSpec = Motion.intSizeGentle),
-            exit = shrinkVertically(animationSpec = Motion.intSizeGentle)
+            visible = expanded.value && hasDetails,
+            enter = expandVertically(animationSpec = Motion.intSizeExpand) + fadeIn(Motion.alphaEnter),
+            exit = shrinkVertically(animationSpec = Motion.intSizeCollapse) + fadeOut(Motion.alphaExit),
         ) {
-            if (card.output.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Bg2)
-                        .border(1.dp, Line)
-                        .padding(10.dp, 12.dp)
-                ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Bg2)
+                    .border(1.dp, Line)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                if (card.command.isNotEmpty()) {
+                    Text("参数", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
+                    Spacer(Modifier.height(6.dp))
                     Text(
-                        toolOutputAnnotated(card.output),
+                        card.command,
+                        color = Tx2,
                         fontSize = 12.sp,
                         fontFamily = CodeFont,
                         lineHeight = 18.sp
                     )
                 }
+                if (card.command.isNotEmpty() && card.output.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+                    Spacer(Modifier.height(10.dp))
+                }
+                AnimatedVisibility(
+                    visible = card.output.isNotEmpty(),
+                    enter = fadeIn(Motion.alphaEnter),
+                    exit = fadeOut(Motion.alphaExit),
+                ) {
+                    Column {
+                        Text("输出", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
+                        Spacer(Modifier.height(6.dp))
+                        val outputAnnotated = remember(card.output) { toolOutputAnnotated(card.output) }
+                        Text(
+                            outputAnnotated,
+                            color = Tx2,
+                            fontSize = 12.sp,
+                            fontFamily = CodeFont,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
             }
         }
 
         // Result line (only when the tool produced a status result)
-        if (card.showResult) Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, Line)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        AnimatedVisibility(
+            visible = card.showResult,
+            enter = expandVertically(animationSpec = Motion.intSizeExpand) + fadeIn(Motion.alphaEnter),
+            exit = shrinkVertically(animationSpec = Motion.intSizeCollapse) + fadeOut(Motion.alphaExit),
         ) {
-            // OK pill
-            Box(
+            Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (card.resultOk) Ok.withAlpha(0.12f) else Err.withAlpha(0.12f))
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                    .fillMaxWidth()
+                    .border(1.dp, Line)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    if (card.resultOk) "OK" else "FAIL",
-                    color = if (card.resultOk) OkLight else ErrLight,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = SansFont
-                )
-            }
-            if (card.resultDuration.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
-                Text(card.resultDuration, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(statusColor.withAlpha(0.12f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    AnimatedContent(
+                        targetState = card.resultOk,
+                        transitionSpec = { fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit) },
+                        label = "toolResultState",
+                    ) { resultOk ->
+                        Text(
+                            if (resultOk) "✓ 成功" else "× 失败",
+                            color = if (resultOk) OkLight else ErrLight,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = SansFont
+                        )
+                    }
+                }
+                if (card.resultDuration.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(card.resultDuration, color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+                }
             }
         }
     }
 }
 
-/** 工具输出按行着色：→ 结果行蓝(#93c5fd)，$ 命令行灰，其余默认。对齐核心稿 .tool-body */
+/** 工具输出按行着色：→ 结果行使用柔和强调色，$ 命令行灰，其余默认。 */
 private fun toolOutputAnnotated(output: String): AnnotatedString = buildAnnotatedString {
     output.split('\n').forEachIndexed { i, line ->
         if (i > 0) append('\n')
         when {
-            line.startsWith("→") -> withStyle(SpanStyle(color = Color(0xFF93c5fd))) { append(line) }
+            line.startsWith("→") -> withStyle(SpanStyle(color = AcLight)) { append(line) }
             line.startsWith("$") -> withStyle(SpanStyle(color = Tx3)) { append(line) }
             else -> append(line)
         }

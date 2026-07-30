@@ -36,6 +36,7 @@ convert /tmp/app.png -crop 1280x960+48+48 +repage view.png
 切换初始视图/浮层用于截图（`MainViewModel` / `App.kt` 读取的系统属性）：
 - `-Dswarm.view=chat|agents|plugins|files|activity`
 - `-Dswarm.modal=settings|agent|mcp|cmdk`
+- `-Dswarm.theme=hybrid|clay|glass|win11`
 
 ## 对齐与人体工程学改动概要
 

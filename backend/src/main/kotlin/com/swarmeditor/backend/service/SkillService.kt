@@ -1,118 +1,305 @@
 package com.swarmeditor.backend.service
 
-import com.swarmeditor.backend.agent.AgentAdapter
-import com.swarmeditor.common.config.ConfigPaths
+import com.swarmeditor.backend.pi.PiRuntimePaths
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
-import com.swarmeditor.common.model.AgentType
+import com.swarmeditor.common.config.ConfigPaths
 import com.swarmeditor.common.model.SkillConfig
-import io.github.oshai.kotlinlogging.KotlinLogging
+import com.swarmeditor.common.model.SkillSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
-
-private val log = KotlinLogging.logger {}
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 
 class SkillService(
     private val store: SkillStore,
     private val scanner: SkillScanner,
-    private val adapterResolver: (AgentType) -> AgentAdapter? = { null },
-    private val skillsRootPath: String = ConfigPaths.SWARM_EDITOR_DIR
+    private val skillsRootPath: String = ConfigPaths.SWARM_EDITOR_DIR,
+    private val piSkillsPath: String = ConfigPaths.PI_SKILLS_DIR,
+    private val agentDirectoryProvider: (String) -> File = PiRuntimePaths::agentDirectory,
+    private val agentIdsProvider: suspend () -> List<String> = { emptyList() },
+    private val invalidateAgentRuntime: suspend (String) -> Unit = {},
+    private val invalidateAllRuntimes: suspend () -> Unit = {},
+    private val skillInstaller: (File, File, SyncMethod) -> Unit = ::installSkill,
 ) {
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
-    val skills: StateFlow<List<SkillConfig>> = _skills
+    private val syncMutex = Mutex()
+    val skills: StateFlow<List<SkillConfig>> = _skills.asStateFlow()
 
-    suspend fun init() { store.load(); refresh() }
-    suspend fun scan() { scanner.scanGlobal().forEach { store.upsert(it) }; refresh() }
-    suspend fun getAll() = store.getAll()
-    suspend fun toggleAgent(id: String, agentId: String, enabled: Boolean) { store.toggleAgent(id, agentId, enabled); refresh() }
-    private suspend fun refresh() { _skills.value = store.getAll() }
+    suspend fun init() {
+        store.load()
+        store.synchronizeFilesystem(scanner.scanGlobal())
+        refresh()
+    }
 
-    suspend fun syncSkillsToAgent(
-        agentType: AgentType,
+    suspend fun scan(): Result<Unit> = resultOf {
+        store.synchronizeFilesystem(scanner.scanGlobal())
+        refresh()
+        invalidateAllRuntimes()
+    }
+
+    suspend fun getAll(): List<SkillConfig> = store.getAll()
+
+    suspend fun toggleAgent(id: String, agentId: String, enabled: Boolean): Result<Unit> = resultOf {
+        val agentIds = agentIdsProvider().ifEmpty { listOf(agentId) }
+        require(agentId in agentIds) { "Unknown Pi Agent Profile: $agentId" }
+        val skill = store.getAll().firstOrNull { it.id == id } ?: error("Skill not found: $id")
+        store.upsert(
+            skill.copy(
+                enabledAgents = skill.enabledAgents.updatedProfileAccess(agentIds, agentId, enabled)
+            )
+        )
+        refresh()
+        invalidateAgentRuntime(agentId)
+    }
+
+    suspend fun syncSkillsToPi(agentId: String, method: SyncMethod = SyncMethod.Auto) {
+        val agentIds = agentIdsProvider()
+        require(agentIds.isEmpty() || agentId in agentIds) { "Unknown Pi Agent Profile: $agentId" }
+        val skills = store.getAll()
+            .filter { it.source == SkillSource.FILESYSTEM }
+            .filter { it.enabledAgents.isEmpty() || it.enabledAgents[agentId] == true }
+        syncSkillsToPi(skills, method, agentDirectoryProvider(agentId).resolve("skills"))
+    }
+
+    suspend fun syncSkillsToPi(
         skillNames: List<String>,
         method: SyncMethod = SyncMethod.Auto
     ) {
-        val adapter = adapterResolver(agentType) ?: run {
-            log.warn { "No adapter found for $agentType" }
-            return
+        val sourceDirectory = File(skillsRootPath, "skills")
+        val skills = skillNames.map { name ->
+            SkillConfig(
+                id = "fs:$name",
+                name = name,
+                source = SkillSource.FILESYSTEM,
+                path = File(sourceDirectory, name).absolutePath
+            )
         }
+        syncSkillsToPi(skills, method, File(piSkillsPath))
+    }
+
+    private suspend fun syncSkillsToPi(
+        skills: List<SkillConfig>,
+        method: SyncMethod,
+        piDirectory: File
+    ) = syncMutex.withLock {
         withContext(Dispatchers.IO) {
+            val entries = prepareSkillSync(skills, piDirectory)
+            require(piDirectory.isDirectory || piDirectory.mkdirs()) {
+                "Cannot create Pi skills directory: ${piDirectory.path}"
+            }
+            val parent = requireNotNull(piDirectory.absoluteFile.parentFile) {
+                "Pi skills directory must have a parent: ${piDirectory.path}"
+            }
+            val transactionDirectory = Files.createTempDirectory(
+                parent.toPath(),
+                ".${piDirectory.name}.sync-",
+            ).toFile()
             try {
-                val agentDir = File(adapter.skillsDirectory)
-                if (!agentDir.exists()) agentDir.mkdirs()
-
-                val globalDir = File(skillsRootPath, "skills")
-
-                agentDir.listFiles { f -> Files.isSymbolicLink(f.toPath()) }?.forEach { link ->
-                    if (!link.exists() || !skillNames.contains(link.name)) {
-                        link.delete()
-                    }
+                val stagedDirectory = File(transactionDirectory, "staged").apply { mkdirs() }
+                val staged = entries.map { entry ->
+                    val destination = managedSkillDestination(stagedDirectory, entry.skill.name)
+                    skillInstaller(entry.source, destination, method)
+                    StagedSkill(entry.destination, destination)
                 }
-
-                skillNames.forEach { name ->
-                    val target = File(globalDir, name)
-                    val link = File(agentDir, name)
-                    if (!target.exists()) return@forEach
-                    if (link.exists()) return@forEach
-
-                    when (method) {
-                        SyncMethod.Copy -> copyRecursively(target, link)
-                        SyncMethod.Symlink -> Files.createSymbolicLink(link.toPath(), target.toPath())
-                        SyncMethod.Auto -> {
-                            try {
-                                Files.createSymbolicLink(link.toPath(), target.toPath())
-                            } catch (_: Exception) {
-                                copyRecursively(target, link)
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                log.error { "Failed to sync skills to $agentType: ${e.message}" }
+                commitSkillSync(piDirectory, staged, File(transactionDirectory, "backup"))
+            } finally {
+                deleteManagedPath(transactionDirectory)
             }
         }
     }
 
-    suspend fun scanAgentSkills(agentType: AgentType): List<String> {
-        val adapter = adapterResolver(agentType) ?: return emptyList()
-        return withContext(Dispatchers.IO) {
-            try {
-                val dir = File(adapter.skillsDirectory)
-                if (!dir.exists()) return@withContext emptyList()
-                dir.listFiles { f -> f.isDirectory }?.map { it.name } ?: emptyList()
-            } catch (e: Exception) {
-                log.warn { "Failed to scan agent skills for $agentType: ${e.message}" }
-                emptyList()
-            }
-        }
+    suspend fun scanPiSkills(): List<String> = withContext(Dispatchers.IO) {
+        File(piSkillsPath).listFiles { file -> file.isDirectory }?.map { it.name }.orEmpty()
     }
 
-    suspend fun applyProviderPreset(agentType: AgentType, presetName: String) {
-        val adapter = adapterResolver(agentType) ?: run {
-            log.warn { "No adapter found for $agentType" }
-            return
-        }
-        val preset = adapter.providerPresets.find { it.name == presetName } ?: run {
-            log.warn { "Preset '$presetName' not found for $agentType" }
-            return
-        }
-        adapter.writeNativeConfigField("Base URL", preset.baseUrl)
-        adapter.writeNativeConfigField("Model", preset.model)
+    private suspend fun refresh() {
+        _skills.value = store.getAll()
     }
 }
 
-private fun copyRecursively(src: File, dest: File) {
-    if (src.isDirectory) {
-        dest.mkdirs()
-        src.listFiles()?.forEach { child ->
-            copyRecursively(child, File(dest, child.name))
+private data class SkillSyncEntry(
+    val skill: SkillConfig,
+    val source: File,
+    val destination: File,
+)
+
+private data class StagedSkill(
+    val destination: File,
+    val staged: File,
+)
+
+private fun prepareSkillSync(skills: List<SkillConfig>, piDirectory: File): List<SkillSyncEntry> {
+    val candidates = skills.map { skill ->
+        SkillSyncEntry(
+            skill = skill,
+            source = File(skill.path),
+            destination = managedSkillDestination(piDirectory, skill.name),
+        )
+    }
+    require(candidates.map { it.destination.name.lowercase() }.distinct().size == candidates.size) {
+        "Skill names must be unique when synchronizing to Pi"
+    }
+    return candidates.filter { entry ->
+        entry.source.isDirectory && File(entry.source, "SKILL.md").isFile
+    }
+}
+
+private fun installSkill(source: File, destination: File, method: SyncMethod) {
+    try {
+        when (method) {
+            SyncMethod.Copy -> copyRecursively(source, destination)
+            SyncMethod.Symlink -> Files.createSymbolicLink(destination.toPath(), source.toPath())
+            SyncMethod.Auto -> try {
+                Files.createSymbolicLink(destination.toPath(), source.toPath())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: IOException) {
+                copyRecursively(source, destination)
+            } catch (_: UnsupportedOperationException) {
+                copyRecursively(source, destination)
+            }
         }
+    } catch (error: Throwable) {
+        if (destination.isManagedPath()) deleteManagedPath(destination)
+        throw error
+    }
+}
+
+private fun commitSkillSync(piDirectory: File, staged: List<StagedSkill>, backupDirectory: File) {
+    require(backupDirectory.mkdirs()) { "Cannot create Pi skill backup directory: ${backupDirectory.path}" }
+    val movedBackups = mutableListOf<Pair<File, File>>()
+    val installed = mutableListOf<File>()
+    try {
+        piDirectory.listFiles().orEmpty().forEach { current ->
+            val backup = File(backupDirectory, current.name)
+            Files.move(current.toPath(), backup.toPath())
+            movedBackups += backup to current
+        }
+        staged.forEach { skill ->
+            Files.move(skill.staged.toPath(), skill.destination.toPath())
+            installed += skill.destination
+        }
+    } catch (error: Throwable) {
+        installed.asReversed().forEach { destination ->
+            try {
+                if (destination.isManagedPath()) deleteManagedPath(destination)
+            } catch (rollbackError: Throwable) {
+                error.addSuppressed(rollbackError)
+            }
+        }
+        movedBackups.asReversed().forEach { (backup, original) ->
+            try {
+                if (backup.isManagedPath()) Files.move(backup.toPath(), original.toPath())
+            } catch (rollbackError: Throwable) {
+                error.addSuppressed(rollbackError)
+            }
+        }
+        throw error
+    }
+}
+
+private fun managedSkillDestination(piDirectory: File, skillName: String): File {
+    require(skillName.isNotBlank()) { "Skill name cannot be blank" }
+    require(
+        skillName != "." &&
+            skillName != ".." &&
+            '/' !in skillName &&
+            '\\' !in skillName &&
+            '\u0000' !in skillName &&
+            skillName.none { it in WINDOWS_FORBIDDEN_FILE_NAME_CHARACTERS } &&
+            !skillName.endsWith('.') &&
+            !skillName.endsWith(' ') &&
+            skillName.substringBefore('.').uppercase() !in WINDOWS_RESERVED_FILE_NAMES
+    ) {
+        "Invalid Skill name: $skillName"
+    }
+    return File(piDirectory, skillName)
+}
+
+private fun deleteManagedPath(path: File) {
+    val root = path.toPath()
+    if (!path.isManagedPath()) return
+    Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+        override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+            Files.deleteIfExists(file)
+            return FileVisitResult.CONTINUE
+        }
+
+        override fun postVisitDirectory(directory: Path, error: IOException?): FileVisitResult {
+            if (error != null) throw error
+            Files.deleteIfExists(directory)
+            return FileVisitResult.CONTINUE
+        }
+    })
+}
+
+private fun File.isManagedPath(): Boolean = exists() || Files.isSymbolicLink(toPath())
+
+private fun Map<String, Boolean>.updatedProfileAccess(
+    profileIds: List<String>,
+    profileId: String,
+    enabled: Boolean,
+): Map<String, Boolean> {
+    val updated = if (isEmpty()) {
+        profileIds.associateWith { true }.toMutableMap()
     } else {
-        src.copyTo(dest)
+        toMutableMap()
+    }
+    updated[profileId] = enabled
+    return if (profileIds.isNotEmpty() && profileIds.all { updated[it] == true }) emptyMap() else updated
+}
+
+private suspend fun resultOf(action: suspend () -> Unit): Result<Unit> {
+    return try {
+        action()
+        Result.success(Unit)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+}
+
+private fun copyRecursively(source: File, destination: File) {
+    val sourcePath = source.toPath()
+    require(!Files.isSymbolicLink(sourcePath)) { "Copy synchronization does not follow symbolic links: ${source.path}" }
+    when {
+        Files.isDirectory(sourcePath, NOFOLLOW_LINKS) -> {
+            require(destination.isDirectory || destination.mkdirs()) {
+                "Cannot create skill directory: ${destination.path}"
+            }
+            val children = requireNotNull(source.listFiles()) { "Cannot read skill directory: ${source.path}" }
+            children.forEach { child -> copyRecursively(child, File(destination, child.name)) }
+        }
+        Files.isRegularFile(sourcePath, NOFOLLOW_LINKS) -> {
+            destination.parentFile?.let { parent ->
+                require(parent.isDirectory || parent.mkdirs()) { "Cannot create skill directory: ${parent.path}" }
+            }
+            Files.copy(sourcePath, destination.toPath())
+        }
+        else -> error("Unsupported skill entry: ${source.path}")
+    }
+}
+
+private const val WINDOWS_FORBIDDEN_FILE_NAME_CHARACTERS = "<>:\"|?*"
+private val WINDOWS_RESERVED_FILE_NAMES = buildSet {
+    addAll(listOf("CON", "PRN", "AUX", "NUL"))
+    (1..9).forEach { suffix ->
+        add("COM$suffix")
+        add("LPT$suffix")
     }
 }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +35,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
+import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.*
 import kotlinx.coroutines.delay
@@ -44,15 +45,14 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * 设计稿 mvp-design-mockup.html 的 5 个 swarm-node 位置（以画布宽/高比例为坐标）：
- * C 左上、Q 左下、G 右上、K 右下、O 底部居中。
+ * 前 5 个 Profile 使用固定节点位置，更多 Profile 自动均布到圆形轨道。
  */
 private val NODE_POSITIONS = listOf(
-    Offset(0.22f, 0.18f),  // C  Claude
-    Offset(0.16f, 0.66f),  // Q  Qwen
-    Offset(0.78f, 0.24f),  // G  Gemini
-    Offset(0.82f, 0.68f),  // K  Kimi
-    Offset(0.50f, 0.88f),  // O  OpenCode
+    Offset(0.22f, 0.18f),
+    Offset(0.16f, 0.66f),
+    Offset(0.78f, 0.24f),
+    Offset(0.82f, 0.68f),
+    Offset(0.50f, 0.88f),
 )
 
 private fun nodeCenter(index: Int, canvasW: Float, canvasH: Float, count: Int): Offset {
@@ -69,19 +69,63 @@ private fun nodeCenter(index: Int, canvasW: Float, canvasH: Float, count: Int): 
     return Offset(cx + r * cos(rad).toFloat(), cy + r * sin(rad).toFloat())
 }
 
+internal enum class SwarmVisualNodeKind { PROFILE, TASK }
+
+internal data class SwarmVisualNode(
+    val id: String,
+    val label: String,
+    val detail: String,
+    val status: String,
+    val kind: SwarmVisualNodeKind,
+    val agent: AgentDto? = null,
+)
+
+internal fun buildSwarmVisualNodes(
+    agents: List<AgentDto>,
+    tasks: List<SwarmTask>,
+): List<SwarmVisualNode> {
+    val profiles = agents.drop(1).map { agent ->
+        SwarmVisualNode(
+            id = "profile:${agent.config.id}",
+            label = agent.config.name,
+            detail = when (agent.status) {
+                "connected" -> "Pi Profile · 就绪"
+                "disconnected" -> "Pi Profile · 离线"
+                else -> "Pi Profile · 执行环境异常"
+            },
+            status = agent.status,
+            kind = SwarmVisualNodeKind.PROFILE,
+            agent = agent,
+        )
+    }
+    val taskNodes = tasks.map { task ->
+        SwarmVisualNode(
+            id = "task:${task.id}",
+            label = task.title,
+            detail = "${task.role.name.lowercase()} · ${task.status.name.lowercase()}",
+            status = task.status.name.lowercase(),
+            kind = SwarmVisualNodeKind.TASK,
+        )
+    }
+    return (profiles + taskNodes).take(MAX_VISUAL_NODES)
+}
+
 /**
- * Canvas swarm 可视化：中心旋转 conic 环 + 六边形 hub；卫星节点按设计稿坐标排布，
- * 虚线放射连接；在线节点不透明、离线/未安装节点变暗；点击卫星触发 [onNodeClick]。
+ * Canvas swarm 可视化：中心节点始终代表真实主 Agent；卫星节点来自额外 Pi Profile
+ * 与最近一次蜂群运行的动态任务，不再渲染无数据来源的装饰节点。
  */
 @Composable
 fun SwarmVisualization(
     agents: List<AgentDto>,
+    tasks: List<SwarmTask> = emptyList(),
     onNodeClick: (AgentDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var rotationAngle by remember { mutableFloatStateOf(0f) }
     var hoveredIndex by remember { mutableStateOf(-1) }
     var hoveredPos by remember { mutableStateOf<Offset?>(null) }
+    val primaryAgent = agents.firstOrNull()
+    val visualNodes = remember(agents, tasks) { buildSwarmVisualNodes(agents, tasks) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -97,24 +141,32 @@ fun SwarmVisualization(
         Canvas(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(agents) {
+            .pointerInput(primaryAgent, visualNodes) {
                 detectTapGestures(
                     onTap = { offset ->
                         val canvasW = size.width.toFloat()
                         val canvasH = size.height.toFloat()
-                        agents.forEachIndexed { i, _ ->
-                            val c = nodeCenter(i, canvasW, canvasH, agents.size)
+                        val center = Offset(canvasW / 2f, canvasH / 2f)
+                        val centerRadius = min(canvasW / 2f, canvasH / 2f) * 0.22f
+                        val centerDx = offset.x - center.x
+                        val centerDy = offset.y - center.y
+                        if (primaryAgent != null && centerDx * centerDx + centerDy * centerDy <= (centerRadius + 8f) * (centerRadius + 8f)) {
+                            onNodeClick(primaryAgent)
+                            return@detectTapGestures
+                        }
+                        visualNodes.forEachIndexed { i, node ->
+                            val c = nodeCenter(i, canvasW, canvasH, visualNodes.size)
                             val dx = offset.x - c.x
                             val dy = offset.y - c.y
                             if (dx * dx + dy * dy <= (nodeRadius + 8f) * (nodeRadius + 8f)) {
-                                onNodeClick(agents[i])
+                                node.agent?.let(onNodeClick)
                                 return@detectTapGestures
                             }
                         }
                     }
                 )
             }
-            .pointerInput(agents) {
+            .pointerInput(visualNodes) {
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
@@ -125,8 +177,8 @@ fun SwarmVisualization(
                             val canvasH = size.height.toFloat()
                             var newHovered = -1
                             var newPos: Offset? = null
-                            agents.forEachIndexed { i, _ ->
-                                val c = nodeCenter(i, canvasW, canvasH, agents.size)
+                            visualNodes.forEachIndexed { i, _ ->
+                                val c = nodeCenter(i, canvasW, canvasH, visualNodes.size)
                                 val dx = pos.x - c.x
                                 val dy = pos.y - c.y
                                 if (dx * dx + dy * dy <= (nodeRadius + 8f) * (nodeRadius + 8f)) { newHovered = i; newPos = c }
@@ -145,19 +197,19 @@ fun SwarmVisualization(
         val centerRadius = min(cx, cy) * 0.22f
 
         val conicColors = listOf(
-            Color(0xFFa78bfa), Color(0xFF60a5fa), Color(0xFF34d399),
-            Color(0xFFfbbf24), Color(0xFFfb923c), Color(0xFFa78bfa)
+            AgentClaude, AgentQwen, AgentGemini,
+            AgentKimi, AgentOpenCode, Ac2,
         )
         val sweepAngle = 360f / (conicColors.size - 1)
 
         // 中心 → 各卫星的虚线
-        agents.forEachIndexed { i, agent ->
-            val c = nodeCenter(i, canvasW, canvasH, agents.size)
-            val isConnected = agent.status == "connected"
-            val lineAlpha = if (isConnected) 0.5f else 0.2f
+        visualNodes.forEachIndexed { i, node ->
+            val c = nodeCenter(i, canvasW, canvasH, visualNodes.size)
+            val isActive = node.isActive()
+            val lineAlpha = if (isActive) 0.5f else 0.2f
             val lineWidth = if (i == hoveredIndex) 1.5f else 1f
             drawLine(
-                color = agentColor(i).copy(alpha = lineAlpha),
+                color = visualNodeColor(node, i).copy(alpha = lineAlpha),
                 start = Offset(cx, cy),
                 end = c,
                 strokeWidth = lineWidth,
@@ -185,47 +237,62 @@ fun SwarmVisualization(
         drawCircle(color = Ac.copy(alpha = 0.15f), radius = centerRadius + 10f, center = Offset(cx, cy))
         drawCircle(color = Bg1, radius = centerRadius - 4f, center = Offset(cx, cy))
 
-        // 中心六边形标识
+        // 中心主 Agent 标识
         val centerText = textMeasurer.measure(
-            "⬢",
+            primaryAgent?.config?.name?.let(::agentLetter) ?: "—",
             style = TextStyle(color = Tx, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = SansFont)
         )
         drawText(
             textLayoutResult = centerText,
             topLeft = Offset(cx - centerText.size.width / 2f, cy - centerText.size.height / 2f)
         )
+        val centerLabel = textMeasurer.measure(
+            primaryAgent?.config?.name ?: "等待主智能体",
+            style = TextStyle(color = Tx2, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont),
+        )
+        drawText(
+            textLayoutResult = centerLabel,
+            topLeft = Offset(cx - centerLabel.size.width / 2f, cy + centerRadius + 8f),
+        )
 
         // 卫星节点
-        agents.forEachIndexed { i, agent ->
-            val c = nodeCenter(i, canvasW, canvasH, agents.size)
-            val isConnected = agent.status == "connected"
-            val isInstalled = agent.status != "not_installed"
+        visualNodes.forEachIndexed { i, node ->
+            val c = nodeCenter(i, canvasW, canvasH, visualNodes.size)
+            val isActive = node.isActive()
             val alpha = when {
-                isConnected -> 1f
-                isInstalled -> 0.5f
-                else -> 0.35f
+                isActive -> 1f
+                node.status in setOf("disconnected", "pending", "blocked", "canceled") -> 0.5f
+                else -> 0.38f
             }
-            val color = agentColor(i)
-            val scale = if (i == hoveredIndex) 1.15f else 1f
-            val r = nodeRadius * scale
+            val color = visualNodeColor(node, i)
+            val isHovered = i == hoveredIndex
+            val foreground = if (isActive) OnAccent else Tx2.copy(alpha = 0.82f)
 
             // 在线节点外发光
-            if (isConnected) {
+            if (isActive) {
                 drawCircle(
-                    color = color.copy(alpha = if (i == hoveredIndex) 0.25f else 0.15f),
-                    radius = if (i == hoveredIndex) r + 14f else r + 10f,
+                    color = color.copy(alpha = if (isHovered) 0.24f else 0.15f),
+                    radius = nodeRadius + if (isHovered) 13f else 10f,
                     center = c
                 )
             }
             // 节点圆
-            drawCircle(color = color.copy(alpha = alpha), radius = r, center = c)
+            drawCircle(color = color.copy(alpha = alpha), radius = nodeRadius, center = c)
+            if (isHovered) {
+                drawCircle(
+                    color = Tx.copy(alpha = 0.72f),
+                    radius = nodeRadius + 2f,
+                    center = c,
+                    style = Stroke(width = 1.5f)
+                )
+            }
             // 字母
-            val letter = agentLetter(i)
+            val letter = if (node.kind == SwarmVisualNodeKind.TASK) "T" else agentLetter(node.label)
             val letterResult = textMeasurer.measure(
                 letter,
                 style = TextStyle(
-                    color = Color.White.copy(alpha = alpha),
-                    fontSize = if (i == hoveredIndex) 13.sp else 12.sp,
+                    color = foreground,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = SansFont
                 )
@@ -234,20 +301,28 @@ fun SwarmVisualization(
                 textLayoutResult = letterResult,
                 topLeft = Offset(c.x - letterResult.size.width / 2f, c.y - letterResult.size.height / 2f)
             )
+            val labelResult = textMeasurer.measure(
+                node.label.take(18),
+                style = TextStyle(color = Tx3.copy(alpha = alpha), fontSize = 9.sp, fontFamily = SansFont),
+            )
+            drawText(
+                textLayoutResult = labelResult,
+                topLeft = Offset(c.x - labelResult.size.width / 2f, c.y + nodeRadius + 5f),
+            )
         }
     }
         // 节点 hover tooltip（对齐核心稿 .swarm-node[data-tip]）
         val hp = hoveredPos
         if (hp != null && hoveredIndex >= 0) {
-            agents.getOrNull(hoveredIndex)?.let { agent ->
+            visualNodes.getOrNull(hoveredIndex)?.let { node ->
                 Popup(alignment = Alignment.TopStart, offset = IntOffset(hp.x.toInt(), (hp.y + 18).toInt())) {
                     Text(
-                        text = "${agent.config.name} · " + when (agent.status) { "connected" -> "在线"; "disconnected" -> "离线"; else -> "未安装" },
+                        text = "${node.label} · ${node.detail}",
                         color = Tx, fontSize = 11.sp, fontFamily = SansFont,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF0a0c14))
-                            .border(1.dp, Line2, RoundedCornerShape(6.dp))
+                            .clip(AppShapes.xs)
+                            .background(Bg2)
+                            .border(1.dp, Line2, AppShapes.xs)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
@@ -255,3 +330,16 @@ fun SwarmVisualization(
         }
     }
 }
+
+private fun SwarmVisualNode.isActive(): Boolean = status in setOf("connected", "running", "succeeded")
+
+private fun visualNodeColor(node: SwarmVisualNode, index: Int): Color = when {
+    node.kind == SwarmVisualNodeKind.PROFILE -> agentColor(index + 1)
+    node.status == SwarmTaskStatus.RUNNING.name.lowercase() -> AcLight
+    node.status == SwarmTaskStatus.SUCCEEDED.name.lowercase() -> OkLight
+    node.status == SwarmTaskStatus.FAILED.name.lowercase() -> ErrLight
+    node.status == SwarmTaskStatus.BLOCKED.name.lowercase() -> WarnLight
+    else -> Tx3
+}
+
+private const val MAX_VISUAL_NODES = 12

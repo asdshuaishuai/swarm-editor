@@ -3,17 +3,25 @@ package com.swarmeditor.desktop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +29,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,11 +38,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.WindowScope
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.CommandPalette
 import com.swarmeditor.desktop.ui.common.Command
@@ -45,6 +57,7 @@ import com.swarmeditor.desktop.ui.settings.SettingsModal
 import com.swarmeditor.desktop.ui.dialog.AgentConfigModal
 import com.swarmeditor.desktop.ui.dialog.McpConfigModal
 import com.swarmeditor.desktop.ui.session.RightPanel
+import com.swarmeditor.desktop.ui.session.TokenUsageSummary
 import com.swarmeditor.desktop.ui.chat.ChatArea
 import com.swarmeditor.desktop.ui.AgentSideBar
 import com.swarmeditor.desktop.ui.PluginSideBar
@@ -53,40 +66,88 @@ import com.swarmeditor.desktop.ui.agents.AgentOrchestrationView
 import com.swarmeditor.desktop.ui.plugins.PluginCenterView
 import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
+import com.swarmeditor.desktop.ui.files.DiffDrawer
 import com.swarmeditor.desktop.api.AgentDto
+import com.swarmeditor.desktop.api.McpServerDto
+import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.navigation.MainConfig
 import com.swarmeditor.desktop.navigation.DialogConfig
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.decompose.router.stack.active
 import com.swarmeditor.desktop.navigation.MainChild
+import com.swarmeditor.desktop.ui.layout.ShellLayout
+import com.swarmeditor.desktop.viewmodel.toAgentDto
+import com.swarmeditor.desktop.viewmodel.toConfig
+import com.swarmeditor.desktop.viewmodel.UiImageAttachment
+import com.swarmeditor.common.model.TokenUsage
+import com.swarmeditor.backend.pi.PiSessionStats
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
+import java.awt.Toolkit
+import java.awt.Desktop
+import java.awt.datatransfer.StringSelection
+import java.io.File
+import java.util.UUID
 
 @androidx.compose.runtime.Immutable
 data class AgentInfo(
     val id: String, val name: String, val emoji: String, val color: Color,
     val isConnected: Boolean = false, val version: String = "", val isSelected: Boolean = false,
-    val letter: String = name.firstOrNull()?.toString() ?: "?"
+    val letter: String = name.firstOrNull()?.toString() ?: "?",
+    val description: String = "",
+    val provider: String = "",
+    val model: String = "",
+    val enabled: Boolean = true
 )
 
 @Composable
-fun App(
+fun WindowScope.App(
     root: RootComponent,
     onClose: () -> Unit = {},
     onMinimize: () -> Unit = {},
     onMaximizeToggle: () -> Unit = {},
-    onDragWindow: (Float, Float) -> Unit = { _, _ -> }
+    onPickImages: () -> List<File> = { emptyList() },
+    droppedImageFiles: Flow<List<File>> = emptyFlow(),
+    clipboardHasImages: () -> Boolean = { false },
+    onReadClipboardImages: suspend () -> List<UiImageAttachment> = { emptyList() },
 ) {
     // ViewModels are now from RootComponent
     val agents by root.agentVm.agents.collectAsState()
+    val swarmRuns by root.swarmVm.runs.collectAsState()
     val sessions by root.sessionVm.sessions.collectAsState()
     val messages by root.sessionVm.messages.collectAsState()
+    val conversationActivities by root.sessionVm.activities.collectAsState()
+    val allActivities by root.sessionVm.allActivities.collectAsState()
+    val piRuntimeState by root.sessionVm.runtimeState.collectAsState()
+    val piRuntimeStats by root.sessionVm.runtimeStats.collectAsState()
+    val piCommands by root.sessionVm.piCommands.collectAsState()
+    val piModels by root.sessionVm.piModels.collectAsState()
+    val piSessionTree by root.sessionVm.piSessionTree.collectAsState()
+    val sessionTreeLoading by root.sessionVm.sessionTreeLoading.collectAsState()
+    val runtimeControlBusy by root.sessionVm.runtimeControlBusy.collectAsState()
+    val isCompacting by root.sessionVm.isCompacting.collectAsState()
+    val activitySessions by root.sessionVm.domainSessions.collectAsState()
     val isSending by root.sessionVm.isSending.collectAsState()
     val currentSessionId by root.sessionVm.currentSessionId.collectAsState()
     val mcpServers by root.mcpVm.servers.collectAsState()
     val skills by root.skillVm.skills.collectAsState()
+    val projectTree by root.projectVm.tree.collectAsState()
+    val isProjectLoading by root.projectVm.isLoading.collectAsState()
+    val projectTreeError by root.projectVm.treeError.collectAsState()
+    val projectFilePreview by root.projectVm.filePreview.collectAsState()
+    val themeMode by root.themeMode.collectAsState()
+    val gitStatus by root.gitVm.status.collectAsState()
+    val agentConfigFields by root.settingsVm.configFields.collectAsState()
+    val agentConfigPath by root.settingsVm.configPath.collectAsState()
     val stackState by root.stack.subscribeAsState()
     val currentConfig = stackState.active.configuration
     val currentChild = stackState.active.instance
+    val agentDtos = remember(agents) { agents.map { it.toAgentDto() } }
     // Toast: 从 Channel 收集到本地 mutableStateListOf（compose-skill Effect 模式）
     val toastList = remember { androidx.compose.runtime.mutableStateListOf<com.swarmeditor.desktop.viewmodel.ToastData>() }
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -94,46 +155,204 @@ fun App(
             toastList.add(toast)
         }
     }
+    LaunchedEffect(Unit) {
+        root.agentVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.swarmVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.sessionVm.errorEvents.collect { message -> root.showToast(message, ToastType.ERROR) }
+    }
+    LaunchedEffect(Unit) {
+        root.sessionVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.settingsVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.mcpVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.skillVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
     val dialogSlot by root.dialog.subscribeAsState()
     val dialog = dialogSlot.child?.configuration
+    var retainedAgentDialogId by remember { mutableStateOf<String?>(null) }
+    var retainedMcpDialogId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(dialog) {
+        when (dialog) {
+            is DialogConfig.AgentConfig -> retainedAgentDialogId = dialog.agentId
+            is DialogConfig.McpConfig -> retainedMcpDialogId = dialog.serverId
+            else -> Unit
+        }
+    }
+    LaunchedEffect(dialog) {
+        if (dialog == DialogConfig.CommandPalette) root.sessionVm.refreshPiCommands()
+    }
+    LaunchedEffect((dialog as? DialogConfig.AgentConfig)?.agentId) {
+        (dialog as? DialogConfig.AgentConfig)?.agentId?.let(root.settingsVm::selectAgent)
+    }
+    LaunchedEffect(currentSessionId, piRuntimeState?.sessionId) {
+        if (piRuntimeState != null) root.sessionVm.refreshPiModels()
+    }
     val hazeState = rememberHazeState()
 
     var showRightPanel by remember { mutableStateOf(true) }
-    var rightTab by remember { mutableStateOf("changes") }
+    var rightTab by remember {
+        mutableStateOf(
+            System.getProperty("swarm.rightTab")
+                ?.takeIf { it in setOf("changes", "inspector", "branches", "log", "tokens") }
+                ?: "changes"
+        )
+    }
+    var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
     var pluginSubTab by remember { mutableStateOf("mcp") }
     // 插件侧栏点击 → 切换到详情页（如 VS Code 插件页）
     var pluginSelectedItem by remember { mutableStateOf<com.swarmeditor.desktop.ui.plugins.PluginItem?>(null) }
     var inputText by remember { mutableStateOf("") }
+    var imageAttachments by remember { mutableStateOf<List<UiImageAttachment>>(emptyList()) }
+    var wasSending by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    LaunchedEffect(rightTab, currentSessionId) {
+        if (rightTab == "branches") root.sessionVm.refreshPiSessionTree()
+    }
+    val latestImageAttachments by rememberUpdatedState(imageAttachments)
+    val mcpExportJson = remember { Json { prettyPrint = true; encodeDefaults = true } }
+
+    LaunchedEffect(Unit) {
+        root.sessionVm.composerDraftEvents.collect { draft ->
+            inputText = draft
+            root.switchView("chat")
+        }
+    }
+    LaunchedEffect(gitStatus.changes, diffChange?.path) {
+        diffChange = diffChange?.let { selected -> gitStatus.changes.firstOrNull { it.path == selected.path } }
+    }
+
+    fun copyMcpConfiguration(server: McpServerDto) {
+        runCatching {
+            val content = mcpExportJson.encodeToString(server.toConfig())
+            Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(content), null)
+        }.fold(
+            onSuccess = { root.showToast("MCP 配置已复制") },
+            onFailure = { error -> root.showToast(error.message ?: "复制 MCP 配置失败", ToastType.ERROR) }
+        )
+    }
+
+    fun editSkill(skill: com.swarmeditor.desktop.api.SkillDto) {
+        runCatching {
+            check(Desktop.isDesktopSupported()) { "当前环境不支持系统编辑器" }
+            val path = File(skill.path)
+            val definition = if (path.isDirectory) File(path, "SKILL.md") else path
+            require(definition.isFile) { "未找到 ${definition.path}" }
+            val desktop = Desktop.getDesktop()
+            when {
+                desktop.isSupported(Desktop.Action.EDIT) -> desktop.edit(definition)
+                desktop.isSupported(Desktop.Action.OPEN) -> desktop.open(definition)
+                else -> error("系统不支持打开文件")
+            }
+        }.fold(
+            onSuccess = { root.showToast("已在系统编辑器打开 ${skill.name}") },
+            onFailure = { error -> root.showToast(error.message ?: "无法打开 Skill", ToastType.ERROR) }
+        )
+    }
+
+    fun addPreparedImages(added: List<UiImageAttachment>) {
+        root.sessionVm.mergeImageAttachments(latestImageAttachments, added).fold(
+            onSuccess = { imageAttachments = it },
+            onFailure = { error -> root.showToast(error.message ?: "无法添加图片", ToastType.ERROR) },
+        )
+    }
+
+    fun addImageFiles(files: List<File>) {
+        root.sessionVm.prepareImageAttachments(files.map(File::getAbsolutePath)).fold(
+            onSuccess = ::addPreparedImages,
+            onFailure = { error -> root.showToast(error.message ?: "无法添加图片", ToastType.ERROR) },
+        )
+    }
 
     LaunchedEffect(Unit) {
         root.agentVm.load()
         root.sessionVm.loadSessions()
         root.mcpVm.load()
         root.skillVm.load()
+        root.projectVm.load()
+        root.gitVm.refresh()
         // 截图/测试用：启动时打开指定浮层
         when (System.getProperty("swarm.modal")) {
             "settings" -> root.showSettingsDialog()
-            "agent" -> root.showAgentConfigDialog("claude-code")
+            "agent" -> root.showAgentConfigDialog(PRIMARY_AGENT_ID)
             "mcp" -> root.showMcpConfigDialog("github")
             "cmdk" -> root.showCmdKDialog()
         }
     }
+    LaunchedEffect(isSending) {
+        if (wasSending && !isSending) {
+            root.gitVm.refresh()
+            root.projectVm.load()
+        }
+        wasSending = isSending
+    }
+    LaunchedEffect(currentSessionId) {
+        imageAttachments = emptyList()
+    }
+    LaunchedEffect(droppedImageFiles) {
+        droppedImageFiles.collect { files ->
+            if (files.isNotEmpty()) addImageFiles(files)
+        }
+    }
+    LaunchedEffect(Unit) {
+        root.gitVm.errorEvents.collect { message -> root.showToast(message, ToastType.ERROR) }
+    }
 
     val selectedAgent = root.agentVm.selectedAgent.collectAsState().value
-        ?: AgentInfo("claude-code", "Claude Code", "🟣", AgentClaude, true, "1.0.0", true, "C")
+        ?: AgentInfo("", "主智能体未就绪", "", AgentClaude, false, "", true, "—")
     val derivedOnlineCount by root.agentVm.onlineCount.collectAsState()
     val derivedSessionTitle by root.sessionVm.currentSessionTitle.collectAsState()
+    val contextUsageText = piRuntimeStats?.let { stats ->
+        val used = stats.contextUsage?.tokens ?: stats.tokens.total
+        val window = stats.contextUsage?.contextWindow?.takeIf { it > 0 }
+            ?: piRuntimeState?.contextWindow?.takeIf { it > 0 }
+        if (window == null) "上下文：${formatTokenCount(used)}" else {
+            "上下文：${formatTokenCount(used)} / ${formatTokenCount(window.toLong())}"
+        }
+    } ?: "上下文：—"
+    val tokenUsageSummary = remember(activitySessions, swarmRuns, currentSessionId, piRuntimeStats) {
+        val currentStats = piRuntimeStats
+        val sessionUsage = activitySessions.fold(TokenUsage()) { total, session ->
+            val usage = if (session.id == currentSessionId && currentStats != null) {
+                currentStats.toTokenUsage()
+            } else {
+                session.tokenUsage
+            }
+            total + usage
+        }
+        val swarmUsage = swarmRuns
+            .flatMap { it.tasks }
+            .fold(TokenUsage()) { total, task -> total + task.tokenUsage }
+        TokenUsageSummary(total = sessionUsage + swarmUsage, sessions = sessionUsage, swarm = swarmUsage)
+    }
+    val createSession: () -> Unit = {
+        if (selectedAgent.id.isBlank()) root.showToast("主智能体尚未就绪", ToastType.ERROR)
+        else root.sessionVm.createSession(selectedAgent.id)
+    }
 
     val handleCommand: (Command) -> Unit = { cmd ->
         when (cmd.id) {
-            "new-session" -> root.sessionVm.createSession(selectedAgent.id)
+            "new-session" -> createSession()
             "open-settings" -> { root.showSettingsDialog() }
             "view-chat" -> root.switchView("chat")
             "view-agents" -> root.switchView("agents")
             "view-plugins" -> root.switchView("plugins")
             "view-files" -> root.switchView("files")
             "view-activity" -> root.switchView("activity")
-            else -> root.showToast("Command: ${cmd.name}")
+            else -> if (cmd.id.startsWith("agent-config:")) {
+                root.showAgentConfigDialog(cmd.id.removePrefix("agent-config:"))
+            } else if (cmd.id.startsWith("pi-command:")) {
+                inputText = "/${cmd.id.removePrefix("pi-command:")} "
+                root.switchView("chat")
+            }
         }
     }
 
@@ -143,15 +362,28 @@ fun App(
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
-                    keyEvent.isCtrlPressed && keyEvent.key == Key.K -> { root.showCmdKDialog(); true }
-                    keyEvent.isCtrlPressed && keyEvent.key == Key.Comma -> { root.showSettingsDialog(); true }
-                    keyEvent.isCtrlPressed -> when (keyEvent.key) {
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) &&
+                        keyEvent.key == Key.V && currentConfig == MainConfig.Chat && clipboardHasImages() -> {
+                        coroutineScope.launch {
+                            try {
+                                addPreparedImages(onReadClipboardImages())
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Throwable) {
+                                root.showToast(error.message ?: "无法读取剪贴板图片", ToastType.ERROR)
+                            }
+                        }
+                        true
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.K -> { root.showCmdKDialog(); true }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.Comma -> { root.showSettingsDialog(); true }
+                    keyEvent.isCtrlPressed || keyEvent.isMetaPressed -> when (keyEvent.key) {
                         Key.One -> { root.switchView("chat"); true }
                         Key.Two -> { root.switchView("agents"); true }
                         Key.Three -> { root.switchView("plugins"); true }
                         Key.Four -> { root.switchView("files"); true }
                         Key.Five -> { root.switchView("activity"); true }
-                        Key.N -> { root.sessionVm.createSession(selectedAgent.id); true }
+                        Key.N -> { createSession(); true }
                         Key.B -> { showRightPanel = !showRightPanel; true }
                         else -> false
                     }
@@ -171,130 +403,244 @@ fun App(
 
     Column(Modifier.fillMaxSize().hazeSource(hazeState).background(Bg0)) {
         // Enhanced TopBar — spans full width
-        EnhancedTopBar(
-            projectName = "swarm-editor",
-            branchName = "main",
-            agentCount = agents.ifEmpty { listOf(selectedAgent) }.size,
-            onlineCount = derivedOnlineCount,
-            unreadNotifications = 3,
-            onCmdK = { root.showCmdKDialog() },
-            onNotifications = { root.showToast("没有新通知", ToastType.INFO) },
-            onSettings = { root.showSettingsDialog() },
-            onUserAvatar = { root.showToast("Swarmer", ToastType.INFO) },
-            onProjectSwitcher = { root.showToast("项目切换器", ToastType.INFO) },
-            onSwarmStatus = { root.switchView("agents") },
-            onClose = onClose,
-            onMinimize = onMinimize,
-            onMaximizeToggle = onMaximizeToggle,
-            onDragWindow = onDragWindow
-        )
+        WindowDraggableArea(Modifier.fillMaxWidth()) {
+            EnhancedTopBar(
+                projectName = File(root.projectVm.projectPath).name,
+                branchName = gitStatus.branch.ifBlank { "—" },
+                agentCount = agents.size,
+                onlineCount = derivedOnlineCount,
+                agentAvatars = agents.map { com.swarmeditor.desktop.ui.navigation.TopBarAgentAvatar(it.letter, it.color) },
+                currentAgentLetter = selectedAgent.letter,
+                currentAgentColor = selectedAgent.color,
+                unreadNotifications = 0,
+                onCmdK = { root.showCmdKDialog() },
+                onNotifications = { root.switchView("activity") },
+                onSettings = { root.showSettingsDialog() },
+                onUserAvatar = {
+                    if (selectedAgent.id.isBlank()) root.showSettingsDialog()
+                    else root.showAgentConfigDialog(selectedAgent.id)
+                },
+                onProjectSwitcher = { root.switchView("files") },
+                onSwarmStatus = { root.switchView("agents") },
+                onClose = onClose,
+                onMinimize = onMinimize,
+                onMaximizeToggle = onMaximizeToggle,
+            )
+        }
 
         // Main content: Rail | SessionPanel | Center | RightPanel
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            // Left Rail Navigation
-            RailNavigation(
-                currentView = when (currentConfig) {
-                    MainConfig.Chat -> "chat"
-                    MainConfig.Agents -> "agents"
-                    MainConfig.Plugins -> "plugins"
-                    MainConfig.Files -> "files"
-                    MainConfig.Activity -> "activity"
-                },
-                onSwitchView = { root.switchView(it) },
-                onOpenGit = { root.showToast("Git: 3 commits ahead") },
-                onOpenTerminal = { root.showToast("终端功能即将上线") },
-                modifier = Modifier.fillMaxHeight()
-            )
-
-            // 左侧栏：按视图切换（对齐核心稿 renderSide）
-            when (currentConfig) {
-                MainConfig.Chat -> SessionPanel(
-                    selectedAgent = selectedAgent,
-                    sessions = sessions,
-                    currentSessionId = currentSessionId,
-                    onSelectSession = { root.sessionVm.selectSession(it) },
-                    onCreateSession = { root.sessionVm.createSession(selectedAgent.id) },
-                    modifier = Modifier.width(260.dp).fillMaxHeight(),
-                    agents = agents
-                )
-                MainConfig.Agents -> AgentSideBar(
-                    agents = agents,
-                    onSelect = { root.showAgentConfigDialog(it.id) },
-                    onAdd = { root.showToast("添加 Agent 向导即将上线") },
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val shellLayout = ShellLayout.forWidth(maxWidth.value.toInt())
+            Row(Modifier.fillMaxSize()) {
+                RailNavigation(
+                    currentView = when (currentConfig) {
+                        MainConfig.Chat -> "chat"
+                        MainConfig.Agents -> "agents"
+                        MainConfig.Plugins -> "plugins"
+                        MainConfig.Files -> "files"
+                        MainConfig.Activity -> "activity"
+                    },
+                    onSwitchView = { root.switchView(it) },
+                    onOpenGit = { root.switchView("files") },
                     modifier = Modifier.fillMaxHeight()
                 )
-                MainConfig.Plugins -> PluginSideBar(
-                    mcpServers = mcpServers,
-                    skills = skills,
-                    onSelectMcp = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp(it) },
-                    onSelectSkill = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Skill(it) },
-                    onAdd = { root.showToast("添加插件") },
-                    activeTab = pluginSubTab,
-                    onTabChange = { pluginSubTab = it },
-                    selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
-                    selectedSkillId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Skill)?.skill?.id,
-                    modifier = Modifier.fillMaxHeight()
-                )
-                else -> {}
-            }
 
-            // Center content + Right panel
-            Row(Modifier.weight(1f).fillMaxHeight()) {
-                Crossfade(
-                    targetState = currentConfig,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    animationSpec = tween(450, delayMillis = 30, easing = FastOutSlowInEasing),
-                    label = "viewSwitch"
-                ) { view ->
-                    when (view) {
-                        MainConfig.Chat -> {
-                            ChatArea(
-                                selectedAgent = selectedAgent, messages = messages, isSending = isSending,
-                                inputText = inputText, onInputChange = { inputText = it },
-                                onSend = { root.sessionVm.sendMessage(inputText, selectedAgent.id); inputText = "" },
+                AnimatedVisibility(
+                    visible = shellLayout.showLeftSidebar && currentConfig in setOf(MainConfig.Chat, MainConfig.Plugins),
+                    enter = fadeIn(Motion.alphaEnter) + expandHorizontally(
+                        expandFrom = Alignment.Start,
+                        animationSpec = Motion.intSizeExpand,
+                    ),
+                    exit = fadeOut(Motion.alphaExit) + shrinkHorizontally(
+                        shrinkTowards = Alignment.Start,
+                        animationSpec = Motion.intSizeCollapse,
+                    ),
+                ) {
+                    AnimatedContent(
+                        targetState = currentConfig,
+                        modifier = Modifier.width(shellLayout.leftSidebarWidth.dp).fillMaxHeight(),
+                        transitionSpec = {
+                            val direction = mainConfigMotionIndex(targetState).compareTo(mainConfigMotionIndex(initialState))
+                            (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 8 }) togetherWith
+                                (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
+                        },
+                        label = "leftSidebarContent",
+                    ) { sidebarConfig ->
+                        when (sidebarConfig) {
+                            MainConfig.Chat -> SessionPanel(
+                                selectedAgent = selectedAgent,
+                                sessions = sessions,
+                                currentSessionId = currentSessionId,
+                                onSelectSession = { root.sessionVm.selectSession(it) },
+                                onCreateSession = createSession,
                                 modifier = Modifier.fillMaxSize(),
                                 agents = agents,
-                                sessionTitle = derivedSessionTitle ?: selectedAgent.name,
-                                onSelectAgent = { root.agentVm.selectAgent(it) },
-                                onMcpClick = { root.switchView("plugins") },
-                                onSkillClick = { root.switchView("plugins") }
                             )
-                        }
-                        MainConfig.Agents -> {
-                            AgentOrchestrationView(
-                                agents = emptyList(),
-                                onConfigClick = { root.showAgentConfigDialog(it.config.id) },
-                                onAddAgent = { root.showToast("Add Agent clicked") },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        MainConfig.Plugins -> {
-                            PluginCenterView(
+                            MainConfig.Plugins -> PluginSideBar(
                                 mcpServers = mcpServers,
                                 skills = skills,
-                                modifier = Modifier.fillMaxSize(),
+                                onSelectMcp = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp(it) },
+                                onSelectSkill = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Skill(it) },
+                                onAdd = {
+                                    if (pluginSubTab == "mcp") {
+                                        root.showMcpConfigDialog(UUID.randomUUID().toString())
+                                    } else {
+                                        root.skillVm.scan()
+                                    }
+                                },
                                 activeTab = pluginSubTab,
-                                selectedItem = pluginSelectedItem,
-                                onSelectedItemChange = { pluginSelectedItem = it }
+                                onTabChange = { pluginSubTab = it },
+                                selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
+                                selectedSkillId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Skill)?.skill?.id,
+                                modifier = Modifier.fillMaxSize(),
                             )
-                        }
-                        MainConfig.Files -> {
-                            FileExplorerView(modifier = Modifier.fillMaxSize())
-                        }
-                        MainConfig.Activity -> {
-                            ActivityLogView(
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            else -> Unit
                         }
                     }
                 }
 
-                if (showRightPanel) {
-                    RightPanel(
-                        selectedAgent = selectedAgent, currentTab = rightTab, onTabChange = { rightTab = it },
-                        mcpServers = mcpServers, skills = skills,
-                        modifier = Modifier.width(320.dp).fillMaxHeight()
-                    )
+                Row(Modifier.weight(1f).fillMaxHeight()) {
+                    AnimatedContent(
+                        targetState = currentConfig,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        transitionSpec = {
+                            val direction = mainConfigMotionIndex(targetState).compareTo(mainConfigMotionIndex(initialState))
+                            (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
+                                (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 7 })
+                        },
+                        label = "mainWorkspaceContent",
+                    ) { workspaceConfig ->
+                        Box(Modifier.fillMaxSize()) {
+                        when (workspaceConfig) {
+                            MainConfig.Chat -> ChatArea(
+                                selectedAgent = selectedAgent,
+                                messages = messages,
+                                isSending = isSending,
+                                inputText = inputText,
+                                attachments = imageAttachments,
+                                onInputChange = { inputText = it },
+                                onSend = {
+                                    when {
+                                        selectedAgent.id.isBlank() -> root.showToast("主智能体尚未就绪", ToastType.ERROR)
+                                        !selectedAgent.isConnected -> root.showToast("请先连接 ${selectedAgent.name}", ToastType.ERROR)
+                                        root.sessionVm.sendMessage(inputText, selectedAgent.id, imageAttachments) -> {
+                                            inputText = ""
+                                            imageAttachments = emptyList()
+                                        }
+                                    }
+                                },
+                                onAttach = {
+                                    runCatching { onPickImages() }
+                                        .onFailure { root.showToast(it.message ?: "选择图片失败", ToastType.ERROR) }
+                                        .onSuccess { files ->
+                                            if (files.isNotEmpty()) addImageFiles(files)
+                                        }
+                                },
+                                onRemoveAttachment = { id ->
+                                    imageAttachments = imageAttachments.filterNot { it.id == id }
+                                },
+                                onCancel = root.sessionVm::cancelSending,
+                                modifier = Modifier.fillMaxSize(),
+                                agents = agents,
+                                sessionTitle = derivedSessionTitle ?: selectedAgent.name,
+                                contextUsageText = contextUsageText,
+                                onSelectAgent = { root.agentVm.selectAgent(it) },
+                                onMcpClick = { root.switchView("plugins") },
+                                onSkillClick = { root.switchView("plugins") }
+                            )
+                            MainConfig.Agents -> AgentOrchestrationView(
+                                agents = agentDtos,
+                                swarmRuns = swarmRuns,
+                                onStartSwarm = { objective ->
+                                    root.swarmVm.createAndStart(objective, selectedAgent.id)
+                                },
+                                onCancelSwarm = root.swarmVm::cancel,
+                                onRetrySwarm = root.swarmVm::retry,
+                                onRefresh = { root.agentVm.scan() },
+                                onConfigClick = { root.showAgentConfigDialog(it.config.id) },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            MainConfig.Plugins -> PluginCenterView(
+                                mcpServers = mcpServers,
+                                skills = skills,
+                                agents = agents,
+                                modifier = Modifier.fillMaxSize(),
+                                activeTab = pluginSubTab,
+                                selectedItem = pluginSelectedItem,
+                                onSelectedItemChange = { pluginSelectedItem = it },
+                                onRefresh = {
+                                    if (pluginSubTab == "mcp") root.mcpVm.reload() else root.skillVm.scan()
+                                },
+                                onAddMcp = {
+                                    root.showMcpConfigDialog(UUID.randomUUID().toString())
+                                },
+                                onConfigureMcp = root::showMcpConfigDialog,
+                                onCopyMcp = ::copyMcpConfiguration,
+                                onDeleteMcp = root.mcpVm::delete,
+                                onEditSkill = ::editSkill,
+                            )
+                            MainConfig.Files -> FileExplorerView(
+                                tree = projectTree,
+                                isLoading = isProjectLoading,
+                                error = projectTreeError,
+                                onRefresh = { root.projectVm.load() },
+                                gitStatus = gitStatus,
+                                filePreview = projectFilePreview,
+                                onSelectFile = root.projectVm::selectFile,
+                                onSaveFile = root.projectVm::saveFile,
+                                onOpenDiff = { diffChange = it },
+                                projectPath = root.projectVm.projectPath,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            MainConfig.Activity -> ActivityLogView(
+                                sessions = activitySessions,
+                                activities = allActivities,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = shellLayout.shouldMountRightPanel(showRightPanel, currentConfig == MainConfig.Chat),
+                        enter = fadeIn(Motion.alphaEnter) + expandHorizontally(
+                            expandFrom = Alignment.End,
+                            animationSpec = Motion.intSizeExpand,
+                        ),
+                        exit = fadeOut(Motion.alphaExit) + shrinkHorizontally(
+                            shrinkTowards = Alignment.End,
+                            animationSpec = Motion.intSizeCollapse,
+                        ),
+                    ) {
+                        RightPanel(
+                            currentTab = rightTab,
+                            onTabChange = { rightTab = it },
+                            gitStatus = gitStatus,
+                            activities = conversationActivities,
+                            piRuntimeState = piRuntimeState,
+                            piRuntimeStats = piRuntimeStats,
+                            piModels = piModels,
+                            piSessionTree = piSessionTree,
+                            sessionTreeLoading = sessionTreeLoading,
+                            runtimeControlBusy = runtimeControlBusy,
+                            isCompacting = isCompacting,
+                            tokenUsageSummary = tokenUsageSummary,
+                            onCompactContext = root.sessionVm::compactCurrentSession,
+                            onRefreshModels = root.sessionVm::refreshPiModels,
+                            onSetModel = root.sessionVm::setPiModel,
+                            onSetThinkingLevel = root.sessionVm::setPiThinkingLevel,
+                            onRefreshSessionTree = root.sessionVm::refreshPiSessionTree,
+                            onForkSession = root.sessionVm::forkPiSession,
+                            onCloneSession = root.sessionVm::clonePiSession,
+                            onSynchronizeSession = root.sessionVm::synchronizePiSession,
+                            onExportSession = root.sessionVm::exportPiSessionHtml,
+                            onStageFile = root.gitVm::stage,
+                            onStageAll = root.gitVm::stageAll,
+                            onUnstageFile = root.gitVm::unstage,
+                            onOpenDiff = { diffChange = it },
+                            modifier = Modifier.width(shellLayout.rightPanelWidth.dp).fillMaxHeight()
+                        )
+                    }
                 }
             }
         }
@@ -306,35 +652,75 @@ fun App(
             isConnected = selectedAgent.isConnected,
             mcpCount = mcpServers.size,
             skillCount = skills.size,
-            gitStagedAdd = 3,
-            gitStagedDel = 1,
-            gitModified = 2,
-            gitUntracked = 1
+            branch = gitStatus.branch.ifBlank { "—" },
+            gitStagedAdd = gitStatus.staged,
+            gitStagedDel = 0,
+            gitModified = gitStatus.modified,
+            gitUntracked = gitStatus.untracked
         )
     }
 
-    if (dialog == DialogConfig.Settings) {
+    DiffDrawer(
+        change = diffChange,
+        onDismiss = { diffChange = null },
+        onStage = root.gitVm::stage,
+        onUnstage = root.gitVm::unstage,
+    )
+
+    AnimatedVisibility(
+        visible = dialog == DialogConfig.Settings,
+        enter = fadeIn(Motion.alphaEnter),
+        exit = fadeOut(Motion.alphaExit),
+    ) {
         SettingsModal(
             agents = agents.ifEmpty { listOf(selectedAgent) },
             settingsVm = root.settingsVm,
             onClose = { root.closeDialog() },
             mcpServers = mcpServers,
-            skills = skills
+            skills = skills,
+            themeMode = themeMode,
+            onThemeChange = root::setTheme,
+            onDefaultAgentChange = root.agentVm::selectAgent,
+            projectPath = root.projectVm.projectPath,
+            onRefreshMcp = root.mcpVm::reload,
+            onAddMcp = { root.showMcpConfigDialog(UUID.randomUUID().toString()) },
+            onEditMcp = root::showMcpConfigDialog
         )
     }
 
-    if (dialog is DialogConfig.AgentConfig) {
+    AnimatedVisibility(
+        visible = dialog is DialogConfig.AgentConfig,
+        enter = fadeIn(Motion.alphaEnter),
+        exit = fadeOut(Motion.alphaExit),
+    ) {
         AgentConfigModal(
-            agentId = (dialog as DialogConfig.AgentConfig).agentId,
+            agentId = retainedAgentDialogId,
+            visible = dialog is DialogConfig.AgentConfig,
             agents = agents,
+            configFields = agentConfigFields,
+            configPath = agentConfigPath,
+            onSave = { fields ->
+                root.settingsVm.saveFields(fields)
+                retainedAgentDialogId?.let(root.agentVm::selectAgent)
+            },
+            onConnect = { root.agentVm.connect(it) },
+            onDisconnect = { root.agentVm.disconnect(it) },
             onDismiss = { root.closeDialog() }
         )
     }
 
-    if (dialog is DialogConfig.McpConfig) {
+    AnimatedVisibility(
+        visible = dialog is DialogConfig.McpConfig,
+        enter = fadeIn(Motion.alphaEnter),
+        exit = fadeOut(Motion.alphaExit),
+    ) {
         McpConfigModal(
-            serverId = (dialog as DialogConfig.McpConfig).serverId,
+            serverId = retainedMcpDialogId,
+            visible = dialog is DialogConfig.McpConfig,
             servers = mcpServers,
+            agents = agents,
+            onSave = root.mcpVm::upsert,
+            onDelete = root.mcpVm::delete,
             onDismiss = { root.closeDialog() }
         )
     }
@@ -344,7 +730,8 @@ fun App(
         hazeState = hazeState,
         onDismiss = { root.closeDialog() },
         onCommand = handleCommand,
-        agentNames = agents.map { it.name }
+        agents = agents,
+        piCommands = piCommands,
     )
 
     ToastHost(
@@ -353,3 +740,26 @@ fun App(
     )
     }
 }
+
+private fun formatTokenCount(tokens: Long): String = when {
+    tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
+    tokens >= 1_000 -> "%.1fK".format(tokens / 1_000.0)
+    else -> tokens.toString()
+}
+
+private fun mainConfigMotionIndex(config: MainConfig): Int = when (config) {
+    MainConfig.Chat -> 0
+    MainConfig.Agents -> 1
+    MainConfig.Plugins -> 2
+    MainConfig.Files -> 3
+    MainConfig.Activity -> 4
+}
+
+private fun PiSessionStats.toTokenUsage() = TokenUsage(
+    input = tokens.input,
+    output = tokens.output,
+    cacheRead = tokens.cacheRead,
+    cacheWrite = tokens.cacheWrite,
+    total = tokens.total,
+    cost = cost,
+)

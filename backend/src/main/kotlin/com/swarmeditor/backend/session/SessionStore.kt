@@ -1,17 +1,26 @@
 package com.swarmeditor.backend.session
 
+import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.common.model.*
+import com.swarmeditor.backend.storage.atomicWriteText
+import com.swarmeditor.backend.storage.isSafePersistedId
+import com.swarmeditor.backend.storage.persistedJsonFile
+import com.swarmeditor.backend.storage.quarantineCorruptFile
+import com.swarmeditor.backend.storage.readBoundedUtf8
+import com.swarmeditor.backend.storage.requireUtf8Size
 import io.github.oshai.kotlinlogging.KotlinLogging
+import java.io.File
+import java.util.UUID as JavaUUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.Instant
-import java.time.Instant as JavaInstant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.File
-import java.util.UUID as JavaUUID
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 private val log = KotlinLogging.logger {}
 
@@ -19,69 +28,244 @@ private val log = KotlinLogging.logger {}
 private data class SessionFile(
     val id: String, val agentId: String, val title: String = "",
     val createdAt: String, val updatedAt: String,
-    val messages: List<MessageFile> = emptyList(), val status: String = "active"
+    val messages: List<MessageFile> = emptyList(), val status: String = "active",
+    val remoteSessionId: String? = null,
+    val tokenUsage: TokenUsage = TokenUsage(),
 )
 
 @Serializable
 private data class MessageFile(
     val id: String, val role: String,
-    val content: List<ContentBlockFile>, val createdAt: String
+    val content: List<ContentBlock>, val createdAt: String
 )
 
-@Serializable
-private data class ContentBlockFile(val type: String = "text", val text: String = "")
-
-class SessionStore(private val dataDir: File) {
+@OptIn(ExperimentalTime::class)
+class SessionStore(
+    private val dataDir: File,
+    private val maxFileBytes: Long = 128L * 1024 * 1024,
+) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
     private val mutex = Mutex()
     private val sessions = mutableMapOf<String, Session>()
 
-    init { dataDir.mkdirs() }
+    init {
+        require(maxFileBytes > 0) { "maxFileBytes must be positive" }
+        dataDir.mkdirs()
+    }
 
     suspend fun load() = withContext(Dispatchers.IO) {
-        dataDir.listFiles()?.filter { it.extension == "json" }?.forEach { file ->
-            try {
-                val sf = json.decodeFromString(SessionFile.serializer(), file.readText())
-                sessions[sf.id] = sf.toSession()
-            } catch (e: Exception) { log.warn { "Failed to load session ${file.name}: ${e.message}" } }
+        val loaded = dataDir.listFiles()
+            ?.filter { it.isFile && it.extension == "json" }
+            ?.mapNotNull { file ->
+                val decoded = try {
+                    val sf = json.decodeFromString(SessionFile.serializer(), file.readBoundedUtf8(maxFileBytes))
+                    require(sf.id.isSafePersistedId() && sf.id == file.nameWithoutExtension) {
+                        "Unsafe or mismatched session id"
+                    }
+                    val normalized = if (sf.agentId == AgentRegistry.DEFAULT_AGENT_ID) {
+                        sf
+                    } else {
+                        sf.copy(agentId = AgentRegistry.DEFAULT_AGENT_ID)
+                    }
+                    Triple(sf, normalized, normalized.toSession())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    val quarantined = try {
+                        file.quarantineCorruptFile()
+                    } catch (quarantineError: Exception) {
+                        quarantineError.addSuppressed(error)
+                        throw quarantineError
+                    }
+                    log.warn {
+                        "Quarantined unreadable session ${file.name} to ${quarantined.name}: ${error.message}"
+                    }
+                    return@mapNotNull null
+                }
+                val (original, normalized, session) = decoded
+                if (normalized !== original) {
+                    try {
+                        val content = json.encodeToString(SessionFile.serializer(), normalized)
+                            .requireUtf8Size(maxFileBytes, "Session data")
+                        file.atomicWriteText(content)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        log.warn { "Failed to persist migrated session ${file.name}: ${error.message}" }
+                    }
+                }
+                normalized.id to session
+            }
+            .orEmpty()
+        mutex.withLock {
+            sessions.clear()
+            loaded.forEach { (id, session) -> sessions[id] = session }
         }
         log.info { "Loaded ${sessions.size} sessions" }
     }
 
     suspend fun create(agentId: String, title: String): Session = mutex.withLock {
-        val now = Instant.parse(JavaInstant.now().toString())
-        val session = Session(id = JavaUUID.randomUUID().toString().take(8), agentId = agentId, createdAt = now, updatedAt = now, status = SessionStatus.ACTIVE)
+        require(agentId == AgentRegistry.DEFAULT_AGENT_ID) { "会话只能使用内置 Pi Agent" }
+        val now = Clock.System.now()
+        val session = Session(
+            id = JavaUUID.randomUUID().toString().take(8),
+            agentId = agentId,
+            title = title,
+            createdAt = now,
+            updatedAt = now,
+            status = SessionStatus.ACTIVE
+        )
         sessions[session.id] = session
-        saveToFile(session)
+        try {
+            saveToFile(session)
+        } catch (error: Throwable) {
+            sessions.remove(session.id)
+            throw error
+        }
         session
     }
 
     suspend fun get(id: String): Session? = mutex.withLock { sessions[id] }
     suspend fun getAll(): List<Session> = mutex.withLock { sessions.values.sortedByDescending { it.updatedAt } }
 
-    suspend fun addMessage(sessionId: String, role: MessageRole, text: String): Message? = mutex.withLock {
+    suspend fun addMessage(sessionId: String, role: MessageRole, content: List<ContentBlock>): Message? = mutex.withLock {
         val session = sessions[sessionId] ?: return@withLock null
-        val now = Instant.parse(JavaInstant.now().toString())
-        val message = Message(id = JavaUUID.randomUUID().toString().take(8), role = role, content = listOf(ContentBlock(type = "text", text = text)), createdAt = now)
+        val now = Clock.System.now()
+        val message = Message(id = JavaUUID.randomUUID().toString().take(8), role = role, content = content, createdAt = now)
         val updated = session.copy(messages = session.messages + message, updatedAt = now)
         sessions[sessionId] = updated
-        saveToFile(updated)
+        try {
+            saveToFile(updated)
+        } catch (error: Throwable) {
+            sessions[sessionId] = session
+            throw error
+        }
         message
     }
 
+    suspend fun associateRemoteSession(id: String, remoteSessionId: String) = mutex.withLock {
+        val session = sessions[id] ?: return@withLock
+        val updated = session.copy(
+            remoteSessionId = remoteSessionId,
+            updatedAt = Clock.System.now()
+        )
+        sessions[id] = updated
+        try {
+            saveToFile(updated)
+        } catch (error: Throwable) {
+            sessions[id] = session
+            throw error
+        }
+    }
+
+    suspend fun applyRemoteBranch(
+        id: String,
+        remoteSessionId: String,
+        messages: List<Message>,
+    ): Pair<Session, Session> = mutex.withLock {
+        applyRemoteBranchLocked(id, remoteSessionId, messages)
+    }
+
+    suspend fun reconcileRemoteSession(
+        id: String,
+        remoteSessionId: String,
+        messages: List<Message>,
+    ): Pair<Session, Session?> = mutex.withLock {
+        val original = sessions[id] ?: error("Session not found: $id")
+        if (original.remoteSessionId != remoteSessionId) {
+            return@withLock applyRemoteBranchLocked(id, remoteSessionId, messages)
+        }
+        if (original.messages == messages) return@withLock original to null
+
+        val synchronized = original.copy(messages = messages, updatedAt = Clock.System.now())
+        sessions[id] = synchronized
+        try {
+            saveToFile(synchronized)
+        } catch (error: Throwable) {
+            sessions[id] = original
+            throw error
+        }
+        synchronized to null
+    }
+
+    private suspend fun applyRemoteBranchLocked(
+        id: String,
+        remoteSessionId: String,
+        messages: List<Message>,
+    ): Pair<Session, Session> {
+        val original = sessions[id] ?: error("Session not found: $id")
+        val now = Clock.System.now()
+        var backupId: String
+        do {
+            backupId = JavaUUID.randomUUID().toString().take(8)
+        } while (sessions.containsKey(backupId))
+        val backup = original.copy(
+            id = backupId,
+            title = "${original.title.ifBlank { "Session" }} · 原分支",
+            updatedAt = now,
+        )
+        val branched = original.copy(
+            remoteSessionId = remoteSessionId,
+            messages = messages,
+            updatedAt = now,
+        )
+        sessions[backup.id] = backup
+        sessions[id] = branched
+        try {
+            saveToFile(backup)
+            saveToFile(branched)
+        } catch (error: Throwable) {
+            sessions.remove(backup.id)
+            sessions[id] = original
+            withContext(Dispatchers.IO) { dataDir.persistedJsonFile(backup.id).delete() }
+            throw error
+        }
+        return branched to backup
+    }
+
+    suspend fun updateTokenUsage(id: String, tokenUsage: TokenUsage) = mutex.withLock {
+        val session = sessions[id] ?: return@withLock
+        val updated = session.copy(tokenUsage = tokenUsage, updatedAt = Clock.System.now())
+        sessions[id] = updated
+        try {
+            saveToFile(updated)
+        } catch (error: Throwable) {
+            sessions[id] = session
+            throw error
+        }
+    }
+
     suspend fun close(id: String) = mutex.withLock {
-        sessions[id]?.let { s -> val u = s.copy(status = SessionStatus.CLOSED, updatedAt = Instant.parse(JavaInstant.now().toString())); sessions[id] = u; saveToFile(u) }
+        sessions[id]?.let { session ->
+            val updated = session.copy(status = SessionStatus.CLOSED, updatedAt = Clock.System.now())
+            sessions[id] = updated
+            try {
+                saveToFile(updated)
+            } catch (error: Throwable) {
+                sessions[id] = session
+                throw error
+            }
+        }
     }
 
     private suspend fun saveToFile(session: Session) = withContext(Dispatchers.IO) {
-        try { File(dataDir, "${session.id}.json").writeText(json.encodeToString(SessionFile.serializer(), session.toFile())) }
-        catch (e: Exception) { log.error { "Failed to save session ${session.id}: ${e.message}" } }
+        try {
+            val content = json.encodeToString(SessionFile.serializer(), session.toFile())
+                .requireUtf8Size(maxFileBytes, "Session data")
+            dataDir.persistedJsonFile(session.id).atomicWriteText(content)
+        } catch (error: Throwable) {
+            log.error { "Failed to save session ${session.id}: ${error.message}" }
+            throw error
+        }
     }
 }
 
-private fun SessionFile.toSession() = Session(id = id, agentId = agentId, createdAt = Instant.parse(createdAt), updatedAt = Instant.parse(updatedAt),
-    messages = messages.map { Message(it.id, when(it.role){"user"->MessageRole.USER;"assistant"->MessageRole.ASSISTANT;else->MessageRole.SYSTEM}, it.content.map{c->ContentBlock(c.type,c.text)}, Instant.parse(it.createdAt)) },
-    status = when(status){"closed"->SessionStatus.CLOSED;"archived"->SessionStatus.ARCHIVED;else->SessionStatus.ACTIVE})
+private fun SessionFile.toSession() = Session(id = id, agentId = agentId, title = title, createdAt = Instant.parse(createdAt), updatedAt = Instant.parse(updatedAt),
+    messages = messages.map { Message(it.id, when(it.role){"user"->MessageRole.USER;"assistant"->MessageRole.ASSISTANT;else->MessageRole.SYSTEM}, it.content, Instant.parse(it.createdAt)) },
+    status = when(status){"closed"->SessionStatus.CLOSED;"archived"->SessionStatus.ARCHIVED;else->SessionStatus.ACTIVE},
+    remoteSessionId = remoteSessionId,
+    tokenUsage = tokenUsage)
 
-private fun Session.toFile() = SessionFile(id = id, agentId = agentId, createdAt = createdAt.toString(), updatedAt = updatedAt.toString(),
-    messages = messages.map { MessageFile(it.id, it.role.name.lowercase(), it.content.map{c->ContentBlockFile(c.type,c.text)}, it.createdAt.toString()) }, status = status.name.lowercase())
+private fun Session.toFile() = SessionFile(id = id, agentId = agentId, title = title, createdAt = createdAt.toString(), updatedAt = updatedAt.toString(),
+    messages = messages.map { MessageFile(it.id, it.role.name.lowercase(), it.content, it.createdAt.toString()) }, status = status.name.lowercase(),
+    remoteSessionId = remoteSessionId, tokenUsage = tokenUsage)

@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.activity
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -68,13 +70,14 @@ fun EventTimeline(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .background(Bg2)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StatChip(icon = "⏱", label = "耗时", value = stats.duration)
-                StatChip(icon = "📋", label = "事件", value = stats.eventCount.toString())
-                StatChip(icon = "🔢", label = "Token", value = stats.tokenCount)
-                StatChip(icon = "🤖", label = "Agent", value = stats.agentName)
+                StatChip(label = "耗时", value = stats.duration)
+                StatChip(label = "事件", value = stats.eventCount.toString())
+                StatChip(label = "Token", value = stats.tokenCount)
+                StatChip(label = "执行核心", value = stats.agentName)
             }
         }
 
@@ -88,12 +91,51 @@ fun EventTimeline(
             }
 
             if (filtered.isEmpty()) {
-                item {
+                item(key = "empty") {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                        contentAlignment = Alignment.Center
+                        modifier = Modifier.fillParentMaxSize().padding(24.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text("暂无事件", color = Tx3, fontSize = 12.sp)
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 460.dp)
+                                .clip(AppShapes.lg)
+                                .background(Bg2)
+                                .border(1.dp, Line2, AppShapes.lg)
+                                .padding(22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(AppShapes.pill)
+                                    .background(ControlPurple.withAlpha(0.12f))
+                                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    if (filter == "全部") "等待活动" else "$filter 筛选",
+                                    color = ControlPurple,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                if (events.isEmpty()) "此会话暂无活动记录" else "当前筛选没有匹配事件",
+                                color = Tx,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                if (filter == "全部") {
+                                    "主智能体调用工具、修改文件或执行命令后，事件会按时间顺序显示在这里。"
+                                } else {
+                                    "切换到“全部”查看该会话的完整执行历史。"
+                                },
+                                color = Tx3,
+                                fontSize = 12.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -102,16 +144,15 @@ fun EventTimeline(
 }
 
 @Composable
-private fun StatChip(icon: String, label: String, value: String) {
+private fun StatChip(label: String, value: String) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(Bg3)
+            .border(1.dp, Line, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = icon, fontSize = 10.sp)
-        Spacer(Modifier.width(4.dp))
         Text(text = label, color = Tx3, fontSize = 10.sp)
         Spacer(Modifier.width(3.dp))
         Text(text = value, color = Tx, fontSize = 10.sp, fontWeight = FontWeight.Medium)
@@ -130,7 +171,7 @@ private fun TimelineEntry(event: TimelineEvent) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .padding(vertical = 3.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Timeline column: dot + line
@@ -158,7 +199,13 @@ private fun TimelineEntry(event: TimelineEvent) {
         Spacer(Modifier.width(8.dp))
 
         // Content
-        Column(modifier = Modifier.weight(1f).padding(bottom = 6.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Bg2)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        ) {
             // Time + Actor row
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -187,15 +234,16 @@ private fun TimelineEntry(event: TimelineEvent) {
             // Action
             Text(
                 text = event.action,
-                color = Tx2,
-                fontSize = 11.sp
+                color = Tx,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
             )
             // Detail
             if (event.detail.isNotBlank()) {
                 Text(
                     text = event.detail,
                     color = Tx3,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = CodeFont

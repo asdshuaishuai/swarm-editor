@@ -1,13 +1,18 @@
 package com.swarmeditor.desktop.ui.plugins
-import com.swarmeditor.desktop.ui.dialog.McpConfigModal
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import com.swarmeditor.desktop.AgentInfo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.McpServerDto
+import com.swarmeditor.desktop.agentDisplayName
 import com.swarmeditor.desktop.theme.*
 import com.mikepenz.markdown.m3.Markdown
 
@@ -53,12 +59,16 @@ private val DetailTabs = listOf("详情", "工具", "配置", "更新日志")
 @Composable
 fun McpDetailView(
     server: McpServerDto,
+    agents: List<AgentInfo>,
     onBack: () -> Unit,
+    onConfigure: (String) -> Unit = {},
+    onCopy: (McpServerDto) -> Unit = {},
+    onDelete: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val selectedTab = remember { mutableIntStateOf(0) }
     val accent = accentFor(server.name)
-    var showConfigModal by remember { mutableStateOf(false) }
+    var confirmDelete by remember(server.id) { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         // pd-header（对齐设计稿 .pd-header: padding 24px 32px, radial gradient bg）
@@ -66,40 +76,30 @@ fun McpDetailView(
             modifier = Modifier.fillMaxWidth()
                 .background(Brush.radialGradient(listOf(accent.withAlpha(0.08f), Color.Transparent)))
                 .border(1.dp, Line)
-                .padding(horizontal = 32.dp, vertical = 24.dp)
+                .padding(horizontal = 24.dp, vertical = 18.dp)
         ) {
-            Text(
-                text = "← 返回",
-                color = Ac,
-                fontSize = 12.sp,
-                fontFamily = SansFont,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+            PluginDetailBackButton(accent = accent, onClick = onBack)
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
         // Hero section（pd-top: icon 84px + meta, gap 18px）— 并入 pd-header 渐变容器
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // pd-icon: 84px, radius 18dp, bg Bg0 0.6 + Line2 border（设计稿 .pd-icon）
             Box(
                 modifier = Modifier
-                    .size(84.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(Bg0.copy(alpha = 0.6f))
-                    .border(1.dp, Line2, RoundedCornerShape(18.dp)),
+                    .border(1.dp, Line2, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = server.icon.ifEmpty { server.name.take(1).uppercase() },
+                    text = "MCP",
                     color = accent,
-                    fontSize = 40.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -109,11 +109,14 @@ fun McpDetailView(
                     Text(
                         text = server.name,
                         color = Tx,
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    StatusChip(text = "运行中", color = AgentGemini)
+                    StatusChip(
+                        text = mcpRuntimeLabel(server.runtimeStatus),
+                        color = mcpRuntimeColor(server.runtimeStatus)
+                    )
                 }
                 Spacer(Modifier.height(4.dp))
                 // pd-pub（设计稿单行：v · ★rating(count) · downloads）
@@ -136,6 +139,15 @@ fun McpDetailView(
                         lineHeight = 18.sp
                     )
                 }
+                if (server.runtimeMessage.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = server.runtimeMessage,
+                        color = mcpRuntimeColor(server.runtimeStatus),
+                        fontSize = 11.sp,
+                        fontFamily = SansFont
+                    )
+                }
             }
         }
 
@@ -147,77 +159,66 @@ fun McpDetailView(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ActionButton(text = "⟳ 重启服务", color = Ac, primary = true)
-            ActionButton(text = "⎘ 复制配置", color = Tx2)
-            ActionButton(text = "⚙ 配置", color = Tx2, onClick = { showConfigModal = true })
-            Spacer(Modifier.weight(1f))
-            ActionButton(text = "卸载", color = Err)
+            if (confirmDelete) {
+                Text("确认删除 ${server.name}？", color = ErrLight, fontSize = 11.sp, fontFamily = SansFont)
+                ActionButton(text = "取消", color = Tx2, onClick = { confirmDelete = false })
+                ActionButton(
+                    text = "确认卸载",
+                    color = Err,
+                    onClick = {
+                        onDelete(server.id)
+                        onBack()
+                    }
+                )
+            } else {
+                ActionButton(text = "⎘ 复制配置", color = Tx2, onClick = { onCopy(server) })
+                ActionButton(text = "⚙ 配置", color = Tx2, onClick = { onConfigure(server.id) })
+                Spacer(Modifier.weight(1f))
+                ActionButton(text = "卸载", color = Err, onClick = { confirmDelete = true })
+            }
         }
         }  // 关闭 pd-header（渐变容器包住 返回 + hero + actions）
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
         // pd-tabs（设计稿 .pd-tabs: padding 0 32px, sticky, backdrop blur）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Bg1.copy(alpha = 0.4f))
-                .border(1.dp, Line)
-                .padding(horizontal = 32.dp)
-        ) {
-            DetailTabs.forEachIndexed { index, tab ->
-                val isActive = selectedTab.intValue == index
-                Column(
-                    modifier = Modifier
-                        .clickable { selectedTab.intValue = index }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    val tabTextColor by animateColorAsState(
-                        if (isActive) Ac else Tx3, Motion.colorDefault, label = "mcpTabText"
-                    )
-                    val underlineColor by animateColorAsState(
-                        if (isActive) Ac else Color.Transparent, Motion.colorDefault, label = "mcpTabUnderline"
-                    )
-                    Text(
-                        text = if (index == 1) "$tab ${server.tools.size}" else tab,
-                        color = tabTextColor,
-                        fontSize = 13.sp,
-                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .height(2.dp)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(underlineColor)
-                    )
-                }
-            }
-        }
+        PluginDetailTabBar(
+            tabs = DetailTabs.mapIndexed { index, tab -> if (index == 1) "$tab ${server.tools.size}" else tab },
+            selectedIndex = selectedTab.intValue,
+            accent = accent,
+            onSelect = { selectedTab.intValue = it },
+        )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
         // pd-body（设计稿 grid 1fr:280px, gap 28px, padding 24px 32px 40px）
         Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(28.dp)
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             // pd-main
-            Column(
+            AnimatedContent(
+                targetState = selectedTab.intValue,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                when (selectedTab.intValue) {
-                    0 -> McpDetailsTab(server)
-                    1 -> McpToolsTab(server)
-                    2 -> McpConfigTab(server)
-                    3 -> McpChangelogTab(server)
+                    .fillMaxHeight(),
+                transitionSpec = {
+                    val direction = if (targetState >= initialState) 1 else -1
+                    (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
+                        (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
+                },
+                label = "mcpDetailContent",
+            ) { tabIndex ->
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    when (tabIndex) {
+                        0 -> McpDetailsTab(server)
+                        1 -> McpToolsTab(server)
+                        2 -> McpConfigTab(server, agents)
+                        3 -> McpChangelogTab(server)
+                    }
                 }
             }
 
@@ -226,25 +227,27 @@ fun McpDetailView(
         }
     }
 
-    // 配置弹窗（点击"配置"按钮触发）
-    if (showConfigModal) {
-        McpConfigModal(serverId = server.id, servers = listOf(server), onDismiss = { showConfigModal = false })
-    }
 }
 
 @Composable
 private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, primary: Boolean = false, onClick: () -> Unit = {}) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val hoverScale by androidx.compose.animation.core.animateFloatAsState(
-        if (hovered) 1.03f else 1f, Motion.floatDefault, label = "btnScale"
+    val outlineColor by animateColorAsState(
+        targetValue = color.withAlpha(if (hovered) 0.55f else if (primary) 0f else 0.3f),
+        animationSpec = Motion.colorDefault,
+        label = "actionButtonOutline"
     )
-    val textColor = if (primary) Color.White else color
+    val surfaceColor by animateColorAsState(
+        targetValue = color.withAlpha(if (hovered) 0.1f else 0.06f),
+        animationSpec = Motion.colorDefault,
+        label = "actionButtonSurface"
+    )
+    val textColor = if (primary) OnAccent else color
     val bgMod = if (primary) {
         Modifier.background(Brush.linearGradient(listOf(Ac, Ac2)))
     } else {
-        Modifier.border(1.dp, color.withAlpha(0.3f), RoundedCornerShape(6.dp))
-            .background(color.withAlpha(0.06f))
+        Modifier.background(surfaceColor)
     }
     Text(
         text = text,
@@ -253,11 +256,11 @@ private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color
         fontWeight = FontWeight.Medium,
         fontFamily = SansFont,
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(AppShapes.xs)
             .then(bgMod)
+            .border(1.dp, outlineColor, AppShapes.xs)
             .hoverable(interaction)
-            .graphicsLayer { scaleX = hoverScale; scaleY = hoverScale }
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp)
     )
 }
@@ -327,7 +330,12 @@ private fun McpToolsTab(server: McpServerDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("暂无工具", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text(
+                text = server.runtimeMessage.ifEmpty { "当前会话未发现工具" },
+                color = mcpRuntimeColor(server.runtimeStatus),
+                fontSize = 12.sp,
+                fontFamily = SansFont
+            )
         }
         return
     }
@@ -354,6 +362,11 @@ private fun McpToolsTab(server: McpServerDto) {
                         fontFamily = SansFont
                     )
                     Spacer(Modifier.weight(1f))
+                    StatusChip(
+                        text = if (tool.active) "active" else "inactive",
+                        color = if (tool.active) AgentGemini else Tx3
+                    )
+                    Spacer(Modifier.width(6.dp))
                     if (tool.params.any { it.required }) {
                         StatusChip(text = "req", color = AgentOpenCode)
                     }
@@ -404,7 +417,7 @@ private fun McpToolsTab(server: McpServerDto) {
 }
 
 @Composable
-private fun McpConfigTab(server: McpServerDto) {
+private fun McpConfigTab(server: McpServerDto, agents: List<AgentInfo>) {
     // 启动配置（对齐核心稿 openMcpConfig）
     SectionTitle("启动配置")
     Spacer(Modifier.height(8.dp))
@@ -429,7 +442,7 @@ private fun McpConfigTab(server: McpServerDto) {
         listOf("stdio", "sse", "http").forEach { p ->
             val active = server.type == p
             Text(
-                p, color = if (active) Color.White else Tx2,
+                p, color = if (active) OnAccent else Tx2,
                 fontSize = 12.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f)
                     .clip(RoundedCornerShape(8.dp))
@@ -506,13 +519,12 @@ private fun McpConfigTab(server: McpServerDto) {
     }
     Spacer(Modifier.height(16.dp))
     // 授权 Agent
-    SectionTitle("授权 Agent")
+    SectionTitle("授权主智能体")
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf("claude-code" to "Claude Code", "qwen-code" to "QwenCode", "gemini-cli" to "Gemini",
-            "kimi-code" to "Kimi", "opencode" to "OpenCode").forEach { (id, name) ->
-            val allowed = server.agents.any { it.equals(id.substringBefore("-"), true) || it == id }
-            Text(name, color = if (allowed) AcLight else Tx3, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+        agents.forEach { agent ->
+            val allowed = server.enabledAgents.isEmpty() || server.enabledAgents[agent.id] == true
+            Text(agent.name, color = if (allowed) AcLight else Tx3, fontSize = 11.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                     .background(if (allowed) Ac.withAlpha(0.12f) else Color.Transparent)
                     .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(8.dp))
@@ -581,11 +593,11 @@ private fun McpSidePanel(server: McpServerDto) {
         }
         if (server.agents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("授权 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("授权主智能体", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.agents.forEach { agent ->
                 Text(
-                    text = "• $agent",
+                    text = "• ${agentDisplayName(agent)}",
                     color = Tx2,
                     fontSize = 11.sp,
                     fontFamily = SansFont,
@@ -595,10 +607,10 @@ private fun McpSidePanel(server: McpServerDto) {
         }
         if (server.enabledAgents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("已启用 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("已启用主智能体", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             server.enabledAgents.filter { it.value }.keys.forEach { agent ->
-                StatusChip(text = agent, color = AgentGemini)
+                StatusChip(text = agentDisplayName(agent), color = AgentGemini)
                 Spacer(Modifier.height(2.dp))
             }
         }

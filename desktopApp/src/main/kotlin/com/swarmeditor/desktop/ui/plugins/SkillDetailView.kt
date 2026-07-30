@@ -1,6 +1,12 @@
 package com.swarmeditor.desktop.ui.plugins
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,14 +40,16 @@ import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.desktop.agentDisplayName
 import com.swarmeditor.desktop.theme.*
 
-private val SkillTabs = listOf("概览", "结构", "Agent", "使用")
+private val SkillTabs = listOf("概览", "文件", "主智能体", "使用")
 
 @Composable
 fun SkillDetailView(
     skill: SkillDto,
     onBack: () -> Unit,
+    onEdit: (SkillDto) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val selectedTab = remember { mutableIntStateOf(0) }
@@ -51,38 +59,28 @@ fun SkillDetailView(
         // pd-header
         Column(
             modifier = Modifier.fillMaxWidth()
-                .background(Brush.radialGradient(listOf(accent.withAlpha(0.08f), androidx.compose.ui.graphics.Color.Transparent)))
+                .background(Brush.radialGradient(listOf(accent.withAlpha(0.08f), Color.Transparent)))
                 .border(1.dp, Line)
-                .padding(horizontal = 32.dp, vertical = 24.dp)
+                .padding(horizontal = 24.dp, vertical = 18.dp)
         ) {
-            Text(
-                text = "← 返回",
-                color = Ac,
-                fontSize = 12.sp,
-                fontFamily = SansFont,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+            PluginDetailBackButton(accent = accent, onClick = onBack)
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
         // pd-top
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             // pd-icon 84px
             Box(
-                modifier = Modifier.size(84.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                modifier = Modifier.size(64.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(Bg0.copy(alpha = 0.6f))
-                    .border(1.dp, Line2, RoundedCornerShape(18.dp)),
+                    .border(1.dp, Line2, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (skill.source == "MCP") "🔌" else "🧩",
+                    text = if (skill.source.equals("MCP", ignoreCase = true)) "MCP" else "SKILL",
                     color = accent,
-                    fontSize = 40.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -91,7 +89,7 @@ fun SkillDetailView(
                     Text(
                         text = skill.name,
                         color = Tx,
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
@@ -121,81 +119,56 @@ fun SkillDetailView(
 
             Spacer(Modifier.height(14.dp))
 
-            // pd-actions（设计稿：测试运行 + 编辑SKILL.md + 禁用）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("▶ 测试运行", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Brush.linearGradient(listOf(Ac, Ac2))).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+            if (skill.path.isNotBlank() && skill.source != "mcp") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 Text("✎ 编辑 SKILL.md", color = Tx2, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
-                Spacer(Modifier.weight(1f))
-                Text("禁用", color = Err, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Err.withAlpha(0.3f), RoundedCornerShape(6.dp)).background(Err.withAlpha(0.06f)).clickable { }.padding(horizontal = 14.dp, vertical = 6.dp))
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable { onEdit(skill) }.padding(horizontal = 14.dp, vertical = 6.dp))
+                }
             }
         }  // 关闭 pd-header
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
 
         // pd-tabs
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .background(Bg1.copy(alpha = 0.4f))
-                .border(1.dp, Line)
-                .padding(horizontal = 32.dp)
-        ) {
-            SkillTabs.forEachIndexed { index, tab ->
-                val isActive = selectedTab.intValue == index
-                Column(
-                    modifier = Modifier
-                        .clickable { selectedTab.intValue = index }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    val tabTextColor by animateColorAsState(
-                        if (isActive) Ac else Tx3, Motion.colorDefault, label = "skillTabText"
-                    )
-                    val underlineColor by animateColorAsState(
-                        if (isActive) Ac else Color.Transparent, Motion.colorDefault, label = "skillTabUnderline"
-                    )
-                    Text(
-                        text = if (index == 2) "$tab ${skill.enabledAgents.size}" else tab,
-                        color = tabTextColor,
-                        fontSize = 13.sp,
-                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .height(2.dp)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(underlineColor)
-                    )
-                }
-            }
-        }
+        PluginDetailTabBar(
+            tabs = SkillTabs.mapIndexed { index, tab -> if (index == 2) "$tab ${skill.enabledAgents.size}" else tab },
+            selectedIndex = selectedTab.intValue,
+            accent = accent,
+            onSelect = { selectedTab.intValue = it },
+        )
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
         // pd-body（设计稿 grid 1fr:280px, gap 28）
         Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(28.dp)
+                .padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             // pd-main
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
-            ) {
-                when (selectedTab.intValue) {
-                    0 -> SkillOverviewTab(skill)
-                    1 -> SkillStructureTab(skill)
-                    2 -> SkillAgentsTab(skill)
-                    3 -> SkillUsageTab(skill)
+            AnimatedContent(
+                targetState = selectedTab.intValue,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                transitionSpec = {
+                    val direction = if (targetState >= initialState) 1 else -1
+                    (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
+                        (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
+                },
+                label = "skillDetailContent",
+            ) { tabIndex ->
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    when (tabIndex) {
+                        0 -> SkillOverviewTab(skill)
+                        1 -> SkillStructureTab(skill)
+                        2 -> SkillAgentsTab(skill)
+                        3 -> SkillUsageTab(skill)
+                    }
                 }
             }
             // pd-side（设计稿三面板：技能信息 / 标签 / 关联 Agent）
@@ -286,25 +259,27 @@ private fun SkillStructureTab(skill: SkillDto) {
     )
     Spacer(Modifier.height(16.dp))
 
-    // Tree-like directory display (simulated from path)
-    SkillSectionTitle("目录树")
+    SkillSectionTitle("文件结构")
     Spacer(Modifier.height(6.dp))
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(R8))
-            .background(Bg3)
-            .border(1.dp, Line, RoundedCornerShape(R8))
-            .padding(12.dp)
-    ) {
-        val segments = skill.path.split("/")
-        segments.forEachIndexed { index, segment ->
-            val indent = "  ".repeat(index)
-            val prefix = if (index == segments.lastIndex - 1) "└── " else "├── "
-            if (segment.isNotEmpty()) {
+    if (skill.files.isEmpty()) {
+        Text("未扫描到子文件", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(R8))
+                .background(Bg3)
+                .border(1.dp, Line, RoundedCornerShape(R8))
+                .padding(12.dp)
+        ) {
+            skill.files.forEachIndexed { index, path ->
+                val depth = path.trimEnd('/').count { it == '/' }
+                val prefix = if (index == skill.files.lastIndex) "└── " else "├── "
                 Text(
-                    text = "$indent$prefix$segment",
-                    color = if (index == segments.lastIndex) Ac else Tx2,
+                    text = "  ".repeat(depth) + prefix + path.substringAfterLast('/').ifEmpty {
+                        path.trimEnd('/').substringAfterLast('/') + "/"
+                    },
+                    color = if (path.endsWith('/')) AcLight else Tx2,
                     fontSize = 12.sp,
                     fontFamily = SansFont
                 )
@@ -320,12 +295,12 @@ private fun SkillAgentsTab(skill: SkillDto) {
             modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("暂无关联 Agent", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
+            Text("主智能体可直接使用（未设置限制）", color = Tx3, fontSize = 12.sp, fontFamily = SansFont)
         }
         return
     }
 
-    SkillSectionTitle("关联 Agent (${skill.enabledAgents.size})")
+    SkillSectionTitle("关联主智能体 (${skill.enabledAgents.size})")
     Spacer(Modifier.height(8.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -356,7 +331,7 @@ private fun SkillAgentsTab(skill: SkillDto) {
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = agentId,
+                        text = agentDisplayName(agentId),
                         color = Tx,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -369,25 +344,6 @@ private fun SkillAgentsTab(skill: SkillDto) {
                 )
             }
         }
-    }
-
-    Spacer(Modifier.height(16.dp))
-
-    // Call stats placeholder
-    SkillSectionTitle("调用统计")
-    Spacer(Modifier.height(6.dp))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(R8))
-            .background(Bg3)
-            .border(1.dp, Line, RoundedCornerShape(R8))
-            .padding(14.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        StatBlock(label = "总调用", value = "—")
-        StatBlock(label = "成功率", value = "—")
-        StatBlock(label = "平均延迟", value = "—")
     }
 }
 
@@ -425,14 +381,14 @@ private fun SkillUsageTab(skill: SkillDto) {
     Spacer(Modifier.height(16.dp))
 
     if (skill.enabledAgents.isNotEmpty()) {
-        SkillSectionTitle("兼容 Agent")
+        SkillSectionTitle("主智能体授权")
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             skill.enabledAgents.filter { it.value }.keys.forEach { agent ->
-                StatusChip(text = agent, color = AgentGemini)
+                StatusChip(text = agentDisplayName(agent), color = AgentGemini)
             }
             skill.enabledAgents.filter { !it.value }.keys.forEach { agent ->
-                StatusChip(text = agent, color = Tx3)
+                StatusChip(text = agentDisplayName(agent), color = Tx3)
             }
         }
     }
@@ -491,10 +447,10 @@ private fun SkillSidePanel(skill: SkillDto) {
         }
         if (skill.enabledAgents.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("关联 Agent", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
+            Text("关联主智能体", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             skill.enabledAgents.keys.forEach { agent ->
-                Text("• $agent", color = Tx2, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+                Text("• ${agentDisplayName(agent)}", color = Tx2, fontSize = 11.sp, fontFamily = SansFont, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
             }
         }
     }

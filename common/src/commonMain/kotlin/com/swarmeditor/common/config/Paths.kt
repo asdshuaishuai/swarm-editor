@@ -12,6 +12,9 @@ object ConfigPaths {
     /** Agent 配置文件 */
     val AGENTS_JSON: String = "$SWARM_EDITOR_DIR/agents.json"
 
+    /** 可供主智能体动态调度的模型池。 */
+    val MODELS_JSON: String = "$SWARM_EDITOR_DIR/models.json"
+
     /** MCP 统一存储 */
     val MCP_SERVERS_JSON: String = "$SWARM_EDITOR_DIR/mcp-servers.json"
 
@@ -21,28 +24,42 @@ object ConfigPaths {
     /** 会话数据目录 */
     val SESSIONS_DIR: String = "$SWARM_EDITOR_DIR/sessions"
 
-    // --- Agent 原生配置路径 ---
+    /** 真实会话活动事件。 */
+    val ACTIVITY_JSON: String = "$SWARM_EDITOR_DIR/activity.json"
 
-    /** Claude Code 配置 */
-    val CLAUDE_SETTINGS: String = "$HOME/.claude/settings.json"
-    val CLAUDE_MCP: String = "$HOME/.claude.json"
+    /** 蜂群运行记录目录。 */
+    val SWARM_RUNS_DIR: String = "$SWARM_EDITOR_DIR/swarm-runs"
 
-    /** Gemini CLI 配置 */
-    val GEMINI_SETTINGS: String = "$HOME/.gemini/settings.json"
+    /** 蜂群工作区差异、沙箱预检和验证证据目录。 */
+    val SWARM_EVIDENCE_DIR: String = "$SWARM_EDITOR_DIR/swarm-evidence"
 
-    /** Kimi Code 配置 */
-    val KIMI_CONFIG: String = "$HOME/.kimi/config.toml"
-    val KIMI_MCP: String = "$HOME/.kimi/mcp.json"
+    /** Pi 蜂群跨运行积累的经验手册。 */
+    val SWARM_EXPERIENCES_JSON: String = "$SWARM_EDITOR_DIR/swarm-experiences.json"
 
-    /** QwenCode 配置 */
-    val QWEN_SETTINGS: String = "$HOME/.qwen/settings.json"
+    /** Pi 蜂群反事实评估与候选 Skill 账本。 */
+    val SWARM_EVOLUTION_JSON: String = "$SWARM_EDITOR_DIR/swarm-evolution.json"
 
-    /** OpenCode 配置 */
-    val OPENCODE_CONFIG: String = "$HOME/.config/opencode/opencode.json"
-}
+    /** 反事实评估使用的临时 Git worktree 根目录。 */
+    val SWARM_EVALUATION_WORKTREES_DIR: String = "$SWARM_EDITOR_DIR/evaluation-worktrees"
 
-/** API 服务端口 */
-object ServerConfig {
-    const val DEFAULT_PORT = 8080
-    const val DEFAULT_HOST = "0.0.0.0"
+    /** 捕获未提交工作树时使用的临时 Git index 根目录。 */
+    val SWARM_EVALUATION_INDEXES_DIR: String = "$SWARM_EDITOR_DIR/evaluation-indexes"
+
+    /** Pi 蜂群任务独占的 detached Git worktree 根目录。 */
+    val SWARM_TASK_WORKTREES_DIR: String = "$SWARM_EDITOR_DIR/task-worktrees"
+
+    /** 捕获任务工作区差异时使用的临时 Git index 根目录。 */
+    val SWARM_TASK_INDEXES_DIR: String = "$SWARM_EDITOR_DIR/task-indexes"
+
+    /** pi 自身的会话目录。 */
+    val PI_SESSIONS_DIR: String = "$SWARM_EDITOR_DIR/pi-sessions"
+
+    /** Swarm Editor 隔离的 pi Agent 目录。 */
+    val PI_AGENT_DIR: String = "$SWARM_EDITOR_DIR/pi-agent"
+
+    /** Pi 工具代理的逐请求审计记录目录。 */
+    val PI_TOOL_AUDIT_DIR: String = "$SWARM_EDITOR_DIR/pi-tool-audit"
+
+    /** pi 全局 Skills 目录。 */
+    val PI_SKILLS_DIR: String = "$PI_AGENT_DIR/skills"
 }

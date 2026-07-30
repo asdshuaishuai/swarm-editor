@@ -29,3 +29,9 @@ node_modules/
 
 # Build output
 bin/
+
+# Agent worktrees
+.worktrees/
+
+# Local counterfactual evaluation image metadata
+infra/evaluation/image-manifest.local.json

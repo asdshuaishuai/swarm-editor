@@ -2,7 +2,8 @@ package com.swarmeditor.desktop.ui.plugins
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,24 +14,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import com.woowla.compose.icon.collections.feather.Feather
-import com.woowla.compose.icon.collections.feather.feather.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
@@ -42,7 +41,7 @@ sealed interface PluginItem {
 }
 
 /** Accent colors assigned to plugin tiles based on name hash. */
-internal val TileAccents = listOf(Ac, AgentClaude, AgentGemini, AgentOpenCode, Warn, Color(0xFF66bbff), Color(0xFFff66aa))
+internal val TileAccents = listOf(Ac, Ac2, AgentClaude, AgentQwen, AgentGemini, AgentKimi, AgentOpenCode, Warn)
 
 internal fun accentFor(name: String): Color = TileAccents[name.hashCode().mod(TileAccents.size).let { if (it < 0) -it else it }]
 
@@ -52,6 +51,8 @@ fun PluginTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     val accent = when (item) {
         is PluginItem.Mcp -> accentFor(item.server.name)
         is PluginItem.Skill -> accentFor(item.skill.name)
@@ -88,32 +89,48 @@ fun PluginTile(
         is PluginItem.Mcp -> item.server.rating
         is PluginItem.Skill -> 0.0
     }
+    val (statusLabel, statusColor) = when (item) {
+        is PluginItem.Mcp -> mcpRuntimeLabel(item.server.runtimeStatus) to mcpRuntimeColor(item.server.runtimeStatus)
+        is PluginItem.Skill -> {
+            val enabled = item.skill.enabledAgents.isEmpty() || item.skill.enabledAgents.values.any { it }
+            (if (enabled) "已启用" else "未启用") to (if (enabled) AgentGemini else Tx3)
+        }
+    }
+    val surface by androidx.compose.animation.animateColorAsState(
+        if (hovered) accent.withAlpha(0.065f) else Bg2,
+        Motion.colorDefault,
+        label = "pluginTileSurface",
+    )
+    val outline by androidx.compose.animation.animateColorAsState(
+        if (hovered) accent.withAlpha(0.32f) else Line,
+        Motion.colorDefault,
+        label = "pluginTileOutline",
+    )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hoverLift(RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(Brush.linearGradient(listOf(Bg2.withAlpha(0.5f), Bg1.withAlpha(0.3f))))
+            .fluidClickable(interactionSource = interaction, onClick = onClick)
+            .clip(AppShapes.md)
+            .background(surface)
             .drawBehind { drawRect(accent, topLeft = Offset.Zero, size = Size(size.width, 3.dp.toPx())) }
-            .border(1.dp, Line, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(14.dp)
+            .border(1.dp, outline, AppShapes.md)
+            .padding(Spacing.md)
     ) {
         // 图标 + 名称 + 标签
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(44.dp)
+                    .clip(AppShapes.sm)
                     .background(Bg0.copy(alpha = 0.6f))
-                    .border(1.dp, Line, RoundedCornerShape(12.dp)),
+                    .border(1.dp, Line, AppShapes.sm),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = if (icon.isNotEmpty()) icon else name.take(1).uppercase(),
                     color = if (icon.isNotEmpty()) Color.Unspecified else accent,
-                    fontSize = if (icon.isNotEmpty()) 24.sp else 20.sp,
+                    fontSize = if (icon.isNotEmpty()) 21.sp else 17.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -139,6 +156,8 @@ fun PluginTile(
                     if (category != null) StatusChip(text = category, color = Warn)
                 }
             }
+            Spacer(Modifier.width(Spacing.sm))
+            StatusChip(text = statusLabel, color = statusColor)
         }
 
         if (description.isNotEmpty()) {
@@ -153,9 +172,9 @@ fun PluginTile(
             )
         }
 
-        Spacer(Modifier.height(10.dp))
-        // 底部统计 + 状态
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (downloads.isNotEmpty() || rating > 0) {
+            Spacer(Modifier.height(Spacing.sm))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (downloads.isNotEmpty()) {
                 Text("⬇ $downloads", color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                 Spacer(Modifier.width(10.dp))
@@ -164,10 +183,25 @@ fun PluginTile(
                 Text("★ ${"%.1f".format(rating)}", color = Warn, fontSize = 10.sp, fontFamily = SansFont)
                 Spacer(Modifier.width(10.dp))
             }
-            Spacer(Modifier.weight(1f))
-            StatusChip(text = "运行中", color = AgentGemini)
+            }
         }
     }
+}
+
+internal fun mcpRuntimeLabel(status: McpRuntimeStatus): String = when (status) {
+    McpRuntimeStatus.DISABLED -> "已停用"
+    McpRuntimeStatus.BRIDGED -> "已桥接"
+    McpRuntimeStatus.CONFIGURED -> "已配置"
+    McpRuntimeStatus.UNSUPPORTED -> "HTTP 暂不支持"
+    McpRuntimeStatus.FAILED -> "加载失败"
+}
+
+internal fun mcpRuntimeColor(status: McpRuntimeStatus): Color = when (status) {
+    McpRuntimeStatus.DISABLED -> Warn
+    McpRuntimeStatus.BRIDGED -> AgentGemini
+    McpRuntimeStatus.CONFIGURED -> AcLight
+    McpRuntimeStatus.UNSUPPORTED -> Warn
+    McpRuntimeStatus.FAILED -> Err
 }
 
 @Composable
@@ -183,7 +217,7 @@ fun StatusChip(
         fontWeight = FontWeight.Medium,
         fontFamily = SansFont,
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(AppShapes.xs)
             .background(color.withAlpha(0.12f))
             .padding(horizontal = 6.dp, vertical = 2.dp)
     )

@@ -1,0 +1,12 @@
+.git
+.gradle
+.idea
+.kotlin
+.worktrees
+.claude
+.codegraph
+.omo
+**/build
+**/node_modules
+**/.DS_Store
+infra/evaluation/image-manifest.local.json

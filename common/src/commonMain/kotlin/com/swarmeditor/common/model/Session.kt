@@ -1,17 +1,20 @@
 package com.swarmeditor.common.model
 
-import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 /** 会话 */
 @Serializable
 data class Session(
     val id: String,
     val agentId: String,
+    val title: String = "",
     val createdAt: Instant,
     val updatedAt: Instant,
     val messages: List<Message> = emptyList(),
-    val status: SessionStatus = SessionStatus.ACTIVE
+    val status: SessionStatus = SessionStatus.ACTIVE,
+    val remoteSessionId: String? = null,
+    val tokenUsage: TokenUsage = TokenUsage(),
 )
 
 /** 会话状态 */
@@ -45,7 +48,17 @@ data class ContentBlock(
     val type: String = "text",
     val text: String = "",
     val resource: ResourceRef? = null,
-    val image: ImageData? = null
+    val image: ImageData? = null,
+    val toolExecution: ToolExecution? = null,
+)
+
+@Serializable
+data class ToolExecution(
+    val id: String,
+    val name: String,
+    val arguments: String = "",
+    val output: String = "",
+    val isError: Boolean = false,
 )
 
 /** 资源引用 */
@@ -59,5 +72,6 @@ data class ResourceRef(
 @Serializable
 data class ImageData(
     val base64: String,
-    val mimeType: String = "image/png"
+    val mimeType: String = "image/png",
+    val name: String = "image"
 )

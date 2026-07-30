@@ -1,11 +1,31 @@
 package com.swarmeditor.backend.service
 
-import io.github.oshai.kotlinlogging.KotlinLogging
+import com.swarmeditor.backend.lsp.LspHighlightResult
+import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
+import com.swarmeditor.backend.storage.atomicWriteText
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import kotlin.io.path.fileSize
 
-private val logger = KotlinLogging.logger {}
+internal const val MAX_PROJECT_FILE_BYTES = 256 * 1024
 
-class ProjectService(private val projectDir: File) {
+class ProjectService(
+    private val projectDir: File,
+    private val semanticHighlighter: SourceSemanticHighlighter? = null,
+) {
+    val projectPath: String = projectDir.absolutePath
+
+    data class FilePreview(
+        val path: String,
+        val content: String,
+        val sizeBytes: Long,
+        val truncated: Boolean,
+        val binary: Boolean,
+    )
 
     data class FileNode(
         val name: String,
@@ -15,37 +35,118 @@ class ProjectService(private val projectDir: File) {
         val changeStatus: String? = null,
     )
 
-    companion object {
-        private val EXCLUDED_DIRS = setOf(".git", "build", "node_modules", ".gradle", ".idea", ".omo")
-    }
-
     fun getTree(): FileNode {
-        return walkDir(projectDir, projectDir.absolutePath)
+        val root = projectDir.toPath().toRealPath()
+        return walkDir(root.toFile(), root, depth = 0)
     }
 
-    private fun walkDir(dir: File, basePath: String): FileNode {
+    fun readFile(relativePath: String): FilePreview {
+        val root = projectDir.toPath().toRealPath()
+        val resolved = root.resolve(relativePath).normalize().toRealPath()
+        require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
+        require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
+
+        val bytes = Files.newInputStream(resolved).use { input -> input.readNBytes(MAX_PROJECT_FILE_BYTES + 1) }
+        val truncated = bytes.size > MAX_PROJECT_FILE_BYTES
+        val previewBytes = if (truncated) bytes.copyOf(MAX_PROJECT_FILE_BYTES) else bytes
+        val decoded = decodeUtf8Text(previewBytes, allowIncompleteTail = truncated)
+        return FilePreview(
+            path = relativePath,
+            content = decoded.orEmpty(),
+            sizeBytes = resolved.fileSize(),
+            truncated = truncated,
+            binary = decoded == null,
+        )
+    }
+
+    fun writeFile(relativePath: String, content: String): FilePreview {
+        val root = projectDir.toPath().toRealPath()
+        val resolved = root.resolve(relativePath).normalize().toRealPath()
+        require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
+        require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
+        require(resolved.fileSize() <= MAX_PROJECT_FILE_BYTES) {
+            "Truncated files cannot be edited in the built-in editor: $relativePath"
+        }
+        require(decodeUtf8Text(Files.readAllBytes(resolved), allowIncompleteTail = false) != null) {
+            "File is not valid UTF-8 text: $relativePath"
+        }
+        require('\u0000' !in content) { "Text content cannot contain NUL bytes: $relativePath" }
+        require(content.toByteArray(Charsets.UTF_8).size <= MAX_PROJECT_FILE_BYTES) {
+            "File is too large to edit in the built-in editor: $relativePath"
+        }
+
+        resolved.toFile().atomicWriteText(content)
+        return readFile(relativePath)
+    }
+
+    suspend fun highlightFile(relativePath: String, content: String): LspHighlightResult? {
+        val highlighter = semanticHighlighter ?: return null
+        val root = projectDir.toPath().toRealPath()
+        val resolved = root.resolve(relativePath).normalize().toRealPath()
+        require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
+        return highlighter.highlight(resolved.toFile(), content)
+    }
+
+    private fun walkDir(dir: File, root: Path, depth: Int): FileNode {
         val children = dir.listFiles()
-            ?.filter { it.name !in EXCLUDED_DIRS && !it.name.startsWith(".") }
+            ?.filter { child ->
+                child.name !in EXCLUDED_DIRS &&
+                    !child.name.startsWith(".") &&
+                    isProjectEntry(child, root)
+            }
             ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
             ?.map { child ->
-                val relativePath = child.absolutePath.removePrefix(basePath).removePrefix("/")
-                if (child.isDirectory) {
-                    walkDir(child, basePath).copy(path = relativePath)
+                val relativePath = projectRelativePath(root, child.toPath())
+                if (child.isDirectory && !Files.isSymbolicLink(child.toPath()) && depth < MAX_DEPTH) {
+                    walkDir(child, root, depth + 1)
                 } else {
                     FileNode(
                         name = child.name,
                         path = relativePath,
-                        isDirectory = false,
+                        isDirectory = child.isDirectory,
                     )
                 }
             } ?: emptyList()
 
-        val relativePath = dir.absolutePath.removePrefix(projectDir.absolutePath).removePrefix("/")
         return FileNode(
             name = dir.name,
-            path = relativePath.ifEmpty { "." },
+            path = projectRelativePath(root, dir.toPath()),
             isDirectory = true,
             children = children,
         )
     }
+
+    private fun isProjectEntry(entry: File, root: Path): Boolean {
+        if (!Files.isSymbolicLink(entry.toPath())) return true
+        return runCatching { entry.toPath().toRealPath().startsWith(root) }.getOrDefault(false)
+    }
+
+    companion object {
+        private const val MAX_DEPTH = 32
+        private val EXCLUDED_DIRS = setOf(".git", "build", "node_modules", ".gradle", ".idea", ".omo")
+    }
+}
+
+internal fun projectRelativePath(root: Path, path: Path): String {
+    val normalizedRoot = root.toAbsolutePath().normalize()
+    val normalizedPath = path.toAbsolutePath().normalize()
+    require(normalizedPath.startsWith(normalizedRoot)) { "Path is outside the project: $path" }
+    val relative = normalizedRoot.relativize(normalizedPath)
+    return if (relative.toString().isEmpty()) "." else relative.joinToString("/") { segment -> segment.toString() }
+}
+
+internal fun decodeUtf8Text(bytes: ByteArray, allowIncompleteTail: Boolean): String? {
+    if (bytes.any { byte -> byte == 0.toByte() }) return null
+    val maximumTrim = if (allowIncompleteTail) minOf(3, bytes.size) else 0
+    for (trim in 0..maximumTrim) {
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        try {
+            return decoder.decode(ByteBuffer.wrap(bytes, 0, bytes.size - trim)).toString()
+        } catch (_: CharacterCodingException) {
+            Unit
+        }
+    }
+    return null
 }

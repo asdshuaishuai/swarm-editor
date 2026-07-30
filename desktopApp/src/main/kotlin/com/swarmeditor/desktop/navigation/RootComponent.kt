@@ -11,16 +11,36 @@ import com.arkivanov.decompose.router.slot.activate
 import com.arkivanov.decompose.router.slot.childSlot
 import com.arkivanov.decompose.router.slot.dismiss
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.swarmeditor.desktop.viewmodel.AgentViewModel
 import com.swarmeditor.desktop.viewmodel.SessionViewModel
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.McpViewModel
 import com.swarmeditor.desktop.viewmodel.SkillViewModel
+import com.swarmeditor.desktop.viewmodel.ProjectViewModel
+import com.swarmeditor.desktop.viewmodel.GitViewModel
 import com.swarmeditor.desktop.viewmodel.ToastData
 import com.swarmeditor.desktop.viewmodel.ToastType
+import com.swarmeditor.desktop.viewmodel.SwarmViewModel
+import com.swarmeditor.desktop.theme.AppThemeMode
+import com.swarmeditor.desktop.theme.ThemePreferences
+import com.swarmeditor.backend.agentService
+import com.swarmeditor.backend.conversationService
+import com.swarmeditor.backend.mcpService
+import com.swarmeditor.backend.modelService
+import com.swarmeditor.backend.sessionService
+import com.swarmeditor.backend.skillService
+import com.swarmeditor.backend.projectService
+import com.swarmeditor.backend.gitService
+import com.swarmeditor.backend.swarmService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -30,18 +50,35 @@ class RootComponent(
     componentContext: ComponentContext
 ) : ComponentContext by componentContext {
 
-    val agentVm = AgentViewModel()
-    val sessionVm = SessionViewModel()
-    val settingsVm = SettingsViewModel()
-    val mcpVm = McpViewModel()
-    val skillVm = SkillViewModel()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val scope = CoroutineScope(Dispatchers.Default)
+    val agentVm = AgentViewModel(agentService, scope)
+    val sessionVm = SessionViewModel(sessionService, conversationService, scope)
+    val settingsVm = SettingsViewModel(agentService, mcpService, skillService, scope, modelService)
+    val mcpVm = McpViewModel(mcpService, sessionVm.runtimeState, scope)
+    val skillVm = SkillViewModel(skillService, scope)
+    val gitVm = GitViewModel(gitService, scope)
+    val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status, onFileSaved = gitVm::refresh)
+    val swarmVm = SwarmViewModel(swarmService, scope)
+    private val _themeMode = MutableStateFlow(ThemePreferences.load())
+    val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+    init {
+        lifecycle.doOnDestroy { scope.cancel() }
+        System.getProperty("swarm.file")
+            ?.takeIf(String::isNotBlank)
+            ?.let(projectVm::selectFile)
+    }
     private val _toastChannel = Channel<ToastData>(Channel.BUFFERED)
     val toastEvents: Flow<ToastData> = _toastChannel.receiveAsFlow()
 
     fun showToast(message: String, type: ToastType = ToastType.INFO) {
         scope.launch { _toastChannel.send(ToastData(message = message, type = type)) }
+    }
+
+    fun setTheme(theme: AppThemeMode) {
+        _themeMode.value = theme
+        ThemePreferences.save(theme)
     }
 
     // ── Navigation: childStack ──

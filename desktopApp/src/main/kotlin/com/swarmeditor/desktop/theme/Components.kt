@@ -1,21 +1,21 @@
 package com.swarmeditor.desktop.theme
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -38,11 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -76,7 +77,7 @@ fun HoverTipBox(
                     tip, color = Tx, fontSize = 11.sp, fontFamily = SansFont,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF0a0c14))
+                        .background(Bg2)
                         .border(1.dp, Line2, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
@@ -90,9 +91,29 @@ fun HoverTipBox(
 fun Modifier.modalEnter(): Modifier {
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, Motion.floatSnappy, label = "modalAlpha")
-    val scale by animateFloatAsState(if (shown) 1f else 0.96f, Motion.floatDefault, label = "modalScale")
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = Motion.alphaEnter,
+        label = "modalAlpha",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (shown) 1f else 0.985f,
+        animationSpec = Motion.floatRelease,
+        label = "modalScale",
+    )
     return this.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }
+}
+
+@Composable
+fun Modifier.modalSurfaceMotion(visible: Boolean): Modifier {
+    var mounted by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { mounted = true }
+    val scale by animateFloatAsState(
+        targetValue = if (mounted && visible) 1f else 0.985f,
+        animationSpec = if (visible) Motion.floatRelease else Motion.floatState,
+        label = "modalSurfaceScale",
+    )
+    return this.graphicsLayer { scaleX = scale; scaleY = scale }
 }
 
 // ── Card style ───────────────────────────────────────────────
@@ -125,30 +146,82 @@ fun PulseDot(
     dotSize: androidx.compose.ui.unit.Dp = 6.dp
 ) {
     val t = rememberInfiniteTransition(label = "pulse")
-    val scale by t.animateFloat(1f, 2.4f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "scale")
-    val alpha by t.animateFloat(0.6f, 0f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "alpha")
+    val scale by t.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.42f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2600
+                1f at 0
+                1.42f at 900 using Motion.appleEaseOut
+                1.42f at 2600
+            },
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "scale",
+    )
+    val alpha by t.animateFloat(
+        initialValue = 0.24f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2600
+                0.24f at 0
+                0f at 900 using Motion.appleEaseOut
+                0f at 2600
+            },
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "alpha",
+    )
     Box(modifier.size(dotSize + 8.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.matchParentSize().graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }.clip(CircleShape).background(color))
         Box(Modifier.size(dotSize).clip(CircleShape).background(color))
     }
 }
 
-// ── 卡片悬停上浮 + 阴影 + scale（Mac 式微交互）──
+// ── 直接操控：hover 轻呼吸，pointer-down 立即压入，释放后弹性归位 ──
 @Composable
-fun Modifier.hoverLift(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
+fun Modifier.fluidClickable(
+    enabled: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
+    pressScale: Float = 0.985f,
+    onClick: () -> Unit,
+): Modifier {
+    val interaction = interactionSource ?: remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val elev by animateDpAsState(if (hovered) 8.dp else 2.dp, Motion.dpDefault, label = "hoverLift")
     val scale by animateFloatAsState(
-        when { pressed -> 0.97f; hovered -> 1.02f; else -> 1f },
-        Motion.floatDefault, label = "hoverScale"
+        targetValue = if (pressed) pressScale else 1f,
+        animationSpec = if (pressed) Motion.floatPress else Motion.floatRelease,
+        label = "fluidClickScale",
     )
     return this
-        .hoverable(interaction)
+        .hoverable(interaction, enabled = enabled)
         .graphicsLayer { scaleX = scale; scaleY = scale }
-        .offset(y = if (hovered) (-1).dp else 0.dp)
-        .shadow(elev, shape, clip = false)
+        .clickable(
+            interactionSource = interaction,
+            indication = null,
+            enabled = enabled,
+            onClick = onClick,
+        )
+}
+
+@Composable
+fun MicroPill(
+    label: String,
+    color: Color = Ac,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(AppShapes.pill)
+            .background(color.withAlpha(0.10f))
+            .border(1.dp, color.withAlpha(0.22f), AppShapes.pill)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = color, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, fontFamily = CodeFont)
+    }
 }
 
 
@@ -168,14 +241,13 @@ fun SessionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hoverLift(RoundedCornerShape(R8))
+            .fluidClickable(onClick = onClick)
             .clip(RoundedCornerShape(R8))
             .background(bg)
             .then(
                 if (isActive) Modifier.border(1.dp, Ac.withAlpha(0.2f), RoundedCornerShape(R8))
                 else Modifier
             )
-            .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Text(
@@ -194,7 +266,7 @@ fun SessionCard(
                     .background(agentBackground),
                 contentAlignment = Alignment.Center
             ) {
-                Text(agentLetter, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(agentLetter, color = OnAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(6.dp))
             Text(agentName, color = Tx3, fontSize = 11.sp, fontFamily = SansFont)
@@ -215,10 +287,10 @@ fun FilterChip(
 ) {
     Box(
         modifier = modifier
+            .fluidClickable(onClick = onClick)
             .clip(RoundedCornerShape(R7))
             .background(if (active) Ac.withAlpha(0.12f) else Bg2)
             .border(1.dp, if (active) Ac else Line, RoundedCornerShape(R7))
-            .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -232,39 +304,87 @@ fun FilterChip(
     }
 }
 
-// ── Ac.withAlpha(0.3f) button (gradient primary) ──────────────────────────
+enum class ActionTone {
+    PRIMARY,
+    SECONDARY,
+    POSITIVE,
+    WARNING,
+    DESTRUCTIVE,
+    NEUTRAL,
+}
+
+private fun actionToneColor(tone: ActionTone): Color = when (tone) {
+    ActionTone.PRIMARY -> ThemeRuntime.palette.controlBlue
+    ActionTone.SECONDARY -> ThemeRuntime.palette.controlPurple
+    ActionTone.POSITIVE -> ThemeRuntime.palette.controlGreen
+    ActionTone.WARNING -> ThemeRuntime.palette.controlOrange
+    ActionTone.DESTRUCTIVE -> ThemeRuntime.palette.controlRed
+    ActionTone.NEUTRAL -> Bg3
+}
+
+@Composable
+fun ActionButton(
+    text: String,
+    tone: ActionTone = ActionTone.PRIMARY,
+    prominent: Boolean = true,
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val toneColor = actionToneColor(tone)
+    val targetBackground = when {
+        !enabled -> Bg2
+        tone == ActionTone.NEUTRAL -> if (hovered) lerp(Bg3, Tx3, 0.08f) else Bg3
+        prominent && pressed -> lerp(toneColor, Bg0, 0.12f)
+        prominent && hovered -> lerp(toneColor, Tx, 0.08f)
+        prominent -> toneColor
+        hovered -> toneColor.withAlpha(0.2f)
+        else -> toneColor.withAlpha(0.12f)
+    }
+    val background by animateColorAsState(targetBackground, Motion.colorDefault, label = "actionButtonBackground")
+    val foreground = when {
+        !enabled -> Tx3
+        prominent && tone != ActionTone.NEUTRAL -> OnAccent
+        tone == ActionTone.NEUTRAL -> Tx2
+        else -> toneColor
+    }
+    val border = when {
+        !enabled -> Line
+        tone == ActionTone.NEUTRAL -> if (hovered) Line2 else Line
+        prominent -> lerp(toneColor, OnAccent, 0.16f)
+        else -> toneColor.withAlpha(if (hovered) 0.48f else 0.32f)
+    }
+    Box(
+        modifier = modifier
+            .fluidClickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                pressScale = if (prominent) 0.975f else 0.985f,
+                onClick = onClick,
+            )
+            .clip(AppShapes.sm)
+            .background(background)
+            .border(1.dp, border, AppShapes.sm)
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 5.dp else 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = foreground, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 @Composable
 fun GlowButton(
     text: String,
     active: Boolean = true,
+    tone: ActionTone = ActionTone.PRIMARY,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bg = if (active) {
-        Modifier.background(
-            Brush.linearGradient(listOf(Ac, Ac2)),
-            RoundedCornerShape(R8)
-        )
-    } else {
-        Modifier.background(Bg2, RoundedCornerShape(R8))
-    }
-    val textColor = if (active) Color.White else Tx2
-    Box(
-        modifier = modifier
-            .then(bg)
-            .border(1.dp, if (active) Ac else Line, RoundedCornerShape(R8))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = textColor,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = SansFont
-        )
-    }
+    ActionButton(text, tone, prominent = true, enabled = active, onClick = onClick, modifier = modifier)
 }
 
 // ── Ghost button ────────────────────────────────────────────
@@ -275,24 +395,61 @@ fun GhostButton(
     modifier: Modifier = Modifier,
     danger: Boolean = false
 ) {
-    val textColor = if (danger) ErrLight else Tx2
-    Box(
+    ActionButton(
+        text = text,
+        tone = if (danger) ActionTone.DESTRUCTIVE else ActionTone.NEUTRAL,
+        prominent = false,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun CompactTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) Ac.withAlpha(0.72f) else Line,
+        animationSpec = Motion.colorDefault,
+        label = "compactFieldBorder",
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (focused) Bg3 else Bg2.withAlpha(0.76f),
+        animationSpec = Motion.colorDefault,
+        label = "compactFieldBackground",
+    )
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        singleLine = true,
+        interactionSource = interaction,
+        cursorBrush = SolidColor(Ac),
+        textStyle = AppType.bodySm.copy(color = if (enabled) Tx else Tx3),
         modifier = modifier
-            .clip(RoundedCornerShape(R8))
-            .background(Bg3)
-            .border(1.dp, Line, RoundedCornerShape(R8))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = textColor,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = SansFont
-        )
-    }
+            .height(40.dp)
+            .clip(AppShapes.sm)
+            .background(backgroundColor)
+            .border(1.dp, borderColor, AppShapes.sm)
+            .padding(horizontal = 11.dp),
+        decorationBox = { innerField ->
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (value.isEmpty()) {
+                    Text(placeholder, color = Tx3, style = AppType.bodySm, maxLines = 1)
+                }
+                innerField()
+            }
+        },
+    )
 }
 
 
@@ -315,20 +472,22 @@ fun FormField(
             fontFamily = SansFont,
             modifier = Modifier.padding(bottom = 4.dp)
         )
-        Box(
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = if (value.isEmpty()) Tx3 else Tx,
+                fontSize = 13.sp,
+                fontFamily = SansFont
+            ),
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(R8))
                 .background(Bg3)
                 .border(1.dp, Line, RoundedCornerShape(R8))
                 .padding(horizontal = 10.dp, vertical = 8.dp)
-        ) {
-            Text(
-                if (isPassword) "•".repeat(value.length.coerceIn(6, 16)) else value,
-                color = if (value.isEmpty()) Tx3 else Tx,
-                fontSize = 13.sp,
-                fontFamily = SansFont
-            )
-        }
+        )
     }
 }

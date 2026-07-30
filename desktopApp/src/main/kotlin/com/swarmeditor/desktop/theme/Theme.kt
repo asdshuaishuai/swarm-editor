@@ -1,7 +1,6 @@
 package com.swarmeditor.desktop.theme
 
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -10,16 +9,18 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.dp
 
 // Radii
-val R4 = 4.dp
-val R6 = 6.dp
-val R7 = 7.dp
-val R8 = 8.dp
-val R9 = 9.dp
-val R10 = 10.dp
-val R11 = 11.dp
-val R12 = 12.dp
-val R14 = 14.dp
-val R16 = 16.dp
+val R4 get() = themedRadius(4)
+val R6 get() = themedRadius(6)
+val R7 get() = themedRadius(7)
+val R8 get() = themedRadius(8)
+val R9 get() = themedRadius(9)
+val R10 get() = themedRadius(10)
+val R11 get() = themedRadius(11)
+val R12 get() = themedRadius(12)
+val R14 get() = themedRadius(14)
+val R16 get() = themedRadius(16)
+
+private fun themedRadius(base: Int) = (base + 2).dp
 
 // Fonts — Inter 为主（设计稿本意 / SF Pro 合法替身），CJK 由系统回退
 // 从 JVM 资源取 Inter.ttf 到临时文件，用 platform.Font + FontVariation 取变体字重（非 @Composable）
@@ -44,7 +45,7 @@ val MonoFont = FontFamily.Default   // 系统等宽（CJK 回退；后续可换 
 val CodeFont = FontFamily.Monospace // 代码块专用
 
 // Material3 ColorScheme override
-val GeekColorScheme = darkColorScheme(
+val GeekColorScheme get() = darkColorScheme(
     primary = Ac,
     onPrimary = Bg0,
     primaryContainer = Ac.withAlpha(0.12f),
@@ -52,11 +53,11 @@ val GeekColorScheme = darkColorScheme(
     secondary = AgentQwen,
     onSecondary = Bg0,
     secondaryContainer = AgentQwen.withAlpha(0.12f),
-    onSecondaryContainer = Color(0xFF93c5fd),
+    onSecondaryContainer = AcLight,
     tertiary = AgentGemini,
     onTertiary = Bg0,
     tertiaryContainer = AgentGemini.withAlpha(0.12f),
-    onTertiaryContainer = Color(0xFF6ee7b7),
+    onTertiaryContainer = OkLight,
     error = Err,
     onError = Bg0,
     errorContainer = Err.withAlpha(0.12f),

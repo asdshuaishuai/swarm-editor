@@ -8,6 +8,10 @@ import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
@@ -17,25 +21,108 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
+import com.arkivanov.essenty.lifecycle.destroy
+import com.arkivanov.essenty.lifecycle.resume
+import com.swarmeditor.backend.shutdownBackendServices
 import com.swarmeditor.desktop.navigation.RootComponent
+import com.swarmeditor.desktop.attachment.clipboardContainsImages
+import com.swarmeditor.desktop.attachment.readClipboardImageAttachments
+import com.swarmeditor.desktop.resources.Res
+import com.swarmeditor.desktop.resources.swarm_editor
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.Bg1
 import com.swarmeditor.desktop.theme.Bg3
 import com.swarmeditor.desktop.theme.GeekColorScheme
 import com.swarmeditor.desktop.theme.Line
+import com.swarmeditor.desktop.theme.ThemeRuntime
+import com.swarmeditor.backend.initializeBackendServices
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableSharedFlow
+import java.awt.FileDialog
+import java.awt.Frame
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetAdapter
+import java.awt.dnd.DropTargetDropEvent
+import java.awt.datatransfer.DataFlavor
+import java.io.File
+import org.jetbrains.compose.resources.painterResource
+
+private const val DEFAULT_WINDOW_WIDTH = 1280
+private const val DEFAULT_WINDOW_HEIGHT = 960
+private const val MIN_WINDOW_WIDTH = 760
+private const val MIN_WINDOW_HEIGHT = 600
+
+internal fun initialWindowSize(width: String?, height: String?): DpSize = DpSize(
+    width = width?.toIntOrNull()?.coerceIn(MIN_WINDOW_WIDTH, 2560)?.dp ?: DEFAULT_WINDOW_WIDTH.dp,
+    height = height?.toIntOrNull()?.coerceIn(MIN_WINDOW_HEIGHT, 1600)?.dp ?: DEFAULT_WINDOW_HEIGHT.dp,
+)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-fun main() = application {
-    val root = remember { RootComponent(DefaultComponentContext(LifecycleRegistry())) }
+fun main() {
+    runBlocking { initializeBackendServices() }
+    application {
+    val lifecycle = remember { LifecycleRegistry().apply { resume() } }
+    val root = remember(lifecycle) { RootComponent(DefaultComponentContext(lifecycle)) }
+    LaunchedEffect(root) {
+        when (System.getProperty("swarm.dialog")) {
+            "settings" -> root.showSettingsDialog()
+            "command" -> root.showCmdKDialog()
+        }
+    }
+    DisposableEffect(lifecycle) {
+        onDispose {
+            lifecycle.destroy()
+            runBlocking { shutdownBackendServices() }
+        }
+    }
 
     Window(
         onCloseRequest = ::exitApplication,
         title = "Swarm Editor",
-        state = rememberWindowState(size = DpSize(1280.dp, 960.dp)),
+        icon = painterResource(Res.drawable.swarm_editor),
+        state = rememberWindowState(
+            size = initialWindowSize(
+                width = System.getProperty("swarm.windowWidth"),
+                height = System.getProperty("swarm.windowHeight"),
+            ),
+        ),
         resizable = true,
         undecorated = true
     ) {
         val awtWindow = window
+        val themeMode by root.themeMode.collectAsState()
+        ThemeRuntime.use(themeMode)
+        val droppedImageFiles = remember { MutableSharedFlow<List<File>>(extraBufferCapacity = 1) }
+        DisposableEffect(awtWindow) {
+            val previousDropTarget = awtWindow.dropTarget
+            val dropTarget = DropTarget(
+                awtWindow,
+                DnDConstants.ACTION_COPY,
+                object : DropTargetAdapter() {
+                    override fun drop(event: DropTargetDropEvent) {
+                        try {
+                            if (!event.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                                event.rejectDrop()
+                                return
+                            }
+                            event.acceptDrop(DnDConstants.ACTION_COPY)
+                            @Suppress("UNCHECKED_CAST")
+                            val files = event.transferable
+                                .getTransferData(DataFlavor.javaFileListFlavor) as? List<File>
+                            val accepted = files.orEmpty().filter(File::isFile)
+                            event.dropComplete(droppedImageFiles.tryEmit(accepted))
+                        } catch (_: Exception) {
+                            event.dropComplete(false)
+                        }
+                    }
+                },
+                true,
+            )
+            onDispose {
+                if (awtWindow.dropTarget === dropTarget) awtWindow.dropTarget = previousDropTarget
+            }
+        }
         MaterialTheme(colorScheme = GeekColorScheme) {
             CompositionLocalProvider(
                 LocalScrollbarStyle provides ScrollbarStyle(
@@ -63,14 +150,23 @@ fun main() = application {
                                 java.awt.Frame.NORMAL else java.awt.Frame.MAXIMIZED_BOTH
                         }
                     },
-                    onDragWindow = { dx, dy ->
-                        awtWindow.location = java.awt.Point(
-                            awtWindow.location.x + dx.toInt(),
-                            awtWindow.location.y + dy.toInt()
-                        )
-                    }
+                    onPickImages = {
+                        val owner = awtWindow as? java.awt.Frame
+                        FileDialog(owner, "选择图片", FileDialog.LOAD).run {
+                            isMultipleMode = true
+                            filenameFilter = java.io.FilenameFilter { _, name ->
+                                name.substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "webp")
+                            }
+                            isVisible = true
+                            files.toList()
+                        }
+                    },
+                    droppedImageFiles = droppedImageFiles,
+                    clipboardHasImages = ::clipboardContainsImages,
+                    onReadClipboardImages = ::readClipboardImageAttachments,
                 )
             }
         }
+    }
     }
 }

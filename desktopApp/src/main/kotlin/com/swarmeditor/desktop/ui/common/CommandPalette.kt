@@ -1,8 +1,13 @@
 package com.swarmeditor.desktop.ui.common
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -46,6 +51,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -54,6 +60,8 @@ import com.swarmeditor.desktop.theme.*
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
+import com.swarmeditor.desktop.AgentInfo
+import com.swarmeditor.backend.pi.PiCommandInfo
 
 @androidx.compose.runtime.Immutable
 data class Command(
@@ -70,30 +78,62 @@ fun CommandPalette(
     hazeState: HazeState,
     onDismiss: () -> Unit,
     onCommand: (Command) -> Unit,
-    agentNames: List<String> = emptyList(),
+    agents: List<AgentInfo> = emptyList(),
+    piCommands: List<PiCommandInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    if (!isVisible) return
-
-    // Semi-transparent overlay — click to dismiss
     Box(
         modifier = modifier
-            .fillMaxSize()
-            .background(Bg0.copy(alpha = 0.65f))
-            .clickable { onDismiss() },
+            .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // Stop click propagation on the modal itself
-        Box(
-            modifier = Modifier
-                .clickable(enabled = false) { /* consume */ }
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(Motion.alphaEnter),
+            exit = fadeOut(Motion.alphaExit),
         ) {
-            CommandPaletteModal(
-                hazeState = hazeState,
-                agentNames = agentNames,
-                onDismiss = onDismiss,
-                onCommand = onCommand
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Scrim.copy(alpha = 0.72f))
+                    .pointerInput(onDismiss) {
+                        detectTapGestures(onTap = { onDismiss() })
+                    },
             )
+        }
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(Motion.alphaEnter) + scaleIn(
+                initialScale = 0.985f,
+                animationSpec = Motion.floatDefault,
+            ),
+            exit = fadeOut(Motion.alphaExit) + scaleOut(
+                targetScale = 0.985f,
+                animationSpec = Motion.floatSnappy,
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 640.dp)
+                        .fillMaxWidth()
+                        .pointerInput(Unit) { detectTapGestures(onTap = {}) },
+                ) {
+                    CommandPaletteModal(
+                        hazeState = hazeState,
+                        agents = agents,
+                        piCommands = piCommands,
+                        onDismiss = onDismiss,
+                        onCommand = onCommand,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
         }
     }
 }
@@ -101,16 +141,18 @@ fun CommandPalette(
 @Composable
 private fun CommandPaletteModal(
     hazeState: HazeState,
-    agentNames: List<String>,
+    agents: List<AgentInfo>,
+    piCommands: List<PiCommandInfo>,
     onDismiss: () -> Unit,
-    onCommand: (Command) -> Unit
+    onCommand: (Command) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
     var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
     var selectedIndex by remember { mutableIntStateOf(0) }
 
     // Build command list
-    val commands = remember(agentNames) { buildCommands(agentNames) }
+    val commands = remember(agents, piCommands) { buildCommands(agents, piCommands) }
 
     // Filter commands by search
     val filteredCommands = remember(commands, searchQuery.text) {
@@ -129,15 +171,14 @@ private fun CommandPaletteModal(
         focusRequester.requestFocus()
     }
 
-    val modalShape = RoundedCornerShape(R12)
+    val modalShape = AppShapes.lg
 
     Column(
-        modifier = Modifier
-            .width(580.dp)
-            .shadow(8.dp, modalShape, ambientColor = Ac.withAlpha(0.08f), spotColor = Ac.withAlpha(0.12f))
+        modifier = modifier
             .clip(modalShape)
             .hazeEffect(hazeState)
-            .border(1.dp, Line, modalShape)
+            .background(Bg1.copy(alpha = 0.94f))
+            .border(1.dp, Line2, modalShape)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
@@ -293,13 +334,18 @@ private fun CommandItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isSelected) AgentClaude.withAlpha(0.12f) else Color.Transparent
+    val tone = commandTone(command)
+    val bgColor by androidx.compose.animation.animateColorAsState(
+        if (isSelected) tone.withAlpha(0.14f) else Color.Transparent,
+        Motion.colorDefault,
+        label = "commandBackground",
+    )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor, RoundedCornerShape(6.dp))
-            .clickable { onClick() }
+            .fluidClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -308,7 +354,7 @@ private fun CommandItem(
             modifier = Modifier
                 .size(28.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Bg3),
+                .background(if (isSelected) tone.withAlpha(0.18f) else Bg3),
             contentAlignment = Alignment.Center
         ) {
             if (command.icon.isNotBlank()) {
@@ -320,7 +366,7 @@ private fun CommandItem(
             } else {
                 Text(
                     command.name.first().uppercase(),
-                    color = Tx2,
+                    color = if (isSelected) tone else Tx2,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -349,7 +395,20 @@ private fun CommandItem(
     }
 }
 
-private fun buildCommands(agentNames: List<String>): List<Command> {
+private fun commandTone(command: Command): Color = when {
+    command.group == "命令" -> ControlBlue
+    command.group == "主智能体配置" -> ControlPurple
+    command.group == "Pi Skills" -> ControlGreen
+    command.group == "Pi Prompt Templates" -> ControlOrange
+    command.group == "Pi Extensions" -> ControlPurple
+    command.group == "视图" && command.id.contains("activity") -> ControlRed
+    command.group == "视图" && command.id.contains("plugins") -> ControlOrange
+    command.group == "视图" && command.id.contains("files") -> ControlGreen
+    command.group == "视图" && command.id.contains("agents") -> ControlPurple
+    else -> ControlBlue
+}
+
+internal fun buildCommands(agents: List<AgentInfo>, piCommands: List<PiCommandInfo> = emptyList()): List<Command> {
     val commands = mutableListOf<Command>()
 
     // 命令
@@ -357,14 +416,31 @@ private fun buildCommands(agentNames: List<String>): List<Command> {
     commands.add(Command("open-settings", "打开设置", "命令", "⌘,"))
 
     // Agent 配置
-    val defaultAgents = listOf("Claude Code", "QwenCode", "Gemini CLI", "Kimi Code", "OpenCode")
-    val agents = if (agentNames.isEmpty()) defaultAgents else agentNames
     agents.forEach { agent ->
         commands.add(
             Command(
-                id = "cfg-${agent.lowercase(Locale.ROOT).replace(" ", "-")}",
-                name = "配置 $agent",
-                group = "Agent 配置"
+                id = "agent-config:${agent.id}",
+                name = "配置 ${agent.name}",
+                group = "主智能体配置"
+            )
+        )
+    }
+
+    piCommands.forEach { command ->
+        commands.add(
+            Command(
+                id = "pi-command:${command.name}",
+                name = "/${command.name}${command.description.takeIf(String::isNotBlank)?.let { "  $it" }.orEmpty()}",
+                group = when (command.source) {
+                    "skill" -> "Pi Skills"
+                    "prompt" -> "Pi Prompt Templates"
+                    else -> "Pi Extensions"
+                },
+                icon = when (command.source) {
+                    "skill" -> "S"
+                    "prompt" -> "P"
+                    else -> "π"
+                },
             )
         )
     }
@@ -372,7 +448,7 @@ private fun buildCommands(agentNames: List<String>): List<Command> {
     // 视图（id 保持英文以兼容路由，显示名中文）
     val views = listOf(
         "Chat" to "会话" to "⌘1",
-        "Agents" to "Agent 编排" to "⌘2",
+        "蜂群" to "子智能体编排" to "⌘2",
         "Plugins" to "插件" to "⌘3",
         "Files" to "文件" to "⌘4",
         "Activity" to "活动日志" to "⌘5"
@@ -387,7 +463,7 @@ private fun buildCommands(agentNames: List<String>): List<Command> {
                 shortcut = shortcut,
                 icon = when (key) {
                     "Chat" -> "💬"
-                    "Agents" -> "🤖"
+                    "蜂群" -> "群"
                     "Plugins" -> "🧩"
                     "Files" -> "📁"
                     "Activity" -> "📋"

@@ -4,175 +4,221 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.X
-import com.woowla.compose.icon.collections.feather.feather.Server
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.viewmodel.updatedAgentAccess
 
-private val AUTH_AGENTS = listOf(
-    "claude-code" to "Claude Code", "qwen-code" to "QwenCode", "gemini-cli" to "Gemini",
-    "kimi-code" to "Kimi", "opencode" to "OpenCode"
-)
+internal fun parseKeyValueList(value: String): Map<String, String> = value
+    .split('\n', ';')
+    .mapNotNull { entry ->
+        val separator = entry.indexOf('=')
+        if (separator <= 0) null else entry.substring(0, separator).trim().takeIf { it.isNotEmpty() }
+            ?.let { key -> key to entry.substring(separator + 1).trim() }
+    }
+    .toMap()
+
+private fun Map<String, String>.toEditableText(): String = entries.joinToString("; ") { "${it.key}=${it.value}" }
 
 @Composable
 fun McpConfigModal(
     serverId: String?,
+    visible: Boolean = true,
     servers: List<McpServerDto> = emptyList(),
+    agents: List<AgentInfo> = emptyList(),
+    onSave: (McpServerDto) -> Unit = {},
+    onDelete: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (serverId == null) return
 
-    val server = servers.find { it.id == serverId } ?: remember {
-        McpServerDto(serverId, "Server $serverId", "stdio", "node $serverId.js")
-    }
-    var cmd by remember { mutableStateOf(server.command) }
-    var protocol by remember { mutableStateOf(server.type.ifEmpty { "stdio" }) }
+    val existingServer = servers.find { it.id == serverId }
+    val server = existingServer ?: McpServerDto(serverId, "")
+    var name by remember(server) { mutableStateOf(server.name) }
+    var command by remember(server) { mutableStateOf(server.command) }
+    var args by remember(server) { mutableStateOf(server.args.joinToString(" ")) }
+    var protocol by remember(server) { mutableStateOf(server.type.ifEmpty { "stdio" }.lowercase()) }
+    var url by remember(server) { mutableStateOf(server.url) }
+    var environment by remember(server) { mutableStateOf(server.env.toEditableText()) }
+    var bearerTokenEnvVar by remember(server) { mutableStateOf(server.bearerTokenEnvVar) }
+    var headers by remember(server) { mutableStateOf(server.headers.toEditableText()) }
+    var description by remember(server) { mutableStateOf(server.description) }
+    var disabled by remember(server) { mutableStateOf(server.disabled) }
+    val enabledAgents = remember(server) { mutableStateMapOf<String, Boolean>().apply { putAll(server.enabledAgents) } }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(Bg0.copy(alpha = 0.72f)).clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
+    Box(
+        modifier = Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.58f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight(0.9f)
+                .widthIn(max = 920.dp)
+                .modalSurfaceMotion(visible)
+                .surfaceCard(bg = Bg1.copy(alpha = 0.98f), border = Line2, elevation = Elevation.modal, shape = AppShapes.xl)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp, vertical = 20.dp),
         ) {
-            Column(
-                modifier = Modifier.width(620.dp).shadow(8.dp, RoundedCornerShape(R16), ambientColor = Ac.withAlpha(0.06f), spotColor = Ac.withAlpha(0.08f)).modalEnter().clip(RoundedCornerShape(R16))
-                    .background(Brush.linearGradient(listOf(Color(0xFF0f1220), Color(0xFF0a0c14))))
-                    .border(1.dp, Line2, RoundedCornerShape(R16))
-                    .clickable(enabled = false) {}
-                    .padding(20.dp, 24.dp)
-            ) {
-                // 头部
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(Bg0.withAlpha(0.6f))
-                                .border(1.dp, Line2, RoundedCornerShape(12.dp)),
+                            Modifier.size(44.dp).clip(AppShapes.md).background(Bg0.withAlpha(0.6f))
+                                .border(1.dp, Line2, AppShapes.md),
                             contentAlignment = Alignment.Center
-                        ) {
-                            Text(server.icon.ifEmpty { "🔌" }, fontSize = 24.sp)
-                        }
+                        ) { Text("MCP", color = Ac, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                         Spacer(Modifier.width(14.dp))
                         Column {
-                            Text(server.name, color = Tx, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Text("${server.type} · MCP Server", color = Tx3, fontSize = 12.sp, fontFamily = CodeFont)
+                            Text(name, color = Tx, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("$protocol · 工具服务配置", color = Tx3, fontSize = 12.sp, fontFamily = CodeFont)
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 运行中状态
                         Row(
-                            Modifier.clip(RoundedCornerShape(R6)).background(Ok.withAlpha(0.12f))
-                                .border(1.dp, Ok.withAlpha(0.3f), RoundedCornerShape(R6)).padding(horizontal = 8.dp, vertical = 3.dp),
+                            Modifier.clip(RoundedCornerShape(R6)).background((if (disabled) Warn else Ok).withAlpha(0.12f))
+                                .border(1.dp, (if (disabled) Warn else Ok).withAlpha(0.3f), RoundedCornerShape(R6))
+                                .clickable { disabled = !disabled }.padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(OkLight))
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(if (disabled) WarnLight else OkLight))
                             Spacer(Modifier.width(4.dp))
-                            Text("运行中", color = OkLight, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (disabled) "已停用" else "已启用", color = if (disabled) WarnLight else OkLight, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(Modifier.width(8.dp))
-                        Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(30.dp).fluidClickable(onClick = onDismiss).clip(AppShapes.sm).background(Bg2), contentAlignment = Alignment.Center) {
                             Icon(imageVector = Feather.X, contentDescription = "关闭", tint = Tx3, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
 
-                // 启动配置
                 Spacer(Modifier.height(18.dp))
-                SectionLabel("启动配置")
+                SectionLabel("基础配置")
                 Spacer(Modifier.height(8.dp))
-                FormField("启动命令", cmd, { cmd = it }, Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FormField("名称", name, { name = it }, Modifier.weight(1f))
+                    FormField("说明", description, { description = it }, Modifier.weight(1f))
+                }
                 Spacer(Modifier.height(10.dp))
                 Text("传输协议", color = Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("stdio", "sse", "http").forEach { p ->
-                        val active = protocol == p
+                    listOf("stdio", "http").forEach { option ->
+                        val active = protocol == option
                         Text(
-                            p, color = if (active) Color.White else Tx2, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            option, color = if (active) OnAccent else Tx2, fontSize = 12.sp, fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                                 .background(if (active) Ac else Bg2)
                                 .border(1.dp, if (active) Ac else Line, RoundedCornerShape(8.dp))
-                                .clickable { protocol = p }.padding(vertical = 8.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                .clickable { protocol = option }.padding(vertical = 8.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                if (protocol == "http") {
+                    FormField("服务 URL", url, { url = it }, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FormField("Bearer Token 环境变量", bearerTokenEnvVar, { bearerTokenEnvVar = it }, Modifier.weight(1f))
+                        FormField("请求头（KEY=value; ...）", headers, { headers = it }, Modifier.weight(1f))
+                    }
+                } else {
+                    FormField("启动命令", command, { command = it }, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
+                    FormField("参数（空格分隔）", args, { args = it }, Modifier.fillMaxWidth())
+                }
+
+                Spacer(Modifier.height(14.dp))
+                SectionLabel("环境变量")
+                Spacer(Modifier.height(8.dp))
+                FormField("KEY=value; KEY2=value2", environment, { environment = it }, Modifier.fillMaxWidth())
+
+                if (server.tools.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    SectionLabel("可用工具 (${server.tools.size})")
+                    Spacer(Modifier.height(8.dp))
+                    FlowTools(server.tools.map { it.name })
+                }
+
+                Spacer(Modifier.height(14.dp))
+                SectionLabel("授权主智能体")
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    agents.forEach { agent ->
+                        val allowed = enabledAgents.isEmpty() || enabledAgents[agent.id] == true
+                        Text(
+                            agent.name,
+                            color = if (allowed) AcLight else Tx3,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                .background(if (allowed) Ac.withAlpha(0.12f) else Color.Transparent)
+                                .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val updated = enabledAgents.toMap().updatedAgentAccess(
+                                        agentIds = agents.map { it.id },
+                                        agentId = agent.id,
+                                        enabled = !allowed
+                                    )
+                                    enabledAgents.clear()
+                                    enabledAgents.putAll(updated)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
 
-                // 环境变量
-                Spacer(Modifier.height(16.dp))
-                SectionLabel("环境变量")
-                Spacer(Modifier.height(8.dp))
-                if (server.env.isEmpty()) {
-                    Text("暂无环境变量", color = Tx3, fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.3f))
-                            .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(12.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                } else {
-                    server.env.forEach { (k, v) ->
-                        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(k, color = Tx, fontSize = 12.sp, fontFamily = CodeFont,
-                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Bg3.withAlpha(0.6f))
-                                    .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(horizontal = 11.dp, vertical = 8.dp))
-                            Text("•".repeat(v.length.coerceIn(6, 16)), color = Tx2, fontSize = 12.sp, fontFamily = CodeFont,
-                                modifier = Modifier.weight(1.5f).clip(RoundedCornerShape(8.dp)).background(Bg3.withAlpha(0.6f))
-                                    .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(horizontal = 11.dp, vertical = 8.dp))
-                        }
-                    }
-                }
-
-                // 可用工具
-                Spacer(Modifier.height(14.dp))
-                SectionLabel("可用工具 (${server.tools.size})")
-                Spacer(Modifier.height(8.dp))
-                FlowTools(server.tools.map { it.name })
-
-                // 授权 Agent
-                Spacer(Modifier.height(14.dp))
-                SectionLabel("授权 Agent")
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AUTH_AGENTS.forEach { (id, name) ->
-                        val allowed = server.agents.any { it.equals(id.substringBefore("-"), true) || it == id }
-                        Text(name, color = if (allowed) AcLight else Tx3, fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                                .background(if (allowed) Ac.withAlpha(0.12f) else Color.Transparent)
-                                .border(1.dp, if (allowed) Ac else Line, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp))
-                    }
-                }
-
-                // 底部按钮
                 Spacer(Modifier.height(18.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("重启服务", color = Tx2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
-                            .clickable(onClick = onDismiss).padding(horizontal = 12.dp, vertical = 7.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("删除", color = ErrLight, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp))
-                            .clickable(onClick = onDismiss).padding(horizontal = 12.dp, vertical = 7.dp))
+                    if (existingServer != null) {
+                        GhostButton("删除", danger = true, onClick = { onDelete(server.id); onDismiss() })
+                    }
                     Spacer(Modifier.weight(1f))
                     GhostButton("取消", onClick = onDismiss)
                     Spacer(Modifier.width(8.dp))
-                    GlowButton("保存配置", active = true, onClick = onDismiss)
+                    GlowButton(
+                        "保存配置",
+                        active = name.isNotBlank() && if (protocol == "http") url.isNotBlank() else command.isNotBlank(),
+                        onClick = {
+                            onSave(
+                                server.copy(
+                                    name = name.trim(),
+                                    type = protocol,
+                                    command = if (protocol == "stdio") command.trim() else "",
+                                    args = if (protocol == "stdio") args.split(Regex("\\s+")).filter { it.isNotBlank() } else emptyList(),
+                                    env = parseKeyValueList(environment),
+                                    url = if (protocol == "http") url.trim() else "",
+                                    enabledAgents = enabledAgents.toMap(),
+                                    description = description.trim(),
+                                    bearerTokenEnvVar = if (protocol == "http") bearerTokenEnvVar.trim() else "",
+                                    headers = if (protocol == "http") parseKeyValueList(headers) else emptyMap(),
+                                    disabled = disabled
+                                )
+                            )
+                            onDismiss()
+                        }
+                    )
                 }
-            }
         }
     }
 }
@@ -183,11 +229,11 @@ private fun FlowTools(tools: List<String>) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.3f))
             .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(10.dp)
     ) {
-        tools.forEach { t ->
+        tools.forEach { tool ->
             Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(5.dp).clip(CircleShape).background(OkLight))
                 Spacer(Modifier.width(6.dp))
-                Text(t, color = Tx2, fontSize = 11.sp, fontFamily = CodeFont)
+                Text(tool, color = Tx2, fontSize = 11.sp, fontFamily = CodeFont)
             }
         }
     }

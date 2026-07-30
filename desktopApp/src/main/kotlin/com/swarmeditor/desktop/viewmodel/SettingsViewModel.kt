@@ -1,75 +1,374 @@
 package com.swarmeditor.desktop.viewmodel
 
-import com.swarmeditor.desktop.api.ApiClient
+import com.swarmeditor.backend.agent.AgentRegistry
+import com.swarmeditor.backend.model.ModelRegistry
+import com.swarmeditor.backend.service.AgentService
+import com.swarmeditor.backend.service.McpService
+import com.swarmeditor.backend.service.ModelService
+import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.common.config.ConfigPaths
+import com.swarmeditor.common.model.AgentModelSelectionStrategy
+import com.swarmeditor.common.model.AgentThinkingLevel
+import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.common.model.ModelConfig
+import com.swarmeditor.common.model.SwarmAgentRole
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 @androidx.compose.runtime.Immutable
-data class AgentConfigField(val label: String, val value: String, val isPassword: Boolean = false, val isSelect: Boolean = false, val options: List<String> = emptyList())
+data class AgentConfigField(
+    val label: String,
+    val value: String,
+    val isPassword: Boolean = false,
+    val isSelect: Boolean = false,
+    val options: List<String> = emptyList()
+)
 
-class SettingsViewModel {
-    private val scope = CoroutineScope(Dispatchers.Default)
-    private val _selectedAgentId = MutableStateFlow("claude-code")
+data class SettingsActionEvent(val message: String, val type: ToastType)
+
+class SettingsViewModel(
+    private val agentService: AgentService,
+    private val mcpService: McpService,
+    private val skillService: SkillService,
+    private val scope: CoroutineScope,
+    private val modelService: ModelService? = null,
+) {
+    private val _selectedAgentId = MutableStateFlow(com.swarmeditor.desktop.PRIMARY_AGENT_ID)
     val selectedAgentId: StateFlow<String> = _selectedAgentId
     private val _configFields = MutableStateFlow<List<AgentConfigField>>(emptyList())
     val configFields: StateFlow<List<AgentConfigField>> = _configFields
     private val _configPath = MutableStateFlow("")
     val configPath: StateFlow<String> = _configPath
-    private val _mcpServers = MutableStateFlow<List<McpServerDto>>(emptyList())
-    val mcpServers: StateFlow<List<McpServerDto>> = _mcpServers
-    private val _skills = MutableStateFlow<List<SkillDto>>(emptyList())
-    val skills: StateFlow<List<SkillDto>> = _skills
+    private val eventChannel = Channel<SettingsActionEvent>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
+    private var loadAgentJob: Job? = null
+    private val agentSelectionRequests = AtomicLong()
+    private val _selectedModelId = MutableStateFlow(ModelRegistry.DEFAULT_MODEL_ID)
+    val selectedModelId: StateFlow<String> = _selectedModelId
+    private val _modelConfigFields = MutableStateFlow<List<AgentConfigField>>(emptyList())
+    val modelConfigFields: StateFlow<List<AgentConfigField>> = _modelConfigFields
+    private val _modelConfigPath = MutableStateFlow(ConfigPaths.MODELS_JSON)
+    val modelConfigPath: StateFlow<String> = _modelConfigPath
+    private var loadModelJob: Job? = null
+    private val modelSelectionRequests = AtomicLong()
 
-    init { selectAgent("claude-code"); loadMcp(); loadSkills() }
+    val mcpServers: StateFlow<List<McpServerDto>> = mcpService.servers
+        .map { servers -> servers.map { it.toDto() } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val skills: StateFlow<List<SkillDto>> = skillService.skills
+        .map { skills -> skills.map { it.toDto() } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val models: StateFlow<List<ModelConfig>> = modelService?.models
+        ?: MutableStateFlow(emptyList())
+
+    init {
+        selectAgent(com.swarmeditor.desktop.PRIMARY_AGENT_ID)
+        selectModel(ModelRegistry.DEFAULT_MODEL_ID)
+    }
 
     fun selectAgent(id: String) {
+        val requestId = agentSelectionRequests.incrementAndGet()
         _selectedAgentId.value = id
+        _configPath.value = ""
+        _configFields.value = emptyList()
+        loadAgentJob?.cancel()
+        loadAgentJob = scope.launch {
+            loadAgentFields(id, requestId)
+        }
+    }
+
+    fun saveFields(fields: Map<String, String>) {
+        val agentId = _selectedAgentId.value
         scope.launch {
-            val resp = ApiClient.getAgentConfig(id)
-            _configPath.value = resp.configPath
-            _configFields.value = resp.fields.map { (k, v) ->
-                AgentConfigField(k, v, isPassword = k.lowercase().contains("key") || k.lowercase().contains("token"))
+            runAction("主智能体配置已保存", "主智能体配置保存失败") {
+                val config = agentService.getConfig(agentId) ?: newAgentConfig(agentId)
+                val updated = config.updatedWith(fields)
+                agentService.upsert(updated).getOrThrow()
+                if (_selectedAgentId.value == agentId) {
+                    loadAgentFields(agentId, agentSelectionRequests.get())
+                }
             }
         }
     }
 
     fun saveField(key: String, value: String) {
-        scope.launch { ApiClient.updateAgentConfig(_selectedAgentId.value, key, value) }
+        saveFields(mapOf(key to value))
     }
 
-    fun loadMcp() { scope.launch { _mcpServers.value = ApiClient.getMcpServers() } }
-    fun loadSkills() { scope.launch { _skills.value = ApiClient.getSkills() } }
-    fun scanSkills() { scope.launch { _skills.value = ApiClient.scanSkills() } }
+    private suspend fun loadAgentFields(id: String, requestId: Long) {
+        val config = agentService.getConfig(id) ?: newAgentConfig(id)
+        if (requestId != agentSelectionRequests.get() || _selectedAgentId.value != id) return
+        _configPath.value = ConfigPaths.AGENTS_JSON
+        _configFields.value = listOf(
+            AgentConfigField("Name", config.name),
+            AgentConfigField("Description", config.description),
+            AgentConfigField(
+                label = "Enabled",
+                value = config.enabled.toString(),
+                isSelect = true,
+                options = listOf("true", "false")
+            ),
+            AgentConfigField("Working Directory", config.workingDirectory),
+            AgentConfigField("System Prompt", config.systemPrompt),
+            AgentConfigField("Tags", config.tags.joinToString(", ")),
+            AgentConfigField("Timeout Seconds", config.timeoutSeconds.toString()),
+            AgentConfigField("Max Dynamic Subagents", config.maxDynamicSubagents.toString()),
+            AgentConfigField(
+                label = "Model Selection",
+                value = config.modelSelectionStrategy.name.lowercase(),
+                isSelect = true,
+                options = AgentModelSelectionStrategy.entries.map { it.name.lowercase() }
+            ),
+            AgentConfigField(
+                label = "Auto Start",
+                value = config.autoStart.toString(),
+                isSelect = true,
+                options = listOf("true", "false")
+            )
+        )
+    }
+
+    private fun newAgentConfig(id: String) = AgentRegistry.defaultConfig().copy(
+        id = id,
+        name = "Pi 主智能体",
+        tags = listOf("pi", "builtin"),
+    )
+
+    fun selectModel(id: String) {
+        val requestId = modelSelectionRequests.incrementAndGet()
+        _selectedModelId.value = id
+        _modelConfigFields.value = emptyList()
+        loadModelJob?.cancel()
+        loadModelJob = scope.launch { loadModelFields(id, requestId) }
+    }
+
+    fun saveModelField(key: String, value: String) {
+        val service = modelService ?: return
+        val modelId = _selectedModelId.value
+        scope.launch {
+            runAction("模型配置已保存", "模型配置保存失败") {
+                val config = service.get(modelId) ?: ModelRegistry.defaultConfig().copy(id = modelId)
+                service.upsert(config.updatedWith(mapOf(key to value))).getOrThrow()
+                if (_selectedModelId.value == modelId) loadModelFields(modelId, modelSelectionRequests.get())
+            }
+        }
+    }
+
+    fun createModelConfig() {
+        val service = modelService ?: return
+        scope.launch {
+            runAction("模型配置已创建", "模型配置创建失败") {
+                val created = service.create(_selectedModelId.value).getOrThrow()
+                selectModel(created.id)
+            }
+        }
+    }
+
+    fun deleteSelectedModelConfig() {
+        val service = modelService ?: return
+        val modelId = _selectedModelId.value
+        scope.launch {
+            runAction("模型配置已删除", "模型配置删除失败") {
+                service.delete(modelId).getOrThrow()
+                selectModel(service.models.value.firstOrNull()?.id ?: ModelRegistry.DEFAULT_MODEL_ID)
+            }
+        }
+    }
+
+    private suspend fun loadModelFields(id: String, requestId: Long) {
+        val config = modelService?.get(id) ?: return
+        if (requestId != modelSelectionRequests.get() || _selectedModelId.value != id) return
+        _modelConfigFields.value = listOf(
+            AgentConfigField("Name", config.name),
+            AgentConfigField(
+                label = "Enabled",
+                value = config.enabled.toString(),
+                isSelect = true,
+                options = listOf("true", "false"),
+            ),
+            AgentConfigField("Provider", config.provider),
+            AgentConfigField("Model", config.model),
+            AgentConfigField(
+                label = "Thinking",
+                value = config.thinkingLevel.name.lowercase(),
+                isSelect = true,
+                options = AgentThinkingLevel.entries.map { it.name.lowercase() },
+            ),
+            AgentConfigField("Environment", config.env.entries.sortedBy { it.key }.joinToString("; ") { "${it.key}=${it.value}" }),
+            AgentConfigField("Priority", config.priority.toString()),
+            AgentConfigField("Roles", config.roles.joinToString(", ") { it.name.lowercase() }),
+            AgentConfigField("Max Concurrent Agents", config.maxConcurrentAgents.toString()),
+        )
+    }
+
+    fun loadMcp() = Unit
+    fun loadSkills() = Unit
+
+    fun scanSkills() {
+        scope.launch {
+            runResultAction("Skills 扫描完成", "Skills 扫描失败") { skillService.scan() }
+        }
+    }
 
     fun addMcpServer(name: String, command: String) {
         scope.launch {
-            ApiClient.addMcpServer(McpServerDto(id = "", name = name, command = command))
-            loadMcp()
+            runResultAction("MCP 配置已保存", "MCP 配置保存失败") {
+                mcpService.upsert(
+                    McpServerDto(
+                        id = UUID.randomUUID().toString(),
+                        name = name,
+                        command = command
+                    ).toConfig()
+                )
+            }
+        }
+    }
+
+    fun upsertMcpServer(server: McpServerDto) {
+        scope.launch {
+            runResultAction("MCP 配置已保存", "MCP 配置保存失败") { mcpService.upsert(server.toConfig()) }
         }
     }
 
     fun deleteMcpServer(id: String) {
-        scope.launch { ApiClient.deleteMcpServer(id); loadMcp() }
+        scope.launch {
+            runResultAction("MCP 服务已删除", "MCP 服务删除失败", ToastType.INFO) { mcpService.delete(id) }
+        }
+    }
+
+    private suspend fun runAction(
+        successMessage: String,
+        failureMessage: String,
+        successType: ToastType = ToastType.SUCCESS,
+        action: suspend () -> Unit
+    ) {
+        try {
+            action()
+            eventChannel.send(SettingsActionEvent(successMessage, successType))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            eventChannel.send(SettingsActionEvent(error.message ?: failureMessage, ToastType.ERROR))
+        }
+    }
+
+    private suspend fun runResultAction(
+        successMessage: String,
+        failureMessage: String,
+        successType: ToastType = ToastType.SUCCESS,
+        action: suspend () -> Result<Unit>
+    ) {
+        try {
+            action().fold(
+                onSuccess = { eventChannel.send(SettingsActionEvent(successMessage, successType)) },
+                onFailure = { eventChannel.send(SettingsActionEvent(it.message ?: failureMessage, ToastType.ERROR)) }
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            eventChannel.send(SettingsActionEvent(error.message ?: failureMessage, ToastType.ERROR))
+        }
     }
 
     fun toggleMcpAgent(serverId: String, agentId: String, enabled: Boolean) {
         scope.launch {
-            val server = _mcpServers.value.find { it.id == serverId } ?: return@launch
-            val updated = server.copy(enabledAgents = server.enabledAgents + (agentId to enabled))
-            ApiClient.updateMcpServer(serverId, updated)
-            loadMcp()
+            val server = mcpService.servers.value.find { it.id == serverId } ?: return@launch
+            val agentIds = agentService.agents.value.map { it.config.id }
+            runResultAction("MCP 授权已更新", "MCP 授权更新失败") {
+                mcpService.upsert(
+                    server.copy(
+                        enabledAgents = server.enabledAgents.updatedAgentAccess(agentIds, agentId, enabled)
+                    )
+                )
+            }
         }
     }
 
     fun toggleSkillAgent(skillId: String, agentId: String, enabled: Boolean) {
         scope.launch {
-            ApiClient.toggleSkillAgent(skillId, agentId, enabled)
-            loadSkills()
+            runResultAction("Skill 授权已更新", "Skill 授权更新失败") {
+                skillService.toggleAgent(skillId, agentId, enabled)
+            }
         }
     }
 }
+
+internal fun Map<String, Boolean>.updatedAgentAccess(
+    agentIds: List<String>,
+    agentId: String,
+    enabled: Boolean,
+): Map<String, Boolean> {
+    val updated = if (isEmpty()) {
+        agentIds.associateWith { true }.toMutableMap()
+    } else {
+        toMutableMap()
+    }
+    updated[agentId] = enabled
+    return if (agentIds.isNotEmpty() && agentIds.all { updated[it] == true }) emptyMap() else updated
+}
+
+internal fun AgentConfig.updatedWith(fields: Map<String, String>): AgentConfig = copy(
+    name = fields["Name"]?.trim().orEmpty().ifBlank { name },
+    description = fields["Description"]?.trim() ?: description,
+    enabled = fields["Enabled"]?.toBooleanStrictOrNull() ?: enabled,
+    workingDirectory = fields["Working Directory"]?.trim() ?: workingDirectory,
+    systemPrompt = fields["System Prompt"]?.trim() ?: systemPrompt,
+    tags = fields["Tags"]
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter(String::isNotBlank)
+        ?.distinct()
+        ?: tags,
+    timeoutSeconds = fields["Timeout Seconds"]?.toIntOrNull()?.coerceAtLeast(1) ?: timeoutSeconds,
+    autoStart = fields["Auto Start"]?.toBooleanStrictOrNull() ?: autoStart,
+    maxDynamicSubagents = fields["Max Dynamic Subagents"]?.toIntOrNull()?.coerceIn(1, 32) ?: maxDynamicSubagents,
+    modelSelectionStrategy = fields["Model Selection"]
+        ?.uppercase()
+        ?.let { value -> AgentModelSelectionStrategy.entries.find { it.name == value } }
+        ?: modelSelectionStrategy,
+)
+
+internal fun ModelConfig.updatedWith(fields: Map<String, String>): ModelConfig = copy(
+    name = fields["Name"]?.trim().orEmpty().ifBlank { name },
+    enabled = fields["Enabled"]?.toBooleanStrictOrNull() ?: enabled,
+    provider = fields["Provider"]?.trim() ?: provider,
+    model = fields["Model"]?.trim() ?: model,
+    thinkingLevel = fields["Thinking"]
+        ?.uppercase()
+        ?.let { value -> AgentThinkingLevel.entries.find { it.name == value } }
+        ?: thinkingLevel,
+    env = fields["Environment"]?.let(::parseAgentEnvironment) ?: env,
+    priority = fields["Priority"]?.toIntOrNull()?.coerceIn(0, 1000) ?: priority,
+    roles = fields["Roles"]
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter(String::isNotBlank)
+        ?.map { role -> SwarmAgentRole.valueOf(role.uppercase()) }
+        ?.distinct()
+        ?: roles,
+    maxConcurrentAgents = fields["Max Concurrent Agents"]?.toIntOrNull()?.coerceIn(1, 64)
+        ?: maxConcurrentAgents,
+)
+
+internal fun parseAgentEnvironment(value: String): Map<String, String> = value
+    .split(';', '\n')
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .associate { entry ->
+        val separator = entry.indexOf('=')
+        require(separator > 0) { "环境变量必须使用 KEY=VALUE 格式: $entry" }
+        entry.substring(0, separator).trim() to entry.substring(separator + 1).trim()
+    }

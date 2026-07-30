@@ -29,31 +29,83 @@ object Spacing {
     val lg = 16.dp   // 大间距（区域 padding）
     val xl = 24.dp   // 区域间距（view padding）
     val xxl = 32.dp  // 最大间距（composer wrap）
+    val panel = 18.dp
+    val section = 20.dp
+    val tileGap = 10.dp
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Shapes — 圆角阶梯（Hybrid：整体上调一档，更柔；6/8/12/16/20dp）
 // ═══════════════════════════════════════════════════════════════
 object AppShapes {
-    val xs = RoundedCornerShape(6.dp)   // badge/tag/ext
-    val sm = RoundedCornerShape(8.dp)   // chip/button
-    val md = RoundedCornerShape(12.dp)  // card/input
-    val lg = RoundedCornerShape(16.dp)  // large card/modal
-    val xl = RoundedCornerShape(20.dp)  // modal/hero
+    val xs get() = RoundedCornerShape(R6)
+    val sm get() = RoundedCornerShape(10.dp)
+    val md get() = RoundedCornerShape(14.dp)
+    val lg get() = RoundedCornerShape(18.dp)
+    val pill get() = RoundedCornerShape(999.dp)
+    val xl = RoundedCornerShape(22.dp)
+}
+
+object TileMetrics {
+    val compactHeight = 36.dp
+    val standardHeight = 72.dp
+    val featureHeight = 98.dp
+    val iconSize = 30.dp
+    val contentPadding = 12.dp
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Typography — 字号阶梯（10/11/12/13/14sp，JetBrains IDE 标准）
 // ═══════════════════════════════════════════════════════════════
 object AppType {
-    val micro = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold)   // badge
-    val caption = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Normal)  // 时间戳/标签
-    val bodySm = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Normal)  // 元信息
-    val body = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal)    // 正文
-    val bodyMd = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Normal)  // 大正文
-    val title = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold) // 标题
-    val headline = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold)  // 大标题
-    val display = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold)   // hero 标题
+    val micro = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 10.sp,
+        lineHeight = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    val caption = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    val bodySm = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    val body = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    val bodyMd = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    val title = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    val headline = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 18.sp,
+        lineHeight = 25.sp,
+        fontWeight = FontWeight.Bold,
+    )
+    val display = TextStyle(
+        fontFamily = SansFont,
+        fontSize = 24.sp,
+        lineHeight = 32.sp,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -61,24 +113,23 @@ object AppType {
 // ═══════════════════════════════════════════════════════════════
 object Elevation {
     val none = 0.dp   // 平面（背景元素）
-    val low = 2.dp    // 卡片基础（微妙浮起）
-    val medium = 4.dp // 弹出元素（tooltip/dropdown）
-    val high = 8.dp   // hover/active 卡片
-    val modal = 16.dp // 模态框
+    val low = 4.dp
+    val medium = 8.dp
+    val high = 12.dp
+    val modal = 20.dp
 }
 
 // ═══════════════════════════════════════════════════════════════
 // CSS-like Modifier extensions — 可复用样式（类似 CSS class）
 // ═══════════════════════════════════════════════════════════════
 
-/** 卡片表面（bg + border + shadow + radius） */
+/** 卡片表面：Fusion/Win11 使用色阶和边框，只有 Clay 使用实体投影。 */
 fun Modifier.surfaceCard(
     bg: Color = Bg2,
     border: Color = Line,
     elevation: androidx.compose.ui.unit.Dp = Elevation.low,
     shape: androidx.compose.foundation.shape.RoundedCornerShape = AppShapes.md
 ): Modifier = this
-    .shadow(elevation, shape, clip = false)
     .clip(shape)
     .background(bg)
     .border(1.dp, border, shape)
@@ -106,12 +157,9 @@ fun Modifier.surfaceHover(
         shape
     )
 
-/** 强调色按钮（渐变 bg + shadow） */
+/** 强调色按钮：避免桌面端 hover 阴影重建导致闪烁。 */
 fun Modifier.accentButton(
     shape: androidx.compose.foundation.shape.RoundedCornerShape = AppShapes.sm
 ): Modifier = this
-    .shadow(Elevation.low, shape)
     .clip(shape)
-    .background(
-        androidx.compose.ui.graphics.Brush.linearGradient(listOf(Ac, Ac2))
-    )
+    .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Ac, Ac2)))

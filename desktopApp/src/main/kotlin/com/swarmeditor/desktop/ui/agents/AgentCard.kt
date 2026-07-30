@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,11 +27,10 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.*
 
-val AGENT_COLORS = listOf(AgentClaude, AgentQwen, AgentGemini, AgentKimi, AgentOpenCode)
-val AGENT_LETTERS = listOf("C", "Q", "G", "K", "O")
+val AGENT_COLORS = listOf(Ac)
 
 fun agentColor(index: Int): Color = AGENT_COLORS[index.coerceIn(AGENT_COLORS.indices)]
-fun agentLetter(index: Int): String = AGENT_LETTERS[index.coerceIn(AGENT_LETTERS.indices)]
+fun agentLetter(name: String): String = name.firstOrNull()?.uppercase() ?: "P"
 
 @Composable
 fun AgentCard(
@@ -41,17 +40,20 @@ fun AgentCard(
     modifier: Modifier = Modifier
 ) {
     val agentColor = agentColor(colorIndex)
-    val letter = agentLetter(colorIndex)
-    val isConnected = agent.status == "connected"
+    val letter = agentLetter(agent.config.name)
+    val isEnabled = agent.config.enabled
+    val isConnected = isEnabled && agent.status == "connected"
     val isInstalled = agent.status != "not_installed"
 
     val statusText = when {
+        !isEnabled -> "已停用"
         isConnected -> "已连接"
         isInstalled -> "未连接"
-        else -> "未安装"
+        else -> "执行环境不可用"
     }
 
     val (statusBg, statusFg, statusDotColor) = when {
+        !isEnabled -> Triple(Tx3.withAlpha(0.12f), Tx3, Tx3)
         isConnected -> Triple(Ok.withAlpha(0.12f), OkLight, OkLight)
         isInstalled -> Triple(Err.withAlpha(0.12f), ErrLight, ErrLight)
         else -> Triple(Warn.withAlpha(0.12f), WarnLight, WarnLight)
@@ -60,15 +62,14 @@ fun AgentCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hoverLift(RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
+            .fluidClickable(onClick = onConfigClick)
+            .clip(AppShapes.md)
             .background(
                 Brush.linearGradient(
                     listOf(Bg2.withAlpha(0.5f), Bg1.withAlpha(0.4f))
                 )
             )
-            .border(1.dp, Line, RoundedCornerShape(12.dp))
-            .clickable(onClick = onConfigClick)
+            .border(1.dp, Line, AppShapes.md)
     ) {
         // 顶部彩色条（2dp，Agent 配色）
         Box(
@@ -78,13 +79,13 @@ fun AgentCard(
                 .background(agentColor.withAlpha(0.6f))
         )
 
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(Spacing.panel)) {
             // 第 1 行：Logo + 名称/元信息 + 状态 + 配置按钮
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(AppShapes.sm)
                         .background(
                             Brush.linearGradient(
                                 listOf(agentColor, agentColor.withAlpha(0.7f))
@@ -94,13 +95,13 @@ fun AgentCard(
                 ) {
                     Text(
                         letter,
-                        color = Color.White,
+                        color = OnAccent,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -111,7 +112,10 @@ fun AgentCard(
                         maxLines = 1
                     )
                     val meta = buildString {
-                        if (agent.config.command.isNotEmpty()) append(agent.config.command)
+                        val model = listOf(agent.config.provider, agent.config.model)
+                            .filter { it.isNotBlank() }
+                            .joinToString("/")
+                        if (model.isNotEmpty()) append(model) else append("自动选择模型")
                         if (agent.version.isNotEmpty()) {
                             if (isNotEmpty()) append(" · ")
                             append("v${agent.version}")
@@ -132,15 +136,16 @@ fun AgentCard(
                 // 状态胶囊
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(AppShapes.pill)
                         .background(statusBg)
+                        .border(1.dp, statusDotColor.withAlpha(0.22f), AppShapes.pill)
                         .padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .clip(RoundedCornerShape(3.5.dp))
+                            .clip(CircleShape)
                             .background(statusDotColor)
                     )
                     Spacer(Modifier.width(6.dp))
@@ -157,9 +162,9 @@ fun AgentCard(
                 // 配置按钮（描边）
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(AppShapes.xs)
                         .background(Bg3)
-                        .border(1.dp, Line, RoundedCornerShape(8.dp))
+                        .border(1.dp, Line, AppShapes.xs)
                         .clickable(onClick = onConfigClick)
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
@@ -184,24 +189,24 @@ fun AgentCard(
                 )
             }
 
-            // 待安装：💡 安装提示 + 命令 + 安装按钮（对齐核心稿）
+            // 内置 runtime 不可用提示
             if (!isInstalled) {
                 Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(AppShapes.sm)
                         .background(Warn.withAlpha(0.08f))
-                        .border(1.dp, Warn.withAlpha(0.2f), RoundedCornerShape(8.dp))
+                        .border(1.dp, Warn.withAlpha(0.2f), AppShapes.sm)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("💡", fontSize = 13.sp)
                     Spacer(Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("请先安装", color = WarnLight, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("内置执行引擎尚未就绪", color = WarnLight, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "npm install -g @anthropic-ai/${agent.config.id}",
+                            "请重新构建内置执行环境",
                             color = WarnLight,
                             fontSize = 11.sp,
                             fontFamily = CodeFont,
@@ -210,12 +215,12 @@ fun AgentCard(
                     }
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(AppShapes.xs)
                             .background(Brush.linearGradient(listOf(Ac, Ac2)))
                             .clickable(onClick = onConfigClick)
                             .padding(horizontal = 12.dp, vertical = 5.dp)
                     ) {
-                        Text("安装", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("配置", color = OnAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

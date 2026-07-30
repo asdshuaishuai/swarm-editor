@@ -20,5 +20,6 @@ data class SkillConfig(
     val path: String = "",
     val agentId: String = "",
     val enabledAgents: Map<String, Boolean> = emptyMap(),
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val files: List<String> = emptyList(),
 )

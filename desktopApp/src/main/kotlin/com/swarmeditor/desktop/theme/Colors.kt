@@ -6,41 +6,36 @@ import androidx.compose.ui.graphics.Color
    Swarm Editor — Design System Colors (from MVP mockup)
    ═══════════════════════════════════════════════════════════════ */
 
-// Backgrounds — Hybrid 柔和深色分层（紫调身份 + Apple 克制）
-val Bg0 = Color(0xFF0f1018)      // 最深背景（微调：更深一档，增加深度层次）
-val Bg1 = Color(0xFF171823)      // 侧栏/面板底
-val Bg2 = Color(0xFF1f2030)      // 卡片/输入框底（磨砂感）
-val Bg3 = Color(0xFF2a2c40)      // hover/高亮底（柔和反馈）
-
-// Lines / Borders — 柔化分隔线
-val Line = Color(0xFF252637)     // 主分隔线（微调：降饱和）
-val Line2 = Color(0xFF33354a)    // hover 分隔线
-
-// Text — 三级文字（微调：提高主文字对比度）
-val Tx = Color(0xFFeaecf4)       // 主文字（微提亮）
-val Tx2 = Color(0xFF949bb0)      // 次文字
-val Tx3 = Color(0xFF62677d)      // 弱化/标签文字
-
-// Accent (purple) — 紫身份保留；Hybrid 克制：仅 CTA/激活态用（使用面靠组件层收）
-val Ac = Color(0xFFa78bfa)         // Primary accent
-val Ac2 = Color(0xFF7c3aed)      // Deep accent (gradients)
-val AcLight = Color(0xFFc4b5fd)   // Light accent (text on dark bg)
-
-// Agent brand colors — 还原设计稿值（比旧"提亮版"更柔，符合 Hybrid 克制）
-val AgentClaude = Color(0xFFa78bfa)    // Claude 紫
-val AgentQwen = Color(0xFF60a5fa)      // Qwen 蓝
-val AgentGemini = Color(0xFF34d399)    // Gemini 绿
-val AgentKimi = Color(0xFFfbbf24)      // Kimi 金
-val AgentOpenCode = Color(0xFFfb923c)  // OpenCode 橙
-
-// Status colors
-val Ok = Color(0xFF22c55e)       // Success / online
-val OkLight = Color(0xFF4ade80)  // Brighter success
-val Warn = Color(0xFFf59e0b)     // Warning / pending
-val WarnLight = Color(0xFFfbbf24)// Brighter warning
-val Err = Color(0xFFef4444)     // Error / offline
-val ErrLight = Color(0xFFf87171) // Brighter error
+val Bg0 get() = ThemeRuntime.palette.bg0
+val Bg1 get() = ThemeRuntime.palette.bg1
+val Bg2 get() = ThemeRuntime.palette.bg2
+val Bg3 get() = ThemeRuntime.palette.bg3
+val Line get() = ThemeRuntime.palette.line
+val Line2 get() = ThemeRuntime.palette.line2
+val Tx get() = ThemeRuntime.palette.tx
+val Tx2 get() = ThemeRuntime.palette.tx2
+val Tx3 get() = ThemeRuntime.palette.tx3
+val Ac get() = ThemeRuntime.palette.ac
+val Ac2 get() = ThemeRuntime.palette.ac2
+val AcLight get() = ThemeRuntime.palette.acLight
+val OnAccent get() = ThemeRuntime.palette.onAccent
+val Scrim get() = ThemeRuntime.palette.scrim
+val ControlBlue get() = ThemeRuntime.palette.controlBlue
+val ControlPurple get() = ThemeRuntime.palette.controlPurple
+val ControlGreen get() = ThemeRuntime.palette.controlGreen
+val ControlOrange get() = ThemeRuntime.palette.controlOrange
+val ControlRed get() = ThemeRuntime.palette.controlRed
+val AgentClaude get() = ThemeRuntime.palette.agentClaude
+val AgentQwen get() = ThemeRuntime.palette.agentQwen
+val AgentGemini get() = ThemeRuntime.palette.agentGemini
+val AgentKimi get() = ThemeRuntime.palette.agentKimi
+val AgentOpenCode get() = ThemeRuntime.palette.agentOpenCode
+val Ok get() = ThemeRuntime.palette.ok
+val OkLight get() = ThemeRuntime.palette.okLight
+val Warn get() = ThemeRuntime.palette.warn
+val WarnLight get() = ThemeRuntime.palette.warnLight
+val Err get() = ThemeRuntime.palette.err
+val ErrLight get() = ThemeRuntime.palette.errLight
 
 // Derived alpha helper (renamed to avoid conflict with Color.alpha property)
 fun Color.withAlpha(a: Float) = this.copy(alpha = a)
-

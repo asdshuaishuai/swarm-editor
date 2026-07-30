@@ -1,11 +1,12 @@
 package com.swarmeditor.desktop.ui.navigation
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -23,7 +24,6 @@ import com.woowla.compose.icon.collections.feather.feather.Folder
 import com.woowla.compose.icon.collections.feather.feather.GitBranch
 import com.woowla.compose.icon.collections.feather.feather.Grid
 import com.woowla.compose.icon.collections.feather.feather.MessageSquare
-import com.woowla.compose.icon.collections.feather.feather.Terminal
 import com.woowla.compose.icon.collections.feather.feather.Users
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -36,11 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -60,13 +62,12 @@ private data class RailItem(
 fun RailNavigation(
     currentView: String,
     onSwitchView: (String) -> Unit,
-    onOpenTerminal: () -> Unit = {},
     onOpenGit: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
         RailItem("chat", Feather.MessageSquare, "Chat", "会话"),
-        RailItem("agents", Feather.Users, "Agents", "Agent 编排"),
+        RailItem("agents", Feather.Users, "蜂群", "子智能体编排"),
         RailItem("plugins", Feather.Grid, "Plugins", "插件"),
         RailItem("files", Feather.Folder, "Files", "文件"),
         RailItem("activity", Feather.Activity, "Activity", "活动日志")
@@ -74,11 +75,11 @@ fun RailNavigation(
 
     Column(
         modifier = modifier
-            .width(52.dp)
+            .width(60.dp)
             .fillMaxHeight()
             .background(Bg0)
             .border(1.dp, Line)
-            .padding(vertical = 10.dp),
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Navigation items
@@ -110,16 +111,6 @@ fun RailNavigation(
             isActive = false,
             onClick = onOpenGit
         )
-
-        Spacer(Modifier.height(2.dp))
-
-        // Terminal button
-        RailButton(
-            icon = Feather.Terminal,
-            label = "Terminal",
-            isActive = false,
-            onClick = onOpenTerminal
-        )
     }
 }
 
@@ -131,12 +122,15 @@ private fun RailNavItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val tone = railTone(item.key)
     var showTip by remember { mutableStateOf(false) }
     LaunchedEffect(isHovered) {
         if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
     }
     val bgColor = when {
-        isActive -> Ac.withAlpha(0.1f)
+        isActive -> tone.withAlpha(0.14f)
+        isFocused -> tone.withAlpha(0.1f)
         isHovered -> Bg3.copy(alpha = 0.6f)
         else -> Color.Transparent
     }
@@ -145,28 +139,24 @@ private fun RailNavItem(
         animationSpec = Motion.colorDefault,
         label = "railBg"
     )
-    val targetIconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val targetIconColor = if (isActive || isFocused) tone else if (isHovered) Tx2 else Tx3
     val animatedIconColor by androidx.compose.animation.animateColorAsState(
         targetValue = targetIconColor,
         animationSpec = Motion.colorDefault,
         label = "railIcon"
     )
-
-    // Scale animation on hover (spring to 1.1f)
-    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isHovered) 1.1f else 1f,
-        animationSpec = Motion.floatDefault,
-        label = "railIconScale"
-    )
-
     Box(
         modifier = Modifier
             .width(38.dp)
             .height(38.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AppShapes.sm)
             .background(animatedBg)
-            .hoverable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+            .border(if (isFocused) 1.dp else 0.dp, if (isFocused) tone.withAlpha(0.7f) else Color.Transparent, AppShapes.sm)
+            .semantics {
+                role = Role.Tab
+                selected = isActive
+            }
+            .fluidClickable(interactionSource = interactionSource, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         // Active left indicator bar
@@ -178,13 +168,7 @@ private fun RailNavItem(
                     .width(2.dp)
                     .height(20.dp)
                     .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
-                    .background(Ac)
-                    .shadow(
-                        elevation = 4.dp,
-                        shape = RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp),
-                        ambientColor = Ac,
-                        spotColor = Ac
-                    )
+                    .background(tone)
             )
         }
 
@@ -192,9 +176,7 @@ private fun RailNavItem(
             imageVector = item.icon,
             contentDescription = item.label,
             tint = animatedIconColor,
-            modifier = Modifier
-                .size(17.dp)
-                .graphicsLayer { scaleX = animatedScale; scaleY = animatedScale }
+            modifier = Modifier.size(17.dp)
         )
 
         // Badge
@@ -205,12 +187,12 @@ private fun RailNavItem(
                     .offset(x = (-2).dp, y = 2.dp)
                     .size(14.dp)
                     .clip(CircleShape)
-                    .background(Ac2),
+                    .background(ControlRed),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     if (item.badge > 9) "9+" else item.badge.toString(),
-                    color = Color.White,
+                    color = OnAccent,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = SansFont
@@ -229,11 +211,25 @@ private fun RailNavItem(
 
 @Composable
 private fun RailTip(text: String) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = Motion.alphaEnter,
+        label = "railTipAlpha",
+    )
+    val offsetX by animateDpAsState(
+        targetValue = if (shown) 0.dp else (-4).dp,
+        animationSpec = Motion.dpDefault,
+        label = "railTipOffset",
+    )
     Text(
         text, color = Tx, fontSize = 11.sp, fontFamily = SansFont,
         modifier = Modifier
+            .offset(x = offsetX)
+            .graphicsLayer { this.alpha = alpha }
             .clip(RoundedCornerShape(6.dp))
-            .background(Color(0xFF0a0c14))
+            .background(Bg2)
             .border(1.dp, Line2, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp)
     )
@@ -253,8 +249,8 @@ private fun RailButton(
         if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
     }
     val bgColor = when {
-        isActive -> Ac.withAlpha(0.1f)
-        isHovered -> Bg3.copy(alpha = 0.6f)
+        isActive -> ControlOrange.withAlpha(0.14f)
+        isHovered -> ControlOrange.withAlpha(0.1f)
         else -> Color.Transparent
     }
     val animatedBg by androidx.compose.animation.animateColorAsState(
@@ -262,7 +258,7 @@ private fun RailButton(
         animationSpec = Motion.colorDefault,
         label = "railBtnBg"
     )
-    val targetIconColor = if (isActive) Ac else if (isHovered) Tx2 else Tx3
+    val targetIconColor = if (isActive || isHovered) ControlOrange else Tx3
     val animatedIconColor by androidx.compose.animation.animateColorAsState(
         targetValue = targetIconColor,
         animationSpec = Motion.colorDefault,
@@ -275,8 +271,7 @@ private fun RailButton(
             .height(38.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(animatedBg)
-            .hoverable(interactionSource = interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+            .fluidClickable(interactionSource = interactionSource, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -292,4 +287,13 @@ private fun RailButton(
             }
         }
     }
+}
+
+private fun railTone(key: String): Color = when (key) {
+    "chat" -> ControlBlue
+    "agents" -> ControlPurple
+    "plugins" -> ControlOrange
+    "files" -> ControlGreen
+    "activity" -> ControlRed
+    else -> Ac
 }
