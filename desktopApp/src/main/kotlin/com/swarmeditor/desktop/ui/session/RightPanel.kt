@@ -2,14 +2,10 @@ package com.swarmeditor.desktop.ui.session
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -162,43 +158,32 @@ fun RightPanel(
             onTabChange = onTabChange,
         )
 
-        AnimatedContent(
-            targetState = currentTab,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            transitionSpec = {
-                val direction = if (TABS.indexOfFirst { it.id == targetState } >= TABS.indexOfFirst { it.id == initialState }) 1 else -1
-                (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
-                    (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
-            },
-            label = "rightPanelContent",
-        ) { tab ->
-            Column(Modifier.fillMaxSize()) {
-                when (tab) {
-                    "changes" -> ChangesTab(gitStatus, onStageFile, onStageAll, onUnstageFile, onOpenDiff)
-                    "inspector" -> InspectorTab(
-                        piRuntimeState,
-                        piRuntimeStats,
-                        piModels,
-                        runtimeControlBusy,
-                        isCompacting,
-                        onCompactContext,
-                        onRefreshModels,
-                        onSetModel,
-                        onSetThinkingLevel,
-                    )
-                    "branches" -> BranchesTab(
-                        tree = piSessionTree,
-                        isLoading = sessionTreeLoading,
-                        isBusy = runtimeControlBusy || piRuntimeState?.isStreaming == true || piRuntimeState?.isCompacting == true,
-                        onRefresh = onRefreshSessionTree,
-                        onFork = onForkSession,
-                        onClone = onCloneSession,
-                        onSynchronize = onSynchronizeSession,
-                        onExport = onExportSession,
-                    )
-                    "log" -> LogTab(activities)
-                    "tokens" -> TokenUsageTab(tokenUsageSummary)
-                }
+        Column(Modifier.weight(1f).fillMaxWidth()) {
+            when (currentTab) {
+                "changes" -> ChangesTab(gitStatus, onStageFile, onStageAll, onUnstageFile, onOpenDiff)
+                "inspector" -> InspectorTab(
+                    piRuntimeState,
+                    piRuntimeStats,
+                    piModels,
+                    runtimeControlBusy,
+                    isCompacting,
+                    onCompactContext,
+                    onRefreshModels,
+                    onSetModel,
+                    onSetThinkingLevel,
+                )
+                "branches" -> BranchesTab(
+                    tree = piSessionTree,
+                    isLoading = sessionTreeLoading,
+                    isBusy = runtimeControlBusy || piRuntimeState?.isStreaming == true || piRuntimeState?.isCompacting == true,
+                    onRefresh = onRefreshSessionTree,
+                    onFork = onForkSession,
+                    onClone = onCloneSession,
+                    onSynchronize = onSynchronizeSession,
+                    onExport = onExportSession,
+                )
+                "log" -> LogTab(activities)
+                "tokens" -> TokenUsageTab(tokenUsageSummary)
             }
         }
     }

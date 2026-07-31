@@ -1,12 +1,6 @@
 package com.swarmeditor.desktop.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -198,18 +192,8 @@ fun PluginSideBar(
             }
         }
         Box(Modifier.height(1.dp).fillMaxWidth().background(Line))
-        AnimatedContent(
-            targetState = tab,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            transitionSpec = {
-                val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 8 }) togetherWith
-                    (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 5 })
-            },
-            label = "pluginSideContent",
-        ) { currentTab ->
-            LazyColumn(Modifier.fillMaxSize().padding(6.dp)) {
-            when (currentTab) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(6.dp)) {
+            when (tab) {
                 PluginSideTab.MCP -> items(mcpServers, key = { it.id }) { server ->
                     val s = server
                     val (statusColor, statusLabel) = when (s.runtimeStatus) {
@@ -244,7 +228,6 @@ fun PluginSideBar(
                         onClick = { onSelectSkill(s) }
                     )
                 }
-            }
             }
         }
     }

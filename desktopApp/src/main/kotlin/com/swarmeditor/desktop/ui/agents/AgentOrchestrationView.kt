@@ -2,9 +2,7 @@ package com.swarmeditor.desktop.ui.agents
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,6 +53,10 @@ import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.desktop.theme.*
+
+private const val AgentSplitLayoutBreakpoint = 860
+
+internal fun useSplitAgentLayout(widthDp: Int): Boolean = widthDp >= AgentSplitLayoutBreakpoint
 
 /**
  * Agent Orchestration View — aligned with mvp-design-mockup.html
@@ -151,40 +153,30 @@ fun AgentOrchestrationView(
                     .padding(horizontal = 24.dp, vertical = 20.dp)
             ) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val useWideLayout = maxWidth >= 860.dp
-                    AnimatedContent(
-                        targetState = useWideLayout,
-                        transitionSpec = {
-                            (fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit))
-                                .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> Motion.intSizeGentle }))
-                        },
-                        label = "swarmResponsiveLayout",
-                    ) { wideLayout ->
-                        if (wideLayout) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                SwarmCanvasCard(agents, latestTasks, onConfigClick, Modifier.weight(1.15f))
-                                SwarmControlPanel(
-                                    objective = objective,
-                                    onObjectiveChange = { objective = it },
-                                    runs = swarmRuns,
-                                    onStart = { onStartSwarm(objective); objective = "" },
-                                    onCancel = onCancelSwarm,
-                                    onRetry = onRetrySwarm,
-                                    modifier = Modifier.weight(0.85f).heightIn(min = 236.dp),
-                                )
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                SwarmCanvasCard(agents, latestTasks, onConfigClick)
-                                SwarmControlPanel(
-                                    objective = objective,
-                                    onObjectiveChange = { objective = it },
-                                    runs = swarmRuns,
-                                    onStart = { onStartSwarm(objective); objective = "" },
-                                    onCancel = onCancelSwarm,
-                                    onRetry = onRetrySwarm,
-                                )
-                            }
+                    if (useSplitAgentLayout(maxWidth.value.toInt())) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SwarmCanvasCard(agents, latestTasks, onConfigClick, Modifier.weight(1.15f))
+                            SwarmControlPanel(
+                                objective = objective,
+                                onObjectiveChange = { objective = it },
+                                runs = swarmRuns,
+                                onStart = { onStartSwarm(objective); objective = "" },
+                                onCancel = onCancelSwarm,
+                                onRetry = onRetrySwarm,
+                                modifier = Modifier.weight(0.85f).heightIn(min = 236.dp),
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SwarmCanvasCard(agents, latestTasks, onConfigClick)
+                            SwarmControlPanel(
+                                objective = objective,
+                                onObjectiveChange = { objective = it },
+                                runs = swarmRuns,
+                                onStart = { onStartSwarm(objective); objective = "" },
+                                onCancel = onCancelSwarm,
+                                onRetry = onRetrySwarm,
+                            )
                         }
                     }
                 }
@@ -259,7 +251,6 @@ private fun SwarmControlPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(Motion.intSizeGentle)
             .clip(RoundedCornerShape(14.dp))
             .background(Bg1)
             .border(1.dp, Line, RoundedCornerShape(14.dp))
@@ -284,7 +275,6 @@ private fun SwarmControlPanel(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animateContentSize(Motion.intSizeGentle)
                         .clip(RoundedCornerShape(9.dp))
                         .background(statusColor(run.status).withAlpha(0.035f))
                         .border(1.dp, Line, RoundedCornerShape(9.dp))
@@ -340,7 +330,6 @@ private fun SubagentDispatchQueue(runs: List<SwarmRun>) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(Motion.intSizeGentle)
             .surfaceCard(bg = Bg1, elevation = Elevation.none)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -382,7 +371,6 @@ private fun SubagentTaskItem(task: SwarmTask) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(Motion.intSizeGentle)
             .clip(RoundedCornerShape(9.dp))
             .background(surfaceColor)
             .border(1.dp, Line, RoundedCornerShape(9.dp))

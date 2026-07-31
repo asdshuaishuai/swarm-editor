@@ -3,15 +3,11 @@ package com.swarmeditor.desktop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -456,17 +452,8 @@ fun WindowScope.App(
                         animationSpec = Motion.intSizeCollapse,
                     ),
                 ) {
-                    AnimatedContent(
-                        targetState = currentConfig,
-                        modifier = Modifier.width(shellLayout.leftSidebarWidth.dp).fillMaxHeight(),
-                        transitionSpec = {
-                            val direction = mainConfigMotionIndex(targetState).compareTo(mainConfigMotionIndex(initialState))
-                            (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 8 }) togetherWith
-                                (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
-                        },
-                        label = "leftSidebarContent",
-                    ) { sidebarConfig ->
-                        when (sidebarConfig) {
+                    Box(Modifier.width(shellLayout.leftSidebarWidth.dp).fillMaxHeight()) {
+                        when (currentConfig) {
                             MainConfig.Chat -> SessionPanel(
                                 selectedAgent = selectedAgent,
                                 sessions = sessions,
@@ -500,18 +487,8 @@ fun WindowScope.App(
                 }
 
                 Row(Modifier.weight(1f).fillMaxHeight()) {
-                    AnimatedContent(
-                        targetState = currentConfig,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        transitionSpec = {
-                            val direction = mainConfigMotionIndex(targetState).compareTo(mainConfigMotionIndex(initialState))
-                            (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
-                                (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 7 })
-                        },
-                        label = "mainWorkspaceContent",
-                    ) { workspaceConfig ->
-                        Box(Modifier.fillMaxSize()) {
-                        when (workspaceConfig) {
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        when (currentConfig) {
                             MainConfig.Chat -> ChatArea(
                                 selectedAgent = selectedAgent,
                                 messages = messages,
@@ -597,7 +574,6 @@ fun WindowScope.App(
                                 activities = allActivities,
                                 modifier = Modifier.fillMaxSize()
                             )
-                        }
                         }
                     }
 
@@ -745,14 +721,6 @@ private fun formatTokenCount(tokens: Long): String = when {
     tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
     tokens >= 1_000 -> "%.1fK".format(tokens / 1_000.0)
     else -> tokens.toString()
-}
-
-private fun mainConfigMotionIndex(config: MainConfig): Int = when (config) {
-    MainConfig.Chat -> 0
-    MainConfig.Agents -> 1
-    MainConfig.Plugins -> 2
-    MainConfig.Files -> 3
-    MainConfig.Activity -> 4
 }
 
 private fun PiSessionStats.toTokenUsage() = TokenUsage(

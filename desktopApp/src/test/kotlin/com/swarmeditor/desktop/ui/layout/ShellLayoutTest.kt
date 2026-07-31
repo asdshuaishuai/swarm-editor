@@ -12,15 +12,17 @@ class ShellLayoutTest {
 
         assertTrue(layout.showLeftSidebar)
         assertTrue(layout.showRightPanel)
-        assertEquals(312, layout.rightPanelWidth)
+        assertEquals(248, layout.leftSidebarWidth)
+        assertEquals(296, layout.rightPanelWidth)
     }
 
     @Test
     fun `hides the right panel before the main content becomes cramped`() {
-        val layout = ShellLayout.forWidth(1199)
+        val layout = ShellLayout.forWidth(1279)
 
         assertTrue(layout.showLeftSidebar)
         assertFalse(layout.showRightPanel)
+        assertEquals(240, layout.leftSidebarWidth)
     }
 
     @Test
@@ -28,6 +30,7 @@ class ShellLayoutTest {
         val layout = ShellLayout.forWidth(1440)
 
         assertTrue(layout.showRightPanel)
+        assertEquals(264, layout.leftSidebarWidth)
         assertEquals(336, layout.rightPanelWidth)
     }
 
