@@ -39,6 +39,25 @@ class SwarmSchedulingPolicyTest {
     }
 
     @Test
+    fun `wide fanout root gains structural leverage over isolated work`() {
+        val isolated = task("isolated")
+        val sharedRoot = task("shared-root")
+        val first = task("first", dependsOn = listOf("shared-root"))
+        val second = task("second", dependsOn = listOf("shared-root"))
+        val third = task("third", dependsOn = listOf("shared-root"))
+        val run = run(listOf(isolated, sharedRoot, first, second, third))
+
+        val selection = policy.select(run, listOf(isolated, sharedRoot), emptySet(), capacity = 1)
+
+        assertEquals("shared-root", selection.rankedCandidates.first().id)
+        assertEquals(3, selection.scores.getValue("shared-root").downstreamReach)
+        assertTrue(
+            selection.scores.getValue("shared-root").utility >
+                selection.scores.getValue("isolated").utility
+        )
+    }
+
+    @Test
     fun `active agent contention defers duplicate profile when utilities are otherwise equal`() {
         val active = task("active", agentId = "pi-a").copy(status = com.swarmeditor.common.model.SwarmTaskStatus.RUNNING)
         val sameAgent = task("same-agent", agentId = "pi-a")

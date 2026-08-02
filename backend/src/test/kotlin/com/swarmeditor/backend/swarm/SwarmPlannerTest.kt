@@ -174,6 +174,8 @@ class SwarmPlannerTest {
         assertContains(prompts.first(), "preserve-cancellation")
         assertContains(prompts.first(), "backend/src/main/kotlin/Scheduler.kt:42")
         assertContains(prompts.first(), "method scheduleCriticalPath")
+        assertContains(prompts.first(), "smallest acyclic dependency graph")
+        assertContains(prompts.first(), "auditable contract")
         assertContains(prompts.last(), "previous swarm plan was invalid")
         assertEquals("Repository Planner · Planner", capturedConfig?.name)
         assertTrue(configValidated)

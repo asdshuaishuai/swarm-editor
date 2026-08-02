@@ -113,7 +113,7 @@ class SwarmSchedulerTest {
 
             val running = store.get("run-test")!!
             val firstDecision = running.schedulingDecisions.single()
-            assertEquals("critical-path-dp-ownership-v2", firstDecision.policyId)
+            assertEquals("critical-path-graph-leverage-ownership-v3", firstDecision.policyId)
             assertEquals(2, firstDecision.availableCapacity)
             assertTrue(firstDecision.stateFingerprint.matches(Regex("[0-9a-f]{64}")))
             assertEquals(listOf("first", "second", "deferred"), firstDecision.candidates.map { it.taskId })

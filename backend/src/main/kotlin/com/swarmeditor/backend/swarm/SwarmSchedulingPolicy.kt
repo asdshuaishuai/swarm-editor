@@ -4,11 +4,14 @@ import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskStatus
+import kotlin.math.ln
 
 data class SwarmSchedulingScore(
     val utility: Double,
     val remainingCriticalPath: Double,
     val directUnlocks: Int,
+    val downstreamReach: Int,
+    val bridgeCentrality: Double,
     val retryCount: Int,
     val activeAgentPenalty: Double,
 )
@@ -32,7 +35,7 @@ interface SwarmSchedulingPolicy {
 }
 
 class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
-    override val id: String = "critical-path-dp-ownership-v2"
+    override val id: String = "critical-path-graph-leverage-ownership-v3"
 
     override fun select(
         run: SwarmRun,
@@ -44,6 +47,7 @@ class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
             return SwarmSchedulingSelection(emptyList(), emptySet(), emptyMap())
         }
         val tasksById = run.tasks.associateBy(SwarmTask::id)
+        val graphAnalysis = SwarmGraph.analyze(run.tasks)
         val taskOrder = run.tasks.mapIndexed { index, task -> task.id to index }.toMap()
         val dependents = buildMap<String, MutableList<String>> {
             run.tasks.forEach { task ->
@@ -83,11 +87,17 @@ class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
                 }
             val activeAgentPenalty = if (task.agentId != null && task.agentId in activeAgentIds) 0.75 else 0.0
             val criticalPath = remainingCriticalPath(task.id)
-            val utility = criticalPath + directUnlocks * 0.4 + task.attempt * 0.25 - activeAgentPenalty
+            val graphMetrics = graphAnalysis.metrics.getValue(task.id)
+            val structuralLeverage = ln(1.0 + graphMetrics.downstreamReach) * 0.45 +
+                graphMetrics.bridgeCentrality * 0.8
+            val utility = criticalPath + directUnlocks * 0.4 + structuralLeverage +
+                task.attempt * 0.25 - activeAgentPenalty
             task.id to SwarmSchedulingScore(
                 utility = utility,
                 remainingCriticalPath = criticalPath,
                 directUnlocks = directUnlocks,
+                downstreamReach = graphMetrics.downstreamReach,
+                bridgeCentrality = graphMetrics.bridgeCentrality,
                 retryCount = task.attempt,
                 activeAgentPenalty = activeAgentPenalty,
             )

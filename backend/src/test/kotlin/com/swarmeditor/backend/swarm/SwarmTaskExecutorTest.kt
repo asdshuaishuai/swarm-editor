@@ -57,6 +57,7 @@ class SwarmTaskExecutorTest {
         assertEquals(base.timeoutSeconds, reviewer.timeoutSeconds)
         assertEquals(listOf("custom", "pi", "swarm", "role:reviewer"), reviewer.tags)
         assertContains(reviewer.systemPrompt, "Follow repository instructions.")
+        assertContains(reviewer.systemPrompt, "evidence-driven software-engineering graph")
         assertContains(reviewer.systemPrompt, "functional correctness")
         assertContains(reviewer.systemPrompt, "end-to-end data flow")
     }
@@ -195,6 +196,9 @@ class SwarmTaskExecutorTest {
         assertTrue(configValidated)
         assertContains(capturedConfig?.systemPrompt.orEmpty(), "integration boundaries")
         assertContains(capturedPrompt, "Verify integration correctness")
+        assertContains(capturedPrompt, "Graph position:")
+        assertContains(capturedPrompt, "Execution protocol:")
+        assertContains(capturedPrompt, "Result contract:")
         assertContains(capturedPrompt, "Trace UI to persistence.")
         assertContains(capturedPrompt, "Trace the complete data flow")
         assertContains(capturedPrompt, "Previous attempts failed:")

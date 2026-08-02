@@ -2,6 +2,21 @@ package com.swarmeditor.backend.swarm
 
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmArtifactRevisionScopeMode
+import java.util.ArrayDeque
+
+data class SwarmGraphNodeMetrics(
+    val depth: Int,
+    val upstreamReach: Int,
+    val downstreamReach: Int,
+    val directDependents: Int,
+    val bridgeCentrality: Double,
+)
+
+data class SwarmGraphAnalysis(
+    val topologicalOrder: List<String>,
+    val dependents: Map<String, List<String>>,
+    val metrics: Map<String, SwarmGraphNodeMetrics>,
+)
 
 object SwarmGraph {
     private val validId = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -110,6 +125,75 @@ object SwarmGraph {
             visited.add(taskId)
         }
         tasksById.keys.forEach(::visit)
+    }
+
+    fun analyze(tasks: List<SwarmTask>): SwarmGraphAnalysis {
+        validate(tasks)
+        val tasksById = tasks.associateBy(SwarmTask::id)
+        val taskOrder = tasks.mapIndexed { index, task -> task.id to index }.toMap()
+        val dependents = tasks.associate { it.id to mutableListOf<String>() }.toMutableMap()
+        val remainingDependencies = tasks.associate { it.id to it.dependsOn.size }.toMutableMap()
+        tasks.forEach { task ->
+            task.dependsOn.forEach { dependencyId -> dependents.getValue(dependencyId) += task.id }
+        }
+        dependents.values.forEach { children -> children.sortBy(taskOrder::getValue) }
+
+        val ready = ArrayDeque(
+            tasks.filter { remainingDependencies.getValue(it.id) == 0 }
+                .sortedBy { taskOrder.getValue(it.id) }
+                .map(SwarmTask::id)
+        )
+        val topologicalOrder = mutableListOf<String>()
+        while (ready.isNotEmpty()) {
+            val taskId = ready.removeFirst()
+            topologicalOrder += taskId
+            dependents.getValue(taskId).forEach { dependentId ->
+                val remaining = remainingDependencies.getValue(dependentId) - 1
+                remainingDependencies[dependentId] = remaining
+                if (remaining == 0) ready.addLast(dependentId)
+            }
+        }
+        check(topologicalOrder.size == tasks.size) { "Validated swarm graph did not produce a topological order" }
+
+        val depth = mutableMapOf<String, Int>()
+        val ancestors = mutableMapOf<String, Set<String>>()
+        topologicalOrder.forEach { taskId ->
+            val dependencies = tasksById.getValue(taskId).dependsOn
+            depth[taskId] = dependencies.maxOfOrNull { depth.getValue(it) + 1 } ?: 0
+            ancestors[taskId] = buildSet {
+                dependencies.forEach { dependencyId ->
+                    add(dependencyId)
+                    addAll(ancestors.getValue(dependencyId))
+                }
+            }
+        }
+
+        val descendants = mutableMapOf<String, Set<String>>()
+        topologicalOrder.asReversed().forEach { taskId ->
+            descendants[taskId] = buildSet {
+                dependents.getValue(taskId).forEach { dependentId ->
+                    add(dependentId)
+                    addAll(descendants.getValue(dependentId))
+                }
+            }
+        }
+        val centralityScale = (tasks.size - 1).coerceAtLeast(1).let { it * it }.toDouble()
+        val metrics = topologicalOrder.associateWith { taskId ->
+            val upstreamReach = ancestors.getValue(taskId).size
+            val downstreamReach = descendants.getValue(taskId).size
+            SwarmGraphNodeMetrics(
+                depth = depth.getValue(taskId),
+                upstreamReach = upstreamReach,
+                downstreamReach = downstreamReach,
+                directDependents = dependents.getValue(taskId).size,
+                bridgeCentrality = (upstreamReach.toDouble() * downstreamReach) / centralityScale,
+            )
+        }
+        return SwarmGraphAnalysis(
+            topologicalOrder = topologicalOrder,
+            dependents = dependents.mapValues { it.value.toList() },
+            metrics = metrics,
+        )
     }
 }
 

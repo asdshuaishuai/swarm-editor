@@ -621,7 +621,9 @@ private fun schedulingStateFingerprint(
 private fun SwarmSchedulingScore.explanation(prefix: String): String =
     "$prefix; utility=${String.format(java.util.Locale.ROOT, "%.3f", utility)}, " +
         "criticalPath=${String.format(java.util.Locale.ROOT, "%.3f", remainingCriticalPath)}, " +
-        "directUnlocks=$directUnlocks, retries=$retryCount, " +
+        "directUnlocks=$directUnlocks, downstreamReach=$downstreamReach, " +
+        "bridgeCentrality=${String.format(java.util.Locale.ROOT, "%.3f", bridgeCentrality)}, " +
+        "retries=$retryCount, " +
         "activeAgentPenalty=${String.format(java.util.Locale.ROOT, "%.2f", activeAgentPenalty)}"
 
 private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(

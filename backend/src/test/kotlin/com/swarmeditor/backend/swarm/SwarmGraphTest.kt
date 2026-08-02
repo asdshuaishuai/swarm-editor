@@ -5,10 +5,34 @@ import com.swarmeditor.common.model.SwarmArtifactRevisionContract
 import com.swarmeditor.common.model.SwarmArtifactRevisionScopeMode
 import com.swarmeditor.common.model.SwarmTask
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.time.Clock
 
 class SwarmGraphTest {
+    @Test
+    fun `analyzes topological depth and transitive graph reach`() {
+        val analysis = SwarmGraph.analyze(
+            listOf(
+                task("inspect"),
+                task("backend", dependsOn = listOf("inspect")),
+                task("desktop", dependsOn = listOf("inspect")),
+                task("integrate", dependsOn = listOf("backend", "desktop")),
+            )
+        )
+
+        assertEquals(listOf("inspect", "backend", "desktop", "integrate"), analysis.topologicalOrder)
+        assertEquals(3, analysis.metrics.getValue("inspect").downstreamReach)
+        assertEquals(2, analysis.metrics.getValue("inspect").directDependents)
+        assertEquals(2, analysis.metrics.getValue("integrate").depth)
+        assertEquals(3, analysis.metrics.getValue("integrate").upstreamReach)
+        assertTrue(
+            analysis.metrics.getValue("backend").bridgeCentrality >
+                analysis.metrics.getValue("inspect").bridgeCentrality
+        )
+    }
+
     @Test
     fun `rejects cyclic task dependencies`() {
         assertFailsWith<IllegalArgumentException> {
