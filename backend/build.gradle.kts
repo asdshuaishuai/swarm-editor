@@ -12,6 +12,10 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // Managed, hash-verified Wasmtime runtime archives
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
+
     // DateTime
 
     // Logging

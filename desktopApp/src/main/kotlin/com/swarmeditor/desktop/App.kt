@@ -135,6 +135,8 @@ fun WindowScope.App(
     val currentSessionId by root.sessionVm.currentSessionId.collectAsState()
     val mcpServers by root.mcpVm.servers.collectAsState()
     val skills by root.skillVm.skills.collectAsState()
+    val wasmPluginState by root.wasmPluginVm.state.collectAsState()
+    val wasmExecution by root.wasmPluginVm.execution.collectAsState()
     val projectTree by root.projectVm.tree.collectAsState()
     val isProjectLoading by root.projectVm.isLoading.collectAsState()
     val projectTreeError by root.projectVm.treeError.collectAsState()
@@ -181,6 +183,9 @@ fun WindowScope.App(
     LaunchedEffect(Unit) {
         root.skillVm.events.collect { event -> root.showToast(event.message, event.type) }
     }
+    LaunchedEffect(Unit) {
+        root.wasmPluginVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
     val dialogSlot by root.dialog.subscribeAsState()
     val dialog = dialogSlot.child?.configuration
     var retainedAgentDialogId by remember { mutableStateOf<String?>(null) }
@@ -213,24 +218,36 @@ fun WindowScope.App(
     }
     var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
     var pluginSubTab by remember {
-        mutableStateOf(System.getProperty("swarm.pluginTab")?.takeIf { it == "mcp" || it == "skills" } ?: "mcp")
+        mutableStateOf(
+            System.getProperty("swarm.pluginTab")
+                ?.takeIf { it in setOf("mcp", "skills", "wasm") }
+                ?: "mcp"
+        )
     }
     // 插件侧栏点击 → 切换到详情页（如 VS Code 插件页）
     var pluginSelectedItem by remember { mutableStateOf<com.swarmeditor.desktop.ui.plugins.PluginItem?>(null) }
     var requestedPluginDetail by remember { mutableStateOf(System.getProperty("swarm.pluginDetail")) }
-    LaunchedEffect(requestedPluginDetail, mcpServers, skills) {
+    LaunchedEffect(requestedPluginDetail, mcpServers, skills, wasmPluginState.plugins) {
         val request = requestedPluginDetail ?: return@LaunchedEffect
         val item = when {
             request == "mcp:first" -> mcpServers.firstOrNull()?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Mcp)
             request == "skill:first" -> skills.firstOrNull()?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Skill)
+            request == "wasm:first" -> wasmPluginState.plugins.firstOrNull()
+                ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Wasm)
             request.startsWith("mcp:") -> mcpServers.find { it.id == request.removePrefix("mcp:") }
                 ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Mcp)
             request.startsWith("skill:") -> skills.find { it.id == request.removePrefix("skill:") }
                 ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Skill)
+            request.startsWith("wasm:") -> wasmPluginState.plugins.find { it.id == request.removePrefix("wasm:") }
+                ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Wasm)
             else -> null
         }
         if (item != null) {
-            pluginSubTab = if (item is com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp) "mcp" else "skills"
+            pluginSubTab = when (item) {
+                is com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp -> "mcp"
+                is com.swarmeditor.desktop.ui.plugins.PluginItem.Skill -> "skills"
+                is com.swarmeditor.desktop.ui.plugins.PluginItem.Wasm -> "wasm"
+            }
             pluginSelectedItem = item
             requestedPluginDetail = null
         }
@@ -302,6 +319,7 @@ fun WindowScope.App(
         root.sessionVm.loadSessions()
         root.mcpVm.load()
         root.skillVm.load()
+        root.wasmPluginVm.load()
         root.projectVm.load()
         root.gitVm.refresh()
         // 截图/测试用：启动时打开指定浮层
@@ -496,13 +514,16 @@ fun WindowScope.App(
                             MainConfig.Plugins -> PluginSideBar(
                                 mcpServers = mcpServers,
                                 skills = skills,
+                                wasmPlugins = wasmPluginState.plugins,
+                                wasmRuntime = wasmPluginState.runtime,
                                 onSelectMcp = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp(it) },
                                 onSelectSkill = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Skill(it) },
+                                onSelectWasm = { pluginSelectedItem = com.swarmeditor.desktop.ui.plugins.PluginItem.Wasm(it) },
                                 onAdd = {
-                                    if (pluginSubTab == "mcp") {
-                                        root.showMcpConfigDialog(UUID.randomUUID().toString())
-                                    } else {
-                                        root.skillVm.scan()
+                                    when (pluginSubTab) {
+                                        "mcp" -> root.showMcpConfigDialog(UUID.randomUUID().toString())
+                                        "skills" -> root.skillVm.scan()
+                                        "wasm" -> root.wasmPluginVm.openPluginDirectory()
                                     }
                                 },
                                 activeTab = pluginSubTab,
@@ -512,6 +533,7 @@ fun WindowScope.App(
                                 },
                                 selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
                                 selectedSkillId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Skill)?.skill?.id,
+                                selectedWasmId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Wasm)?.plugin?.id,
                                 modifier = Modifier.fillMaxSize(),
                             )
                             else -> Unit
@@ -582,17 +604,31 @@ fun WindowScope.App(
                             MainConfig.Plugins -> PluginCenterView(
                                 mcpServers = mcpServers,
                                 skills = skills,
+                                wasmPlugins = wasmPluginState.plugins,
+                                wasmRuntime = wasmPluginState.runtime,
+                                wasmValidationErrors = wasmPluginState.validationErrors,
+                                wasmPluginDirectory = wasmPluginState.pluginDirectory,
+                                wasmExecution = wasmExecution,
+                                wasmInstallingRuntime = wasmPluginState.isInstallingRuntime,
                                 agents = agents,
                                 modifier = Modifier.fillMaxSize(),
                                 activeTab = pluginSubTab,
                                 selectedItem = pluginSelectedItem,
                                 onSelectedItemChange = { pluginSelectedItem = it },
                                 onRefresh = {
-                                    if (pluginSubTab == "mcp") root.mcpVm.reload() else root.skillVm.scan()
+                                    when (pluginSubTab) {
+                                        "mcp" -> root.mcpVm.reload()
+                                        "skills" -> root.skillVm.scan()
+                                        "wasm" -> root.wasmPluginVm.refresh()
+                                    }
                                 },
                                 onAddMcp = {
                                     root.showMcpConfigDialog(UUID.randomUUID().toString())
                                 },
+                                onOpenWasmDirectory = root.wasmPluginVm::openPluginDirectory,
+                                onInstallWasmRuntime = root.wasmPluginVm::installRuntime,
+                                onWasmInputChange = root.wasmPluginVm::updateTestInput,
+                                onExecuteWasm = root.wasmPluginVm::execute,
                                 onConfigureMcp = root::showMcpConfigDialog,
                                 onCopyMcp = ::copyMcpConfiguration,
                                 onDeleteMcp = root.mcpVm::delete,

@@ -193,6 +193,41 @@ class BubblewrapPiToolBrokerTest {
         }
     }
 
+    @Test
+    fun `WASM requests bypass the Node worker and remain audited`() = runTest {
+        val root = Files.createTempDirectory("pi-tool-bwrap-wasm")
+        val runtime = root.resolve("bwrap").toFile().apply { writeText(""); setExecutable(true) }
+        val node = root.resolve("node").toFile().apply { writeText(""); setExecutable(true) }
+        try {
+            var workerStarts = 0
+            var wasmCalls = 0
+            val audits = mutableListOf<PiToolAuditRecord>()
+            val broker = BubblewrapPiToolBrokerFactory(
+                runtimeExecutable = runtime.path,
+                nodeExecutable = node,
+                authorizedAgentIds = setOf("reviewer"),
+                auditStore = PiToolAuditStore(audits::add),
+                wasmExecutor = PiToolCapabilityExecutor {
+                    wasmCalls += 1
+                    PiToolCapabilityResult(buildJsonObject { put("runtimeAvailable", true) })
+                },
+                workerFactory = PiToolWorkerFactory { _, _, _ ->
+                    workerStarts += 1
+                    error("Node worker must not start for WASM requests")
+                },
+            ).create(AgentConfig("reviewer", "Reviewer"), root.toFile())!!
+
+            val result = broker.execute(request("tr-1").copy(tool = "wasm", operation = "list"))
+
+            assertEquals(0, workerStarts)
+            assertEquals(1, wasmCalls)
+            assertEquals("wasm", audits.single().tool)
+            assertEquals(result.auditId, audits.single().auditId)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     private fun request(requestId: String) = PiToolBrokerRequest(
         requestId = requestId,
         sessionNonce = "0123456789abcdef",

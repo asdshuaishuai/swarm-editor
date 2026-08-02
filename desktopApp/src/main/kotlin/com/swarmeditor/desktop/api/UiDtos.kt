@@ -88,6 +88,40 @@ data class SkillDto(
 )
 
 @Serializable
+enum class WasmtimeRuntimeHealthDto {
+    READY,
+    MISSING,
+    INVALID,
+    UNSUPPORTED,
+}
+
+@Serializable
+data class WasmtimeRuntimeDto(
+    val expectedVersion: String,
+    val health: WasmtimeRuntimeHealthDto,
+    val source: String,
+    val platform: String,
+    val executablePath: String = "",
+    val detectedVersion: String = "",
+    val installSupported: Boolean = false,
+    val artifactSha256: String = "",
+    val binarySha256: String = "",
+    val message: String = "",
+)
+
+@Serializable
+data class WasmPluginDto(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val moduleFileName: String,
+    val sha256: String,
+    val timeoutMillis: Long,
+    val maxInputBytes: Int,
+    val maxOutputChars: Int,
+)
+
+@Serializable
 data class FileNodeDto(
     val name: String,
     val path: String,

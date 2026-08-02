@@ -22,6 +22,7 @@ import com.swarmeditor.desktop.viewmodel.GitViewModel
 import com.swarmeditor.desktop.viewmodel.ToastData
 import com.swarmeditor.desktop.viewmodel.ToastType
 import com.swarmeditor.desktop.viewmodel.SwarmViewModel
+import com.swarmeditor.desktop.viewmodel.WasmPluginViewModel
 import com.swarmeditor.desktop.theme.AppThemeMode
 import com.swarmeditor.desktop.theme.ThemePreferences
 import com.swarmeditor.backend.agentService
@@ -33,6 +34,7 @@ import com.swarmeditor.backend.skillService
 import com.swarmeditor.backend.projectService
 import com.swarmeditor.backend.gitService
 import com.swarmeditor.backend.swarmService
+import com.swarmeditor.backend.wasmPluginService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,6 +59,7 @@ class RootComponent(
     val settingsVm = SettingsViewModel(agentService, mcpService, skillService, scope, modelService)
     val mcpVm = McpViewModel(mcpService, sessionVm.runtimeState, scope)
     val skillVm = SkillViewModel(skillService, scope)
+    val wasmPluginVm = WasmPluginViewModel(wasmPluginService, scope)
     val gitVm = GitViewModel(gitService, scope)
     val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status, onFileSaved = gitVm::refresh)
     val swarmVm = SwarmViewModel(swarmService, scope)
@@ -103,7 +106,7 @@ class RootComponent(
     private fun createChild(config: MainConfig): MainChild = when (config) {
         MainConfig.Chat -> MainChild.Chat(agentVm, sessionVm, mcpVm, skillVm)
         MainConfig.Agents -> MainChild.Agents(agentVm)
-        MainConfig.Plugins -> MainChild.Plugins(mcpVm, skillVm)
+        MainConfig.Plugins -> MainChild.Plugins(mcpVm, skillVm, wasmPluginVm)
         MainConfig.Files -> MainChild.Files
         MainConfig.Activity -> MainChild.Activity
     }
@@ -153,7 +156,11 @@ class RootComponent(
 sealed class MainChild {
     data class Chat(val agentVm: AgentViewModel, val sessionVm: SessionViewModel, val mcpVm: McpViewModel, val skillVm: SkillViewModel) : MainChild()
     data class Agents(val agentVm: AgentViewModel) : MainChild()
-    data class Plugins(val mcpVm: McpViewModel, val skillVm: SkillViewModel) : MainChild()
+    data class Plugins(
+        val mcpVm: McpViewModel,
+        val skillVm: SkillViewModel,
+        val wasmPluginVm: WasmPluginViewModel,
+    ) : MainChild()
     data object Files : MainChild()
     data object Activity : MainChild()
 }

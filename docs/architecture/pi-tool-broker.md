@@ -32,12 +32,12 @@ Requests and responses require bounded line sizes, monotonic IDs, per-session no
 
 ## Pi Integration
 
-Pi 0.80.10 already exposes pluggable `BashOperations`, `ReadOperations`, `EditOperations`, and `WriteOperations`. `AgentSessionConfig` also supports `baseToolsOverride`, but the CLI/session-service construction path does not currently expose it. The minimal vendored patch is therefore:
+Pi 0.83.0 exposes pluggable `BashOperations`, `ReadOperations`, `EditOperations`, and `WriteOperations`. `AgentSessionConfig` supports `baseToolsOverride`; Swarm Editor's vendored patch connects those operations to the existing RPC stream and adds the independently brokered `wasm` tool:
 
-- Add `baseToolsOverride` to `CreateAgentSessionOptions` and `CreateAgentSessionFromServicesOptions`.
-- Propagate it into `AgentSession` without changing normal Pi defaults.
 - Add a `StdioToolBrokerClient` used only when `SWARM_PI_TOOL_BROKER=stdio-v1` is set.
 - Construct standard Pi tools with broker operations rather than reimplementing schemas, rendering, truncation, or mutation queues.
+- Register `wasm list` and `wasm execute` through the same request/response protocol.
+- Use `SWARM_PI_TOOL_BROKER_CORE_TOOLS=0` when only WASM should be brokered, leaving Pi core tools local.
 - Disable untrusted project extensions in brokered mode; load only Swarm-owned extensions from the isolated Pi Agent directory.
 
 ### Implemented Pi Foundation
@@ -87,7 +87,9 @@ The host must provide Bubblewrap, Node.js, and `/bin/sh`. `SWARM_PI_TOOL_BROKER_
 
 ### WASM Capability Sandbox
 
-`WasmtimeCliSandbox` is the narrower path for deterministic parsers, formatters, static analysis, and future plugins. Modules are identified by a safe ID and SHA-256 digest, are limited to 30 seconds, use bounded JSON stdin/stdout, and run without inherited environment or filesystem access. Callers must eventually select modules from a host-owned registry rather than construct arbitrary descriptors.
+`WasmtimeCliSandbox` is the narrower path for deterministic parsers, formatters, static analysis, and plugins. `WasmPluginRegistry` loads host-owned manifests from `~/.swarm-editor/wasm-plugins/`, validates safe identifiers and direct `.wasm` paths, and verifies the declared SHA-256 during every scan and execution. Modules are limited to 30 seconds, use bounded JSON stdin/stdout, and run without inherited environment or filesystem access.
+
+`WasmtimeRuntimeManager` pins Wasmtime `47.0.2`, discovers an explicitly configured, packaged, managed, or `PATH` executable in that order, and requires the exact version. Managed installation supports Linux, macOS, and Windows on x86_64 and arm64, verifies the official archive digest, extracts without traversal or symlink entries, installs atomically, and records the archive and installed-binary hashes in `runtime.json`. See `wasm-plugins.md` for the manifest and operational model.
 
 ## Workspace and Process Semantics
 
@@ -114,7 +116,7 @@ Each request records broker session, Agent, workspace identity hash, tool, norma
 5. **Partial:** bash has bounded output, deadlines, process-group cancellation, and worker-crash recovery; streaming and cancel-confirmation fallback remain.
 6. **Completed:** separate model and tool environments and keep ambient project extensions disabled.
 7. **Partial:** enable host-authorized Agent Profiles through explicit environment configuration; isolated Swarm worktrees remain.
-8. **Partial:** automated tests cover traversal, symlinks, secret environment filtering, output floods, cancellation, worker crashes, and WASM integrity checks; resource-exhaustion and staged-Wasmtime smoke tests remain.
+8. **Partial:** automated tests cover traversal, symlinks, secret environment filtering, output floods, cancellation, worker crashes, registry integrity, managed-runtime tampering, and WASM execution; resource-exhaustion and packaged-runtime smoke tests remain.
 
 ## Design Evidence
 

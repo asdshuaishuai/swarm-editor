@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.desktop.api.WasmPluginDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.semanticPluginIconSpec
@@ -43,6 +44,7 @@ import com.swarmeditor.desktop.ui.common.semanticPluginIconSpec
 sealed interface PluginItem {
     data class Mcp(val server: McpServerDto) : PluginItem
     data class Skill(val skill: SkillDto) : PluginItem
+    data class Wasm(val plugin: WasmPluginDto) : PluginItem
 }
 
 /** Accent colors assigned to plugin tiles based on name hash. */
@@ -61,35 +63,43 @@ fun PluginTile(
     val accent = when (item) {
         is PluginItem.Mcp -> accentFor(item.server.name)
         is PluginItem.Skill -> accentFor(item.skill.name)
+        is PluginItem.Wasm -> accentFor("wasm-${item.plugin.name}")
     }
     val name = when (item) {
         is PluginItem.Mcp -> item.server.name
         is PluginItem.Skill -> item.skill.name
+        is PluginItem.Wasm -> item.plugin.name
     }
     val description = when (item) {
         is PluginItem.Mcp -> item.server.description
         is PluginItem.Skill -> item.skill.description
+        is PluginItem.Wasm -> item.plugin.description
     }
     val tag = when (item) {
         is PluginItem.Mcp -> "MCP"
         is PluginItem.Skill -> if ((item.skill.source) == "MCP") "MCP" else "本地"
+        is PluginItem.Wasm -> "WASM"
     }
     val iconSpec = semanticPluginIconSpec(name, isSkill = item is PluginItem.Skill)
     val version = when (item) {
         is PluginItem.Mcp -> item.server.version
         is PluginItem.Skill -> ""
+        is PluginItem.Wasm -> ""
     }
     val category = when (item) {
         is PluginItem.Mcp -> item.server.categories.firstOrNull()
         is PluginItem.Skill -> item.skill.tags.firstOrNull()
+        is PluginItem.Wasm -> "Wasmtime"
     }
     val downloads = when (item) {
         is PluginItem.Mcp -> item.server.downloads
         is PluginItem.Skill -> ""
+        is PluginItem.Wasm -> ""
     }
     val rating = when (item) {
         is PluginItem.Mcp -> item.server.rating
         is PluginItem.Skill -> 0.0
+        is PluginItem.Wasm -> 0.0
     }
     val (statusLabel, statusColor) = when (item) {
         is PluginItem.Mcp -> mcpRuntimeLabel(item.server.runtimeStatus) to mcpRuntimeColor(item.server.runtimeStatus)
@@ -97,6 +107,7 @@ fun PluginTile(
             val enabled = item.skill.enabledAgents.isEmpty() || item.skill.enabledAgents.values.any { it }
             (if (enabled) "已启用" else "未启用") to (if (enabled) AgentGemini else Tx3)
         }
+        is PluginItem.Wasm -> "哈希已验证" to AgentGemini
     }
     val surface by androidx.compose.animation.animateColorAsState(
         if (hovered) accent.withAlpha(0.065f) else Bg2,

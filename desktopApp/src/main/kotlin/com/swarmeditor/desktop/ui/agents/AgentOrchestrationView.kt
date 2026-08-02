@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.common.model.SwarmRun
+import com.swarmeditor.common.model.SwarmRepositoryEvidence
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import com.swarmeditor.common.model.SwarmRunStatus
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
@@ -63,6 +65,7 @@ import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.semanticAgentIcon
 
 private const val AgentSplitLayoutBreakpoint = 860
+private const val MAX_VISIBLE_REPOSITORY_EVIDENCE = 8
 
 internal fun useSplitAgentLayout(widthDp: Int): Boolean = widthDp >= AgentSplitLayoutBreakpoint
 internal fun swarmOverviewHeightDp(hasRuns: Boolean): Int = if (hasRuns) 236 else 172
@@ -218,6 +221,10 @@ fun AgentOrchestrationView(
 
                 Spacer(Modifier.height(20.dp))
 
+                RepositoryEvidencePanel(swarmRuns)
+
+                Spacer(Modifier.height(20.dp))
+
                 SubagentDispatchQueue(swarmRuns, onReviewArtifact)
 
                 Spacer(Modifier.height(20.dp))
@@ -260,6 +267,120 @@ fun AgentOrchestrationView(
             }
         }
     }
+}
+
+@Composable
+private fun RepositoryEvidencePanel(runs: List<SwarmRun>) {
+    val run = remember(runs) { runs.maxByOrNull(SwarmRun::updatedAt) }
+    val bundle = run?.planningEvidence
+    val evidence = bundle?.evidence.orEmpty()
+    SectionLabel("仓库定位证据", evidence.size)
+    Spacer(Modifier.height(10.dp))
+    if (bundle == null || evidence.isEmpty()) {
+        EmptySection("规划完成后，这里会展示文件、符号、诊断、Git 历史与 SCC 依赖簇证据")
+        return
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .surfaceCard(bg = Bg1, elevation = Elevation.none)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "扫描 ${bundle.scannedFileCount} · 候选 ${bundle.candidateFileCount}",
+                color = Tx2,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "证据预算 ${bundle.consumedCharacters}/${bundle.characterBudget}",
+                color = if (bundle.truncated) Warn else Tx3,
+                fontSize = 10.sp,
+                fontFamily = CodeFont,
+            )
+        }
+        evidence.take(MAX_VISIBLE_REPOSITORY_EVIDENCE).forEach { item ->
+            RepositoryEvidenceRow(item)
+        }
+        if (evidence.size > MAX_VISIBLE_REPOSITORY_EVIDENCE) {
+            Text(
+                "另有 ${evidence.size - MAX_VISIBLE_REPOSITORY_EVIDENCE} 条证据已持久化到本次蜂群运行",
+                color = Tx3,
+                fontSize = 10.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RepositoryEvidenceRow(evidence: SwarmRepositoryEvidence) {
+    val color = repositoryEvidenceKindColor(evidence.kind)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.sm)
+            .background(color.withAlpha(0.035f))
+            .border(1.dp, color.withAlpha(0.16f), AppShapes.sm)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        StatusPill(repositoryEvidenceKindLabel(evidence.kind), color)
+        Column(Modifier.weight(1f)) {
+            evidence.path?.let { path ->
+                Text(
+                    buildString {
+                        append(path)
+                        evidence.line?.let { line -> append(':').append(line) }
+                    },
+                    color = AcLight,
+                    fontSize = 10.sp,
+                    fontFamily = CodeFont,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+            }
+            Text(evidence.summary, color = Tx2, fontSize = 11.sp, lineHeight = 16.sp)
+            evidence.excerpt?.takeIf(String::isNotBlank)?.let { excerpt ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    excerpt,
+                    color = Tx3,
+                    fontSize = 10.sp,
+                    fontFamily = CodeFont,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        Text(
+            "${"%.1f".format(evidence.score)}",
+            color = color,
+            fontSize = 10.sp,
+            fontFamily = CodeFont,
+        )
+    }
+}
+
+internal fun repositoryEvidenceKindLabel(kind: SwarmRepositoryEvidenceKind): String = when (kind) {
+    SwarmRepositoryEvidenceKind.FILE_MATCH -> "文件"
+    SwarmRepositoryEvidenceKind.SYMBOL -> "符号"
+    SwarmRepositoryEvidenceKind.DIAGNOSTIC -> "诊断"
+    SwarmRepositoryEvidenceKind.GIT_HISTORY -> "Git"
+    SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER -> "SCC 依赖簇"
+}
+
+private fun repositoryEvidenceKindColor(kind: SwarmRepositoryEvidenceKind): Color = when (kind) {
+    SwarmRepositoryEvidenceKind.FILE_MATCH -> Ac
+    SwarmRepositoryEvidenceKind.SYMBOL -> AgentGemini
+    SwarmRepositoryEvidenceKind.DIAGNOSTIC -> Warn
+    SwarmRepositoryEvidenceKind.GIT_HISTORY -> AgentQwen
+    SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER -> AgentKimi
 }
 
 @Composable

@@ -19,6 +19,7 @@ class PiRpcSessionEnvironmentTest {
                 "SWARM_EDITOR_MCP_CONFIG" to "/tmp/other-mcp.json",
                 "SWARM_PI_TOOL_BROKER" to "profile-controlled",
                 "SWARM_PI_TOOL_BROKER_NONCE" to "profile-nonce",
+                "SWARM_PI_TOOL_BROKER_CORE_TOOLS" to "profile-controlled",
             ),
         )
 
@@ -30,6 +31,7 @@ class PiRpcSessionEnvironmentTest {
         assertEquals(ConfigPaths.MCP_SERVERS_JSON, environment["SWARM_EDITOR_MCP_CONFIG"])
         assertNull(environment["SWARM_PI_TOOL_BROKER"])
         assertNull(environment["SWARM_PI_TOOL_BROKER_NONCE"])
+        assertNull(environment["SWARM_PI_TOOL_BROKER_CORE_TOOLS"])
     }
 
     @Test
@@ -44,9 +46,11 @@ class PiRpcSessionEnvironmentTest {
                 ),
             ),
             toolBrokerNonce = "host-controlled-nonce",
+            brokerCoreTools = false,
         )
 
         assertEquals("stdio-v1", environment["SWARM_PI_TOOL_BROKER"])
         assertEquals("host-controlled-nonce", environment["SWARM_PI_TOOL_BROKER_NONCE"])
+        assertEquals("0", environment["SWARM_PI_TOOL_BROKER_CORE_TOOLS"])
     }
 }

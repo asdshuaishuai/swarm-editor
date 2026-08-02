@@ -28,6 +28,9 @@ data class PiToolBrokerResult(
 fun interface PiToolBroker {
     suspend fun execute(request: PiToolBrokerRequest): PiToolBrokerResult
 
+    val brokersCoreTools: Boolean
+        get() = true
+
     val brokerSessionId: String?
         get() = null
 
@@ -38,6 +41,16 @@ fun interface PiToolBroker {
 
 fun interface PiToolBrokerFactory {
     fun create(config: com.swarmeditor.common.model.AgentConfig, workingDirectory: java.io.File): PiToolBroker?
+}
+
+class FallbackPiToolBrokerFactory(
+    private val primary: PiToolBrokerFactory?,
+    private val fallback: PiToolBrokerFactory,
+) : PiToolBrokerFactory {
+    override fun create(
+        config: com.swarmeditor.common.model.AgentConfig,
+        workingDirectory: java.io.File,
+    ): PiToolBroker? = primary?.create(config, workingDirectory) ?: fallback.create(config, workingDirectory)
 }
 
 internal fun parsePiToolBrokerRequest(
@@ -95,4 +108,5 @@ private val allowedOperations = mapOf(
     "bash" to setOf("exec"),
     "edit" to setOf("access", "readFile", "writeFile"),
     "write" to setOf("mkdir", "writeFile"),
+    "wasm" to setOf("list", "execute"),
 )

@@ -58,6 +58,7 @@ class EvidenceDrivenSwarmRepositoryLocalizer(
         val candidates = scan.candidates
         val evidence = buildList {
             candidates.forEach { candidate -> add(candidate.toEvidence()) }
+            addAll(collectDependencyClusterEvidence(indexedPaths, candidates))
             addAll(collectLspEvidence(candidates, terms))
             addAll(collectHistoryEvidence(candidates))
         }.distinctBy { listOf(it.kind.name, it.path.orEmpty(), it.line.toString(), it.summary).joinToString("|") }
@@ -224,6 +225,45 @@ class EvidenceDrivenSwarmRepositoryLocalizer(
                     }
                 }
         }
+    }
+
+    private suspend fun collectDependencyClusterEvidence(
+        indexedPaths: List<String>,
+        candidates: List<FileCandidate>,
+    ): List<SwarmRepositoryEvidence> = withContext(Dispatchers.IO) {
+        if (candidates.isEmpty()) return@withContext emptyList()
+        val sourceFiles = linkedMapOf<String, String>()
+        indexedPaths.asSequence()
+            .take(budget.maxScannedFiles)
+            .filter { it.substringAfterLast('.', "").lowercase() in dependencyGraphExtensions }
+            .take(MAX_DEPENDENCY_GRAPH_FILES)
+            .forEach { path ->
+                val file = resolveSafeFile(path) ?: return@forEach
+                if (file.length() !in 1..budget.maxFileBytes) return@forEach
+                val content = runCatching { file.readText() }.getOrNull() ?: return@forEach
+                if ('\u0000' !in content) sourceFiles[path.replace(File.separatorChar, '/')] = content
+            }
+        if (sourceFiles.isEmpty()) return@withContext emptyList()
+        val candidateScores = candidates.associate { it.path to it.score }
+        SourceDependencyGraph.analyze(sourceFiles).clusters.asSequence()
+            .filter { cluster ->
+                cluster.members.size > 1 && cluster.members.any(candidateScores::containsKey)
+            }
+            .map { cluster ->
+                val candidateMembers = cluster.members.filter(candidateScores::containsKey)
+                val anchor = candidateMembers.maxByOrNull(candidateScores::getValue) ?: cluster.members.first()
+                evidence(
+                    kind = SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER,
+                    path = anchor,
+                    line = null,
+                    score = (candidateScores[anchor] ?: 0.0) + 10.0 + cluster.members.size.coerceAtMost(8),
+                    summary = "Strongly connected source cluster: ${cluster.members.size} mutually dependent files",
+                    excerpt = cluster.members.take(MAX_CLUSTER_EXCERPT_PATHS).joinToString(", "),
+                )
+            }
+            .sortedByDescending(SwarmRepositoryEvidence::score)
+            .take(MAX_DEPENDENCY_CLUSTER_EVIDENCE)
+            .toList()
     }
 
     private suspend fun collectHistoryEvidence(candidates: List<FileCandidate>): List<SwarmRepositoryEvidence> {
@@ -418,6 +458,9 @@ private const val MAX_SUMMARY_CHARS = 180
 private const val MAX_HISTORY_PATHS = 8
 private const val MAX_HISTORY_COMMITS = 24
 private const val MAX_HISTORY_EVIDENCE = 6
+private const val MAX_DEPENDENCY_GRAPH_FILES = 800
+private const val MAX_DEPENDENCY_CLUSTER_EVIDENCE = 4
+private const val MAX_CLUSTER_EXCERPT_PATHS = 8
 private val objectiveTermPattern = Regex("[\\p{L}\\p{N}_./-]{2,}")
 private val ignoredDirectories = setOf(".git", ".gradle", ".idea", "build", "node_modules", "dist", "out")
 private val stopWords = setOf(
@@ -436,3 +479,4 @@ private val searchableNames = setOf(
 private val lspExtensions = setOf(
     "kt", "kts", "java", "ts", "tsx", "js", "jsx", "py", "rs", "go", "c", "cc", "cpp", "h", "hpp",
 )
+private val dependencyGraphExtensions = setOf("kt", "kts", "java", "ts", "tsx", "js", "jsx")

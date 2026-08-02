@@ -26,7 +26,6 @@ grep -Fq "Pi $PI_VERSION" site/index.html || {
 for forbidden in \
     "Pi 0.80.10" \
     "LSP connected" \
-    "Bubblewrap + WASM" \
     "关键路径、SCC" \
     "graph · 12 ms" \
     "git worktree · 31 ms" \
@@ -41,7 +40,9 @@ done
 for required in \
     "LSP + JVM fallback" \
     "文档符号、诊断与行级导航" \
-    "Git Worktree + Bubblewrap" \
+    "Bubblewrap + Managed Wasmtime" \
+    "Wasmtime 47.0.2" \
+    "Tarjan SCC 折叠循环依赖簇" \
     "下游覆盖、桥接中心性" \
     "Pages 部署必须先通过完整测试与构建门禁"; do
     grep -Fq "$required" site/index.html || {

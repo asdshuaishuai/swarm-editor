@@ -150,6 +150,7 @@ enum class SwarmRepositoryEvidenceKind {
     SYMBOL,
     DIAGNOSTIC,
     GIT_HISTORY,
+    DEPENDENCY_CLUSTER,
 }
 
 @Serializable

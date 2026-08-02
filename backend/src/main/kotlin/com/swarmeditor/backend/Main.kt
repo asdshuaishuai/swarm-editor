@@ -13,6 +13,11 @@ import com.swarmeditor.backend.pi.PiRuntimePaths
 import com.swarmeditor.backend.pi.PiToolBrokerFactory
 import com.swarmeditor.backend.pi.FilePiToolAuditStore
 import com.swarmeditor.backend.pi.BubblewrapPiToolBrokerFactory
+import com.swarmeditor.backend.pi.FallbackPiToolBrokerFactory
+import com.swarmeditor.backend.pi.WasmPluginCapabilityExecutor
+import com.swarmeditor.backend.pi.WasmPiToolBrokerFactory
+import com.swarmeditor.backend.pi.WasmPluginRegistry
+import com.swarmeditor.backend.pi.WasmtimeRuntimeManager
 import com.swarmeditor.backend.service.AgentService
 import com.swarmeditor.backend.service.ConversationService
 import com.swarmeditor.backend.service.GitService
@@ -23,6 +28,7 @@ import com.swarmeditor.backend.service.SessionService
 import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.backend.service.SwarmService
 import com.swarmeditor.backend.service.SwarmEvolutionService
+import com.swarmeditor.backend.service.WasmPluginService
 import com.swarmeditor.backend.session.SessionStore
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
@@ -75,12 +81,26 @@ val userMcpScanner = UserMcpScanner()
 val skillStore = SkillStore(File(ConfigPaths.SKILLS_JSON))
 val skillScanner = SkillScanner()
 val piToolAuditStore = FilePiToolAuditStore(File(ConfigPaths.PI_TOOL_AUDIT_DIR))
+val wasmPluginRegistry = WasmPluginRegistry(File(ConfigPaths.WASM_PLUGINS_DIR))
+val wasmtimeRuntimeManager = WasmtimeRuntimeManager(File(ConfigPaths.WASMTIME_RUNTIME_DIR))
+val wasmPluginExecutor = WasmPluginCapabilityExecutor(
+    registry = wasmPluginRegistry,
+    sandboxProvider = wasmtimeRuntimeManager::sandboxOrNull,
+    runtimeStatusProvider = wasmtimeRuntimeManager::inspect,
+)
+val wasmPluginService = WasmPluginService(
+    registry = wasmPluginRegistry,
+    runtimeManager = wasmtimeRuntimeManager,
+    pluginDirectory = File(ConfigPaths.WASM_PLUGINS_DIR),
+)
 val configuredPiToolBrokerFactory: PiToolBrokerFactory? =
     BubblewrapPiToolBrokerFactory.fromEnvironment(
         environment = System.getenv(),
         auditStore = piToolAuditStore,
+        wasmExecutor = wasmPluginExecutor,
     )
-val piToolBrokerFactory = configuredPiToolBrokerFactory ?: PiToolBrokerFactory { _, _ -> null }
+val wasmPiToolBrokerFactory = WasmPiToolBrokerFactory(wasmPluginExecutor, piToolAuditStore)
+val piToolBrokerFactory = FallbackPiToolBrokerFactory(configuredPiToolBrokerFactory, wasmPiToolBrokerFactory)
 val skillService: SkillService by lazy {
     SkillService(
         skillStore,
@@ -260,6 +280,7 @@ suspend fun initializeBackendServices() {
         activityStore.seedFromSessions(sessionService.sessions.value)
         mcpService.init()
         skillService.init()
+        wasmPluginService.init()
         swarmExperienceStore.load()
         swarmEvolutionService.init()
         swarmService.init()

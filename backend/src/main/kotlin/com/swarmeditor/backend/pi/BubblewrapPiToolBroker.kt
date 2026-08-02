@@ -13,6 +13,7 @@ internal class BubblewrapPiToolBrokerFactory(
     private val nodeExecutable: File,
     private val authorizedAgentIds: Set<String>,
     private val auditStore: PiToolAuditStore,
+    private val wasmExecutor: PiToolCapabilityExecutor? = null,
     private val systemdRunExecutable: File? = null,
     private val workerFactory: PiToolWorkerFactory = defaultPiToolWorkerFactory,
 ) : PiToolBrokerFactory {
@@ -35,16 +36,17 @@ internal class BubblewrapPiToolBrokerFactory(
     override fun create(config: AgentConfig, workingDirectory: File): PiToolBroker? {
         if ("*" !in authorizedAgentIds && config.id !in authorizedAgentIds) return null
         require(workingDirectory.isDirectory) { "Pi tool broker workspace does not exist" }
+        val defaultExecutor = BubblewrapCapabilityExecutor(
+            runtimeExecutable = runtimeExecutable,
+            nodeExecutable = nodeExecutable.canonicalFile,
+            workspace = workingDirectory.canonicalFile,
+            systemdRunExecutable = systemdRunExecutable?.canonicalFile,
+            workerFactory = workerFactory,
+        )
         return AuditedPiToolBroker(
             agentId = config.id,
             workspace = workingDirectory,
-            executor = BubblewrapCapabilityExecutor(
-                runtimeExecutable = runtimeExecutable,
-                nodeExecutable = nodeExecutable.canonicalFile,
-                workspace = workingDirectory.canonicalFile,
-                systemdRunExecutable = systemdRunExecutable?.canonicalFile,
-                workerFactory = workerFactory,
-            ),
+            executor = wasmExecutor?.let { RoutingPiToolCapabilityExecutor(defaultExecutor, it) } ?: defaultExecutor,
             auditStore = auditStore,
         )
     }
@@ -53,14 +55,16 @@ internal class BubblewrapPiToolBrokerFactory(
         fun fromEnvironment(
             environment: Map<String, String>,
             auditStore: PiToolAuditStore,
+            wasmExecutor: PiToolCapabilityExecutor? = null,
             workerFactory: PiToolWorkerFactory = defaultPiToolWorkerFactory,
             osName: String = System.getProperty("os.name"),
         ): BubblewrapPiToolBrokerFactory? {
             val mode = environment[SANDBOX_MODE_ENV]?.trim()?.lowercase().orEmpty()
             require(mode in supportedModes) { "Unsupported $SANDBOX_MODE_ENV value: $mode" }
 
-            val authorizedAgentIds = parseAuthorizedAgentIds(environment) ?: return null
             val explicit = mode == "bubblewrap"
+            val authorizedAgentIds = parseAuthorizedAgentIds(environment)
+                ?: if (explicit) setOf("*") else return null
             if (!osName.lowercase().contains("linux")) {
                 check(!explicit) { "Bubblewrap Pi tool isolation is only available on Linux" }
                 return null
@@ -102,6 +106,7 @@ internal class BubblewrapPiToolBrokerFactory(
                 nodeExecutable = node,
                 authorizedAgentIds = authorizedAgentIds,
                 auditStore = auditStore,
+                wasmExecutor = wasmExecutor,
                 systemdRunExecutable = systemdRun,
                 workerFactory = workerFactory,
             )

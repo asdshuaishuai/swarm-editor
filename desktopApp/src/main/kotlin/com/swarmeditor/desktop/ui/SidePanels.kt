@@ -49,6 +49,9 @@ import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.desktop.api.WasmPluginDto
+import com.swarmeditor.desktop.api.WasmtimeRuntimeDto
+import com.swarmeditor.desktop.api.WasmtimeRuntimeHealthDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.semanticAgentIcon
 import com.swarmeditor.desktop.ui.common.semanticPluginIcon
@@ -179,22 +182,30 @@ private fun AgentSideRow(agent: AgentInfo, onClick: () -> Unit) {
 // ════════════════════════════════════════════════════════════════
 //  Plugins 侧栏（plugins 视图）— MCP / Skills 子tab + 列表
 // ════════════════════════════════════════════════════════════════
-private enum class PluginSideTab(val label: String) { MCP("MCP"), SKILLS("Skills") }
+private enum class PluginSideTab(val id: String, val label: String) {
+    MCP("mcp", "MCP"),
+    SKILLS("skills", "Skills"),
+    WASM("wasm", "WASM"),
+}
 
 @Composable
 fun PluginSideBar(
     mcpServers: List<McpServerDto>,
     skills: List<SkillDto>,
+    wasmPlugins: List<WasmPluginDto>,
+    wasmRuntime: WasmtimeRuntimeDto?,
     onSelectMcp: (McpServerDto) -> Unit,
     onSelectSkill: (SkillDto) -> Unit,
+    onSelectWasm: (WasmPluginDto) -> Unit,
     onAdd: () -> Unit = {},
     activeTab: String = "mcp",
     onTabChange: (String) -> Unit = {},
     selectedMcpId: String? = null,
     selectedSkillId: String? = null,
+    selectedWasmId: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val tab = if (activeTab == "skills") PluginSideTab.SKILLS else PluginSideTab.MCP
+    val tab = PluginSideTab.entries.firstOrNull { it.id == activeTab } ?: PluginSideTab.MCP
     Column(modifier.width(260.dp).fillMaxHeight().background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         SideHeader("插件", onAdd)
         // 子 tab
@@ -202,9 +213,13 @@ fun PluginSideBar(
             PluginSideTab.entries.forEach { st ->
                 PluginSideTabButton(
                     label = st.label,
-                    count = if (st == PluginSideTab.MCP) mcpServers.size else skills.size,
+                    count = when (st) {
+                        PluginSideTab.MCP -> mcpServers.size
+                        PluginSideTab.SKILLS -> skills.size
+                        PluginSideTab.WASM -> wasmPlugins.size
+                    },
                     isActive = tab == st,
-                    onClick = { onTabChange(if (st == PluginSideTab.MCP) "mcp" else "skills") },
+                    onClick = { onTabChange(st.id) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -244,6 +259,20 @@ fun PluginSideBar(
                         meta = s.source,
                         isActive = s.id == selectedSkillId,
                         onClick = { onSelectSkill(s) }
+                    )
+                }
+                PluginSideTab.WASM -> items(wasmPlugins, key = { it.id }) { plugin ->
+                    val runtimeReady = wasmRuntime?.health == WasmtimeRuntimeHealthDto.READY
+                    PluginSideRow(
+                        icon = semanticPluginIcon(plugin.name, isSkill = false),
+                        iconBg = AgentKimi,
+                        title = plugin.name,
+                        titleSuffix = "WASM",
+                        meta = plugin.moduleFileName,
+                        statusColor = if (runtimeReady) OkLight else WarnLight,
+                        statusLabel = if (runtimeReady) "可执行" else "待运行时",
+                        isActive = plugin.id == selectedWasmId,
+                        onClick = { onSelectWasm(plugin) },
                     )
                 }
             }

@@ -1,5 +1,6 @@
 package com.swarmeditor.desktop.ui.agents
 
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -19,5 +20,13 @@ class AgentOrchestrationLayoutTest {
     fun `uses compact overview height before swarm activity starts`() {
         kotlin.test.assertEquals(172, swarmOverviewHeightDp(hasRuns = false))
         kotlin.test.assertEquals(236, swarmOverviewHeightDp(hasRuns = true))
+    }
+
+    @Test
+    fun `dependency clusters are explicit planning evidence`() {
+        kotlin.test.assertEquals(
+            "SCC 依赖簇",
+            repositoryEvidenceKindLabel(SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER),
+        )
     }
 }

@@ -42,8 +42,22 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.desktop.api.WasmPluginDto
+import com.swarmeditor.desktop.api.WasmtimeRuntimeDto
+import com.swarmeditor.desktop.api.WasmtimeRuntimeHealthDto
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.viewmodel.WasmPluginExecutionState
+
+private enum class PluginCenterTab(val id: String) {
+    MCP("mcp"),
+    SKILLS("skills"),
+    WASM("wasm");
+
+    companion object {
+        fun from(id: String): PluginCenterTab = entries.firstOrNull { it.id == id } ?: MCP
+    }
+}
 
 /**
  * Two-state composable: list view ↔ detail view.
@@ -55,6 +69,12 @@ import com.swarmeditor.desktop.theme.*
 fun PluginCenterView(
     mcpServers: List<McpServerDto>,
     skills: List<SkillDto>,
+    wasmPlugins: List<WasmPluginDto>,
+    wasmRuntime: WasmtimeRuntimeDto?,
+    wasmValidationErrors: List<String>,
+    wasmPluginDirectory: String,
+    wasmExecution: WasmPluginExecutionState,
+    wasmInstallingRuntime: Boolean,
     agents: List<AgentInfo>,
     modifier: Modifier = Modifier,
     activeTab: String = "mcp",
@@ -62,6 +82,10 @@ fun PluginCenterView(
     onSelectedItemChange: (PluginItem?) -> Unit = {},
     onRefresh: () -> Unit = {},
     onAddMcp: () -> Unit = {},
+    onOpenWasmDirectory: () -> Unit = {},
+    onInstallWasmRuntime: () -> Unit = {},
+    onWasmInputChange: (String) -> Unit = {},
+    onExecuteWasm: (String) -> Unit = {},
     onConfigureMcp: (String) -> Unit = {},
     onCopyMcp: (McpServerDto) -> Unit = {},
     onDeleteMcp: (String) -> Unit = {},
@@ -69,45 +93,62 @@ fun PluginCenterView(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
-    val isMcpTab = activeTab == "mcp"
-    val categories = remember(isMcpTab, mcpServers, skills) {
-        (if (isMcpTab) mcpServers.flatMap { it.tags } else skills.flatMap { it.tags })
+    val tab = PluginCenterTab.from(activeTab)
+    val categories = remember(tab, mcpServers, skills) {
+        when (tab) {
+            PluginCenterTab.MCP -> mcpServers.flatMap { it.tags }
+            PluginCenterTab.SKILLS -> skills.flatMap { it.tags }
+            PluginCenterTab.WASM -> emptyList()
+        }
             .distinct()
             .sorted()
     }
-    val stats = remember(isMcpTab, mcpServers, skills) {
-        if (isMcpTab) {
-            listOf(
+    val stats = remember(tab, mcpServers, skills, wasmPlugins, wasmRuntime, wasmValidationErrors) {
+        when (tab) {
+            PluginCenterTab.MCP -> listOf(
                 mcpServers.size.toString() to "已安装",
                 mcpServers.sumOf { it.tools.size }.toString() to "可用工具",
                 mcpServers.count { it.runtimeStatus == McpRuntimeStatus.BRIDGED }.toString() to "已桥接"
             )
-        } else {
-            listOf(
+            PluginCenterTab.SKILLS -> listOf(
                 skills.size.toString() to "已安装",
                 skills.count { it.source == "本地" }.toString() to "本地",
                 skills.count { it.source == "MCP" }.toString() to "MCP 发现",
                 skills.count { it.enabledAgents.values.any { enabled -> enabled } }.toString() to "已启用"
             )
+            PluginCenterTab.WASM -> listOf(
+                wasmPlugins.size.toString() to "哈希已验证",
+                (wasmRuntime?.detectedVersion?.ifBlank { wasmRuntime.expectedVersion } ?: "—") to "Wasmtime",
+                wasmValidationErrors.size.toString() to "配置错误",
+            )
         }
     }
-    val filteredItems = remember(isMcpTab, mcpServers, skills, searchQuery, selectedCategory) {
+    val filteredItems = remember(tab, mcpServers, skills, wasmPlugins, searchQuery, selectedCategory) {
         val query = searchQuery.trim().lowercase()
-        if (isMcpTab) {
-            mcpServers.asSequence()
+        when (tab) {
+            PluginCenterTab.MCP -> mcpServers.asSequence()
                 .filter {
                     (query.isEmpty() || it.name.lowercase().contains(query) || it.description.lowercase().contains(query)) &&
                         (selectedCategory == null || selectedCategory in it.tags)
                 }
                 .map { PluginItem.Mcp(it) }
                 .toList()
-        } else {
-            skills.asSequence()
+            PluginCenterTab.SKILLS -> skills.asSequence()
                 .filter {
                     (query.isEmpty() || it.name.lowercase().contains(query) || it.description.lowercase().contains(query)) &&
                         (selectedCategory == null || selectedCategory in it.tags)
                 }
                 .map { PluginItem.Skill(it) }
+                .toList()
+            PluginCenterTab.WASM -> wasmPlugins.asSequence()
+                .filter { plugin ->
+                    query.isEmpty() ||
+                        plugin.id.lowercase().contains(query) ||
+                        plugin.name.lowercase().contains(query) ||
+                        plugin.description.lowercase().contains(query) ||
+                        plugin.sha256.contains(query)
+                }
+                .map(PluginItem::Wasm)
                 .toList()
         }
     }
@@ -115,6 +156,7 @@ fun PluginCenterView(
     // Tab 与详情选择由父层同步管理；这里只重置当前列表筛选。
     LaunchedEffect(activeTab) {
         selectedCategory = null
+        searchQuery = ""
     }
     LaunchedEffect(categories) {
         if (selectedCategory != null && selectedCategory !in categories) {
@@ -150,6 +192,20 @@ fun PluginCenterView(
                     onEdit = onEditSkill,
                     modifier = Modifier.fillMaxSize()
                 )
+                is PluginItem.Wasm -> WasmDetailView(
+                    plugin = wasmPlugins.find { it.id == item.plugin.id } ?: item.plugin,
+                    runtime = wasmRuntime,
+                    validationErrors = wasmValidationErrors,
+                    pluginDirectory = wasmPluginDirectory,
+                    execution = wasmExecution,
+                    installingRuntime = wasmInstallingRuntime,
+                    onBack = { onSelectedItemChange(null) },
+                    onOpenDirectory = onOpenWasmDirectory,
+                    onInstallRuntime = onInstallWasmRuntime,
+                    onInputChange = onWasmInputChange,
+                    onExecute = onExecuteWasm,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         } else {
             // List view
@@ -165,21 +221,21 @@ fun PluginCenterView(
                         val compactHeader = maxWidth < 680.dp
                         if (compactHeader) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                PluginHeroCopy(isMcpTab)
+                                PluginHeroCopy(tab)
                                 PluginSearchField(
                                     value = searchQuery,
-                                    isMcpTab = isMcpTab,
+                                    tab = tab,
                                     onValueChange = { searchQuery = it },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                PluginHeroCopy(isMcpTab)
+                                PluginHeroCopy(tab)
                                 Spacer(Modifier.weight(1f))
                                 PluginSearchField(
                                     value = searchQuery,
-                                    isMcpTab = isMcpTab,
+                                    tab = tab,
                                     onValueChange = { searchQuery = it },
                                     modifier = Modifier.width(240.dp),
                                 )
@@ -207,14 +263,42 @@ fun PluginCenterView(
                             compact = true,
                             onClick = onRefresh,
                         )
-                        if (isMcpTab) {
-                            Spacer(Modifier.width(8.dp))
-                            ActionButton(
+                        Spacer(Modifier.width(8.dp))
+                        when (tab) {
+                            PluginCenterTab.MCP -> ActionButton(
                                 text = "+ 添加 MCP",
                                 tone = ActionTone.PRIMARY,
                                 compact = true,
                                 onClick = onAddMcp,
                             )
+                            PluginCenterTab.SKILLS -> Unit
+                            PluginCenterTab.WASM -> {
+                                ActionButton(
+                                    text = "打开插件目录",
+                                    tone = ActionTone.SECONDARY,
+                                    prominent = false,
+                                    compact = true,
+                                    onClick = onOpenWasmDirectory,
+                                )
+                                if (wasmRuntime?.health != WasmtimeRuntimeHealthDto.READY &&
+                                    wasmRuntime?.installSupported == true
+                                ) {
+                                    Spacer(Modifier.width(8.dp))
+                                    ActionButton(
+                                        text = if (wasmInstallingRuntime) {
+                                            "安装中…"
+                                        } else if (wasmRuntime.health == WasmtimeRuntimeHealthDto.MISSING) {
+                                            "安装 Wasmtime"
+                                        } else {
+                                            "修复 Wasmtime"
+                                        },
+                                        tone = ActionTone.PRIMARY,
+                                        compact = true,
+                                        enabled = !wasmInstallingRuntime,
+                                        onClick = onInstallWasmRuntime,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -223,7 +307,11 @@ fun PluginCenterView(
                     Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = if (isMcpTab) "已安装的 MCP Servers" else "已安装的 Skills",
+                                text = when (tab) {
+                                    PluginCenterTab.MCP -> "已安装的 MCP Servers"
+                                    PluginCenterTab.SKILLS -> "已安装的 Skills"
+                                    PluginCenterTab.WASM -> "已验证的 WASM Plugins"
+                                },
                                 color = Tx2,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -256,14 +344,20 @@ fun PluginCenterView(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (searchQuery.isNotEmpty()) "未找到结果" else "暂无插件",
+                                text = if (searchQuery.isNotEmpty()) "未找到结果" else when (tab) {
+                                    PluginCenterTab.WASM -> "暂无有效 WASM 插件"
+                                    else -> "暂无插件"
+                                },
                                 color = Tx3,
                                 fontSize = 13.sp,
                                 fontFamily = SansFont
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = if (searchQuery.isNotEmpty()) "换个关键词试试" else "添加插件以开始",
+                                text = if (searchQuery.isNotEmpty()) "换个关键词试试" else when (tab) {
+                                    PluginCenterTab.WASM -> "将 plugin.json 与 module.wasm 放入插件目录"
+                                    else -> "添加插件以开始"
+                                },
                                 color = Tx3,
                                 fontSize = 11.sp,
                                 fontFamily = SansFont
@@ -310,20 +404,24 @@ private fun PluginStatChip(value: String, label: String) {
 }
 
 @Composable
-private fun PluginHeroCopy(isMcpTab: Boolean) {
+private fun PluginHeroCopy(tab: PluginCenterTab) {
     Column {
         Text(
-            text = if (isMcpTab) "MCP Servers" else "Skills",
+            text = when (tab) {
+                PluginCenterTab.MCP -> "MCP Servers"
+                PluginCenterTab.SKILLS -> "Skills"
+                PluginCenterTab.WASM -> "WASM Sandbox"
+            },
             color = Tx,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = if (isMcpTab) {
-                "Model Context Protocol 服务，为主智能体连接外部工具和数据源。"
-            } else {
-                "可复用的能力模块。基于 SKILL.md 规范，由主智能体与蜂群任务统一调用。"
+            text = when (tab) {
+                PluginCenterTab.MCP -> "Model Context Protocol 服务，为主智能体连接外部工具和数据源。"
+                PluginCenterTab.SKILLS -> "可复用的能力模块。基于 SKILL.md 规范，由主智能体与蜂群任务统一调用。"
+                PluginCenterTab.WASM -> "由 Pi 按清单 ID 调用的确定性能力；模块哈希、运行时版本和每次执行均受校验与审计。"
             },
             color = Tx2,
             fontSize = 12.sp,
@@ -337,14 +435,18 @@ private fun PluginHeroCopy(isMcpTab: Boolean) {
 @Composable
 private fun PluginSearchField(
     value: String,
-    isMcpTab: Boolean,
+    tab: PluginCenterTab,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     CompactTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = if (isMcpTab) "搜索 MCP Server…" else "搜索 Skill…",
+        placeholder = when (tab) {
+            PluginCenterTab.MCP -> "搜索 MCP Server…"
+            PluginCenterTab.SKILLS -> "搜索 Skill…"
+            PluginCenterTab.WASM -> "搜索插件、模块或 SHA-256…"
+        },
         modifier = modifier,
     )
 }
@@ -368,4 +470,5 @@ private fun PluginFilterChip(label: String, isSelected: Boolean, onClick: () -> 
 private fun PluginItem.key(): String = when (this) {
     is PluginItem.Mcp -> "mcp-${server.id}"
     is PluginItem.Skill -> "skill-${skill.id}"
+    is PluginItem.Wasm -> "wasm-${plugin.id}"
 }

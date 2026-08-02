@@ -60,6 +60,12 @@ object ConfigPaths {
     /** Pi 工具代理的逐请求审计记录目录。 */
     val PI_TOOL_AUDIT_DIR: String = "$SWARM_EDITOR_DIR/pi-tool-audit"
 
+    /** 哈希固定的 Wasmtime 插件目录，每个插件使用独立子目录。 */
+    val WASM_PLUGINS_DIR: String = "$SWARM_EDITOR_DIR/wasm-plugins"
+
+    /** Swarm Editor 管理的固定版本 Wasmtime 运行时。 */
+    val WASMTIME_RUNTIME_DIR: String = "$SWARM_EDITOR_DIR/runtimes/wasmtime"
+
     /** pi 全局 Skills 目录。 */
     val PI_SKILLS_DIR: String = "$PI_AGENT_DIR/skills"
 }

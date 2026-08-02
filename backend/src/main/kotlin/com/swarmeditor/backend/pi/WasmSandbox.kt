@@ -118,6 +118,7 @@ private fun sha256(file: File): String {
 }
 
 const val WASMTIME_VERSION = "47.0.2"
+const val WASM_PLUGIN_RUNTIME_VERSION = WASMTIME_VERSION
 private const val MAX_WASM_INPUT_BYTES = 4 * 1024 * 1024
 private const val MAX_WASM_OUTPUT_CHARS = 4 * 1024 * 1024
 private val versionPattern = Regex("[1-9][0-9]{0,2}\\.[0-9]+\\.[0-9]+")

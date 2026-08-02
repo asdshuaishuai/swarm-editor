@@ -7,7 +7,8 @@
 - `desktopApp` 通过进程内 Kotlin service 与后端交互，不使用 HTTP/WebSocket。
 - `backend` 管理 Agent Profile、会话、Skills、项目与 Git 数据。
 - `PiRuntimeManager` 为每个 Swarm 会话按需启动 pi RPC/JSONL 子进程。
-- Pi 与 Kotlin 之间使用 nonce 绑定、限长、可取消且要求审计 ID 的 stdio 工具代理协议；Linux 使用 Bubblewrap 在无镜像、无守护进程的禁网沙箱中运行原生命令，可移植能力插件将使用独立 WASM 沙箱。
+- Pi 与 Kotlin 之间使用 nonce 绑定、限长、可取消且要求审计 ID 的 stdio 工具代理协议；Linux 使用 Bubblewrap 在无镜像、无守护进程的禁网沙箱中运行原生命令，可移植能力插件由独立 Wasmtime 沙箱执行。
+- 仓库定位会构建源码依赖图并使用 Tarjan SCC 折叠循环依赖簇；定位证据与关键路径调度分别持久化，避免把 SCC 误当作任务 DAG 执行器。
 - Pi-only 沙箱、动态图调度、LSP 代码智能与可验证自进化的 GitHub/arXiv 深度研究见 `docs/research/2026-07-28-pi-agent-runtime-orchestration-deep-dive.md`。
 - 轻量跨平台沙箱、Sandlock 准入门槛、独立 Git worktree 与可重放验证证据链见 `docs/research/2026-07-28-lightweight-sandbox-verification-deep-dive.md`。
 - 完成的兵团运行会由 Pi 反思器提炼为可追溯经验，并在后续规划和任务执行时按目标与角色检索复用；设计依据见 `docs/research/2026-07-27-pi-swarm-self-evolution.md`。
@@ -90,4 +91,6 @@ Bubblewrap 运行时关闭网络、隐藏用户主目录，只读挂载系统运
 
 检测到可用的 systemd user session 时，Bubblewrap worker 会自动进入轻量 scope，并限制为 2GB 内存、256 个进程和 200% CPU。可通过 `SWARM_BWRAP_SYSTEMD_SCOPE=required` 强制要求资源 scope，或设为 `off` 禁用自动接入。
 
-WASM 通道使用固定版本的 Wasmtime CLI，通过模块哈希校验、执行时限、输入输出上限以及无继承环境、无文件系统预打开的 JSON stdin/stdout 协议承载解析器、格式化器、静态分析及其他确定性插件。它不会代替 Gradle、npm、Git 或其他原生命令；这些操作继续由 Bubblewrap 通道处理。OCI/Podman 不属于当前执行或评估架构。
+WASM 通道固定使用 Wasmtime `47.0.2`。插件中心可以安装或修复受管运行时，并显示运行时来源、版本、完整哈希、插件清单错误与测试输出；运行时安装包按官方 SHA-256 校验，安装后的二进制与 `runtime.json` 再次绑定。插件通过模块 SHA-256、执行时限、输入输出上限以及无继承环境、无文件系统预打开的 JSON stdin/stdout 协议运行。插件清单和安全模型见 `docs/architecture/wasm-plugins.md`。
+
+WASM 不会代替 Gradle、npm、Git 或其他原生命令；这些操作继续由 Bubblewrap 通道处理。未启用 Bubblewrap 的 Agent 仍可使用经过审计的 WASM 工具，同时保留 Pi 本地核心工具。OCI/Podman 不属于当前执行或评估架构。

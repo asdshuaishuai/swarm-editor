@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
+	createStdioToolBrokerTools,
 	type StdioToolBrokerCancel,
 	StdioToolBrokerClient,
 	type StdioToolBrokerRequest,
@@ -96,5 +97,56 @@ describe("stdio tool broker", () => {
 		expect(session.getAllTools().map((tool) => tool.name)).toEqual(["echo"]);
 		expect(session.getActiveToolNames()).toEqual(["echo"]);
 		session.dispose();
+	});
+
+	it("exposes audited WASM plugin listing and execution through the broker", async () => {
+		const output: StdioToolBrokerRequest[] = [];
+		const client = new StdioToolBrokerClient({ sessionNonce: nonce });
+		client.bindOutput((message) => {
+			if (message.type !== "tool_request") return;
+			output.push(message);
+			client.handleResponse({
+				type: "tool_response",
+				requestId: message.requestId,
+				sessionNonce: nonce,
+				success: true,
+				result:
+					message.operation === "list"
+						? { plugins: [{ id: "formatter", sha256: "a".repeat(64) }] }
+						: { plugin: "formatter", output: { formatted: true } },
+			});
+		});
+		const tool = createStdioToolBrokerTools(process.cwd(), client).wasm;
+
+		const listed = await tool.execute("tool-1", { action: "list" }, undefined, undefined);
+		const executed = await tool.execute(
+			"tool-2",
+			{ action: "execute", plugin: "formatter", input: { source: "x" } },
+			undefined,
+			undefined,
+		);
+
+		expect(output.map(({ tool, operation }) => ({ tool, operation }))).toEqual([
+			{ tool: "wasm", operation: "list" },
+			{ tool: "wasm", operation: "execute" },
+		]);
+		expect(listed.content[0]).toMatchObject({ type: "text" });
+		expect(executed.content[0]).toMatchObject({ type: "text" });
+	});
+
+	it("keeps core tools local when only WASM is brokered", async () => {
+		const output: StdioToolBrokerRequest[] = [];
+		const client = new StdioToolBrokerClient({ sessionNonce: nonce });
+		client.bindOutput((message) => {
+			if (message.type === "tool_request") output.push(message);
+		});
+		const tools = createStdioToolBrokerTools(process.cwd(), client, { brokerCoreTools: false });
+
+		expect(tools.read.name).toBe("read");
+		expect(tools.bash.name).toBe("bash");
+		expect(tools.edit.name).toBe("edit");
+		expect(tools.write.name).toBe("write");
+		expect(tools.wasm.name).toBe("wasm");
+		expect(output).toEqual([]);
 	});
 });

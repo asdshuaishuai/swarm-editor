@@ -592,6 +592,12 @@ export async function main(args: string[], options?: MainOptions) {
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
 	const toolBrokerMode = process.env.SWARM_PI_TOOL_BROKER?.trim();
+	const brokerCoreToolsValue = process.env.SWARM_PI_TOOL_BROKER_CORE_TOOLS?.trim();
+	if (brokerCoreToolsValue && brokerCoreToolsValue !== "0" && brokerCoreToolsValue !== "1") {
+		console.error(chalk.red(`Error: Unsupported SWARM_PI_TOOL_BROKER_CORE_TOOLS value: ${brokerCoreToolsValue}`));
+		process.exit(1);
+	}
+	const brokerCoreTools = brokerCoreToolsValue !== "0";
 	let toolBrokerClient: StdioToolBrokerClient | undefined;
 	if (toolBrokerMode) {
 		if (toolBrokerMode !== "stdio-v1") {
@@ -798,7 +804,9 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			baseToolsOverride: toolBrokerClient ? createStdioToolBrokerTools(cwd, toolBrokerClient) : undefined,
+			baseToolsOverride: toolBrokerClient
+				? createStdioToolBrokerTools(cwd, toolBrokerClient, { brokerCoreTools })
+				: undefined,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {

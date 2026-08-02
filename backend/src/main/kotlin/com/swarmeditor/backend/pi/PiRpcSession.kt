@@ -63,6 +63,7 @@ private val MANAGED_PI_ENVIRONMENT_VARIABLES = setOf(
     "SWARM_EDITOR_MCP_CONFIG",
     "SWARM_PI_TOOL_BROKER",
     "SWARM_PI_TOOL_BROKER_NONCE",
+    "SWARM_PI_TOOL_BROKER_CORE_TOOLS",
 )
 
 class PiRpcSession(
@@ -78,7 +79,13 @@ class PiRpcSession(
     private val process = ProcessBuilder(distribution.command(config, remoteSessionId))
         .directory(workingDirectory)
         .apply {
-            environment().putAll(piProcessEnvironment(config, toolBrokerNonce))
+            environment().putAll(
+                piProcessEnvironment(
+                    config = config,
+                    toolBrokerNonce = toolBrokerNonce,
+                    brokerCoreTools = toolBroker?.brokersCoreTools ?: true,
+                )
+            )
         }
         .start()
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
@@ -627,7 +634,11 @@ class PiRpcSession(
         parsePiConversationMessages(request("get_messages", configTimeout()))
 }
 
-internal fun piProcessEnvironment(config: AgentConfig, toolBrokerNonce: String? = null): Map<String, String> =
+internal fun piProcessEnvironment(
+    config: AgentConfig,
+    toolBrokerNonce: String? = null,
+    brokerCoreTools: Boolean = true,
+): Map<String, String> =
     config.env.filterKeys { it !in MANAGED_PI_ENVIRONMENT_VARIABLES } + buildMap {
         put("PI_CODING_AGENT_DIR", PiRuntimePaths.agentDirectory(config.id).absolutePath)
         put("SWARM_PI_AGENT_ID", config.id)
@@ -635,6 +646,7 @@ internal fun piProcessEnvironment(config: AgentConfig, toolBrokerNonce: String? 
         if (toolBrokerNonce != null) {
             put("SWARM_PI_TOOL_BROKER", "stdio-v1")
             put("SWARM_PI_TOOL_BROKER_NONCE", toolBrokerNonce)
+            put("SWARM_PI_TOOL_BROKER_CORE_TOOLS", if (brokerCoreTools) "1" else "0")
         }
     }
 

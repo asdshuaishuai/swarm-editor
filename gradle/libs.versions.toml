@@ -15,6 +15,8 @@ haze = "1.6.6"
 line-icons = "4.29.2"
 markdown-renderer = "0.33.0-b05"
 rsyntaxtextarea = "4.0.1"
+commons-compress = "1.28.0"
+xz = "1.12"
 
 # Logging
 logback = "1.5.16"
@@ -52,6 +54,8 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 lucide-icons = { module = "com.woowla.compose.icon.collections:feather", version.ref = "line-icons" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
 rsyntaxtextarea = { module = "com.fifesoft:rsyntaxtextarea", version.ref = "rsyntaxtextarea" }
+commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commons-compress" }
+xz = { module = "org.tukaani:xz", version.ref = "xz" }
 
 # Decompose
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }

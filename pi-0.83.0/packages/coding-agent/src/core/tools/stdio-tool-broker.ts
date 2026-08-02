@@ -1,11 +1,25 @@
 import { isAbsolute, relative, sep } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { type Static, Type } from "typebox";
 import { createBashTool } from "./bash.ts";
 import { createEditTool } from "./edit.ts";
 import { createReadTool } from "./read.ts";
 import { createWriteTool } from "./write.ts";
 
-export type StdioToolBrokerTool = "read" | "bash" | "edit" | "write";
+export type StdioToolBrokerTool = "read" | "bash" | "edit" | "write" | "wasm";
+
+const wasmToolSchema = Type.Union([
+	Type.Object({
+		action: Type.Literal("list"),
+	}),
+	Type.Object({
+		action: Type.Literal("execute"),
+		plugin: Type.String({ description: "Enabled WASM plugin id returned by the list action" }),
+		input: Type.Optional(Type.Unknown({ description: "JSON input passed to the hash-pinned WASM module" })),
+	}),
+]);
+
+type WasmToolInput = Static<typeof wasmToolSchema>;
 
 export interface StdioToolBrokerRequest {
 	type: "tool_request";
@@ -199,7 +213,15 @@ export class StdioToolBrokerClient {
 	}
 }
 
-export function createStdioToolBrokerTools(cwd: string, client: StdioToolBrokerClient): Record<string, AgentTool> {
+export interface StdioToolBrokerOptions {
+	brokerCoreTools?: boolean;
+}
+
+export function createStdioToolBrokerTools(
+	cwd: string,
+	client: StdioToolBrokerClient,
+	options: StdioToolBrokerOptions = {},
+): Record<string, AgentTool> {
 	const workspacePath = (absolutePath: string): string => {
 		const relativePath = relative(cwd, absolutePath);
 		if (relativePath === "") return ".";
@@ -222,62 +244,96 @@ export function createStdioToolBrokerTools(cwd: string, client: StdioToolBrokerC
 	const requestPath = (tool: StdioToolBrokerTool, operation: string, path: string) =>
 		client.request(tool, operation, { path: workspacePath(path) });
 
+	const coreTools: Record<string, AgentTool> =
+		options.brokerCoreTools === false
+			? {
+					read: createReadTool(cwd),
+					bash: createBashTool(cwd),
+					edit: createEditTool(cwd),
+					write: createWriteTool(cwd),
+				}
+			: {
+					read: createReadTool(cwd, {
+						operations: {
+							readFile: async (path) => decodeBuffer(await requestPath("read", "readFile", path)),
+							access: async (path) => {
+								await requestPath("read", "access", path);
+							},
+							detectImageMimeType: async (path) => {
+								const result = expectObject(await requestPath("read", "detectImageMimeType", path));
+								if (result.mimeType === null || result.mimeType === undefined) return null;
+								if (typeof result.mimeType !== "string") throw new Error("Tool broker MIME result is invalid");
+								return result.mimeType;
+							},
+						},
+					}),
+					bash: createBashTool(cwd, {
+						operations: {
+							exec: async (command, commandCwd, options) => {
+								const timeoutMillis = options.timeout === undefined ? undefined : options.timeout * 1000;
+								const result = expectObject(
+									await client.request(
+										"bash",
+										"exec",
+										{ command, cwd: workspacePath(commandCwd), timeoutSeconds: options.timeout },
+										{ signal: options.signal, timeoutMillis },
+									),
+								);
+								if (typeof result.output !== "string")
+									throw new Error("Tool broker bash result is missing output");
+								if (result.exitCode !== null && typeof result.exitCode !== "number") {
+									throw new Error("Tool broker bash result has an invalid exit code");
+								}
+								if (result.output) options.onData(Buffer.from(result.output, "utf8"));
+								return { exitCode: result.exitCode as number | null };
+							},
+						},
+					}),
+					edit: createEditTool(cwd, {
+						operations: {
+							readFile: async (path) => decodeBuffer(await requestPath("edit", "readFile", path)),
+							writeFile: async (path, content) => {
+								await client.request("edit", "writeFile", { path: workspacePath(path), content });
+							},
+							access: async (path) => {
+								await requestPath("edit", "access", path);
+							},
+						},
+					}),
+					write: createWriteTool(cwd, {
+						operations: {
+							writeFile: async (path, content) => {
+								await client.request("write", "writeFile", { path: workspacePath(path), content });
+							},
+							mkdir: async (path) => {
+								await client.request("write", "mkdir", { path: workspacePath(path) });
+							},
+						},
+					}),
+				};
+
 	return {
-		read: createReadTool(cwd, {
-			operations: {
-				readFile: async (path) => decodeBuffer(await requestPath("read", "readFile", path)),
-				access: async (path) => {
-					await requestPath("read", "access", path);
-				},
-				detectImageMimeType: async (path) => {
-					const result = expectObject(await requestPath("read", "detectImageMimeType", path));
-					if (result.mimeType === null || result.mimeType === undefined) return null;
-					if (typeof result.mimeType !== "string") throw new Error("Tool broker MIME result is invalid");
-					return result.mimeType;
-				},
+		...coreTools,
+		wasm: {
+			name: "wasm",
+			label: "wasm",
+			description:
+				"List or execute enabled Swarm Editor WASM plugins. Modules are selected by manifest id, verified by SHA-256, and run by the configured Wasmtime runtime without inherited host environment variables.",
+			parameters: wasmToolSchema,
+			async execute(_toolCallId, rawParams, signal?: AbortSignal) {
+				const params = rawParams as WasmToolInput;
+				if (params.action === "list") {
+					const result = await client.request("wasm", "list", {}, { signal, timeoutMillis: 5_000 });
+					return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: undefined };
+				}
+				const result = await client.request(
+					"wasm",
+					"execute",
+					{ plugin: params.plugin, input: params.input ?? null },
+					{ signal },
+				);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: undefined };
 			},
-		}),
-		bash: createBashTool(cwd, {
-			operations: {
-				exec: async (command, commandCwd, options) => {
-					const timeoutMillis = options.timeout === undefined ? undefined : options.timeout * 1000;
-					const result = expectObject(
-						await client.request(
-							"bash",
-							"exec",
-							{ command, cwd: workspacePath(commandCwd), timeoutSeconds: options.timeout },
-							{ signal: options.signal, timeoutMillis },
-						),
-					);
-					if (typeof result.output !== "string") throw new Error("Tool broker bash result is missing output");
-					if (result.exitCode !== null && typeof result.exitCode !== "number") {
-						throw new Error("Tool broker bash result has an invalid exit code");
-					}
-					if (result.output) options.onData(Buffer.from(result.output, "utf8"));
-					return { exitCode: result.exitCode as number | null };
-				},
-			},
-		}),
-		edit: createEditTool(cwd, {
-			operations: {
-				readFile: async (path) => decodeBuffer(await requestPath("edit", "readFile", path)),
-				writeFile: async (path, content) => {
-					await client.request("edit", "writeFile", { path: workspacePath(path), content });
-				},
-				access: async (path) => {
-					await requestPath("edit", "access", path);
-				},
-			},
-		}),
-		write: createWriteTool(cwd, {
-			operations: {
-				writeFile: async (path, content) => {
-					await client.request("write", "writeFile", { path: workspacePath(path), content });
-				},
-				mkdir: async (path) => {
-					await client.request("write", "mkdir", { path: workspacePath(path) });
-				},
-			},
-		}),
+		},
 	};
 }

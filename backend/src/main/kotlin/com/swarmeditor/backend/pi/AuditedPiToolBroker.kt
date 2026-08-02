@@ -26,6 +26,7 @@ class AuditedPiToolBroker(
     workspace: File,
     private val executor: PiToolCapabilityExecutor,
     private val auditStore: PiToolAuditStore,
+    override val brokersCoreTools: Boolean = true,
     private val currentTimeMillis: () -> Long = System::currentTimeMillis,
 ) : PiToolBroker {
     private val workspaceHash = sha256(workspace.canonicalFile.absolutePath)
