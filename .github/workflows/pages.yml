@@ -6,9 +6,6 @@ on:
       - main
       - master
       - old_ui
-    paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
