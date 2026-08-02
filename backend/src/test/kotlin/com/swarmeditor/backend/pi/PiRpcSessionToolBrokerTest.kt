@@ -213,7 +213,7 @@ class PiRpcSessionToolBrokerTest {
 
     private fun runtimeFixture(script: String): RuntimeFixture {
         val root = Files.createTempDirectory("pi-rpc-tool-broker")
-        val entrypoint = root.resolve("pi-0.80.10/packages/coding-agent/dist/rpc-entry.js")
+        val entrypoint = root.resolve("pi-0.83.0/packages/coding-agent/dist/rpc-entry.js")
         Files.createDirectories(entrypoint.parent)
         Files.writeString(entrypoint, script)
         return RuntimeFixture(root, PiRuntimeDistribution(root.toFile()))

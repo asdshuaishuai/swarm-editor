@@ -1,6 +1,6 @@
 # Swarm Editor
 
-基于内置 `pi-0.80.10` 的 Kotlin/JVM Compose Desktop Agent 工作台。
+基于内置 `pi-0.83.0` 的 Kotlin/JVM Compose Desktop Agent 工作台。
 
 ## Architecture
 
@@ -18,6 +18,7 @@
 - Linux 上会自动探测 Bubblewrap，在禁网、只读根文件系统的轻量沙箱中对同一 Git commit 的 control/treatment 补丁执行反事实验证。
 - Agent Profile 只描述 provider、model、thinking、工作目录、环境变量和系统提示词。
 - pi 配置、Skills 和会话隔离在 `~/.swarm-editor/`。
+- Pi `0.83.0` 的标准化与 provider 原始停止原因会进入 Agent 活动证据；模型目录固定在仓库内并离线构建，能力审计见 `docs/research/2026-08-02-pi-0.83-core-capabilities.md`。
 
 ## User-Level Discovery
 

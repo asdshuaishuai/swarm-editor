@@ -24,7 +24,7 @@ dependencies {
     testImplementation(libs.mockk)
 }
 
-val piRoot = rootProject.layout.projectDirectory.dir("pi-0.80.10")
+val piRoot = rootProject.layout.projectDirectory.dir("pi-0.83.0")
 
 val installPiRuntime by tasks.registering(Exec::class) {
     workingDir(piRoot)
@@ -44,7 +44,7 @@ val buildPiTui by tasks.registering(Exec::class) {
 val buildPiAi by tasks.registering(Exec::class) {
     dependsOn(buildPiTui)
     workingDir(piRoot)
-    commandLine("npm", "exec", "--", "tsgo", "-p", "packages/ai/tsconfig.build.json")
+    commandLine("npm", "--prefix", "packages/ai", "run", "build:offline")
     inputs.dir(piRoot.dir("packages/ai/src"))
     outputs.dir(piRoot.dir("packages/ai/dist"))
 }
@@ -67,7 +67,7 @@ val buildPiCodingAgent by tasks.registering(Exec::class) {
 
 val preparePiRuntime by tasks.registering {
     group = "build"
-    description = "Builds the vendored pi 0.80.10 RPC runtime without refreshing remote model catalogs."
+    description = "Builds the vendored pi 0.83.0 RPC runtime from the frozen model catalog."
     dependsOn(buildPiCodingAgent)
 }
 

@@ -269,6 +269,7 @@ class ConversationService(
                 }
                 send(ConversationEvent.Started(piSession.remoteSessionId))
                 val toolExecutions = linkedMapOf<String, ToolExecution>()
+                var completion: PiSessionEvent.AgentCompleted? = null
 
                 val response = piSession.prompt(content, images) { event ->
                     when (event) {
@@ -303,13 +304,20 @@ class ConversationService(
                                 type = event.name.toActivityType()
                             )
                         }
+                        is PiSessionEvent.AgentCompleted -> completion = event
                         else -> Unit
                     }
-                    send(event.toConversationEvent())
+                    event.toConversationEvent()?.let { send(it) }
                 }
                 persistAssistantResponse(sessionId, response, toolExecutions.values)
                 persistTokenUsage(sessionId)
-                recordActivity(sessionId, "Pi", "完成", "${response.length} 字符", ActivityType.SESSION)
+                recordActivity(
+                    sessionId = sessionId,
+                    actor = "Pi",
+                    action = "完成",
+                    detail = buildCompletionDetail(response.length, completion),
+                    type = if (completion?.stopReason == "error") ActivityType.ERROR else ActivityType.SESSION,
+                )
                 send(ConversationEvent.Completed(response))
             } catch (error: CancellationException) {
                 withContext(NonCancellable) {
@@ -463,11 +471,19 @@ private fun String.toActivityType(): ActivityType {
     }
 }
 
-private fun PiSessionEvent.toConversationEvent(): ConversationEvent = when (this) {
+private fun PiSessionEvent.toConversationEvent(): ConversationEvent? = when (this) {
     is PiSessionEvent.TextDelta -> ConversationEvent.TextDelta(text)
     is PiSessionEvent.ThinkingDelta -> ConversationEvent.ThinkingDelta(text)
     is PiSessionEvent.ToolStarted -> ConversationEvent.ToolStarted(id, name, arguments)
     is PiSessionEvent.ToolFinished -> ConversationEvent.ToolFinished(id, name, output, isError)
+    is PiSessionEvent.AgentCompleted -> null
+}
+
+private fun buildCompletionDetail(length: Int, completion: PiSessionEvent.AgentCompleted?): String = buildString {
+    append("$length 字符")
+    completion?.stopReason?.let { append(" · stop=$it") }
+    completion?.rawStopReason?.let { append(" · provider=$it") }
+    completion?.errorMessage?.takeIf(String::isNotBlank)?.let { append(" · ${it.take(160)}") }
 }
 
 private suspend fun <T> resultOf(action: suspend () -> T): Result<T> {

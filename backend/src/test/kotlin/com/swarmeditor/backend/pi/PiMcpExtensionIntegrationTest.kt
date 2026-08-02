@@ -21,7 +21,7 @@ class PiMcpExtensionIntegrationTest {
     fun `pi loads tools from configured stdio mcp server`() = runTest {
         val projectRoot = File(System.getProperty("user.dir")).let { directory ->
             generateSequence(directory) { it.parentFile }
-                .first { File(it, "pi-0.80.10").isDirectory }
+                .first { File(it, "pi-0.83.0").isDirectory }
         }
         val runtime = PiRuntimeDistribution(projectRoot)
         val directory = Files.createTempDirectory("pi-mcp-integration").toFile()
@@ -91,7 +91,7 @@ class PiMcpExtensionIntegrationTest {
     @Test
     fun `registered pi tool forwards calls to stdio mcp server`() = runTest {
         val projectRoot = projectRoot()
-        val piRoot = projectRoot.resolve("pi-0.80.10")
+        val piRoot = projectRoot.resolve("pi-0.83.0")
         val directory = Files.createTempDirectory(piRoot.toPath(), ".pi-mcp-call-").toFile()
         try {
             val agentDirectory = directory.resolve("agent")
@@ -146,7 +146,7 @@ class PiMcpExtensionIntegrationTest {
 
     private fun projectRoot(): File = File(System.getProperty("user.dir")).let { directory ->
         generateSequence(directory) { it.parentFile }
-            .first { File(it, "pi-0.80.10").isDirectory }
+            .first { File(it, "pi-0.83.0").isDirectory }
     }
 
     private fun resourceFile(path: String): File = requireNotNull(javaClass.getResource(path))

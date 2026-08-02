@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -17,6 +19,36 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
 class PiRpcSessionLifecycleTest {
+    @Test
+    fun `agent completion preserves normalized and provider stop reasons`() {
+        val payload = Json.parseToJsonElement(
+            """
+            {
+              "type": "agent_end",
+              "messages": [
+                { "role": "user", "content": "hello" },
+                {
+                  "role": "assistant",
+                  "content": [],
+                  "stopReason": "length",
+                  "rawStopReason": "max_output_tokens",
+                  "errorMessage": "provider limit"
+                }
+              ]
+            }
+            """.trimIndent(),
+        ).jsonObject
+
+        assertEquals(
+            PiSessionEvent.AgentCompleted(
+                stopReason = "length",
+                rawStopReason = "max_output_tokens",
+                errorMessage = "provider limit",
+            ),
+            parsePiAgentCompletion(payload),
+        )
+    }
+
     @Test
     fun `closed stdout fails requests without waiting for their timeout`() = runBlocking {
         val fixture = runtimeFixture(
@@ -104,7 +136,7 @@ class PiRpcSessionLifecycleTest {
 
     private fun runtimeFixture(script: String): RuntimeFixture {
         val root = Files.createTempDirectory("pi-rpc-lifecycle")
-        val entrypoint = root.resolve("pi-0.80.10/packages/coding-agent/dist/rpc-entry.js")
+        val entrypoint = root.resolve("pi-0.83.0/packages/coding-agent/dist/rpc-entry.js")
         Files.createDirectories(entrypoint.parent)
         Files.writeString(entrypoint, script)
         return RuntimeFixture(root, PiRuntimeDistribution(root.toFile()))

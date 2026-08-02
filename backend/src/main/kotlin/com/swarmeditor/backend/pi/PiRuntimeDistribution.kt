@@ -28,7 +28,7 @@ class PiRuntimeDistribution(
         ).filterNotNull()
             .map(::File)
             .firstOrNull(File::isDirectory)
-            ?: File(projectRoot, "pi-0.80.10")
+            ?: File(projectRoot, "pi-0.83.0")
     }
 
     val entrypoint: File
@@ -95,7 +95,7 @@ internal fun validateNodeVersion(output: String): String {
         patch = match.groupValues[3].toInt()
     )
     require(version >= MINIMUM_NODE_VERSION) {
-        "Node.js 版本过低: ${output.trim()}，pi 0.80.10 需要 Node.js 22.19.0 或更高版本"
+        "Node.js 版本过低: ${output.trim()}，pi 0.83.0 需要 Node.js 22.19.0 或更高版本"
     }
     return output.trim()
 }

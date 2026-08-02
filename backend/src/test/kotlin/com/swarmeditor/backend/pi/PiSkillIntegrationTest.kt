@@ -25,7 +25,7 @@ class PiSkillIntegrationTest {
     fun `pi discovers a skill synchronized for its agent profile`() = runTest {
         val projectRoot = File(System.getProperty("user.dir")).let { directory ->
             generateSequence(directory) { it.parentFile }
-                .first { File(it, "pi-0.80.10").isDirectory }
+                .first { File(it, "pi-0.83.0").isDirectory }
         }
         val runtime = PiRuntimeDistribution(projectRoot)
         val directory = Files.createTempDirectory("pi-skill-integration").toFile()

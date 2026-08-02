@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Swarm Editor is a Kotlin/JVM Compose Desktop application built around the vendored `pi-0.80.10` coding-agent runtime. The desktop UI calls backend services directly in-process; do not add HTTP or WebSocket transport for normal application communication.
+Swarm Editor is a Kotlin/JVM Compose Desktop application built around the vendored `pi-0.83.0` coding-agent runtime. The desktop UI calls backend services directly in-process; do not add HTTP or WebSocket transport for normal application communication.
 
 ## Project Structure & Data Flow
 
@@ -10,7 +10,7 @@ Swarm Editor is a Kotlin/JVM Compose Desktop application built around the vendor
 - `backend/src/main/kotlin/com/swarmeditor/backend/` contains stores, services, and the composition root in `Main.kt`.
 - `backend/.../pi/` owns pi source discovery, JSONL RPC process management, and per-session runtime lifecycle.
 - `desktopApp/src/main/kotlin/com/swarmeditor/desktop/` contains Compose UI, Decompose navigation, and `StateFlow`-based view models.
-- `pi-0.80.10/` is vendored upstream TypeScript source. Follow its nested `AGENTS.md` when modifying it.
+- `pi-0.83.0/` is vendored upstream TypeScript source. Follow its nested `AGENTS.md` when modifying it.
 - Tests mirror production packages under `backend/src/test/` and `desktopApp/src/test/`.
 
 The primary flow is UI → view model → in-memory Kotlin service → `PiRuntimeManager` → pi RPC subprocess → session persistence. Agent records are pi Profiles describing provider, model, thinking level, working directory, environment, and prompt policy. Do not reintroduce external CLI adapters or ACP.

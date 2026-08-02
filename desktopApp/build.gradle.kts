@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
-val piRoot = rootProject.layout.projectDirectory.dir("pi-0.80.10")
+val piRoot = rootProject.layout.projectDirectory.dir("pi-0.83.0")
 val piResourcesRoot = layout.buildDirectory.dir("piResources")
 
 val stagePiRuntime by tasks.registering(Sync::class) {

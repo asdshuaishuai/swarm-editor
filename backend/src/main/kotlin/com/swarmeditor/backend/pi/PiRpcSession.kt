@@ -422,6 +422,7 @@ class PiRpcSession(
             "compaction_start" -> _state.update { it?.copy(isCompacting = true) }
             "compaction_end" -> _state.update { it?.copy(isCompacting = false) }
             "agent_end" -> if (payload["willRetry"]?.jsonPrimitive?.contentOrNull != "true") {
+                emitEvent(parsePiAgentCompletion(payload))
                 _state.update { it?.copy(isStreaming = false) }
                 activeRun.get()?.complete(Unit)
             }
@@ -804,6 +805,20 @@ internal fun extractPiToolOutput(result: JsonElement?): String {
             runCatching { details.jsonPrimitive.contentOrNull }.getOrNull() ?: details.toString()
         }.orEmpty()
     }.boundedToolOutput()
+}
+
+internal fun parsePiAgentCompletion(payload: JsonObject): PiSessionEvent.AgentCompleted {
+    val messages = payload["messages"]
+        ?.let { runCatching { it.jsonArray }.getOrNull() }
+        .orEmpty()
+    val assistant = messages.asReversed()
+        .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+        .firstOrNull { it["role"]?.jsonPrimitive?.contentOrNull == "assistant" }
+    return PiSessionEvent.AgentCompleted(
+        stopReason = assistant?.get("stopReason")?.jsonPrimitive?.contentOrNull,
+        rawStopReason = assistant?.get("rawStopReason")?.jsonPrimitive?.contentOrNull,
+        errorMessage = assistant?.get("errorMessage")?.jsonPrimitive?.contentOrNull,
+    )
 }
 
 private fun String.boundedToolOutput(): String {

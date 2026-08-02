@@ -126,6 +126,11 @@ sealed interface PiSessionEvent {
     data class ThinkingDelta(val text: String) : PiSessionEvent
     data class ToolStarted(val id: String, val name: String, val arguments: String) : PiSessionEvent
     data class ToolFinished(val id: String, val name: String, val output: String, val isError: Boolean) : PiSessionEvent
+    data class AgentCompleted(
+        val stopReason: String?,
+        val rawStopReason: String?,
+        val errorMessage: String?,
+    ) : PiSessionEvent
 }
 
 interface PiSession {
