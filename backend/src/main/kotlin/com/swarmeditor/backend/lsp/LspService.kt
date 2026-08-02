@@ -79,6 +79,7 @@ data class SourceDiagnostic(
 data class LspDocumentInsight(
     val languageId: String,
     val serverName: String? = null,
+    val highlights: List<SemanticHighlight> = emptyList(),
     val symbols: List<SourceSymbol> = emptyList(),
     val diagnostics: List<SourceDiagnostic> = emptyList(),
     val message: String? = null,
@@ -174,15 +175,24 @@ class LspService(
         if (highlighted.serverName == null) {
             return LspDocumentInsight(
                 languageId = highlighted.languageId,
+                highlights = highlighted.highlights,
                 message = highlighted.message,
             )
         }
         val spec = specs.firstOrNull { file.extension.lowercase() in it.extensions }
-            ?: return LspDocumentInsight(languageId = highlighted.languageId, message = highlighted.message)
+            ?: return LspDocumentInsight(
+                languageId = highlighted.languageId,
+                highlights = highlighted.highlights,
+                message = highlighted.message,
+            )
         val session = sessionMutex.withLock { sessions[spec.id] }
-            ?: return LspDocumentInsight(languageId = highlighted.languageId, message = highlighted.message)
+            ?: return LspDocumentInsight(
+                languageId = highlighted.languageId,
+                highlights = highlighted.highlights,
+                message = highlighted.message,
+            )
         return try {
-            session.inspect(file, content)
+            session.inspect(file, content).copy(highlights = highlighted.highlights)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -190,6 +200,7 @@ class LspService(
             LspDocumentInsight(
                 languageId = highlighted.languageId,
                 serverName = highlighted.serverName,
+                highlights = highlighted.highlights,
                 message = error.message,
             )
         }
@@ -266,6 +277,7 @@ interface LspSession {
         return LspDocumentInsight(
             languageId = highlighted.languageId,
             serverName = highlighted.serverName,
+            highlights = highlighted.highlights,
             message = highlighted.message,
         )
     }

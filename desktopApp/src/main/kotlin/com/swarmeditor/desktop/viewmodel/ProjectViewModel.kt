@@ -2,6 +2,8 @@ package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.backend.lsp.SemanticHighlight
+import com.swarmeditor.backend.lsp.SourceDiagnostic
+import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -37,6 +39,8 @@ class ProjectViewModel(
         val languageId: String = "",
         val lspServer: String? = null,
         val semanticHighlights: List<SemanticHighlight> = emptyList(),
+        val symbols: List<SourceSymbol> = emptyList(),
+        val diagnostics: List<SourceDiagnostic> = emptyList(),
         val lspMessage: String? = null,
         val isLoading: Boolean = false,
         val isSaving: Boolean = false,
@@ -86,8 +90,8 @@ class ProjectViewModel(
         previewJob = scope.launch(ioDispatcher) {
             try {
                 val preview = service.readFile(path)
-                val semantic = if (!preview.binary && preview.content.isNotEmpty()) {
-                    service.highlightFile(path, preview.content)
+                val insight = if (!preview.binary && preview.content.isNotEmpty()) {
+                    service.inspectFile(path, preview.content)
                 } else {
                     null
                 }
@@ -97,10 +101,12 @@ class ProjectViewModel(
                     sizeBytes = preview.sizeBytes,
                     truncated = preview.truncated,
                     binary = preview.binary,
-                    languageId = semantic?.languageId ?: path.substringAfterLast('.', "").lowercase(),
-                    lspServer = semantic?.serverName,
-                    semanticHighlights = semantic?.highlights.orEmpty(),
-                    lspMessage = semantic?.message,
+                    languageId = insight?.languageId ?: path.substringAfterLast('.', "").lowercase(),
+                    lspServer = insight?.serverName,
+                    semanticHighlights = insight?.highlights.orEmpty(),
+                    symbols = insight?.symbols.orEmpty(),
+                    diagnostics = insight?.diagnostics.orEmpty(),
+                    lspMessage = insight?.message,
                 )
                 if (requestId == previewRequestIds.get()) _filePreview.value = state
             } catch (error: CancellationException) {
@@ -143,19 +149,21 @@ class ProjectViewModel(
                 } catch (error: Throwable) {
                     refreshFailures += "变更刷新失败: ${error.message ?: error::class.simpleName}"
                 }
-                val semantic = try {
-                    service.highlightFile(path, preview.content)
+                val insight = try {
+                    service.inspectFile(path, preview.content)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    refreshFailures += "语义高亮失败: ${error.message ?: error::class.simpleName}"
+                    refreshFailures += "代码智能刷新失败: ${error.message ?: error::class.simpleName}"
                     null
                 }
                 val state = persistedState.copy(
-                    languageId = semantic?.languageId ?: persistedState.languageId,
-                    lspServer = semantic?.serverName,
-                    semanticHighlights = semantic?.highlights.orEmpty(),
-                    lspMessage = semantic?.message,
+                    languageId = insight?.languageId ?: persistedState.languageId,
+                    lspServer = insight?.serverName,
+                    semanticHighlights = insight?.highlights.orEmpty(),
+                    symbols = insight?.symbols.orEmpty(),
+                    diagnostics = insight?.diagnostics.orEmpty(),
+                    lspMessage = insight?.message,
                     error = refreshFailures.takeIf(List<String>::isNotEmpty)
                         ?.joinToString(prefix = "文件已保存，但", separator = "；"),
                 )

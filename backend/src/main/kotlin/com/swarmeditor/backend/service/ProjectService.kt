@@ -1,6 +1,8 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.lsp.LspHighlightResult
+import com.swarmeditor.backend.lsp.LspDocumentInsight
+import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
 import com.swarmeditor.backend.storage.atomicWriteText
 import java.io.File
@@ -81,10 +83,33 @@ class ProjectService(
 
     suspend fun highlightFile(relativePath: String, content: String): LspHighlightResult? {
         val highlighter = semanticHighlighter ?: return null
+        val resolved = resolveProjectFile(relativePath)
+        return highlighter.highlight(resolved.toFile(), content)
+    }
+
+    suspend fun inspectFile(relativePath: String, content: String): LspDocumentInsight? {
+        val highlighter = semanticHighlighter ?: return null
+        val resolved = resolveProjectFile(relativePath)
+        return if (highlighter is SourceCodeIntelligence) {
+            highlighter.inspect(resolved.toFile(), content)
+        } else {
+            highlighter.highlight(resolved.toFile(), content).let { highlighted ->
+                LspDocumentInsight(
+                    languageId = highlighted.languageId,
+                    serverName = highlighted.serverName,
+                    highlights = highlighted.highlights,
+                    message = highlighted.message,
+                )
+            }
+        }
+    }
+
+    private fun resolveProjectFile(relativePath: String): Path {
         val root = projectDir.toPath().toRealPath()
         val resolved = root.resolve(relativePath).normalize().toRealPath()
         require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
-        return highlighter.highlight(resolved.toFile(), content)
+        require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
+        return resolved
     }
 
     private fun walkDir(dir: File, root: Path, depth: Int): FileNode {

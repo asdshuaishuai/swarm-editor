@@ -58,6 +58,15 @@ class FileContentRendererTest {
     }
 
     @Test
+    fun `code intelligence navigation clamps LSP lines to source bounds`() {
+        assertNull(normalizedNavigationIndex(null, 10))
+        assertNull(normalizedNavigationIndex(0, 0))
+        assertEquals(0, normalizedNavigationIndex(-3, 10))
+        assertEquals(4, normalizedNavigationIndex(4, 10))
+        assertEquals(9, normalizedNavigationIndex(42, 10))
+    }
+
+    @Test
     fun `kotlin comment marker inside a string is ignored`() {
         assertNull(findLineCommentStart("val color = \"#31c7ff\"", "kotlin"))
         assertNull(findLineCommentStart("val endpoint = \"https://example.com\"", "kotlin"))

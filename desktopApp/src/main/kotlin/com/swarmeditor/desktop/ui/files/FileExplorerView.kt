@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.woowla.compose.icon.collections.feather.Feather
@@ -34,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +54,8 @@ import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
+import com.swarmeditor.backend.lsp.SourceDiagnostic
+import com.swarmeditor.backend.lsp.SourceSymbol
 
 // ── Stats helpers ──────────────────────────────────────────────────
 
@@ -323,6 +328,7 @@ private fun FilePreview(
     onOpenDiff: (GitFileChangeDto) -> Unit,
     onSaveFile: (String) -> Unit,
 ) {
+    var navigationTarget by remember(preview.path) { mutableStateOf<SourceNavigationTarget?>(null) }
     Column(Modifier.fillMaxSize().padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SemanticIconBadge(
@@ -380,10 +386,131 @@ private fun FilePreview(
             } else if (message != null) {
                 Text(message, color = Tx3, fontSize = 12.sp)
             } else {
-                FileContentRenderer(preview, onSaveFile, Modifier.fillMaxSize())
+                Row(Modifier.fillMaxSize()) {
+                    if (preview.symbols.isNotEmpty() || preview.diagnostics.isNotEmpty()) {
+                        CodeIntelligencePanel(
+                            symbols = preview.symbols,
+                            diagnostics = preview.diagnostics,
+                            onNavigate = { line ->
+                                navigationTarget = SourceNavigationTarget(
+                                    line = line,
+                                    requestId = (navigationTarget?.requestId ?: 0L) + 1L,
+                                )
+                            },
+                            modifier = Modifier.width(220.dp).fillMaxHeight(),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    FileContentRenderer(
+                        preview = preview,
+                        onSave = onSaveFile,
+                        navigationTarget = navigationTarget,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun CodeIntelligencePanel(
+    symbols: List<SourceSymbol>,
+    diagnostics: List<SourceDiagnostic>,
+    onNavigate: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(R8))
+            .background(Bg1)
+            .border(1.dp, Line, RoundedCornerShape(R8)),
+    ) {
+        Text(
+            "代码智能",
+            color = Tx,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+        )
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
+            if (diagnostics.isNotEmpty()) {
+                item("diagnostic-title") {
+                    IntelligenceSectionLabel("诊断 · ${diagnostics.size}")
+                }
+                items(diagnostics) { diagnostic ->
+                    DiagnosticRow(diagnostic, onNavigate)
+                }
+            }
+            if (symbols.isNotEmpty()) {
+                item("symbol-title") {
+                    IntelligenceSectionLabel("符号 · ${symbols.size}")
+                }
+                items(symbols) { symbol ->
+                    SymbolRow(symbol, onNavigate)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntelligenceSectionLabel(label: String) {
+    Text(
+        label.uppercase(),
+        color = Tx3,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 7.dp),
+    )
+}
+
+@Composable
+private fun DiagnosticRow(diagnostic: SourceDiagnostic, onNavigate: (Int) -> Unit) {
+    val color = diagnosticColor(diagnostic.severity)
+    IntelligenceRow(
+        title = diagnostic.message,
+        metadata = "${diagnostic.severity} · L${diagnostic.line + 1}",
+        accent = color,
+        onClick = { onNavigate(diagnostic.line) },
+    )
+}
+
+@Composable
+private fun SymbolRow(symbol: SourceSymbol, onNavigate: (Int) -> Unit) {
+    IntelligenceRow(
+        title = symbol.name,
+        metadata = listOfNotNull(symbol.kind, symbol.containerName, "L${symbol.line + 1}").joinToString(" · "),
+        accent = AgentGemini,
+        onClick = { onNavigate(symbol.line) },
+    )
+}
+
+@Composable
+private fun IntelligenceRow(
+    title: String,
+    metadata: String,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(R6))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 6.dp),
+    ) {
+        Text(title, color = Tx2, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(2.dp))
+        Text(metadata, color = accent, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+internal fun diagnosticColor(severity: String): Color = when (severity.lowercase()) {
+    "error" -> ErrLight
+    "warning" -> WarnLight
+    "information", "info" -> ControlBlue
+    else -> Tx3
 }
 
 @Composable

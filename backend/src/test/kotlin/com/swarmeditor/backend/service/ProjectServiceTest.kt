@@ -1,6 +1,14 @@
 package com.swarmeditor.backend.service
 
+import com.swarmeditor.backend.lsp.LspDocumentInsight
+import com.swarmeditor.backend.lsp.LspHighlightResult
+import com.swarmeditor.backend.lsp.SemanticHighlight
+import com.swarmeditor.backend.lsp.SourceCodeIntelligence
+import com.swarmeditor.backend.lsp.SourceDiagnostic
+import com.swarmeditor.backend.lsp.SourceSymbol
+import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.test.runTest
 import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -10,6 +18,39 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProjectServiceTest {
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `project code inspection returns semantic symbols and diagnostics`() = runTest {
+        val directory = Files.createTempDirectory("project-service-insight")
+        try {
+            directory.resolve("Main.kt").toFile().writeText("class Main")
+            val highlight = SemanticHighlight(0, 0, 5, "class")
+            val symbol = SourceSymbol("Main", "Class", 0)
+            val diagnostic = SourceDiagnostic(0, "warning", "Example warning")
+            val intelligence = object : SourceCodeIntelligence {
+                override suspend fun highlight(file: File, content: String) = LspHighlightResult("kotlin")
+
+                override suspend fun inspect(file: File, content: String) = LspDocumentInsight(
+                    languageId = "kotlin",
+                    serverName = "test-lsp",
+                    highlights = listOf(highlight),
+                    symbols = listOf(symbol),
+                    diagnostics = listOf(diagnostic),
+                )
+            }
+            val service = ProjectService(directory.toFile(), intelligence)
+
+            val insight = service.inspectFile("Main.kt", "class Main")!!
+
+            assertEquals("test-lsp", insight.serverName)
+            assertEquals(listOf(highlight), insight.highlights)
+            assertEquals(listOf(symbol), insight.symbols)
+            assertEquals(listOf(diagnostic), insight.diagnostics)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
     fun `project tree paths remain relative and openable across directory depths`() {

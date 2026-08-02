@@ -27,6 +27,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node.js 22.19
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: pi-0.83.0/package-lock.json
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify published readiness claims
+        run: ./scripts/verify-pages-readiness.sh
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 

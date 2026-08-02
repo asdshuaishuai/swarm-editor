@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -101,10 +102,16 @@ import kotlinx.coroutines.withContext
 
 private enum class FileRenderMode { SOURCE, PREVIEW }
 
+internal data class SourceNavigationTarget(
+    val line: Int,
+    val requestId: Long,
+)
+
 @Composable
 internal fun FileContentRenderer(
     preview: ProjectViewModel.FilePreviewState,
     onSave: (String) -> Unit = {},
+    navigationTarget: SourceNavigationTarget? = null,
     modifier: Modifier = Modifier,
 ) {
     val extension = preview.path.orEmpty().substringAfterLast('.', "").lowercase()
@@ -159,12 +166,13 @@ internal fun FileContentRenderer(
                     onValueChange = { draft = it },
                     onSave = saveDraft,
                     canSave = !preview.isSaving && draft != preview.content,
+                    navigationTarget = navigationTarget,
                 )
-                effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(preview)
+                effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(preview, navigationTarget)
                 extension in setOf("md", "markdown") -> MarkdownPreview(preview.content)
                 extension in setOf("html", "htm") -> HtmlPreview(preview.content)
                 extension == "json" -> JsonPreview(preview.content)
-                else -> SourceCodePane(preview)
+                else -> SourceCodePane(preview, navigationTarget)
             }
         }
     }
@@ -182,6 +190,7 @@ private fun SourceEditorPane(
     onValueChange: (String) -> Unit,
     onSave: () -> Unit,
     canSave: Boolean,
+    navigationTarget: SourceNavigationTarget? = null,
     modifier: Modifier = Modifier,
 ) {
     val latestOnValueChange by rememberUpdatedState(onValueChange)
@@ -208,12 +217,15 @@ private fun SourceEditorPane(
                 editor.text = value
                 editor.caretPosition = caret
                 editor.putClientProperty(SOURCE_EDITOR_UPDATING_PROPERTY, false)
+                editor.putClientProperty(SOURCE_NAVIGATION_REQUEST_PROPERTY, null)
             }
+            revealEditorLine(editor, navigationTarget)
         },
     )
 }
 
 private const val SOURCE_EDITOR_UPDATING_PROPERTY = "swarm.sourceEditorUpdating"
+private const val SOURCE_NAVIGATION_REQUEST_PROPERTY = "swarm.sourceNavigationRequest"
 
 internal fun sourceSyntaxStyle(languageId: String): String = when (languageId.lowercase()) {
     "kotlin", "kt", "kts" -> SyntaxConstants.SYNTAX_STYLE_KOTLIN
@@ -318,12 +330,13 @@ private fun RenderModeTab(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState) {
+private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigationTarget: SourceNavigationTarget?) {
     if (preview.semanticHighlights.isEmpty()) {
         LocalSyntaxSourcePane(
             content = preview.content,
             languageId = preview.languageId,
             truncated = preview.truncated,
+            navigationTarget = navigationTarget,
         )
         return
     }
@@ -331,6 +344,9 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState) {
     val semanticByLine = remember(preview.semanticHighlights) { preview.semanticHighlights.groupBy(SemanticHighlight::line) }
     val horizontalState = rememberScrollState()
     val verticalState = rememberLazyListState()
+    LaunchedEffect(navigationTarget?.requestId, lines.size) {
+        normalizedNavigationIndex(navigationTarget?.line, lines.size)?.let { verticalState.animateScrollToItem(it) }
+    }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -344,7 +360,13 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (index % 2 == 0) Color.Transparent else Bg1.copy(alpha = 0.24f))
+                        .background(
+                            when {
+                                index == normalizedNavigationIndex(navigationTarget?.line, lines.size) -> Ac.copy(alpha = 0.12f)
+                                index % 2 == 0 -> Color.Transparent
+                                else -> Bg1.copy(alpha = 0.24f)
+                            },
+                        )
                         .padding(vertical = 1.dp),
                 ) {
                     Text(
@@ -379,6 +401,7 @@ private fun LocalSyntaxSourcePane(
     content: String,
     languageId: String,
     truncated: Boolean,
+    navigationTarget: SourceNavigationTarget?,
 ) {
     Column(Modifier.fillMaxSize()) {
         SwingPanel(
@@ -397,7 +420,11 @@ private fun LocalSyntaxSourcePane(
                 val editor = scroll.viewport.view as? RSyntaxTextArea ?: return@SwingPanel
                 val style = sourceSyntaxStyle(languageId)
                 if (editor.syntaxEditingStyle != style) editor.syntaxEditingStyle = style
-                if (editor.text != content) editor.text = content
+                if (editor.text != content) {
+                    editor.text = content
+                    editor.putClientProperty(SOURCE_NAVIGATION_REQUEST_PROPERTY, null)
+                }
+                revealEditorLine(editor, navigationTarget)
             },
         )
         if (truncated) {
@@ -409,6 +436,20 @@ private fun LocalSyntaxSourcePane(
             )
         }
     }
+}
+
+internal fun normalizedNavigationIndex(line: Int?, lineCount: Int): Int? {
+    if (line == null || lineCount <= 0) return null
+    return line.coerceIn(0, lineCount - 1)
+}
+
+private fun revealEditorLine(editor: RSyntaxTextArea, navigationTarget: SourceNavigationTarget?) {
+    val target = normalizedNavigationIndex(navigationTarget?.line, editor.lineCount) ?: return
+    if (editor.getClientProperty(SOURCE_NAVIGATION_REQUEST_PROPERTY) == navigationTarget) return
+    val offset = editor.getLineStartOffset(target)
+    editor.caretPosition = offset
+    editor.modelToView2D(offset)?.bounds?.let(editor::scrollRectToVisible)
+    editor.putClientProperty(SOURCE_NAVIGATION_REQUEST_PROPERTY, navigationTarget)
 }
 
 @Composable

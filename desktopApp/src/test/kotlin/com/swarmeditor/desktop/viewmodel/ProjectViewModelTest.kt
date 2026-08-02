@@ -1,8 +1,12 @@
 package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.lsp.LspHighlightResult
+import com.swarmeditor.backend.lsp.LspDocumentInsight
 import com.swarmeditor.backend.lsp.SemanticHighlight
+import com.swarmeditor.backend.lsp.SourceCodeIntelligence
+import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
+import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -315,6 +319,42 @@ class ProjectViewModelTest {
             assertEquals("fake-kotlin-lsp", preview.lspServer)
             assertEquals(listOf(expectedHighlight), preview.semanticHighlights)
             assertEquals("semantic tokens ready", preview.lspMessage)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `LSP symbols and diagnostics reach file preview navigation state`() = runTest {
+        val directory = Files.createTempDirectory("project-preview-insight")
+        try {
+            directory.resolve("Main.kt").writeText("class Main")
+            val symbol = SourceSymbol("Main", "Class", 0)
+            val diagnostic = SourceDiagnostic(0, "warning", "Example warning")
+            val intelligence = object : SourceCodeIntelligence {
+                override suspend fun highlight(file: File, content: String) = LspHighlightResult("kotlin")
+
+                override suspend fun inspect(file: File, content: String) = LspDocumentInsight(
+                    languageId = "kotlin",
+                    serverName = "fake-kotlin-lsp",
+                    symbols = listOf(symbol),
+                    diagnostics = listOf(diagnostic),
+                )
+            }
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(
+                ProjectService(directory.toFile(), intelligence),
+                backgroundScope,
+                dispatcher,
+            )
+
+            runCurrent()
+            viewModel.selectFile("Main.kt")
+            runCurrent()
+
+            val preview = viewModel.filePreview.value
+            assertEquals(listOf(symbol), preview.symbols)
+            assertEquals(listOf(diagnostic), preview.diagnostics)
         } finally {
             directory.deleteRecursively()
         }

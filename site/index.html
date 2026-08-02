@@ -51,7 +51,7 @@
           </div>
           <div class="hero-facts" aria-label="项目技术特征">
             <div><strong>Kotlin</strong><span>Compose Desktop</span></div>
-            <div><strong>Pi 0.80.10</strong><span>Vendored Runtime</span></div>
+            <div><strong>Pi 0.83.0</strong><span>Vendored Runtime</span></div>
             <div><strong>Local-first</strong><span>No HTTP / WS</span></div>
           </div>
         </div>
@@ -85,13 +85,13 @@
               <aside class="evidence-panel">
                 <div class="canvas-heading"><span>Evidence</span><em>live</em></div>
                 <div class="evidence-event complete"><i></i><div><b>Plan decomposed</b><span>graph · 12 ms</span></div></div>
-                <div class="evidence-event complete"><i></i><div><b>Workspace isolated</b><span>bubblewrap · 31 ms</span></div></div>
+                <div class="evidence-event complete"><i></i><div><b>Workspace isolated</b><span>git worktree · 31 ms</span></div></div>
                 <div class="evidence-event running"><i></i><div><b>Patch verification</b><span>4 / 6 checks</span></div></div>
                 <div class="diff-card"><span>Artifact</span><strong>+142 <i>−36</i></strong><small>7 files changed</small></div>
               </aside>
             </div>
           </div>
-          <div class="floating-chip chip-one"><span>⌘</span> LSP connected</div>
+          <div class="floating-chip chip-one"><span>⌘</span> LSP + JVM fallback</div>
           <div class="floating-chip chip-two"><span>✓</span> Git-isolated</div>
         </div>
       </section>
@@ -105,22 +105,22 @@
           <article class="feature-tile tile-wide tile-blue reveal">
             <div class="tile-icon graph-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Dynamic Swarm</p><h3>Agent 按需生成，而非预设堆叠</h3></div>
-            <p>主 Agent 根据任务图、能力与模型配置动态创建角色，使用关键路径与依赖关系安排执行顺序。</p>
+            <p>主 Agent 按任务 DAG 动态实例化子 Agent，从已配置的 Pi Profile 选择模型，并使用关键路径、结构影响力与依赖关系安排执行。</p>
           </article>
           <article class="feature-tile tile-tall tile-violet reveal">
             <div class="code-stack" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Code Intelligence</p><h3>LSP 驱动的源码理解</h3></div>
-            <p>文件树、语法高亮、诊断与导航共享统一代码智能层；Markdown、HTML、JSON 支持源码与预览双渲染。</p>
+            <p>文件树、语义高亮、文档符号、诊断与行级导航共享统一代码智能层；LSP 不可用时回退 JVM 语法高亮，Markdown、HTML、JSON 支持源码与预览双渲染。</p>
           </article>
           <article class="feature-tile tile-rose reveal">
             <div class="artifact-icon" aria-hidden="true"><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Evidence-first</p><h3>结果必须可审查</h3></div>
-            <p>每次执行沉淀日志、检查、Diff、补丁与 Git Artifact，让结论对应真实证据。</p>
+            <p>每次 Swarm 执行沉淀 Agent 工具日志、检查结果、Diff、补丁与 Git Artifact，让结论对应真实证据。</p>
           </article>
           <article class="feature-tile tile-neutral reveal">
             <div class="shield-icon" aria-hidden="true"><span>✓</span></div>
-            <div><p class="tile-kicker">Lightweight Isolation</p><h3>Bubblewrap + WASM</h3></div>
-            <p>原生命令进入轻量 Linux 沙箱；确定性插件运行在哈希固定的 Wasmtime 能力通道。</p>
+            <div><p class="tile-kicker">Lightweight Isolation</p><h3>Git Worktree + Bubblewrap</h3></div>
+            <p>每个 Swarm 任务使用独立 Git worktree；Linux 可启用经过预检和审计的 Bubblewrap 工具隔离，其他环境明确记录原生验证策略。</p>
           </article>
         </div>
       </section>
@@ -143,7 +143,7 @@
           </div>
           <div class="architecture-details">
             <div><span>Process model</span><strong>Local-first</strong><p>UI、状态与服务保持进程内直接调用。</p></div>
-            <div><span>Scheduling</span><strong>Graph-aware</strong><p>关键路径、SCC 与隔离可应用性共同参与调度。</p></div>
+            <div><span>Scheduling</span><strong>Graph-aware</strong><p>关键路径、下游覆盖、桥接中心性与文件所有权冲突共同参与调度。</p></div>
             <div><span>Review</span><strong>Artifact-native</strong><p>侧拉 Diff、Agent 日志与检查结果始终可追踪。</p></div>
           </div>
         </div>
@@ -161,7 +161,7 @@
         <div class="section-heading compact reveal">
           <div><span class="section-index">03</span><p class="eyebrow">Fast feedback loop</p></div>
           <h2>从修改到反馈，<br />只保留必要路径。</h2>
-          <p>快速编译脚本默认跳过昂贵的 Pi 重建，并启用 Gradle daemon、并行执行、构建缓存、文件监听与配置缓存。</p>
+          <p>快速编译脚本默认跳过昂贵的 Pi 重建，并启用 Gradle daemon、并行执行、构建缓存、文件监听与配置缓存；Pages 部署必须先通过完整测试与构建门禁。</p>
         </div>
         <div class="terminal-card reveal">
           <div class="terminal-bar">
@@ -173,7 +173,9 @@
 <span class="comment"># 持续监听 Kotlin 源码变更</span>
 <span class="prompt">$</span> ./scripts/fast-build.sh compile --watch
 <span class="comment"># 准备 Pi runtime 并启动桌面端</span>
-<span class="prompt">$</span> ./scripts/fast-build.sh run</code></pre>
+<span class="prompt">$</span> ./scripts/fast-build.sh run
+<span class="comment"># 验证 Pages 上公开承诺的就绪能力</span>
+<span class="prompt">$</span> ./scripts/verify-pages-readiness.sh</code></pre>
           <div class="terminal-meta"><span><i></i> JDK 21</span><span><i></i> Node.js 22.19+</span><span><i></i> Gradle Wrapper</span></div>
         </div>
       </section>
