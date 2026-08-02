@@ -23,7 +23,15 @@ grep -Fq "Pi $PI_VERSION" site/index.html || {
     exit 1
 }
 
-for forbidden in "Pi 0.80.10" "LSP connected" "Bubblewrap + WASM" "关键路径、SCC"; do
+for forbidden in \
+    "Pi 0.80.10" \
+    "LSP connected" \
+    "Bubblewrap + WASM" \
+    "关键路径、SCC" \
+    "graph · 12 ms" \
+    "git worktree · 31 ms" \
+    "4 / 6 checks" \
+    "+142"; do
     if grep -Fq "$forbidden" site/index.html; then
         echo "Unsupported Pages readiness claim remains: $forbidden" >&2
         exit 1

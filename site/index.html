@@ -70,7 +70,7 @@
                 <i class="rail-icon active"></i><i class="rail-icon"></i><i class="rail-icon"></i><i class="rail-icon"></i>
               </aside>
               <div class="agent-canvas">
-                <div class="canvas-heading"><span>Agent Graph</span><em>5 active</em></div>
+                <div class="canvas-heading"><span>Agent Graph · 流程示意</span><em>dynamic</em></div>
                 <div class="graph" aria-hidden="true">
                   <svg viewBox="0 0 500 330" preserveAspectRatio="none">
                     <path d="M250 88 136 174M250 88l116 84M136 174l-22 90M136 174l104 91M366 172l-126 93M366 172l28 91" />
@@ -83,11 +83,11 @@
                 </div>
               </div>
               <aside class="evidence-panel">
-                <div class="canvas-heading"><span>Evidence</span><em>live</em></div>
-                <div class="evidence-event complete"><i></i><div><b>Plan decomposed</b><span>graph · 12 ms</span></div></div>
-                <div class="evidence-event complete"><i></i><div><b>Workspace isolated</b><span>git worktree · 31 ms</span></div></div>
-                <div class="evidence-event running"><i></i><div><b>Patch verification</b><span>4 / 6 checks</span></div></div>
-                <div class="diff-card"><span>Artifact</span><strong>+142 <i>−36</i></strong><small>7 files changed</small></div>
+                <div class="canvas-heading"><span>Evidence · 流程示意</span><em>auditable</em></div>
+                <div class="evidence-event complete"><i></i><div><b>Plan decomposed</b><span>task DAG persisted</span></div></div>
+                <div class="evidence-event complete"><i></i><div><b>Workspace isolated</b><span>linked git worktree</span></div></div>
+                <div class="evidence-event running"><i></i><div><b>Verification</b><span>evidence recorded</span></div></div>
+                <div class="diff-card"><span>Artifact</span><strong>Patch + Diff</strong><small>reviewable Git evidence</small></div>
               </aside>
             </div>
           </div>
@@ -105,7 +105,7 @@
           <article class="feature-tile tile-wide tile-blue reveal">
             <div class="tile-icon graph-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Dynamic Swarm</p><h3>Agent 按需生成，而非预设堆叠</h3></div>
-            <p>主 Agent 按任务 DAG 动态实例化子 Agent，从已配置的 Pi Profile 选择模型，并使用关键路径、结构影响力与依赖关系安排执行。</p>
+            <p>主 Agent 生成任务 DAG，运行时按需实例化子 Agent；系统从已配置的 Pi Profile 选择模型，并使用关键路径、结构影响力与依赖关系安排执行。</p>
           </article>
           <article class="feature-tile tile-tall tile-violet reveal">
             <div class="code-stack" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -115,7 +115,7 @@
           <article class="feature-tile tile-rose reveal">
             <div class="artifact-icon" aria-hidden="true"><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Evidence-first</p><h3>结果必须可审查</h3></div>
-            <p>每次 Swarm 执行沉淀 Agent 工具日志、检查结果、Diff、补丁与 Git Artifact，让结论对应真实证据。</p>
+            <p>Swarm 任务持久化调度决策、Agent 工具审计、验证结果与工作区差异；产生变更的任务额外交付 Diff、补丁和 Git Artifact。</p>
           </article>
           <article class="feature-tile tile-neutral reveal">
             <div class="shield-icon" aria-hidden="true"><span>✓</span></div>
@@ -144,7 +144,7 @@
           <div class="architecture-details">
             <div><span>Process model</span><strong>Local-first</strong><p>UI、状态与服务保持进程内直接调用。</p></div>
             <div><span>Scheduling</span><strong>Graph-aware</strong><p>关键路径、下游覆盖、桥接中心性与文件所有权冲突共同参与调度。</p></div>
-            <div><span>Review</span><strong>Artifact-native</strong><p>侧拉 Diff、Agent 日志与检查结果始终可追踪。</p></div>
+            <div><span>Review</span><strong>Artifact-native</strong><p>侧拉 Diff、Agent 日志、检查结果与证据记录可以关联追踪。</p></div>
           </div>
         </div>
       </section>
@@ -161,7 +161,7 @@
         <div class="section-heading compact reveal">
           <div><span class="section-index">03</span><p class="eyebrow">Fast feedback loop</p></div>
           <h2>从修改到反馈，<br />只保留必要路径。</h2>
-          <p>快速编译脚本默认跳过昂贵的 Pi 重建，并启用 Gradle daemon、并行执行、构建缓存、文件监听与配置缓存；Pages 部署必须先通过完整测试与构建门禁。</p>
+          <p>默认 compile 路径跳过昂贵的 Pi 重建，并使用 Gradle daemon、并行执行、构建缓存与配置缓存；添加 <code>--watch</code> 后启用文件监听。Pages 部署必须先通过完整测试与构建门禁。</p>
         </div>
         <div class="terminal-card reveal">
           <div class="terminal-bar">
