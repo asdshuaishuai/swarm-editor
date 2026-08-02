@@ -1,7 +1,6 @@
 package com.swarmeditor.desktop.ui.plugins
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -113,9 +112,8 @@ fun PluginCenterView(
         }
     }
 
-    // 设计稿 setPluginSideTab：切换 tab 时强制退出详情页
+    // Tab 与详情选择由父层同步管理；这里只重置当前列表筛选。
     LaunchedEffect(activeTab) {
-        onSelectedItemChange(null)
         selectedCategory = null
     }
     LaunchedEffect(categories) {
@@ -132,7 +130,6 @@ fun PluginCenterView(
             val direction = if (targetState != null) 1 else -1
             ((fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 18 }) togetherWith
                 (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 10 }))
-                .using(SizeTransform(clip = false))
         },
         label = "pluginListDetail",
     ) { item ->

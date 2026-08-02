@@ -134,11 +134,10 @@ fun AgentConfigModal(
                 SectionLabel("智能体策略")
                 Spacer(Modifier.height(8.dp))
                 if (configFields.isEmpty()) {
-                    Text(
-                        "正在加载配置字段",
-                        color = Tx3,
-                        fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    InlineLoadingState(
+                        text = "正在加载配置字段…",
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = 48.dp,
                     )
                 } else {
                     configFields.forEachIndexed { index, field ->

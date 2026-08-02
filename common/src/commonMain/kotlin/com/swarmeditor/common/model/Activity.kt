@@ -19,6 +19,7 @@ enum class ActivityType {
     SESSION,
     MESSAGE,
     TOOL,
+    SKILL,
     MCP,
     FILE,
     COMMAND,

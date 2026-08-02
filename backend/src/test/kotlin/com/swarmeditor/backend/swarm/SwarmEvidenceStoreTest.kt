@@ -2,6 +2,7 @@ package com.swarmeditor.backend.swarm
 
 import com.swarmeditor.common.model.SwarmSandboxPreflightReport
 import com.swarmeditor.common.model.SwarmSandboxProtection
+import com.swarmeditor.common.model.SwarmChangedPath
 import com.swarmeditor.common.model.SwarmVerificationEvidence
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.SwarmVerificationTestSummary
@@ -124,6 +125,10 @@ class SwarmEvidenceStoreTest {
         afterTree = "3".repeat(40),
         nameStatusSha256 = "4".repeat(64),
         changedPathCount = 2,
+        changedPaths = listOf(
+            SwarmChangedPath("M", "src/Main.kt"),
+            SwarmChangedPath("A", "src/New.kt"),
+        ),
         gitVersion = "git version 2.51.0",
         capturePolicyVersion = "git-tree-v1",
         createdAt = Clock.System.now(),

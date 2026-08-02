@@ -1,5 +1,6 @@
 package com.swarmeditor.desktop.ui.plugins
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +27,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow.Companion.Ellipsis
 import androidx.compose.ui.unit.dp
@@ -33,6 +36,8 @@ import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.semanticPluginIconSpec
 
 /** Sealed type for items displayed in the plugin grid. */
 sealed interface PluginItem {
@@ -69,10 +74,7 @@ fun PluginTile(
         is PluginItem.Mcp -> "MCP"
         is PluginItem.Skill -> if ((item.skill.source) == "MCP") "MCP" else "本地"
     }
-    val icon = when (item) {
-        is PluginItem.Mcp -> item.server.icon
-        is PluginItem.Skill -> ""
-    }
+    val iconSpec = semanticPluginIconSpec(name, isSkill = item is PluginItem.Skill)
     val version = when (item) {
         is PluginItem.Mcp -> item.server.version
         is PluginItem.Skill -> ""
@@ -106,6 +108,11 @@ fun PluginTile(
         Motion.colorDefault,
         label = "pluginTileOutline",
     )
+    val iconScale by animateFloatAsState(
+        targetValue = if (hovered) 1.07f else 1f,
+        animationSpec = Motion.floatState,
+        label = "pluginTileIconScale",
+    )
 
     Column(
         modifier = modifier
@@ -119,21 +126,15 @@ fun PluginTile(
     ) {
         // 图标 + 名称 + 标签
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(AppShapes.sm)
-                    .background(Bg0.copy(alpha = 0.6f))
-                    .border(1.dp, Line, AppShapes.sm),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (icon.isNotEmpty()) icon else name.take(1).uppercase(),
-                    color = if (icon.isNotEmpty()) Color.Unspecified else accent,
-                    fontSize = if (icon.isNotEmpty()) 21.sp else 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            SemanticIconBadge(
+                spec = iconSpec.copy(accent = accent),
+                contentDescription = "$name 图标",
+                size = 44.dp,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                },
+            )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

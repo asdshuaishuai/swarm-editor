@@ -1,10 +1,5 @@
 package com.swarmeditor.desktop.ui.common
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -72,6 +67,22 @@ data class Command(
     val icon: String = ""
 )
 
+internal fun commandPaletteLazyIndex(commands: List<Command>, selectedIndex: Int): Int {
+    if (selectedIndex !in commands.indices) return 0
+
+    var lazyIndex = 0
+    var previousGroup: String? = null
+    commands.forEachIndexed { commandIndex, command ->
+        if (command.group != previousGroup) {
+            lazyIndex += 1
+            previousGroup = command.group
+        }
+        if (commandIndex == selectedIndex) return lazyIndex
+        lazyIndex += 1
+    }
+    return 0
+}
+
 @Composable
 fun CommandPalette(
     isVisible: Boolean,
@@ -87,11 +98,7 @@ fun CommandPalette(
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(Motion.alphaEnter),
-            exit = fadeOut(Motion.alphaExit),
-        ) {
+        if (isVisible) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -100,18 +107,6 @@ fun CommandPalette(
                         detectTapGestures(onTap = { onDismiss() })
                     },
             )
-        }
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(Motion.alphaEnter) + scaleIn(
-                initialScale = 0.985f,
-                animationSpec = Motion.floatDefault,
-            ),
-            exit = fadeOut(Motion.alphaExit) + scaleOut(
-                targetScale = 0.985f,
-                animationSpec = Motion.floatSnappy,
-            ),
-        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -267,9 +262,13 @@ private fun CommandPaletteModal(
         val listState = rememberLazyListState()
 
         // Scroll to selected item
-        LaunchedEffect(selectedIndex) {
+        LaunchedEffect(selectedIndex, filteredCommands) {
             if (filteredCommands.isNotEmpty() && selectedIndex in filteredCommands.indices) {
-                listState.animateScrollToItem(selectedIndex)
+                val targetIndex = commandPaletteLazyIndex(filteredCommands, selectedIndex)
+                val visibleRange = listState.layoutInfo.visibleItemsInfo
+                if (visibleRange.none { it.index == targetIndex }) {
+                    listState.scrollToItem(targetIndex)
+                }
             }
         }
 

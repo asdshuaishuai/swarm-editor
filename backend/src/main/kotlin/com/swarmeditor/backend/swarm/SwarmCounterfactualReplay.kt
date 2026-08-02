@@ -74,17 +74,35 @@ object SwarmCounterfactualReplayFactory {
         worktreeRoot: File,
         experienceStore: SwarmExperienceStore,
         evolutionStore: SwarmEvolutionStore,
+        environment: Map<String, String> = System.getenv(),
+        osName: String = System.getProperty("os.name", "unknown"),
     ): SwarmCounterfactualReplayer {
-        val image = System.getenv("SWARM_EVAL_IMAGE")?.trim().orEmpty()
-        if (image.isBlank()) return unavailable("SWARM_EVAL_IMAGE is not configured")
-        val runtime = System.getenv("SWARM_EVAL_RUNTIME")?.trim()?.takeIf(String::isNotBlank)
-            ?: findExecutable("podman")
-            ?: return unavailable("No rootless Podman executable is available")
+        val mode = environment["SWARM_EVAL_SANDBOX"]?.trim()?.lowercase().orEmpty().ifEmpty { "auto" }
+        require(mode in setOf("auto", "bubblewrap", "wasm", "off")) {
+            "Unsupported SWARM_EVAL_SANDBOX value: $mode"
+        }
+        if (mode == "off") return unavailable("SWARM_EVAL_SANDBOX is disabled")
+        if (mode == "wasm") {
+            return unavailable(
+                "WASM evaluation accepts only precompiled capability modules; repository verifier commands require Bubblewrap"
+            )
+        }
+        if (!osName.contains("Linux", ignoreCase = true)) {
+            return unavailable("Bubblewrap counterfactual replay is only available on Linux")
+        }
+        val runtime = resolveExecutable(
+            environment["SWARM_EVAL_BWRAP"]?.trim()?.takeIf(String::isNotBlank) ?: "bwrap",
+            environment["PATH"].orEmpty(),
+        ) ?: return unavailable("No Bubblewrap executable is available")
         return DefaultSwarmCounterfactualReplayer(
             experienceStore = experienceStore,
             evolutionStore = evolutionStore,
             workspaceManager = GitWorktreeEvaluationWorkspaceManager(repositoryRoot, worktreeRoot),
-            verifier = RootlessContainerSwarmVerifier(runtime, image),
+            verifier = BubblewrapSwarmEvaluationVerifier(
+                executable = runtime,
+                environment = environment,
+                osName = osName,
+            ),
         )
     }
 
@@ -92,14 +110,17 @@ object SwarmCounterfactualReplayFactory {
         error("Counterfactual replay is unavailable: $reason")
     }
 
-    private fun findExecutable(vararg names: String): String? {
-        val pathEntries = System.getenv("PATH").orEmpty().split(File.pathSeparatorChar)
-        return names.firstNotNullOfOrNull { name ->
-            pathEntries.asSequence()
-                .map { directory -> File(directory, name) }
-                .firstOrNull { it.isFile && it.canExecute() }
-                ?.absolutePath
+    private fun resolveExecutable(value: String, path: String): File? {
+        val direct = File(value)
+        if (direct.isAbsolute || value.contains(File.separatorChar)) {
+            return direct.takeIf { it.isFile && it.canExecute() }?.canonicalFile
         }
+        return path.split(File.pathSeparatorChar)
+            .asSequence()
+            .filter(String::isNotBlank)
+            .map { directory -> File(directory, value) }
+            .firstOrNull { it.isFile && it.canExecute() }
+            ?.canonicalFile
     }
 }
 

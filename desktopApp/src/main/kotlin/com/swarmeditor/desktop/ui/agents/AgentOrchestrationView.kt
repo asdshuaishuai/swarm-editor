@@ -1,13 +1,11 @@
 package com.swarmeditor.desktop.ui.agents
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -17,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -28,8 +27,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import com.woowla.compose.icon.collections.feather.Feather
-import com.woowla.compose.icon.collections.feather.feather.User
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,14 +46,26 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
+import com.swarmeditor.common.model.SwarmArtifactRejectionReason
+import com.swarmeditor.common.model.SwarmArtifactRejectionResolution
+import com.swarmeditor.common.model.SwarmArtifactRevisionScopeMode
+import com.swarmeditor.common.model.SwarmArtifactSelectionPreview
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
 import com.swarmeditor.common.model.SwarmAgentRole
+import com.swarmeditor.common.model.SwarmSchedulingCandidate
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
 import com.swarmeditor.common.model.SwarmTaskStatus
+import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.semanticAgentIcon
 
 private const val AgentSplitLayoutBreakpoint = 860
 
 internal fun useSplitAgentLayout(widthDp: Int): Boolean = widthDp >= AgentSplitLayoutBreakpoint
+internal fun swarmOverviewHeightDp(hasRuns: Boolean): Int = if (hasRuns) 236 else 172
 
 /**
  * Agent Orchestration View — aligned with mvp-design-mockup.html
@@ -71,6 +80,22 @@ fun AgentOrchestrationView(
     onStartSwarm: (String) -> Unit = {},
     onCancelSwarm: (String) -> Unit = {},
     onRetrySwarm: (String) -> Unit = {},
+    artifactReview: SwarmArtifactIntegrationPreview? = null,
+    artifactSelectionPreview: SwarmArtifactSelectionPreview? = null,
+    artifactActionRunning: Boolean = false,
+    onReviewArtifact: (String, String, String?) -> Unit = { _, _, _ -> },
+    onApplyArtifact: (String, String) -> Unit = { _, _ -> },
+    onRejectArtifact: (
+        String,
+        String,
+        SwarmArtifactRejectionReason,
+        SwarmArtifactRejectionResolution,
+        SwarmArtifactRevisionScopeMode,
+        Set<String>,
+    ) -> Unit = { _, _, _, _, _, _ -> },
+    onPreviewArtifactSelection: (String, String, Set<String>) -> Unit = { _, _, _ -> },
+    onArtifactReviewViewportChanged: (String, String, Set<String>) -> Unit = { _, _, _ -> },
+    onCloseArtifactReview: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onConfigClick: (AgentDto) -> Unit = {},
     modifier: Modifier = Modifier
@@ -78,13 +103,12 @@ fun AgentOrchestrationView(
     var objective by remember { mutableStateOf("") }
     val primaryAgent = agents.firstOrNull()
     val latestTasks = remember(swarmRuns) { swarmRuns.maxByOrNull(SwarmRun::updatedAt)?.tasks.orEmpty() }
+    val overviewHeight = swarmOverviewHeightDp(swarmRuns.isNotEmpty() || latestTasks.isNotEmpty()).dp
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Bg0)
-            .verticalScroll(rememberScrollState())
-    ) {
+    Box(modifier = modifier.fillMaxSize().background(Bg0)) {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -101,7 +125,7 @@ fun AgentOrchestrationView(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Feather.User,
+                    imageVector = semanticAgentIcon("智能体编排", "swarm-orchestrator"),
                     contentDescription = "智能体编排",
                     tint = Ac,
                     modifier = Modifier.size(16.dp)
@@ -155,7 +179,13 @@ fun AgentOrchestrationView(
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (useSplitAgentLayout(maxWidth.value.toInt())) {
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            SwarmCanvasCard(agents, latestTasks, onConfigClick, Modifier.weight(1.15f))
+                            SwarmCanvasCard(
+                                agents = agents,
+                                tasks = latestTasks,
+                                onConfigClick = onConfigClick,
+                                height = overviewHeight,
+                                modifier = Modifier.weight(1.15f),
+                            )
                             SwarmControlPanel(
                                 objective = objective,
                                 onObjectiveChange = { objective = it },
@@ -163,12 +193,17 @@ fun AgentOrchestrationView(
                                 onStart = { onStartSwarm(objective); objective = "" },
                                 onCancel = onCancelSwarm,
                                 onRetry = onRetrySwarm,
-                                modifier = Modifier.weight(0.85f).heightIn(min = 236.dp),
+                                modifier = Modifier.weight(0.85f).heightIn(min = overviewHeight),
                             )
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            SwarmCanvasCard(agents, latestTasks, onConfigClick)
+                            SwarmCanvasCard(
+                                agents = agents,
+                                tasks = latestTasks,
+                                onConfigClick = onConfigClick,
+                                height = overviewHeight,
+                            )
                             SwarmControlPanel(
                                 objective = objective,
                                 onObjectiveChange = { objective = it },
@@ -183,7 +218,7 @@ fun AgentOrchestrationView(
 
                 Spacer(Modifier.height(20.dp))
 
-                SubagentDispatchQueue(swarmRuns)
+                SubagentDispatchQueue(swarmRuns, onReviewArtifact)
 
                 Spacer(Modifier.height(20.dp))
 
@@ -202,6 +237,27 @@ fun AgentOrchestrationView(
 
                 Spacer(Modifier.height(20.dp))
             }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = artifactReview != null,
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { width -> width },
+            exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { width -> width },
+        ) {
+            artifactReview?.let { preview ->
+                SwarmArtifactReviewDrawer(
+                    preview = preview,
+                    selectionPreview = artifactSelectionPreview,
+                    busy = artifactActionRunning,
+                    onApply = onApplyArtifact,
+                    onReject = onRejectArtifact,
+                    onPreviewSelection = onPreviewArtifactSelection,
+                    onVisibleHunksChanged = onArtifactReviewViewportChanged,
+                    onClose = onCloseArtifactReview,
+                )
+            }
         }
     }
 }
@@ -211,12 +267,13 @@ private fun SwarmCanvasCard(
     agents: List<AgentDto>,
     tasks: List<SwarmTask>,
     onConfigClick: (AgentDto) -> Unit,
+    height: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(236.dp)
+            .height(height)
             .clip(RoundedCornerShape(14.dp))
             .background(
                 Brush.radialGradient(
@@ -284,17 +341,11 @@ private fun SwarmControlPanel(
                     Column(Modifier.weight(1f)) {
                         Text(run.title, color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         val completed = run.tasks.count { it.status == SwarmTaskStatus.SUCCEEDED }
-                        AnimatedContent(
-                            targetState = run.status to completed,
-                            transitionSpec = { fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit) },
-                            label = "swarmRunProgress",
-                        ) { (status, finishedTasks) ->
-                            Text(
-                                "${runStatusLabel(status)} · $finishedTasks/${run.tasks.size} 已完成",
-                                color = statusColor(status),
-                                fontSize = 11.sp,
-                            )
-                        }
+                        Text(
+                            "${runStatusLabel(run.status)} · $completed/${run.tasks.size} 已完成",
+                            color = statusColor(run.status),
+                            fontSize = 11.sp,
+                        )
                     }
                     when (run.status) {
                         SwarmRunStatus.RUNNING -> ActionChip(
@@ -317,7 +368,10 @@ private fun SwarmControlPanel(
 }
 
 @Composable
-private fun SubagentDispatchQueue(runs: List<SwarmRun>) {
+private fun SubagentDispatchQueue(
+    runs: List<SwarmRun>,
+    onReviewArtifact: (String, String, String?) -> Unit,
+) {
     val run = remember(runs) { runs.maxByOrNull(SwarmRun::updatedAt) }
     SectionLabel("子智能体调度队列", run?.tasks?.size ?: 0)
     Spacer(Modifier.height(10.dp))
@@ -337,8 +391,9 @@ private fun SubagentDispatchQueue(runs: List<SwarmRun>) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(run.title, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                val schedulingPolicy = run.schedulingDecisions.lastOrNull()?.policyId ?: "等待首轮决策"
                 Text(
-                    "并行上限 ${run.policy.maxParallelism} · ${runStatusLabel(run.status)}",
+                    "并行上限 ${run.policy.maxParallelism} · ${runStatusLabel(run.status)} · $schedulingPolicy",
                     color = Tx3,
                     fontSize = 11.sp,
                 )
@@ -348,14 +403,44 @@ private fun SubagentDispatchQueue(runs: List<SwarmRun>) {
 
         run.tasks.forEach { task ->
             key(task.id) {
-                SubagentTaskItem(task)
+                val schedulingCandidate = run.schedulingDecisions
+                    .asReversed()
+                    .firstNotNullOfOrNull { decision -> decision.candidates.firstOrNull { it.taskId == task.id } }
+                val artifactPlan = run.artifactIntegrationPlans
+                    .asReversed()
+                    .firstOrNull { plan ->
+                        plan.taskId == task.id &&
+                            plan.attempt == task.attempt &&
+                            plan.status in setOf(
+                                SwarmArtifactIntegrationStatus.PREPARED,
+                                SwarmArtifactIntegrationStatus.APPLIED,
+                            )
+                    }
+                SubagentTaskItem(
+                    task = task,
+                    schedulingCandidate = schedulingCandidate,
+                    artifactPlan = artifactPlan,
+                    onReviewArtifact = { onReviewArtifact(run.id, task.id, artifactPlan?.id) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SubagentTaskItem(task: SwarmTask) {
+private fun SubagentTaskItem(
+    task: SwarmTask,
+    schedulingCandidate: SwarmSchedulingCandidate?,
+    artifactPlan: SwarmArtifactIntegrationPlan?,
+    onReviewArtifact: () -> Unit,
+) {
+    val successfulAttempt = task.attemptRecords.lastOrNull { attempt ->
+        attempt.attempt == task.attempt && attempt.outcome == SwarmTaskAttemptOutcome.SUCCEEDED
+    }
+    val reviewAvailable = task.status == SwarmTaskStatus.SUCCEEDED &&
+        successfulAttempt?.verificationStatus == SwarmVerificationStatus.PASSED &&
+        successfulAttempt.workspaceDeltaEvidenceId != null &&
+        successfulAttempt.verificationEvidenceId != null
     val statusColor by animateColorAsState(
         targetValue = taskStatusColor(task.status),
         animationSpec = Motion.colorDefault,
@@ -391,26 +476,118 @@ private fun SubagentTaskItem(task: SwarmTask) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             DispatchMeta("依赖 ${task.dependsOn.size}")
+            if (task.readPaths.isNotEmpty() || task.writePaths.isNotEmpty()) {
+                DispatchMeta("读 ${task.readPaths.size} · 写 ${task.writePaths.size}")
+            }
             DispatchMeta("第 ${task.attempt.coerceAtLeast(1)} 次")
             DispatchMeta("${formatTokenCount(task.tokenUsage.total)} Token")
+            if (successfulAttempt?.verificationStatus == SwarmVerificationStatus.PASSED) {
+                DispatchMeta("机械验证通过")
+            }
+            schedulingCandidate?.estimatedUtility?.let { utility ->
+                DispatchMeta("DP ${String.format(java.util.Locale.ROOT, "%.2f", utility)}")
+            }
+        }
+
+        task.revisionContract?.let { contract ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 17.dp, top = 8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Ac.withAlpha(0.07f))
+                    .border(1.dp, Ac.withAlpha(0.18f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = semanticAgentIcon("修订链路", "revision-contract"),
+                    contentDescription = null,
+                    tint = Ac,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "源任务 ${contract.sourceTaskId} · attempt ${contract.sourceAttempt}",
+                        color = Tx2,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "${revisionReasonLabel(contract.rejectionReason)} · ${revisionScopeLabel(contract.scopeMode)} · " +
+                            "${contract.targetPaths.size} 目标路径 · ${contract.contextHunkIds.size} 依赖上下文",
+                        color = Tx3,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    contract.sourceArtifactRevision.take(8),
+                    color = Ac,
+                    fontSize = 9.sp,
+                    fontFamily = CodeFont,
+                )
+            }
         }
 
         val detail = task.errorMessage ?: task.output.takeIf(String::isNotBlank)?.take(180)
-        AnimatedVisibility(
-            visible = detail != null,
-            enter = fadeIn(Motion.alphaEnter) + expandVertically(Motion.intSizeExpand),
-            exit = fadeOut(Motion.alphaExit) + shrinkVertically(Motion.intSizeCollapse),
-        ) {
+        if (detail != null) {
             Text(
-                text = detail.orEmpty(),
+                text = detail,
                 color = if (task.errorMessage != null) ErrLight else Tx2,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 maxLines = 2,
                 modifier = Modifier.padding(start = 17.dp, top = 8.dp),
             )
+        } else if (schedulingCandidate != null && task.status in setOf(SwarmTaskStatus.PENDING, SwarmTaskStatus.RUNNING)) {
+            Text(
+                text = schedulingCandidate.reason,
+                color = Tx3,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                modifier = Modifier.padding(start = 17.dp, top = 8.dp),
+            )
+        }
+
+        if (reviewAvailable) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 17.dp, top = 9.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                ActionChip(
+                    text = when (artifactPlan?.status) {
+                        SwarmArtifactIntegrationStatus.PREPARED -> "查看审查"
+                        SwarmArtifactIntegrationStatus.APPLIED -> "查看已应用"
+                        else -> "生成审查"
+                    },
+                    tone = if (artifactPlan?.status == SwarmArtifactIntegrationStatus.APPLIED) {
+                        ActionTone.NEUTRAL
+                    } else {
+                        ActionTone.PRIMARY
+                    },
+                    onClick = onReviewArtifact,
+                )
+            }
         }
     }
+}
+
+private fun revisionReasonLabel(reason: SwarmArtifactRejectionReason): String = when (reason) {
+    SwarmArtifactRejectionReason.ROOT_CAUSE_NOT_FIXED -> "未修根因"
+    SwarmArtifactRejectionReason.FUNCTIONAL_INCORRECTNESS -> "功能错误"
+    SwarmArtifactRejectionReason.INCOMPLETE_SCOPE -> "修复不完整"
+    SwarmArtifactRejectionReason.OUT_OF_SCOPE_CHANGE -> "超出范围"
+    SwarmArtifactRejectionReason.BROKEN_DEPENDENCY_OR_API -> "依赖/API 破坏"
+    SwarmArtifactRejectionReason.SECURITY_OR_PRIVACY -> "安全/隐私"
+    SwarmArtifactRejectionReason.PERFORMANCE_REGRESSION -> "性能回退"
+    SwarmArtifactRejectionReason.MAINTAINABILITY -> "可维护性"
+    SwarmArtifactRejectionReason.INSUFFICIENT_VERIFICATION -> "验证不足"
+}
+
+private fun revisionScopeLabel(scopeMode: SwarmArtifactRevisionScopeMode): String = when (scopeMode) {
+    SwarmArtifactRevisionScopeMode.TARGET_PATHS_ONLY -> "仅目标文件"
+    SwarmArtifactRevisionScopeMode.SOURCE_WRITE_SCOPE -> "原任务写域"
 }
 
 @Composable
@@ -435,18 +612,12 @@ private fun StatusPill(text: String, color: Color) {
             .background(animatedColor.withAlpha(0.12f))
             .padding(horizontal = 7.dp, vertical = 3.dp),
     ) {
-        AnimatedContent(
-            targetState = text,
-            transitionSpec = { fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit) },
-            label = "statusPillText",
-        ) { label ->
-            Text(
-                text = label,
-                color = animatedColor,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+        Text(
+            text = text,
+            color = animatedColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -536,19 +707,26 @@ private fun SectionLabel(title: String, count: Int) {
 
 @Composable
 private fun EmptySection(text: String) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(Bg2)
             .border(1.dp, Line, RoundedCornerShape(8.dp))
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            imageVector = semanticAgentIcon("空闲智能体", "agent-empty-state"),
+            contentDescription = null,
+            tint = Tx3,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(9.dp))
         Text(
             text,
             color = Tx3,
-            fontSize = 12.sp
+            fontSize = 12.sp,
         )
     }
 }

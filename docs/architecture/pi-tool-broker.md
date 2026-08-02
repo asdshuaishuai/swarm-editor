@@ -10,7 +10,7 @@ The host process owns credentials, Agent Profiles, MCP authorization, audit reco
 
 Bubblewrap isolates user, mount, PID, IPC, UTS, cgroup, and network namespaces. When a systemd user session is available, the worker also enters a scope with CPU, memory, and task limits. Wasmtime modules are hash-pinned, receive JSON through stdin, return bounded JSON through stdout, inherit no environment, and receive no filesystem preopens. Network access must become a separate host-authorized capability, not a shell escape hatch.
 
-OCI runtimes are intentionally excluded from the interactive Pi tool path. Rootless Podman remains only in the separate offline counterfactual evaluator, where a reproducible full build image is useful and startup latency is not interactive.
+OCI runtimes are excluded from both interactive Pi tools and counterfactual replay. Repository commands use Bubblewrap worktrees; Wasmtime remains limited to precompiled, hash-pinned capability modules.
 
 ## Data Flow
 

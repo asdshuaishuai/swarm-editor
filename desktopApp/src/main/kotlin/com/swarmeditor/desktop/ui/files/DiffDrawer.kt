@@ -1,13 +1,11 @@
 package com.swarmeditor.desktop.ui.files
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
@@ -148,24 +146,14 @@ fun DiffDrawer(
             BoxWithConstraints(Modifier.fillMaxHeight()) {
                 val preferredWidth = minOf(1120.dp, maxWidth * 0.68f)
                 val drawerWidth = minOf(maxWidth, maxOf(560.dp, preferredWidth))
-                AnimatedContent(
-                    targetState = displayedChange,
-                    contentKey = { it?.path ?: "diff-empty" },
-                    transitionSpec = {
-                        fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit)
-                    },
-                    modifier = Modifier.fillMaxHeight(),
-                    label = "diffFileContent",
-                ) { currentChange ->
-                    currentChange?.let {
-                        DiffDrawerContent(
-                            change = it,
-                            onDismiss = onDismiss,
-                            onStage = onStage,
-                            onUnstage = onUnstage,
-                            modifier = Modifier.width(drawerWidth),
-                        )
-                    }
+                displayedChange?.let {
+                    DiffDrawerContent(
+                        change = it,
+                        onDismiss = onDismiss,
+                        onStage = onStage,
+                        onUnstage = onUnstage,
+                        modifier = Modifier.width(drawerWidth),
+                    )
                 }
             }
         }

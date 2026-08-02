@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.swarm
 
 import com.swarmeditor.common.model.SwarmExecutionPolicy
+import com.swarmeditor.common.model.SwarmOwnershipViolation
 import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
 import com.swarmeditor.common.model.SwarmExperienceRoutingStatus
 import com.swarmeditor.common.model.SwarmRun
@@ -112,7 +113,7 @@ class SwarmSchedulerTest {
 
             val running = store.get("run-test")!!
             val firstDecision = running.schedulingDecisions.single()
-            assertEquals("fifo-ready-v1", firstDecision.policyId)
+            assertEquals("critical-path-dp-ownership-v2", firstDecision.policyId)
             assertEquals(2, firstDecision.availableCapacity)
             assertTrue(firstDecision.stateFingerprint.matches(Regex("[0-9a-f]{64}")))
             assertEquals(listOf("first", "second", "deferred"), firstDecision.candidates.map { it.taskId })
@@ -125,6 +126,7 @@ class SwarmSchedulerTest {
                 firstDecision.candidates.map { it.disposition },
             )
             assertTrue(firstDecision.candidates.last().reason.contains("capacity"))
+            assertTrue(firstDecision.candidates.all { it.estimatedUtility != null })
             assertEquals(
                 listOf("schedule-0001", "schedule-0001"),
                 running.tasks.take(2).map { it.attemptRecords.single().schedulingDecisionId },
@@ -139,6 +141,138 @@ class SwarmSchedulerTest {
             assertTrue(completed.tasks.all { task ->
                 task.attemptRecords.single().outcome == SwarmTaskAttemptOutcome.SUCCEEDED
             })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `ownership conflicts are serialized and persisted as scheduling evidence`() = runTest {
+        val directory = Files.createTempDirectory("swarm-scheduler-ownership")
+        try {
+            val store = SwarmStore(directory.toFile()).also { it.load() }
+            val active = AtomicInteger()
+            val maximumActive = AtomicInteger()
+            store.put(
+                run(
+                    policy = SwarmExecutionPolicy(maxParallelism = 2),
+                    tasks = listOf(
+                        task("backend-root").copy(writePaths = listOf("backend/**")),
+                        task("backend-service").copy(writePaths = listOf("backend/src/**")),
+                    ),
+                )
+            )
+            val scheduler = SwarmScheduler(
+                store,
+                SwarmTaskExecutor { _, task ->
+                    val running = active.incrementAndGet()
+                    maximumActive.updateAndGet { current -> maxOf(current, running) }
+                    delay(10)
+                    active.decrementAndGet()
+                    SwarmTaskExecution("done:${task.id}")
+                },
+                backgroundScope,
+            )
+
+            scheduler.start("run-test")
+            scheduler.await("run-test")
+
+            val completed = store.get("run-test")!!
+            assertEquals(1, maximumActive.get())
+            assertEquals(2, completed.schedulingDecisions.size)
+            assertEquals(
+                listOf(
+                    SwarmSchedulingCandidateDisposition.SELECTED,
+                    SwarmSchedulingCandidateDisposition.DEFERRED_OWNERSHIP_CONFLICT,
+                ),
+                completed.schedulingDecisions.first().candidates.map { it.disposition },
+            )
+            assertTrue(completed.schedulingDecisions.first().candidates.last().reason.contains("write/write"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `ownership audit failures persist their root cause and workspace evidence`() = runTest {
+        val directory = Files.createTempDirectory("swarm-scheduler-ownership-audit")
+        try {
+            val store = SwarmStore(directory.toFile()).also { it.load() }
+            val evidenceId = "e".repeat(64)
+            store.put(run(tasks = listOf(task("task"))))
+            val scheduler = SwarmScheduler(
+                store,
+                SwarmTaskExecutor { _, task ->
+                    throw SwarmTaskExecutionException(
+                        cause = SwarmOwnershipViolationException(
+                            task.id,
+                            listOf(
+                                SwarmOwnershipViolation(
+                                    status = "A",
+                                    path = "forbidden.txt",
+                                    reason = "Changed path is outside declared write ownership",
+                                )
+                            ),
+                        ),
+                        tokenUsage = TokenUsage(total = 3),
+                        changedFileCount = 1,
+                        verificationStatus = SwarmVerificationStatus.FAILED,
+                        workspaceDeltaEvidenceId = evidenceId,
+                    )
+                },
+                backgroundScope,
+            )
+
+            scheduler.start("run-test")
+            scheduler.await("run-test")
+
+            val failed = store.get("run-test")!!.tasks.single()
+            assertEquals(SwarmTaskStatus.FAILED, failed.status)
+            assertEquals("SwarmOwnershipViolationException", failed.attemptRecords.single().errorCategory)
+            assertEquals(evidenceId, failed.attemptRecords.single().workspaceDeltaEvidenceId)
+            assertEquals(SwarmVerificationStatus.FAILED, failed.attemptRecords.single().verificationStatus)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `dependency artifact conflicts fail without retrying downstream execution`() = runTest {
+        val directory = Files.createTempDirectory("swarm-scheduler-dependency-conflict")
+        try {
+            val store = SwarmStore(directory.toFile()).also { it.load() }
+            val executions = AtomicInteger()
+            store.put(
+                run(
+                    tasks = listOf(task("integrate")),
+                    policy = SwarmExecutionPolicy(maxTaskAttempts = 3),
+                )
+            )
+            val scheduler = SwarmScheduler(
+                store,
+                SwarmTaskExecutor { _, task ->
+                    executions.incrementAndGet()
+                    throw SwarmDependencyArtifactConflictException(
+                        runId = "run-test",
+                        taskId = task.id,
+                        dependencyTaskIds = listOf("first", "second"),
+                        details = "content conflict",
+                    )
+                },
+                backgroundScope,
+            )
+
+            scheduler.start("run-test")
+            scheduler.await("run-test")
+
+            val failed = store.get("run-test")!!.tasks.single()
+            assertEquals(1, executions.get())
+            assertEquals(1, failed.attempt)
+            assertEquals(SwarmTaskStatus.FAILED, failed.status)
+            assertEquals("SwarmDependencyArtifactConflictException", failed.attemptRecords.single().errorCategory)
         } finally {
             directory.deleteRecursively()
         }

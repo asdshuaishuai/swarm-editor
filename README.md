@@ -15,7 +15,7 @@
 - 运行轨迹会生成确定性的反事实挑战队列，优先验证受控回归、观测伤害、重复失败与尚未验证的收益。
 - 高优先级挑战可进一步固定为同一 Git 快照上的 LOO 评估用例规格，记录来源运行/任务、Agent Profile、控制与处理经验集合、验证命令和缺失溯源阻塞项；在隔离 Pi 工具代理完成前不会伪造 control/treatment 补丁。
 - 经验只有通过匹配环境的对照/处理评估后才能生成禁用的候选 Pi Skill；候选不会自动同步或激活。
-- 设置 `SWARM_EVAL_IMAGE` 后，可在 rootless Podman 的禁网容器中对同一 Git commit 的 control/treatment 补丁执行反事实验证。
+- Linux 上会自动探测 Bubblewrap，在禁网、只读根文件系统的轻量沙箱中对同一 Git commit 的 control/treatment 补丁执行反事实验证。
 - Agent Profile 只描述 provider、model、thinking、工作目录、环境变量和系统提示词。
 - pi 配置、Skills 和会话隔离在 `~/.swarm-editor/`。
 
@@ -45,16 +45,32 @@
 
 桌面安装包任务：`:desktopApp:packageDmg`、`:desktopApp:packageMsi`、`:desktopApp:packageDeb`。
 
-## Isolated Evaluation Image
+### Fast Local Loop
 
-使用 rootless Podman 构建本地、内容寻址的评估镜像：
+`scripts/fast-build.sh` 默认只编译桌面端 Kotlin，复用 Gradle daemon、并行执行、构建缓存、文件监听与配置缓存，不会无条件重建 vendored pi：
 
 ```bash
-./infra/evaluation/build-image.sh
-export SWARM_EVAL_IMAGE=sha256:<image-id> # 使用脚本输出值
+./scripts/fast-build.sh                  # 快速编译
+./scripts/fast-build.sh compile --watch  # 持续监听源码变化
+./scripts/fast-build.sh run              # 增量准备 pi runtime 并启动
+./scripts/fast-build.sh verify           # 运行测试与完整构建
+./scripts/fast-build.sh pi               # 仅准备 pi runtime
 ```
 
-构建脚本解析并固定基础镜像 digest，锁定 JDK 21 与 Node.js 22.19.0，预热 Gradle/npm 离线依赖，并写入被忽略的 `infra/evaluation/image-manifest.local.json`。只有 `sourceDirty=false` 的清单才适合用于正式晋升证据；运行时仍使用 `--pull=never`、禁网、只读根文件系统与临时缓存。
+### Project Website
+
+GitHub Pages 静态站位于 `site/`。本地预览使用 `python3 -m http.server 4173 --directory site`，然后访问 `http://127.0.0.1:4173`。`.github/workflows/pages.yml` 会在 `main`、`master` 或 `old_ui` 分支的站点文件变更后部署；首次使用时需要在 GitHub 仓库的 **Settings → Pages** 中将 Source 设为 **GitHub Actions**。
+
+## Isolated Counterfactual Evaluation
+
+Linux 上的反事实评估直接使用 Bubblewrap，不需要镜像或容器守护进程：
+
+```bash
+export SWARM_EVAL_SANDBOX=bubblewrap
+# 可选：export SWARM_EVAL_BWRAP=/usr/bin/bwrap
+```
+
+评估沙箱取消网络与全部可分离 namespace，共享系统根目录只读，仅将单个评估 worktree 以原路径挂载为可写，并使用临时 HOME。环境变量按 `PATH`、`JAVA_HOME` 和 locale 白名单重建，不会继承模型密钥。`SWARM_EVAL_SANDBOX=wasm` 不接受任意 Gradle/npm/Git 命令；WASM 只承载预编译、哈希固定的能力模块。
 
 未提交文件通过临时 Git index 捕获为确定性的 `commit-tree` 快照，既不修改用户暂存区，也不依赖 HTTP/WS。快照以 `refs/swarm-editor/evaluation-snapshots/<commit>` 固定，随后可直接作为 control/treatment 的共同 `repositoryRevision`。
 
@@ -73,4 +89,4 @@ Bubblewrap 运行时关闭网络、隐藏用户主目录，只读挂载系统运
 
 检测到可用的 systemd user session 时，Bubblewrap worker 会自动进入轻量 scope，并限制为 2GB 内存、256 个进程和 200% CPU。可通过 `SWARM_BWRAP_SYSTEMD_SCOPE=required` 强制要求资源 scope，或设为 `off` 禁用自动接入。
 
-WASM 通道使用固定版本的 Wasmtime CLI，通过模块哈希校验、执行时限、输入输出上限以及无继承环境、无文件系统预打开的 JSON stdin/stdout 协议承载解析器、格式化器、静态分析及其他确定性插件。它不会代替 Gradle、npm、Git 或其他原生命令；这些操作继续由 Bubblewrap 通道处理。OCI/Podman 不进入交互式 Pi 工具链，仅保留给需要完整可复现镜像的离线反事实评估。
+WASM 通道使用固定版本的 Wasmtime CLI，通过模块哈希校验、执行时限、输入输出上限以及无继承环境、无文件系统预打开的 JSON stdin/stdout 协议承载解析器、格式化器、静态分析及其他确定性插件。它不会代替 Gradle、npm、Git 或其他原生命令；这些操作继续由 Bubblewrap 通道处理。OCI/Podman 不属于当前执行或评估架构。

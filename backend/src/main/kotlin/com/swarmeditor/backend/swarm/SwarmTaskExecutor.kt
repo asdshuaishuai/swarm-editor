@@ -10,6 +10,7 @@ import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -40,10 +41,10 @@ class SwarmTaskExecutionException(
     val experienceIds: List<String> = emptyList(),
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
     val resolvedAgentId: String? = null,
-    val changedFileCount: Int? = null,
-    val verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
-    val workspaceDeltaEvidenceId: String? = null,
-    val verificationEvidenceId: String? = null,
+    var changedFileCount: Int? = null,
+    var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
+    var workspaceDeltaEvidenceId: String? = null,
+    var verificationEvidenceId: String? = null,
     var toolBrokerSessionIds: List<String> = emptyList(),
     var toolAuditIds: List<String> = emptyList(),
 ) : RuntimeException(cause.message ?: "Swarm task failed", cause)
@@ -54,13 +55,35 @@ class SwarmTaskTimedOutException(
     val experienceIds: List<String> = emptyList(),
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
     val resolvedAgentId: String? = null,
-    val changedFileCount: Int? = null,
-    val verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
-    val workspaceDeltaEvidenceId: String? = null,
-    val verificationEvidenceId: String? = null,
+    var changedFileCount: Int? = null,
+    var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
+    var workspaceDeltaEvidenceId: String? = null,
+    var verificationEvidenceId: String? = null,
     var toolBrokerSessionIds: List<String> = emptyList(),
     var toolAuditIds: List<String> = emptyList(),
 ) : RuntimeException(cause.message ?: "Swarm task timed out", cause)
+
+class SwarmOwnershipViolationException(
+    val taskId: String,
+    val violations: List<com.swarmeditor.common.model.SwarmOwnershipViolation>,
+) : IllegalStateException(
+    "Task $taskId changed paths outside declared write ownership: " +
+        violations.joinToString { "${it.status} ${it.path}" },
+)
+
+class SwarmTaskVerificationFailedException(
+    val taskId: String,
+    val evidenceId: String,
+    val exitCode: Int?,
+    val timedOut: Boolean,
+    output: String,
+) : IllegalStateException(
+    buildString {
+        append("Task $taskId failed runtime verification")
+        if (timedOut) append(" after timing out") else exitCode?.let { append(" with exit code $it") }
+        output.lineSequence().lastOrNull(String::isNotBlank)?.let { append(": ${it.take(512)}") }
+    }
+)
 
 fun interface SwarmTaskExecutor {
     suspend fun execute(run: SwarmRun, task: SwarmTask): SwarmTaskExecution
@@ -75,15 +98,159 @@ class PiSwarmTaskExecutor(
     private val experienceProvider: suspend (SwarmRun, SwarmTask) -> SwarmTaskExperienceContext = { _, _ ->
         SwarmTaskExperienceContext()
     },
+    private val workspaceManager: SwarmTaskWorkspaceManager? = null,
+    private val workspaceDeltaCapturer: SwarmWorkspaceDeltaCapturer? = null,
+    private val baseRevisionResolver: SwarmTaskBaseRevisionResolver = SwarmTaskBaseRevisionResolver { run, _ ->
+        requireNotNull(run.repositoryBaseline) { "Swarm run has no repository baseline" }.revision
+    },
+    private val taskVerifier: SwarmTaskVerifier? = null,
     private val agentResolver: SwarmAgentResolver,
 ) : SwarmTaskExecutor {
+    init {
+        require((workspaceManager == null) == (workspaceDeltaCapturer == null)) {
+            "Swarm task workspace manager and delta capturer must be configured together"
+        }
+    }
+
     override suspend fun execute(run: SwarmRun, task: SwarmTask): SwarmTaskExecution {
+        val manager = workspaceManager ?: return executeSession(run, task, workingDirectory = null)
+        val capturer = checkNotNull(workspaceDeltaCapturer)
+        val baseRevision = baseRevisionResolver.resolve(run, task)
+        return manager.withWorkspace(
+            runId = run.id,
+            taskId = task.id,
+            attempt = task.attempt,
+            baseRevision = baseRevision,
+        ) { workspace ->
+            executeInWorkspace(run, task, workspace, capturer)
+        }
+    }
+
+    private suspend fun executeInWorkspace(
+        run: SwarmRun,
+        task: SwarmTask,
+        workspace: SwarmTaskWorkspace,
+        capturer: SwarmWorkspaceDeltaCapturer,
+    ): SwarmTaskExecution {
+        var execution: SwarmTaskExecution? = null
+        var sessionFailure: Throwable? = null
+        try {
+            execution = executeSession(run, task, workspace.directory)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            sessionFailure = error
+        }
+        val captured = try {
+            capturer.capture(workspace, task)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (captureError: Throwable) {
+            val failure = sessionFailure
+            if (failure != null) {
+                failure.addSuppressed(captureError)
+                throw failure
+            }
+            throw captureError
+        }
+        sessionFailure?.attachWorkspaceEvidence(captured)
+        if (captured.evidence.ownershipCompliant == false) {
+            val metadata = executionMetadata(execution, sessionFailure)
+            throw SwarmTaskExecutionException(
+                cause = SwarmOwnershipViolationException(task.id, captured.evidence.ownershipViolations),
+                tokenUsage = metadata.tokenUsage,
+                experienceIds = metadata.experienceIds,
+                experienceRoutingDecisions = metadata.experienceRoutingDecisions,
+                resolvedAgentId = metadata.resolvedAgentId,
+                changedFileCount = captured.evidence.changedPathCount,
+                verificationStatus = SwarmVerificationStatus.FAILED,
+                workspaceDeltaEvidenceId = captured.id,
+                verificationEvidenceId = metadata.verificationEvidenceId,
+                toolBrokerSessionIds = metadata.toolBrokerSessionIds,
+                toolAuditIds = metadata.toolAuditIds,
+            ).also { violation -> sessionFailure?.let(violation::addSuppressed) }
+        }
+        sessionFailure?.let { throw it }
+        val completedExecution = checkNotNull(execution)
+        if (task.verificationCommands.isEmpty()) {
+            return completedExecution.copy(
+                changedFileCount = captured.evidence.changedPathCount,
+                workspaceDeltaEvidenceId = captured.id,
+            )
+        }
+        val verifier = checkNotNull(taskVerifier) {
+            "Task ${task.id} declares verification commands but no task verifier is configured"
+        }
+        val verification = try {
+            verifier.verify(
+                SwarmTaskVerificationRequest(
+                    runId = run.id,
+                    task = task,
+                    workspace = workspace,
+                    workspaceDeltaEvidenceId = captured.id,
+                    beforeTree = captured.evidence.beforeTree,
+                    afterTree = captured.evidence.afterTree,
+                    toolAuditIds = completedExecution.toolAuditIds,
+                )
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw SwarmTaskExecutionException(
+                cause = error,
+                tokenUsage = completedExecution.tokenUsage,
+                experienceIds = completedExecution.experienceIds,
+                experienceRoutingDecisions = completedExecution.experienceRoutingDecisions,
+                resolvedAgentId = completedExecution.resolvedAgentId,
+                changedFileCount = captured.evidence.changedPathCount,
+                verificationStatus = SwarmVerificationStatus.FAILED,
+                workspaceDeltaEvidenceId = captured.id,
+                toolBrokerSessionIds = completedExecution.toolBrokerSessionIds,
+                toolAuditIds = completedExecution.toolAuditIds,
+            )
+        }
+        if (verification.status != SwarmVerificationStatus.PASSED) {
+            throw SwarmTaskExecutionException(
+                cause = SwarmTaskVerificationFailedException(
+                    taskId = task.id,
+                    evidenceId = verification.evidenceId,
+                    exitCode = verification.exitCode,
+                    timedOut = verification.timedOut,
+                    output = verification.output,
+                ),
+                tokenUsage = completedExecution.tokenUsage,
+                experienceIds = completedExecution.experienceIds,
+                experienceRoutingDecisions = completedExecution.experienceRoutingDecisions,
+                resolvedAgentId = completedExecution.resolvedAgentId,
+                changedFileCount = captured.evidence.changedPathCount,
+                verificationStatus = SwarmVerificationStatus.FAILED,
+                workspaceDeltaEvidenceId = captured.id,
+                verificationEvidenceId = verification.evidenceId,
+                toolBrokerSessionIds = completedExecution.toolBrokerSessionIds,
+                toolAuditIds = completedExecution.toolAuditIds,
+            )
+        }
+        return completedExecution.copy(
+            changedFileCount = captured.evidence.changedPathCount,
+            verificationStatus = SwarmVerificationStatus.PASSED,
+            workspaceDeltaEvidenceId = captured.id,
+            verificationEvidenceId = verification.evidenceId,
+        )
+    }
+
+    private suspend fun executeSession(
+        run: SwarmRun,
+        task: SwarmTask,
+        workingDirectory: File?,
+    ): SwarmTaskExecution {
         val baseConfig = agentResolver.resolve(task)
         val experienceContext = experienceProvider(run, task)
         val experiences = experienceContext.experiences
         val experienceIds = experiences.map(SwarmExperience::id).distinct()
         val routingDecisions = experienceContext.routingDecisions.map { it.copy(attempt = task.attempt) }
-        val config = buildSwarmTaskAgentConfig(baseConfig, task.role, run.policy.taskTimeoutSeconds)
+        val config = buildSwarmTaskAgentConfig(baseConfig, task.role, run.policy.taskTimeoutSeconds).let { configured ->
+            workingDirectory?.let { configured.copy(workingDirectory = it.canonicalPath) } ?: configured
+        }
         val sessionId = "swarm:${run.id}:${task.id}"
         val session = sessions.getOrCreateValidated(
             sessionId = sessionId,
@@ -202,6 +369,19 @@ class PiSwarmTaskExecutor(
         appendLine("Your task: ${task.title}")
         appendLine()
         appendLine(task.prompt)
+        if (task.readPaths.isNotEmpty() || task.writePaths.isNotEmpty()) {
+            appendLine()
+            appendLine("Repository ownership contract:")
+            appendLine("- Read paths: ${task.readPaths.ifEmpty { listOf("<none>") }.joinToString()}")
+            appendLine("- Write paths: ${task.writePaths.ifEmpty { listOf("<read-only>") }.joinToString()}")
+            appendLine("Do not modify files outside the declared write paths; the resulting Git delta is audited.")
+        }
+        if (task.verificationCommands.isNotEmpty()) {
+            appendLine()
+            appendLine("Runtime verification commands:")
+            task.verificationCommands.forEach { command -> appendLine("- ${command.joinToString(" ")}") }
+            appendLine("These commands run mechanically after your work; do not claim success without satisfying them.")
+        }
         if (experiences.isNotEmpty()) {
             appendLine()
             appendLine("Relevant project experience:")
@@ -234,6 +414,62 @@ class PiSwarmTaskExecutor(
         }
         appendLine()
         appendLine("Return a concrete result for this task. Do not delegate further.")
+    }
+}
+
+private data class SwarmExecutionMetadata(
+    val tokenUsage: TokenUsage,
+    val experienceIds: List<String>,
+    val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision>,
+    val resolvedAgentId: String?,
+    val toolBrokerSessionIds: List<String>,
+    val toolAuditIds: List<String>,
+    val verificationEvidenceId: String?,
+)
+
+private fun executionMetadata(
+    execution: SwarmTaskExecution?,
+    failure: Throwable?,
+): SwarmExecutionMetadata = when (failure) {
+    is SwarmTaskExecutionException -> SwarmExecutionMetadata(
+        tokenUsage = failure.tokenUsage,
+        experienceIds = failure.experienceIds,
+        experienceRoutingDecisions = failure.experienceRoutingDecisions,
+        resolvedAgentId = failure.resolvedAgentId,
+        toolBrokerSessionIds = failure.toolBrokerSessionIds,
+        toolAuditIds = failure.toolAuditIds,
+        verificationEvidenceId = failure.verificationEvidenceId,
+    )
+    is SwarmTaskTimedOutException -> SwarmExecutionMetadata(
+        tokenUsage = failure.tokenUsage,
+        experienceIds = failure.experienceIds,
+        experienceRoutingDecisions = failure.experienceRoutingDecisions,
+        resolvedAgentId = failure.resolvedAgentId,
+        toolBrokerSessionIds = failure.toolBrokerSessionIds,
+        toolAuditIds = failure.toolAuditIds,
+        verificationEvidenceId = failure.verificationEvidenceId,
+    )
+    else -> SwarmExecutionMetadata(
+        tokenUsage = execution?.tokenUsage ?: TokenUsage(),
+        experienceIds = execution?.experienceIds.orEmpty(),
+        experienceRoutingDecisions = execution?.experienceRoutingDecisions.orEmpty(),
+        resolvedAgentId = execution?.resolvedAgentId,
+        toolBrokerSessionIds = execution?.toolBrokerSessionIds.orEmpty(),
+        toolAuditIds = execution?.toolAuditIds.orEmpty(),
+        verificationEvidenceId = execution?.verificationEvidenceId,
+    )
+}
+
+private fun Throwable.attachWorkspaceEvidence(captured: StoredSwarmWorkspaceDelta) {
+    when (this) {
+        is SwarmTaskExecutionException -> {
+            changedFileCount = captured.evidence.changedPathCount
+            workspaceDeltaEvidenceId = captured.id
+        }
+        is SwarmTaskTimedOutException -> {
+            changedFileCount = captured.evidence.changedPathCount
+            workspaceDeltaEvidenceId = captured.id
+        }
     }
 }
 

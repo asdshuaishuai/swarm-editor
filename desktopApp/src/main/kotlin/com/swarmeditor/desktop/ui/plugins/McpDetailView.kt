@@ -1,22 +1,14 @@
 package com.swarmeditor.desktop.ui.plugins
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import com.swarmeditor.desktop.AgentInfo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -35,6 +27,7 @@ import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -161,20 +154,45 @@ fun McpDetailView(
         ) {
             if (confirmDelete) {
                 Text("确认删除 ${server.name}？", color = ErrLight, fontSize = 11.sp, fontFamily = SansFont)
-                ActionButton(text = "取消", color = Tx2, onClick = { confirmDelete = false })
+                ActionButton(
+                    text = "取消",
+                    tone = ActionTone.NEUTRAL,
+                    prominent = false,
+                    compact = true,
+                    onClick = { confirmDelete = false },
+                )
                 ActionButton(
                     text = "确认卸载",
-                    color = Err,
+                    tone = ActionTone.DESTRUCTIVE,
+                    compact = true,
                     onClick = {
                         onDelete(server.id)
                         onBack()
                     }
                 )
             } else {
-                ActionButton(text = "⎘ 复制配置", color = Tx2, onClick = { onCopy(server) })
-                ActionButton(text = "⚙ 配置", color = Tx2, onClick = { onConfigure(server.id) })
+                ActionButton(
+                    text = "复制配置",
+                    tone = ActionTone.NEUTRAL,
+                    prominent = false,
+                    compact = true,
+                    onClick = { onCopy(server) },
+                )
+                ActionButton(
+                    text = "配置",
+                    tone = ActionTone.SECONDARY,
+                    prominent = false,
+                    compact = true,
+                    onClick = { onConfigure(server.id) },
+                )
                 Spacer(Modifier.weight(1f))
-                ActionButton(text = "卸载", color = Err, onClick = { confirmDelete = true })
+                ActionButton(
+                    text = "卸载",
+                    tone = ActionTone.DESTRUCTIVE,
+                    prominent = false,
+                    compact = true,
+                    onClick = { confirmDelete = true },
+                )
             }
         }
         }  // 关闭 pd-header（渐变容器包住 返回 + hero + actions）
@@ -191,78 +209,68 @@ fun McpDetailView(
 
         Spacer(Modifier.height(6.dp))
 
-        // pd-body（设计稿 grid 1fr:280px, gap 28px, padding 24px 32px 40px）
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                .fillMaxWidth(),
         ) {
-            // pd-main
-            AnimatedContent(
-                targetState = selectedTab.intValue,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                transitionSpec = {
-                    val direction = if (targetState >= initialState) 1 else -1
-                    (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
-                        (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
-                },
-                label = "mcpDetailContent",
-            ) { tabIndex ->
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    when (tabIndex) {
-                        0 -> McpDetailsTab(server)
-                        1 -> McpToolsTab(server)
-                        2 -> McpConfigTab(server, agents)
-                        3 -> McpChangelogTab(server)
+            val layout = pluginDetailLayout(maxWidth.value.toInt())
+            key(selectedTab.intValue, layout.stacked) {
+                if (layout.stacked) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(
+                                horizontal = layout.horizontalPadding.dp,
+                                vertical = layout.verticalPadding.dp,
+                            ),
+                    ) {
+                        McpTabContent(selectedTab.intValue, server, agents)
+                        Spacer(Modifier.height(layout.gap.dp))
+                        McpSidePanel(server, Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                horizontal = layout.horizontalPadding.dp,
+                                vertical = layout.verticalPadding.dp,
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(layout.gap.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            McpTabContent(selectedTab.intValue, server, agents)
+                        }
+                        McpSidePanel(
+                            server = server,
+                            modifier = Modifier
+                                .width(layout.sidePanelWidth.dp)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                        )
                     }
                 }
             }
-
-            // Side info panel（设计稿 pd-side，全 tab 常驻）
-            McpSidePanel(server)
         }
     }
 
 }
 
 @Composable
-private fun ActionButton(text: String, color: androidx.compose.ui.graphics.Color, primary: Boolean = false, onClick: () -> Unit = {}) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val outlineColor by animateColorAsState(
-        targetValue = color.withAlpha(if (hovered) 0.55f else if (primary) 0f else 0.3f),
-        animationSpec = Motion.colorDefault,
-        label = "actionButtonOutline"
-    )
-    val surfaceColor by animateColorAsState(
-        targetValue = color.withAlpha(if (hovered) 0.1f else 0.06f),
-        animationSpec = Motion.colorDefault,
-        label = "actionButtonSurface"
-    )
-    val textColor = if (primary) OnAccent else color
-    val bgMod = if (primary) {
-        Modifier.background(Brush.linearGradient(listOf(Ac, Ac2)))
-    } else {
-        Modifier.background(surfaceColor)
+private fun McpTabContent(tabIndex: Int, server: McpServerDto, agents: List<AgentInfo>) {
+    when (tabIndex) {
+        0 -> McpDetailsTab(server)
+        1 -> McpToolsTab(server)
+        2 -> McpConfigTab(server, agents)
+        3 -> McpChangelogTab(server)
     }
-    Text(
-        text = text,
-        color = textColor,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Medium,
-        fontFamily = SansFont,
-        modifier = Modifier
-            .clip(AppShapes.xs)
-            .then(bgMod)
-            .border(1.dp, outlineColor, AppShapes.xs)
-            .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-    )
 }
 
 @Composable
@@ -564,13 +572,11 @@ private fun McpChangelogTab(server: McpServerDto) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun McpSidePanel(server: McpServerDto) {
+private fun McpSidePanel(server: McpServerDto, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
-            .width(280.dp)
-            .fillMaxHeight()
-            .verticalScroll(rememberScrollState())
+        modifier = modifier
             .clip(RoundedCornerShape(R8))
             .background(Bg3)
             .border(1.dp, Line, RoundedCornerShape(R8))
@@ -585,7 +591,10 @@ private fun McpSidePanel(server: McpServerDto) {
             Spacer(Modifier.height(6.dp))
             Text("分类", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 server.categories.forEach { cat ->
                     StatusChip(text = cat, color = AgentClaude)
                 }

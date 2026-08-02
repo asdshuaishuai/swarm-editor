@@ -17,8 +17,21 @@ enum class SwarmSandboxProtection {
 }
 
 @Serializable
+data class SwarmChangedPath(
+    val status: String,
+    val path: String,
+)
+
+@Serializable
+data class SwarmOwnershipViolation(
+    val status: String,
+    val path: String,
+    val reason: String,
+)
+
+@Serializable
 data class SwarmWorkspaceDeltaEvidence(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val runId: String,
     val taskId: String,
     val attempt: Int,
@@ -28,6 +41,11 @@ data class SwarmWorkspaceDeltaEvidence(
     val afterTree: String,
     val nameStatusSha256: String,
     val changedPathCount: Int,
+    val changedPaths: List<SwarmChangedPath> = emptyList(),
+    val declaredWritePaths: List<String> = emptyList(),
+    val ownershipCompliant: Boolean? = null,
+    val ownershipViolations: List<SwarmOwnershipViolation> = emptyList(),
+    val ownershipPolicyVersion: String? = null,
     val gitVersion: String,
     val capturePolicyVersion: String,
     val createdAt: Instant,

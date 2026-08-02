@@ -1,18 +1,13 @@
 package com.swarmeditor.desktop.ui.plugins
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -27,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -125,8 +121,13 @@ fun SkillDetailView(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                Text("✎ 编辑 SKILL.md", color = Tx2, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = SansFont,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Line2, RoundedCornerShape(6.dp)).clickable { onEdit(skill) }.padding(horizontal = 14.dp, vertical = 6.dp))
+                ActionButton(
+                    text = "编辑 SKILL.md",
+                    tone = ActionTone.SECONDARY,
+                    prominent = false,
+                    compact = true,
+                    onClick = { onEdit(skill) },
+                )
                 }
             }
         }  // 关闭 pd-header
@@ -143,37 +144,66 @@ fun SkillDetailView(
 
         Spacer(Modifier.height(6.dp))
 
-        // pd-body（设计稿 grid 1fr:280px, gap 28）
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                .fillMaxWidth(),
         ) {
-            // pd-main
-            AnimatedContent(
-                targetState = selectedTab.intValue,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                transitionSpec = {
-                    val direction = if (targetState >= initialState) 1 else -1
-                    (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 10 }) togetherWith
-                        (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 6 })
-                },
-                label = "skillDetailContent",
-            ) { tabIndex ->
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    when (tabIndex) {
-                        0 -> SkillOverviewTab(skill)
-                        1 -> SkillStructureTab(skill)
-                        2 -> SkillAgentsTab(skill)
-                        3 -> SkillUsageTab(skill)
+            val layout = pluginDetailLayout(maxWidth.value.toInt())
+            key(selectedTab.intValue, layout.stacked) {
+                if (layout.stacked) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(
+                                horizontal = layout.horizontalPadding.dp,
+                                vertical = layout.verticalPadding.dp,
+                            ),
+                    ) {
+                        SkillTabContent(selectedTab.intValue, skill)
+                        Spacer(Modifier.height(layout.gap.dp))
+                        SkillSidePanel(skill, Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                horizontal = layout.horizontalPadding.dp,
+                                vertical = layout.verticalPadding.dp,
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(layout.gap.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            SkillTabContent(selectedTab.intValue, skill)
+                        }
+                        SkillSidePanel(
+                            skill = skill,
+                            modifier = Modifier
+                                .width(layout.sidePanelWidth.dp)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                        )
                     }
                 }
             }
-            // pd-side（设计稿三面板：技能信息 / 标签 / 关联 Agent）
-            SkillSidePanel(skill)
         }
+    }
+}
+
+@Composable
+private fun SkillTabContent(tabIndex: Int, skill: SkillDto) {
+    when (tabIndex) {
+        0 -> SkillOverviewTab(skill)
+        1 -> SkillStructureTab(skill)
+        2 -> SkillAgentsTab(skill)
+        3 -> SkillUsageTab(skill)
     }
 }
 
@@ -421,13 +451,11 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SkillSidePanel(skill: SkillDto) {
+private fun SkillSidePanel(skill: SkillDto, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
-            .width(280.dp)
-            .fillMaxHeight()
-            .verticalScroll(rememberScrollState())
+        modifier = modifier
             .clip(RoundedCornerShape(R8))
             .background(Bg3)
             .border(1.dp, Line, RoundedCornerShape(R8))
@@ -441,7 +469,10 @@ private fun SkillSidePanel(skill: SkillDto) {
             Spacer(Modifier.height(10.dp))
             Text("标签", color = Tx3, fontSize = 10.sp, fontFamily = SansFont, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 skill.tags.forEach { StatusChip(text = it, color = AgentClaude) }
             }
         }

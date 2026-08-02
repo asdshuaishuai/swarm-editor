@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +42,8 @@ import com.swarmeditor.common.model.Session
 import com.swarmeditor.desktop.PRIMARY_AGENT_ID
 import com.swarmeditor.desktop.agentDisplayName
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.semanticAgentIcon
+import com.swarmeditor.desktop.ui.session.isAgentOperationActivity
 
 @Composable
 fun ActivityLogView(
@@ -49,18 +54,23 @@ fun ActivityLogView(
     var selectedSession by remember { mutableStateOf<ArchiveSessionItem?>(null) }
     var filter by remember { mutableStateOf("全部") }
 
-    val archiveYears = remember(sessions) {
-        buildArchiveTree(sessions)
+    val agentOperationSessionIds = remember(activities) {
+        activities.asSequence()
+            .filter(::isAgentOperationActivity)
+            .map(ActivityEvent::sessionId)
+            .toSet()
+    }
+    val archiveDates = remember(sessions, agentOperationSessionIds) {
+        buildArchiveDates(sessions.filter { it.id in agentOperationSessionIds })
     }
 
     // 默认选中最近一个会话，使时间线有内容
-    LaunchedEffect(archiveYears) {
+    LaunchedEffect(archiveDates) {
         val selectedStillExists = selectedSession?.let { selected ->
             sessions.any { it.id == selected.id }
         } == true
         if (!selectedStillExists) {
-            selectedSession = archiveYears.firstOrNull()
-                ?.months?.firstOrNull()?.days?.firstOrNull()?.sessions?.firstOrNull()
+            selectedSession = archiveDates.firstOrNull()?.sessions?.firstOrNull()
         }
     }
 
@@ -68,6 +78,7 @@ fun ActivityLogView(
         val sessionId = selectedSession?.id
         activities.asSequence()
             .filter { it.sessionId == sessionId }
+            .filter(::isAgentOperationActivity)
             .map(ActivityEvent::toTimelineEvent)
             .toList()
     }
@@ -94,10 +105,12 @@ fun ActivityLogView(
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(12.dp)) {
             val wideLayout = maxWidth >= 780.dp
-            if (wideLayout) {
+            if (archiveDates.isEmpty()) {
+                ActivityWorkspaceEmpty(Modifier.fillMaxSize())
+            } else if (wideLayout) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ArchivePanel(
-                        years = archiveYears,
+                        dates = archiveDates,
                         selectedSessionId = selectedSession?.id,
                         onSelectSession = { selectedSession = it },
                         modifier = Modifier.width(244.dp).fillMaxHeight(),
@@ -113,7 +126,7 @@ fun ActivityLogView(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ArchivePanel(
-                        years = archiveYears,
+                        dates = archiveDates,
                         selectedSessionId = selectedSession?.id,
                         onSelectSession = { selectedSession = it },
                         modifier = Modifier.fillMaxWidth().height(220.dp),
@@ -133,7 +146,7 @@ fun ActivityLogView(
 
 @Composable
 private fun ArchivePanel(
-    years: List<ArchiveYearNode>,
+    dates: List<ArchiveDateNode>,
     selectedSessionId: String?,
     onSelectSession: (ArchiveSessionItem) -> Unit,
     modifier: Modifier = Modifier,
@@ -143,9 +156,9 @@ private fun ArchivePanel(
             Text("会话归档", color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text("按日期定位历史执行记录", color = Tx3, fontSize = 10.sp)
         }
-        if (years.isNotEmpty()) {
+        if (dates.isNotEmpty()) {
             ArchiveTree(
-                years = years,
+                dates = dates,
                 selectedSessionId = selectedSessionId,
                 onSelectSession = onSelectSession,
                 modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -182,10 +195,59 @@ private fun TimelinePanel(
     }
 }
 
+@Composable
+private fun ActivityWorkspaceEmpty(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.surfaceCard(bg = Bg1, elevation = Elevation.none),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 460.dp)
+                .clip(AppShapes.lg)
+                .background(Bg2)
+                .border(1.dp, Line2, AppShapes.lg)
+                .padding(horizontal = 28.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(AppShapes.md)
+                    .background(ControlPurple.withAlpha(0.12f))
+                    .border(1.dp, ControlPurple.withAlpha(0.22f), AppShapes.md),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = semanticAgentIcon("Agent 操作日志", "review-agent"),
+                    contentDescription = null,
+                    tint = ControlPurple,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.height(13.dp))
+            Text("等待 Agent 操作", color = Tx, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "主智能体调用工具、Skill、MCP，或执行文件与命令操作后，将自动按日期归档到这里。",
+                color = Tx3,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                MicroPill("TOOLS", AgentGemini)
+                MicroPill("SKILLS", ControlPurple)
+                MicroPill("MCP", AgentQwen)
+            }
+        }
+    }
+}
+
 private fun ActivityEvent.toTimelineEvent() = TimelineEvent(
     id = id,
     type = when (type) {
         ActivityType.MCP -> "mcp"
+        ActivityType.SKILL -> "skill"
         ActivityType.FILE -> "file"
         ActivityType.COMMAND -> "cmd"
         ActivityType.ERROR -> "error"
@@ -214,14 +276,14 @@ private fun ActivityTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "活动日志",
+            text = "Agent 活动日志",
             color = Tx,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "执行历史、工具调用与数据变更",
+            text = "仅记录 Agent 工具、Skill、MCP 与数据操作",
             color = Tx3,
             fontSize = 11.sp
         )
@@ -230,7 +292,7 @@ private fun ActivityTopBar(
 
         // Filter chips
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            listOf("全部", "MCP", "文件", "命令").forEach { chip ->
+            listOf("全部", "工具", "Skill", "MCP", "文件", "命令").forEach { chip ->
                 val isActive = filter == chip
                 val interaction = remember { MutableInteractionSource() }
                 val hovered by interaction.collectIsHoveredAsState()
@@ -267,16 +329,14 @@ private fun ActivityTopBar(
     }
 }
 
-private fun buildArchiveTree(sessions: List<Session>): List<ArchiveYearNode> {
-    val grouped = mutableMapOf<String, MutableMap<String, MutableMap<String, MutableList<ArchiveSessionItem>>>>()
+internal fun buildArchiveDates(sessions: List<Session>): List<ArchiveDateNode> {
+    val grouped = linkedMapOf<String, MutableList<ArchiveSessionItem>>()
 
     for (s in sessions) {
         val isoStr = s.createdAt.toString()
         val instant = try { java.time.Instant.parse(isoStr) } catch (_: Exception) { continue }
         val local = instant.atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-        val year = local.year.toString()
-        val month = local.monthValue.toString().padStart(2, '0')
-        val day = local.dayOfMonth.toString().padStart(2, '0')
+        val dateKey = local.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
         val title = s.title.ifBlank {
             s.messages.firstOrNull()?.content?.firstOrNull()?.text?.take(30) ?: "会话 ${s.id}"
         }
@@ -288,27 +348,13 @@ private fun buildArchiveTree(sessions: List<Session>): List<ArchiveYearNode> {
             createdAt = isoStr
         )
 
-        grouped.getOrPut(year) { mutableMapOf() }
-            .getOrPut(month) { mutableMapOf() }
-            .getOrPut(day) { mutableListOf() }
-            .add(item)
+        grouped.getOrPut(dateKey) { mutableListOf() }.add(item)
     }
 
-    return grouped.keys.sortedDescending().map { year ->
-        ArchiveYearNode(
-            year = year,
-            months = grouped[year]!!.keys.sortedDescending().map { month ->
-                ArchiveMonthNode(
-                    month = month,
-                    days = grouped[year]!![month]!!.keys.sortedDescending().map { day ->
-                        ArchiveDayNode(
-                            day = day,
-                            dateStr = "$year-$month-$day",
-                            sessions = grouped[year]!![month]!![day]!!
-                        )
-                    }
-                )
-            }
+    return grouped.keys.sortedDescending().map { dateKey ->
+        ArchiveDateNode(
+            dateKey = dateKey,
+            sessions = grouped.getValue(dateKey).sortedByDescending(ArchiveSessionItem::createdAt),
         )
     }
 }

@@ -4,6 +4,9 @@ import com.swarmeditor.common.model.SwarmRepositoryBaseline
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmSandboxPreflightReport
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
+import com.swarmeditor.common.model.SwarmArtifactHunkApplicabilityStatus
+import com.swarmeditor.common.model.SwarmArtifactSelectionApplicabilityStatus
 import com.swarmeditor.common.model.SwarmVerificationEvidence
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import java.io.File
@@ -41,6 +44,168 @@ class SwarmArtifactIntegrationTest {
             assertEquals("artifact", git(fixture.repository, "show", "${plan.integratedRevision}:artifact.txt").trim())
             assertEquals("base-current", git(fixture.repository, "show", "${plan.integratedRevision}:current.txt").trim())
             assertEquals("base-artifact", File(fixture.repository, "artifact.txt").readText().trim())
+            val preview = fixture.integrator.preview(plan)
+            assertEquals(listOf("artifact.txt"), preview.changedPaths.map { it.path })
+            assertTrue(preview.unifiedDiff.contains("+artifact"))
+            assertFalse(preview.truncated)
+            assertEquals(1, preview.hunks.size)
+            assertEquals(listOf(preview.hunks.single().id), preview.hunkDependencyComponents.single().hunkIds)
+            assertFalse(preview.hunkDependencyComponents.single().cyclic)
+            assertEquals(
+                SwarmArtifactHunkApplicabilityStatus.INDEPENDENTLY_APPLICABLE,
+                preview.hunkApplicability.single().status,
+            )
+            assertEquals(plan.currentTree, preview.hunkApplicability.single().checkedAgainstTree)
+            val selection = fixture.integrator.previewSelection(plan, listOf(preview.hunks.single().id))
+            assertEquals(SwarmArtifactSelectionApplicabilityStatus.APPLICABLE, selection.applicabilityStatus)
+            assertEquals(listOf(preview.hunks.single().id), selection.requestedHunkIds)
+            assertEquals(selection.requestedHunkIds, selection.effectiveHunkIds)
+            assertTrue(selection.prerequisiteHunkIds.isEmpty())
+            assertEquals(listOf("artifact.txt"), selection.changedPaths)
+            assertEquals(plan.currentTree, selection.checkedAgainstTree)
+
+            val applied = fixture.integrator.apply(plan)
+
+            assertEquals(SwarmArtifactIntegrationStatus.APPLIED, applied.status)
+            assertEquals("artifact", File(fixture.repository, "artifact.txt").readText().trim())
+            assertEquals("base-current", File(fixture.repository, "current.txt").readText().trim())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `selection preview automatically includes symbol prerequisites`() = runTest {
+        val directory = Files.createTempDirectory("swarm-artifact-selection")
+        try {
+            val fixture = createFixture(directory.toFile())
+            val captured = captureArtifact(fixture) { workspace ->
+                File(workspace.directory, "Calculator.kt").writeText("fun calculateTotal() = 42\n")
+                File(workspace.directory, "Usage.kt").writeText("val total = calculateTotal()\n")
+            }
+            val verificationId = storePassedVerification(fixture.evidenceStore, captured)
+            val plan = fixture.integrator.prepare(
+                run = fixture.run,
+                task = fixture.task,
+                workspaceDeltaEvidenceId = captured.id,
+                verificationEvidenceId = verificationId,
+            )
+            val preview = fixture.integrator.preview(plan)
+            val declarationHunk = preview.hunks.single { it.path == "Calculator.kt" }
+            val usageHunk = preview.hunks.single { it.path == "Usage.kt" }
+
+            val selection = fixture.integrator.previewSelection(plan, listOf(usageHunk.id))
+
+            assertEquals(SwarmArtifactSelectionApplicabilityStatus.APPLICABLE, selection.applicabilityStatus)
+            assertEquals(listOf(usageHunk.id), selection.requestedHunkIds)
+            assertEquals(listOf(declarationHunk.id), selection.prerequisiteHunkIds)
+            assertEquals(listOf(declarationHunk.id, usageHunk.id), selection.effectiveHunkIds)
+            assertEquals(listOf("Calculator.kt", "Usage.kt"), selection.changedPaths)
+            assertTrue(selection.unifiedDiff.contains("calculateTotal"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `rejects a stale plan without changing the newer workspace`() = runTest {
+        val directory = Files.createTempDirectory("swarm-artifact-stale-plan")
+        try {
+            val fixture = createFixture(directory.toFile())
+            val captured = captureArtifact(fixture) { workspace ->
+                File(workspace.directory, "artifact.txt").writeText("artifact\n")
+            }
+            val verificationId = storePassedVerification(fixture.evidenceStore, captured)
+            val plan = fixture.integrator.prepare(
+                run = fixture.run,
+                task = fixture.task,
+                workspaceDeltaEvidenceId = captured.id,
+                verificationEvidenceId = verificationId,
+            )
+            File(fixture.repository, "current.txt").writeText("newer user edit\n")
+
+            assertFailsWith<SwarmArtifactIntegrationStaleException> {
+                fixture.integrator.apply(plan)
+            }
+
+            assertEquals("base-artifact", File(fixture.repository, "artifact.txt").readText().trim())
+            assertEquals("newer user edit", File(fixture.repository, "current.txt").readText().trim())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `rolls back workspace patch when applied plan persistence fails`() = runTest {
+        val directory = Files.createTempDirectory("swarm-artifact-apply-rollback")
+        try {
+            val fixture = createFixture(directory.toFile())
+            File(fixture.repository, "current.txt").writeText("preserved user edit\n")
+            val captured = captureArtifact(fixture) { workspace ->
+                File(workspace.directory, "artifact.txt").writeText("artifact\n")
+            }
+            val verificationId = storePassedVerification(fixture.evidenceStore, captured)
+            val plan = fixture.integrator.prepare(
+                run = fixture.run,
+                task = fixture.task,
+                workspaceDeltaEvidenceId = captured.id,
+                verificationEvidenceId = verificationId,
+            )
+
+            assertFailsWith<IllegalStateException> {
+                fixture.integrator.apply(plan) { error("persistence unavailable") }
+            }
+
+            assertEquals("base-artifact", File(fixture.repository, "artifact.txt").readText().trim())
+            assertEquals("preserved user edit", File(fixture.repository, "current.txt").readText().trim())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `integrates a verified artifact built on dependency artifacts`() = runTest {
+        val directory = Files.createTempDirectory("swarm-artifact-dependency-base")
+        try {
+            val fixture = createFixture(directory.toFile())
+            val baseline = checkNotNull(fixture.run.repositoryBaseline)
+            val upstream = fixture.workspaceManager.withWorkspace(
+                runId = fixture.run.id,
+                taskId = fixture.task.id,
+                attempt = fixture.task.attempt,
+                baseRevision = baseline.revision,
+            ) { workspace ->
+                File(workspace.directory, "upstream.txt").writeText("upstream\n")
+                fixture.deltaCapturer.capture(workspace)
+            }
+            val downstream = fixture.workspaceManager.withWorkspace(
+                runId = fixture.run.id,
+                taskId = fixture.task.id,
+                attempt = fixture.task.attempt,
+                baseRevision = checkNotNull(upstream.evidence.artifactRevision),
+            ) { workspace ->
+                assertEquals("upstream", File(workspace.directory, "upstream.txt").readText().trim())
+                File(workspace.directory, "downstream.txt").writeText("downstream\n")
+                fixture.deltaCapturer.capture(workspace)
+            }
+            val verificationId = storePassedVerification(fixture.evidenceStore, downstream)
+
+            val plan = fixture.integrator.prepare(
+                run = fixture.run,
+                task = fixture.task,
+                workspaceDeltaEvidenceId = downstream.id,
+                verificationEvidenceId = verificationId,
+            )
+
+            assertEquals("upstream", git(fixture.repository, "show", "${plan.integratedRevision}:upstream.txt").trim())
+            assertEquals(
+                "downstream",
+                git(fixture.repository, "show", "${plan.integratedRevision}:downstream.txt").trim(),
+            )
         } finally {
             directory.deleteRecursively()
         }

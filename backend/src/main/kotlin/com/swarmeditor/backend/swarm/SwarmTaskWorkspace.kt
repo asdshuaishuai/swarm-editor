@@ -3,6 +3,8 @@ package com.swarmeditor.backend.swarm
 import com.swarmeditor.backend.process.CommandRequest
 import com.swarmeditor.backend.process.CommandRunner
 import com.swarmeditor.backend.process.LocalCommandRunner
+import com.swarmeditor.common.model.SwarmChangedPath
+import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmWorkspaceDeltaEvidence
 import java.io.File
 import java.nio.file.Files
@@ -200,13 +202,17 @@ class GitSwarmTaskWorkspaceManager(
     }
 }
 
+fun interface SwarmWorkspaceDeltaCapturer {
+    suspend fun capture(workspace: SwarmTaskWorkspace, task: SwarmTask): StoredSwarmWorkspaceDelta
+}
+
 class GitSwarmWorkspaceDeltaCapturer(
     private val indexRoot: File,
     private val evidenceStore: SwarmEvidenceStore,
     private val commandRunner: CommandRunner = LocalCommandRunner(),
     private val maxDiffBytes: Long = 8L * 1024 * 1024,
     private val maxCaptureAttempts: Int = 2,
-) {
+) : SwarmWorkspaceDeltaCapturer {
     private val captureMutex = Mutex()
     private val normalizedIndexRoot = indexRoot.canonicalFile
 
@@ -217,7 +223,17 @@ class GitSwarmWorkspaceDeltaCapturer(
         require(normalizedIndexRoot.isDirectory) { "Task index root cannot be created" }
     }
 
-    suspend fun capture(workspace: SwarmTaskWorkspace): StoredSwarmWorkspaceDelta = captureMutex.withLock {
+    suspend fun capture(workspace: SwarmTaskWorkspace): StoredSwarmWorkspaceDelta = captureInternal(workspace, task = null)
+
+    override suspend fun capture(
+        workspace: SwarmTaskWorkspace,
+        task: SwarmTask,
+    ): StoredSwarmWorkspaceDelta = captureInternal(workspace, task)
+
+    private suspend fun captureInternal(
+        workspace: SwarmTaskWorkspace,
+        task: SwarmTask?,
+    ): StoredSwarmWorkspaceDelta = captureMutex.withLock {
         validateWorkspaceForCapture(workspace)
         val indexFile = File(normalizedIndexRoot, "${workspace.id}-${UUID.randomUUID()}.index")
         val diffFile = File(normalizedIndexRoot, "${workspace.id}-${UUID.randomUUID()}.diff")
@@ -238,7 +254,10 @@ class GitSwarmWorkspaceDeltaCapturer(
                 workingDirectory = workspace.directory,
             )
             val diffBytes = readBoundedBytes(diffFile, maxDiffBytes)
-            val changedPathCount = countNameStatusRecords(diffBytes)
+            val changedPaths = parseNameStatusRecords(diffBytes)
+            val ownershipAudit = task
+                ?.takeIf { it.readPaths.isNotEmpty() || it.writePaths.isNotEmpty() }
+                ?.let { auditChangedPaths(it, changedPaths) }
             val gitVersion = runGitOutput(listOf("--version"), workspace.directory).trim()
             val createdAt = Clock.System.now()
             val artifactRevision = createArtifactCommit(workspace, afterTree, createdAt)
@@ -255,7 +274,12 @@ class GitSwarmWorkspaceDeltaCapturer(
                 artifactRevision = artifactRevision,
                 pinnedReference = pinnedReference,
                 nameStatusSha256 = sha256(diffBytes),
-                changedPathCount = changedPathCount,
+                changedPathCount = changedPaths.size,
+                changedPaths = changedPaths,
+                declaredWritePaths = task?.writePaths.orEmpty(),
+                ownershipCompliant = ownershipAudit?.compliant,
+                ownershipViolations = ownershipAudit?.violations.orEmpty(),
+                ownershipPolicyVersion = ownershipAudit?.policyVersion,
                 gitVersion = gitVersion,
                 capturePolicyVersion = CAPTURE_POLICY_VERSION,
                 createdAt = createdAt,
@@ -381,12 +405,22 @@ private fun readBoundedBytes(file: File, maxBytes: Long): ByteArray {
     }
 }
 
-private fun countNameStatusRecords(bytes: ByteArray): Int {
-    if (bytes.isEmpty()) return 0
+internal fun parseNameStatusRecords(bytes: ByteArray): List<SwarmChangedPath> {
+    if (bytes.isEmpty()) return emptyList()
     require(bytes.last() == 0.toByte()) { "Git name-status output is not NUL terminated" }
-    val fieldCount = bytes.count { it == 0.toByte() }
-    require(fieldCount % 2 == 0) { "Git name-status output has incomplete records" }
-    return fieldCount / 2
+    val fields = mutableListOf<String>()
+    var start = 0
+    bytes.forEachIndexed { index, byte ->
+        if (byte == 0.toByte()) {
+            fields += bytes.copyOfRange(start, index).toString(Charsets.UTF_8)
+            start = index + 1
+        }
+    }
+    require(fields.size % 2 == 0) { "Git name-status output has incomplete records" }
+    return fields.chunked(2).map { (status, path) ->
+        require(status.matches(GIT_CHANGE_STATUS_PATTERN)) { "Git name-status output has invalid status: $status" }
+        SwarmChangedPath(status = status, path = validateOwnershipScope(path))
+    }
 }
 
 private fun requireLabel(value: String, field: String) {
@@ -400,9 +434,10 @@ private fun sha256(value: ByteArray): String = MessageDigest.getInstance("SHA-25
     .joinToString("") { byte -> "%02x".format(byte) }
 
 private val GIT_COMMAND_TIMEOUT = 2.minutes
-private const val CAPTURE_POLICY_VERSION = "git-tree-name-status-v1"
+private const val CAPTURE_POLICY_VERSION = "git-tree-name-status-ownership-v2"
 private const val TASK_ARTIFACT_REFERENCE_PREFIX = "refs/swarm-editor/task-artifacts"
 private const val ARTIFACT_AUTHOR_NAME = "Swarm Editor"
 private const val ARTIFACT_AUTHOR_EMAIL = "swarm-editor@localhost"
 private val GIT_OBJECT_PATTERN = Regex("(?:[0-9a-f]{40}|[0-9a-f]{64})")
 private val WORKSPACE_ID_PATTERN = Regex("task-[0-9a-f]{64}")
+private val GIT_CHANGE_STATUS_PATTERN = Regex("[ACDMTUXB]")

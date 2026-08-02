@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0d17" />
+    <meta
+      name="description"
+      content="Swarm Editor：围绕 Pi 构建的 Kotlin/JVM Compose Desktop AI IDE，让多智能体协作成为可验证的软件工程系统。"
+    />
+    <title>Swarm Editor · Pi-native AI IDE</title>
+    <link rel="icon" href="assets/swarm-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="site-header" data-header>
+      <a class="brand" href="#top" aria-label="Swarm Editor 首页">
+        <img src="assets/swarm-mark.svg" width="34" height="34" alt="" />
+        <span>Swarm Editor</span>
+      </a>
+      <nav class="top-nav" aria-label="主导航">
+        <a href="#capabilities">能力</a>
+        <a href="#architecture">架构</a>
+        <a href="#build">构建</a>
+      </nav>
+      <a class="header-action" href="#build" data-repo-link>
+        <span>查看源码</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h8v8M13 3 4 12" /></svg>
+      </a>
+    </header>
+
+    <main id="main">
+      <section class="hero section" id="top">
+        <div class="hero-copy reveal">
+          <div class="eyebrow"><span class="live-dot"></span> Pi-native · In-process · Evidence-first</div>
+          <h1>把 Agent 从聊天窗口，推进到<span>可验证的软件工程系统</span></h1>
+          <p class="hero-lead">
+            Swarm Editor 是 Kotlin/JVM Compose Desktop AI IDE。主 Agent 按需构建子 Agent，在隔离工作区内规划、实现、检查，并交付可审查的 Git Artifact。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#architecture">
+              探索架构
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m4 9 9 0M10 5l4 4-4 4" /></svg>
+            </a>
+            <a class="button button-secondary" href="#build">快速开始</a>
+          </div>
+          <div class="hero-facts" aria-label="项目技术特征">
+            <div><strong>Kotlin</strong><span>Compose Desktop</span></div>
+            <div><strong>Pi 0.80.10</strong><span>Vendored Runtime</span></div>
+            <div><strong>Local-first</strong><span>No HTTP / WS</span></div>
+          </div>
+        </div>
+
+        <div class="hero-stage reveal" data-tilt>
+          <div class="stage-glow" aria-hidden="true"></div>
+          <div class="ide-window">
+            <div class="window-titlebar">
+              <div class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="workspace-pill"><span></span> swarm-editor / orchestration</div>
+              <div class="window-status"><i></i> Pi ready</div>
+            </div>
+            <div class="ide-grid">
+              <aside class="ide-rail" aria-label="界面示意导航">
+                <img src="assets/swarm-mark.svg" width="26" height="26" alt="" />
+                <i class="rail-icon active"></i><i class="rail-icon"></i><i class="rail-icon"></i><i class="rail-icon"></i>
+              </aside>
+              <div class="agent-canvas">
+                <div class="canvas-heading"><span>Agent Graph</span><em>5 active</em></div>
+                <div class="graph" aria-hidden="true">
+                  <svg viewBox="0 0 500 330" preserveAspectRatio="none">
+                    <path d="M250 88 136 174M250 88l116 84M136 174l-22 90M136 174l104 91M366 172l-126 93M366 172l28 91" />
+                  </svg>
+                  <div class="agent-node node-main"><b>π</b><span>Orchestrator</span><small>planning</small></div>
+                  <div class="agent-node node-one"><b>01</b><span>Explorer</span><small>ready</small></div>
+                  <div class="agent-node node-two"><b>02</b><span>Coder</span><small>editing</small></div>
+                  <div class="agent-node node-three"><b>03</b><span>Reviewer</span><small>queued</small></div>
+                  <div class="agent-node node-four"><b>04</b><span>Verifier</span><small>testing</small></div>
+                </div>
+              </div>
+              <aside class="evidence-panel">
+                <div class="canvas-heading"><span>Evidence</span><em>live</em></div>
+                <div class="evidence-event complete"><i></i><div><b>Plan decomposed</b><span>graph · 12 ms</span></div></div>
+                <div class="evidence-event complete"><i></i><div><b>Workspace isolated</b><span>bubblewrap · 31 ms</span></div></div>
+                <div class="evidence-event running"><i></i><div><b>Patch verification</b><span>4 / 6 checks</span></div></div>
+                <div class="diff-card"><span>Artifact</span><strong>+142 <i>−36</i></strong><small>7 files changed</small></div>
+              </aside>
+            </div>
+          </div>
+          <div class="floating-chip chip-one"><span>⌘</span> LSP connected</div>
+          <div class="floating-chip chip-two"><span>✓</span> Git-isolated</div>
+        </div>
+      </section>
+
+      <section class="section capability-section" id="capabilities">
+        <div class="section-heading reveal">
+          <div><span class="section-index">01</span><p class="eyebrow">Built for real work</p></div>
+          <h2>不是更多聊天框，<br />而是更完整的工程闭环。</h2>
+        </div>
+        <div class="tile-grid">
+          <article class="feature-tile tile-wide tile-blue reveal">
+            <div class="tile-icon graph-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <div><p class="tile-kicker">Dynamic Swarm</p><h3>Agent 按需生成，而非预设堆叠</h3></div>
+            <p>主 Agent 根据任务图、能力与模型配置动态创建角色，使用关键路径与依赖关系安排执行顺序。</p>
+          </article>
+          <article class="feature-tile tile-tall tile-violet reveal">
+            <div class="code-stack" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <div><p class="tile-kicker">Code Intelligence</p><h3>LSP 驱动的源码理解</h3></div>
+            <p>文件树、语法高亮、诊断与导航共享统一代码智能层；Markdown、HTML、JSON 支持源码与预览双渲染。</p>
+          </article>
+          <article class="feature-tile tile-rose reveal">
+            <div class="artifact-icon" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div><p class="tile-kicker">Evidence-first</p><h3>结果必须可审查</h3></div>
+            <p>每次执行沉淀日志、检查、Diff、补丁与 Git Artifact，让结论对应真实证据。</p>
+          </article>
+          <article class="feature-tile tile-neutral reveal">
+            <div class="shield-icon" aria-hidden="true"><span>✓</span></div>
+            <div><p class="tile-kicker">Lightweight Isolation</p><h3>Bubblewrap + WASM</h3></div>
+            <p>原生命令进入轻量 Linux 沙箱；确定性插件运行在哈希固定的 Wasmtime 能力通道。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section architecture-section" id="architecture">
+        <div class="section-heading compact reveal">
+          <div><span class="section-index">02</span><p class="eyebrow">One coherent runtime</p></div>
+          <h2>更短的数据路径，<br />更清晰的责任边界。</h2>
+          <p>桌面 UI 与后端处于同一 JVM 进程。没有为本地应用制造额外的 HTTP 或 WebSocket 层，只有 Kotlin 与 Pi 子进程之间使用受控 JSONL stdio。</p>
+        </div>
+        <div class="architecture-board reveal">
+          <div class="architecture-flow">
+            <div class="flow-node"><span>01</span><strong>Compose UI</strong><small>StateFlow · Decompose</small></div>
+            <i class="flow-arrow" aria-hidden="true"></i>
+            <div class="flow-node"><span>02</span><strong>Kotlin Services</strong><small>In-memory · Coroutines</small></div>
+            <i class="flow-arrow" aria-hidden="true"></i>
+            <div class="flow-node accent"><span>03</span><strong>Pi Runtime</strong><small>JSONL stdio · Sessions</small></div>
+            <i class="flow-arrow" aria-hidden="true"></i>
+            <div class="flow-node"><span>04</span><strong>Git Artifact</strong><small>Diff · Checks · Evidence</small></div>
+          </div>
+          <div class="architecture-details">
+            <div><span>Process model</span><strong>Local-first</strong><p>UI、状态与服务保持进程内直接调用。</p></div>
+            <div><span>Scheduling</span><strong>Graph-aware</strong><p>关键路径、SCC 与隔离可应用性共同参与调度。</p></div>
+            <div><span>Review</span><strong>Artifact-native</strong><p>侧拉 Diff、Agent 日志与检查结果始终可追踪。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section principle-section">
+        <div class="principle-card reveal">
+          <img src="assets/swarm-mark.svg" width="72" height="72" alt="" />
+          <p>“下一代 AI IDE 的关键，不是让模型说得更多，而是让系统能够规划、执行、验证，并解释它为何可信。”</p>
+          <span>Swarm Editor · First Principles</span>
+        </div>
+      </section>
+
+      <section class="section build-section" id="build">
+        <div class="section-heading compact reveal">
+          <div><span class="section-index">03</span><p class="eyebrow">Fast feedback loop</p></div>
+          <h2>从修改到反馈，<br />只保留必要路径。</h2>
+          <p>快速编译脚本默认跳过昂贵的 Pi 重建，并启用 Gradle daemon、并行执行、构建缓存、文件监听与配置缓存。</p>
+        </div>
+        <div class="terminal-card reveal">
+          <div class="terminal-bar">
+            <div class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span>swarm-editor — zsh</span>
+            <button class="copy-button" type="button" data-copy-command aria-label="复制快速编译命令">复制</button>
+          </div>
+          <pre><code><span class="prompt">$</span> ./scripts/fast-build.sh
+<span class="comment"># 持续监听 Kotlin 源码变更</span>
+<span class="prompt">$</span> ./scripts/fast-build.sh compile --watch
+<span class="comment"># 准备 Pi runtime 并启动桌面端</span>
+<span class="prompt">$</span> ./scripts/fast-build.sh run</code></pre>
+          <div class="terminal-meta"><span><i></i> JDK 21</span><span><i></i> Node.js 22.19+</span><span><i></i> Gradle Wrapper</span></div>
+        </div>
+      </section>
+
+      <section class="section closing-section">
+        <div class="closing-card reveal">
+          <div><p class="eyebrow">Build the next step</p><h2>让每一个 Agent 行为，都成为可以检查的工程事实。</h2></div>
+          <a class="button button-light" href="#build" data-repo-link>查看项目源码 <span>↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="brand"><img src="assets/swarm-mark.svg" width="30" height="30" alt="" /><span>Swarm Editor</span></div>
+      <p>Pi-native AI IDE · Built with Kotlin and Compose Desktop.</p>
+      <a href="#top">返回顶部 ↑</a>
+    </footer>
+  </body>
+</html>

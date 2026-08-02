@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">Swarm Editor</title>
+  <desc id="desc">A connected swarm graph shaped like a hexagonal bee mark.</desc>
+  <defs>
+    <linearGradient id="shell" x1="12" y1="10" x2="84" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#83B8FF"/>
+      <stop offset="0.48" stop-color="#7B7CFF"/>
+      <stop offset="1" stop-color="#FF79B0"/>
+    </linearGradient>
+    <linearGradient id="core" x1="32" y1="28" x2="66" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C9D7FF"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feColorMatrix in="blur" values="1 0 0 0 0.22 0 1 0 0 0.31 0 0 1 0 1 0 0 0 .8 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <path d="M48 6 80.9 25v38L48 82 15.1 63V25L48 6Z" fill="url(#shell)"/>
+  <path d="M48 12.5 75.3 28v32L48 75.5 20.7 60V28L48 12.5Z" fill="#101322" fill-opacity=".9" stroke="#fff" stroke-opacity=".2"/>
+  <g stroke="url(#core)" stroke-width="3" stroke-linecap="round" opacity=".86" filter="url(#glow)">
+    <path d="m31 34 17 14 17-15M48 48v17M31 34l-6 18M65 33l7 19M25 52l23 13 24-13"/>
+  </g>
+  <g fill="url(#core)" stroke="#101322" stroke-width="2">
+    <circle cx="31" cy="34" r="6"/>
+    <circle cx="65" cy="33" r="6"/>
+    <circle cx="25" cy="52" r="5"/>
+    <circle cx="72" cy="52" r="5"/>
+    <circle cx="48" cy="65" r="6"/>
+    <circle cx="48" cy="48" r="8"/>
+  </g>
+</svg>

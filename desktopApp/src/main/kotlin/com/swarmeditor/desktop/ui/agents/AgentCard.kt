@@ -2,7 +2,6 @@ package com.swarmeditor.desktop.ui.agents
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.semanticAgentIconSpec
+import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Activity
 
 val AGENT_COLORS = listOf(Ac)
 
@@ -40,7 +44,6 @@ fun AgentCard(
     modifier: Modifier = Modifier
 ) {
     val agentColor = agentColor(colorIndex)
-    val letter = agentLetter(agent.config.name)
     val isEnabled = agent.config.enabled
     val isConnected = isEnabled && agent.status == "connected"
     val isInstalled = agent.status != "not_installed"
@@ -82,24 +85,11 @@ fun AgentCard(
         Column(modifier = Modifier.padding(Spacing.panel)) {
             // 第 1 行：Logo + 名称/元信息 + 状态 + 配置按钮
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(AppShapes.sm)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(agentColor, agentColor.withAlpha(0.7f))
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        letter,
-                        color = OnAccent,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                SemanticIconBadge(
+                    spec = semanticAgentIconSpec(agent.config.name, agent.config.id).copy(accent = agentColor),
+                    contentDescription = "${agent.config.name} 图标",
+                    size = 40.dp,
+                )
 
                 Spacer(Modifier.width(Spacing.md))
 
@@ -159,22 +149,13 @@ fun AgentCard(
 
                 Spacer(Modifier.width(8.dp))
 
-                // 配置按钮（描边）
-                Box(
-                    modifier = Modifier
-                        .clip(AppShapes.xs)
-                        .background(Bg3)
-                        .border(1.dp, Line, AppShapes.xs)
-                        .clickable(onClick = onConfigClick)
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        "配置",
-                        color = Tx2,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                ActionButton(
+                    text = "配置",
+                    tone = ActionTone.NEUTRAL,
+                    prominent = false,
+                    compact = true,
+                    onClick = onConfigClick,
+                )
             }
 
             // 描述
@@ -213,43 +194,55 @@ fun AgentCard(
                             maxLines = 1
                         )
                     }
-                    Box(
-                        modifier = Modifier
-                            .clip(AppShapes.xs)
-                            .background(Brush.linearGradient(listOf(Ac, Ac2)))
-                            .clickable(onClick = onConfigClick)
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                    ) {
-                        Text("配置", color = OnAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    ActionButton(
+                        text = "配置",
+                        compact = true,
+                        onClick = onConfigClick,
+                    )
                 }
             }
 
-            // 统计三联格（顶部细分隔线，对齐 .agent-stats）
+            val hasStats = agent.stats.tasks > 0 || agent.stats.successRate > 0.0 || agent.stats.avgLatency.isNotBlank()
             Spacer(Modifier.height(10.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                StatCell(
-                    label = "任务",
-                    value = if (agent.stats.tasks > 0) "${agent.stats.tasks}" else "—",
-                    valueColor = if (agent.stats.tasks > 0) agentColor else Tx3,
-                    modifier = Modifier.weight(1f),
-                    showDivider = false
-                )
-                StatCell(
-                    label = "成功率",
-                    value = formatPercent(agent.stats.successRate),
-                    valueColor = Tx,
-                    modifier = Modifier.weight(1f),
-                    showDivider = true
-                )
-                StatCell(
-                    label = "平均延迟",
-                    value = agent.stats.avgLatency.ifEmpty { "—" },
-                    valueColor = Tx,
-                    modifier = Modifier.weight(1f),
-                    showDivider = true
-                )
+            if (hasStats) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    StatCell(
+                        label = "任务",
+                        value = agent.stats.tasks.toString(),
+                        valueColor = agentColor,
+                        modifier = Modifier.weight(1f),
+                        showDivider = false
+                    )
+                    StatCell(
+                        label = "成功率",
+                        value = formatPercent(agent.stats.successRate),
+                        valueColor = Tx,
+                        modifier = Modifier.weight(1f),
+                        showDivider = true
+                    )
+                    StatCell(
+                        label = "平均延迟",
+                        value = agent.stats.avgLatency.ifEmpty { "—" },
+                        valueColor = Tx,
+                        modifier = Modifier.weight(1f),
+                        showDivider = true
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.padding(top = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Feather.Activity,
+                        contentDescription = null,
+                        tint = Tx3,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text("完成首个任务后生成运行统计", color = Tx3, fontSize = 11.sp)
+                }
             }
         }
     }

@@ -86,6 +86,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
+import com.swarmeditor.backend.pi.PiCommandInfo
+import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.chat.CodeCard
 import com.swarmeditor.desktop.ui.chat.MentionDropdown
@@ -139,8 +141,8 @@ fun ChatArea(
     sessionTitle: String = selectedAgent.name,
     contextUsageText: String = "上下文：—",
     onSelectAgent: (String) -> Unit = {},
-    onMcpClick: () -> Unit = {},
-    onSkillClick: () -> Unit = {}
+    mcpServers: List<McpServerDto> = emptyList(),
+    piCommands: List<PiCommandInfo> = emptyList(),
 ) {
     var showMentionDropdown by remember { mutableStateOf(false) }
     var mentionFilter by remember { mutableStateOf("") }
@@ -297,17 +299,7 @@ fun ChatArea(
                 .border(1.dp, Line)
                 .padding(horizontal = 14.dp, vertical = layoutDensity.composerOuterPadding.dp),
         ) {
-            AnimatedVisibility(
-                visible = showMentionDropdown,
-                enter = fadeIn(Motion.alphaEnter) + expandVertically(
-                    expandFrom = Alignment.Bottom,
-                    animationSpec = Motion.intSizeExpand,
-                ),
-                exit = fadeOut(Motion.alphaExit) + shrinkVertically(
-                    shrinkTowards = Alignment.Bottom,
-                    animationSpec = Motion.intSizeCollapse,
-                ),
-            ) {
+            if (showMentionDropdown) {
                 Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     MentionDropdown(
                         agents = agents.ifEmpty { listOf(selectedAgent) },
@@ -437,11 +429,24 @@ fun ChatArea(
                 Spacer(Modifier.height(6.dp))
                 // composer-bar：chips 左 + 发送按钮右（对齐核心稿 .composer-bar）
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ChipButton(Feather.Paperclip, "附件", ControlBlue, onClick = onAttach)
+                    ComposerChipButton(Feather.Paperclip, "附件", ControlBlue, onClick = onAttach)
                     Spacer(Modifier.width(6.dp))
-                    ChipButton(Feather.Settings, "MCP", ControlPurple, onClick = onMcpClick)
+                    McpCapabilityButton(
+                        servers = mcpServers,
+                        agentId = selectedAgent.id,
+                        icon = Feather.Settings,
+                        tone = ControlPurple,
+                    )
                     Spacer(Modifier.width(6.dp))
-                    ChipButton(Feather.Grid, "Skill", ControlOrange, onClick = onSkillClick)
+                    SkillCapabilityButton(
+                        commands = piCommands,
+                        icon = Feather.Grid,
+                        tone = ControlOrange,
+                        onSelect = { command ->
+                            onInputChange("/${command.name} ")
+                            composerFocusRequester.requestFocus()
+                        },
+                    )
                     Spacer(Modifier.weight(1f))
                     ActionButton(
                         text = if (isSending) "停止" else "发送",
@@ -456,9 +461,11 @@ fun ChatArea(
             if (layoutDensity.showShortcutHints) {
                 Spacer(Modifier.height(6.dp))
                 Row(
-                    modifier = Modifier.padding(horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(contextUsageText, color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
+                    Spacer(Modifier.weight(1f))
                     Text("Enter", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
                     Text(" 发送", color = Tx3, fontSize = 11.sp)
@@ -466,8 +473,6 @@ fun ChatArea(
                     Text("Shift+Enter", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
                     Text(" 换行", color = Tx3, fontSize = 11.sp)
-                    Spacer(Modifier.weight(1f))
-                    Text(contextUsageText, color = Tx3, fontSize = 10.sp, fontFamily = SansFont)
                 }
             }
         }
@@ -689,44 +694,6 @@ internal fun formatMessageTimestamp(
         today -> messageClockFormatter.format(value)
         today.minusDays(1) -> "昨天 ${messageClockFormatter.format(value)}"
         else -> messageDateFormatter.format(value)
-    }
-}
-
-@Composable
-private fun ChipButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    tone: Color,
-    onClick: () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val chipBg by animateColorAsState(
-        if (hovered) tone.withAlpha(0.17f) else tone.withAlpha(0.09f),
-        Motion.colorDefault, label = "chipBg"
-    )
-    val chipBorder by animateColorAsState(
-        if (hovered) tone.withAlpha(0.42f) else tone.withAlpha(0.22f),
-        Motion.colorDefault, label = "chipBorder"
-    )
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(chipBg)
-            .border(1.dp, chipBorder, RoundedCornerShape(8.dp))
-            .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .height(28.dp)
-            .padding(horizontal = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = tone,
-            modifier = Modifier.size(12.dp)
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(label, color = if (hovered) tone else Tx2, fontSize = 12.sp, fontFamily = SansFont)
     }
 }
 

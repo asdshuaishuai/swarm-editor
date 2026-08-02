@@ -4,6 +4,7 @@ import com.swarmeditor.backend.pi.PiSessionProvider
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmExperience
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceBundle
 import com.swarmeditor.common.model.SwarmTask
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -17,6 +18,7 @@ data class SwarmPlanningRequest(
     val preferredPlannerAgentId: String? = null,
     val availableAgents: List<AgentConfig>,
     val experiences: List<SwarmExperience> = emptyList(),
+    val repositoryEvidence: SwarmRepositoryEvidenceBundle? = null,
 )
 
 data class SwarmPlan(
@@ -118,16 +120,42 @@ class PiSwarmPlanner(
             appendLine("Usage counts are correlational, not causal attribution.")
             appendLine("Use these as evidence, not absolute rules; preserve explicit objective constraints.")
         }
+        request.repositoryEvidence?.takeIf { it.evidence.isNotEmpty() }?.let { bundle ->
+            appendLine()
+            appendLine("Budgeted repository localization evidence:")
+            bundle.evidence.forEach { item ->
+                val location = buildString {
+                    item.path?.let(::append)
+                    item.line?.let { append(":$it") }
+                }.ifBlank { "repository" }
+                appendLine("- [${item.kind}] $location score=${"%.2f".format(item.score)}: ${item.summary}")
+                item.excerpt?.takeIf(String::isNotBlank)?.let { excerpt ->
+                    excerpt.lineSequence().forEach { line -> appendLine("  $line") }
+                }
+            }
+            appendLine(
+                "Evidence is bounded (${bundle.consumedCharacters}/${bundle.characterBudget} characters) and may be incomplete."
+            )
+            appendLine("Treat it as localization evidence, verify it before editing, and avoid redundant discovery tasks.")
+        }
         appendLine()
         appendLine("Return JSON only, with this schema:")
         appendLine(
-            """{"maxParallelism":3,"failFast":false,"maxTaskAttempts":2,"tasks":[{"id":"inspect","title":"Inspect","prompt":"Concrete task instructions and verification criteria","role":"PLANNER","agentId":null,"dependsOn":[]}]}"""
+            """{"maxParallelism":3,"failFast":false,"maxTaskAttempts":2,"tasks":[{"id":"inspect","title":"Inspect","prompt":"Concrete task instructions and verification criteria","role":"PLANNER","agentId":null,"dependsOn":[],"readPaths":["backend/**"],"writePaths":[],"verificationCommands":[]}]}"""
         )
         appendLine("Rules:")
         appendLine("- Create between 1 and $MAX_PLANNED_TASKS tasks.")
         appendLine("- Use only roles: ${SwarmAgentRole.entries.joinToString { it.name }}.")
         appendLine("- Use short unique ids containing only letters, numbers, underscore, or hyphen.")
         appendLine("- Build an acyclic dependency graph and expose parallel work where safe.")
+        appendLine("- Identify the critical path explicitly through dependencies; avoid unnecessary serial chains.")
+        appendLine("- Start with repository evidence or localization tasks before implementation when scope is uncertain.")
+        appendLine("- Parallel implementation tasks must have disjoint ownership boundaries or read-only scopes.")
+        appendLine("- Declare repository-relative readPaths and writePaths for every task; use glob suffixes such as backend/** for directories.")
+        appendLine("- Keep writePaths minimal and disjoint. Use an empty writePaths list for read-only work and ** only when broad ownership is unavoidable.")
+        appendLine("- Declare verificationCommands as structured argv arrays, for example [[\"./gradlew\",\":backend:test\"]].")
+        appendLine("- Code-changing tasks must include focused mechanical verification; read-only tasks may use an empty list.")
+        appendLine("- Make integration and verification depend on every task whose output they validate.")
         appendLine("- Set maxTaskAttempts between 1 and $MAX_TASK_ATTEMPTS based on task uncertainty.")
         appendLine("- Assign agentId only when one listed profile is specifically suitable; otherwise use null.")
         appendLine("- Prompts must include concrete scope, expected output, and verification criteria.")
@@ -157,6 +185,9 @@ private data class PlannerTask(
     val role: String = SwarmAgentRole.GENERAL.name,
     val agentId: String? = null,
     val dependsOn: List<String> = emptyList(),
+    val readPaths: List<String> = emptyList(),
+    val writePaths: List<String> = emptyList(),
+    val verificationCommands: List<List<String>> = emptyList(),
 )
 
 internal fun parseSwarmPlan(response: String, availableAgentIds: Set<String>): SwarmPlan {
@@ -173,6 +204,9 @@ internal fun parseSwarmPlan(response: String, availableAgentIds: Set<String>): S
                 ?: error("Unsupported swarm role: ${planned.role}"),
             agentId = planned.agentId?.trim()?.takeIf(availableAgentIds::contains),
             dependsOn = planned.dependsOn.map(String::trim).distinct(),
+            readPaths = planned.readPaths.map(::validateOwnershipScope).distinct(),
+            writePaths = planned.writePaths.map(::validateOwnershipScope).distinct(),
+            verificationCommands = planned.verificationCommands.map { command -> command.map(String::trim) },
         )
     }
     SwarmGraph.validate(tasks)

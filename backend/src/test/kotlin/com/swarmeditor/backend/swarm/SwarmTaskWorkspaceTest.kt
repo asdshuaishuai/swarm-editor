@@ -70,6 +70,10 @@ class SwarmTaskWorkspaceTest {
                 captured = capturer.capture(workspace)
 
                 assertEquals(4, captured.evidence.changedPathCount)
+                assertEquals(
+                    setOf("modified.txt", "deleted.txt", "added.txt", "line\nbreak.txt"),
+                    captured.evidence.changedPaths.mapTo(mutableSetOf()) { it.path },
+                )
                 assertNotEquals(captured.evidence.beforeTree, captured.evidence.afterTree)
                 assertEquals(captured.evidence, evidenceStore.getWorkspaceDelta(captured.id))
                 val artifactRevision = checkNotNull(captured.evidence.artifactRevision)

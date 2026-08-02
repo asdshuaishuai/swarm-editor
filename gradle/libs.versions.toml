@@ -14,6 +14,7 @@ decompose = "3.5.0"
 haze = "1.6.6"
 line-icons = "4.29.2"
 markdown-renderer = "0.33.0-b05"
+rsyntaxtextarea = "4.0.1"
 
 # Logging
 logback = "1.5.16"
@@ -50,6 +51,7 @@ compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-previ
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 lucide-icons = { module = "com.woowla.compose.icon.collections:feather", version.ref = "line-icons" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
+rsyntaxtextarea = { module = "com.fifesoft:rsyntaxtextarea", version.ref = "rsyntaxtextarea" }
 
 # Decompose
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }

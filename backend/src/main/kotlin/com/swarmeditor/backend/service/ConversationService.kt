@@ -300,7 +300,7 @@ class ConversationService(
                                 actor = "Pi",
                                 action = if (event.isError) "工具失败" else "工具完成",
                                 detail = event.name,
-                                type = if (event.isError) ActivityType.ERROR else event.name.toActivityType()
+                                type = event.name.toActivityType()
                             )
                         }
                         else -> Unit
@@ -456,6 +456,7 @@ private fun String.toActivityType(): ActivityType {
     val normalized = lowercase()
     return when {
         normalized.contains("mcp") -> ActivityType.MCP
+        normalized.contains("skill") -> ActivityType.SKILL
         normalized in setOf("read", "write", "edit", "patch", "apply_patch") -> ActivityType.FILE
         normalized in setOf("bash", "shell", "exec", "command", "terminal") -> ActivityType.COMMAND
         else -> ActivityType.TOOL

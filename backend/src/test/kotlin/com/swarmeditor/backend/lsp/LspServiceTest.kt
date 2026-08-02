@@ -597,6 +597,68 @@ class LspServiceTest {
         assertEquals(emptyList(), decodeSemanticTokens(listOf(0, 0, 4), listOf("class"), emptyList()))
     }
 
+    @Test
+    fun `decodes hierarchical document symbols`() {
+        val response = buildJsonObject {
+            putJsonArray("result") {
+                add(
+                    buildJsonObject {
+                        put("name", "Scheduler")
+                        put("kind", 5)
+                        putJsonObject("selectionRange") {
+                            putJsonObject("start") { put("line", 3) }
+                        }
+                        putJsonArray("children") {
+                            add(
+                                buildJsonObject {
+                                    put("name", "schedule")
+                                    put("kind", 6)
+                                    putJsonObject("selectionRange") {
+                                        putJsonObject("start") { put("line", 7) }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
+        assertEquals(
+            listOf(
+                SourceSymbol("Scheduler", "class", 3),
+                SourceSymbol("schedule", "method", 7, "Scheduler"),
+            ),
+            decodeDocumentSymbols(response),
+        )
+    }
+
+    @Test
+    fun `decodes published diagnostics notifications`() {
+        val message = buildJsonObject {
+            put("method", "textDocument/publishDiagnostics")
+            putJsonObject("params") {
+                put("uri", "file:///Scheduler.kt")
+                putJsonArray("diagnostics") {
+                    add(
+                        buildJsonObject {
+                            put("severity", 2)
+                            put("message", "Result is unused")
+                            putJsonObject("range") {
+                                putJsonObject("start") { put("line", 11) }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        assertEquals(
+            "file:///Scheduler.kt" to listOf(SourceDiagnostic(11, "warning", "Result is unused")),
+            decodePublishedDiagnostics(message),
+        )
+    }
+
     private fun kotlinSpec(): LspServerSpec = lspSpec(
         id = "kotlin",
         displayName = "Kotlin Language Server",

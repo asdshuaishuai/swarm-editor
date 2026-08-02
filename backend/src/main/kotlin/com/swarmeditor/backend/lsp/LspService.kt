@@ -63,9 +63,34 @@ data class LspHighlightResult(
     val message: String? = null,
 )
 
+data class SourceSymbol(
+    val name: String,
+    val kind: String,
+    val line: Int,
+    val containerName: String? = null,
+)
+
+data class SourceDiagnostic(
+    val line: Int,
+    val severity: String,
+    val message: String,
+)
+
+data class LspDocumentInsight(
+    val languageId: String,
+    val serverName: String? = null,
+    val symbols: List<SourceSymbol> = emptyList(),
+    val diagnostics: List<SourceDiagnostic> = emptyList(),
+    val message: String? = null,
+)
+
 interface SourceSemanticHighlighter {
     suspend fun highlight(file: File, content: String): LspHighlightResult
     suspend fun close() = Unit
+}
+
+interface SourceCodeIntelligence : SourceSemanticHighlighter {
+    suspend fun inspect(file: File, content: String): LspDocumentInsight
 }
 
 class LspService(
@@ -75,7 +100,7 @@ class LspService(
         StdioLspSession(projectRoot, spec)
     },
     private val commandAvailability: (String) -> Boolean = ::commandAvailable,
-) : SourceSemanticHighlighter {
+) : SourceCodeIntelligence {
     private val sessions = ConcurrentHashMap<String, LspSession>()
     private val sessionLifecycleLocks = ConcurrentHashMap<String, Mutex>()
     private val sessionMutex = Mutex()
@@ -144,6 +169,32 @@ class LspService(
         return unavailableResult(spec, failures)
     }
 
+    override suspend fun inspect(file: File, content: String): LspDocumentInsight {
+        val highlighted = highlight(file, content)
+        if (highlighted.serverName == null) {
+            return LspDocumentInsight(
+                languageId = highlighted.languageId,
+                message = highlighted.message,
+            )
+        }
+        val spec = specs.firstOrNull { file.extension.lowercase() in it.extensions }
+            ?: return LspDocumentInsight(languageId = highlighted.languageId, message = highlighted.message)
+        val session = sessionMutex.withLock { sessions[spec.id] }
+            ?: return LspDocumentInsight(languageId = highlighted.languageId, message = highlighted.message)
+        return try {
+            session.inspect(file, content)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.debug(error) { "${spec.displayName} code intelligence inspection failed" }
+            LspDocumentInsight(
+                languageId = highlighted.languageId,
+                serverName = highlighted.serverName,
+                message = error.message,
+            )
+        }
+    }
+
     private fun unavailableResult(spec: LspServerSpec, failures: List<String>) = LspHighlightResult(
         languageId = spec.languageId,
         message = "${spec.displayName} 语义高亮不可用（${failures.joinToString("；")}），已使用本地语法高亮",
@@ -209,6 +260,16 @@ data class LspServerSpec(
 
 interface LspSession {
     suspend fun highlight(file: File, content: String): LspHighlightResult
+
+    suspend fun inspect(file: File, content: String): LspDocumentInsight {
+        val highlighted = highlight(file, content)
+        return LspDocumentInsight(
+            languageId = highlighted.languageId,
+            serverName = highlighted.serverName,
+            message = highlighted.message,
+        )
+    }
+
     suspend fun close()
 }
 
@@ -344,6 +405,7 @@ private class StdioLspSession(
     private val requestIds = AtomicLong()
     private val documentSynchronizer = LspDocumentSynchronizer(spec.languageId)
     private val documentOperations = ConcurrentHashMap<String, Mutex>()
+    private val publishedDiagnostics = ConcurrentHashMap<String, List<SourceDiagnostic>>()
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JsonObject>>()
     private val terminalError = AtomicReference<Throwable?>()
     private var initialized = false
@@ -384,6 +446,29 @@ private class StdioLspSession(
                 languageId = spec.languageId,
                 serverName = serverName,
                 highlights = decodeSemanticTokens(semanticTokenData(response), tokenTypes, tokenModifiers),
+            )
+        }
+    }
+
+    override suspend fun inspect(file: File, content: String): LspDocumentInsight {
+        ensureInitialized()
+        val uri = file.toURI().toString()
+        return documentOperations.computeIfAbsent(uri) { Mutex() }.withLock {
+            documentSynchronizer.sync(uri, content, ::notify)
+            val symbols = optionalRequest(
+                method = "textDocument/documentSymbol",
+                params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+            )?.let(::decodeDocumentSymbols).orEmpty()
+            val pullDiagnostics = optionalRequest(
+                method = "textDocument/diagnostic",
+                params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+                timeoutMillis = 1_500,
+            )?.let(::decodeDocumentDiagnostics).orEmpty()
+            LspDocumentInsight(
+                languageId = spec.languageId,
+                serverName = serverName,
+                symbols = symbols,
+                diagnostics = pullDiagnostics.ifEmpty { publishedDiagnostics[uri].orEmpty() },
             )
         }
     }
@@ -472,6 +557,21 @@ private class StdioLspSession(
         }
     }
 
+    private suspend fun optionalRequest(
+        method: String,
+        params: JsonObject,
+        timeoutMillis: Long = 3_000,
+    ): JsonObject? {
+        return try {
+            request(method, params, timeoutMillis)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.debug(error) { "$serverName does not provide $method" }
+            null
+        }
+    }
+
     private suspend fun notify(method: String, params: JsonObject) {
         write(
             buildJsonObject {
@@ -495,6 +595,10 @@ private class StdioLspSession(
     private suspend fun readMessages(input: InputStream) {
         while (true) {
             val message = readLspMessage(input, json) ?: return
+            decodePublishedDiagnostics(message)?.let { (uri, diagnostics) ->
+                publishedDiagnostics[uri] = diagnostics
+                continue
+            }
             serverRequestResponse(message, projectRoot)?.let { response ->
                 write(response)
                 continue
@@ -531,6 +635,8 @@ internal fun lspInitializeParams(projectRoot: File, spec: LspServerSpec): JsonOb
     putJsonObject("capabilities") {
         putJsonObject("textDocument") {
             put("semanticTokens", semanticTokensClientCapabilities())
+            putJsonObject("documentSymbol") { put("hierarchicalDocumentSymbolSupport", true) }
+            putJsonObject("diagnostic") { put("dynamicRegistration", false) }
         }
     }
 }
@@ -660,6 +766,86 @@ internal fun semanticTokenData(response: JsonObject): List<Int> {
         data += value
     }
     return if (data.size % 5 == 0) data else emptyList()
+}
+
+internal fun decodeDocumentSymbols(response: JsonObject): List<SourceSymbol> {
+    val result = response["result"] as? JsonArray ?: return emptyList()
+    val symbols = mutableListOf<SourceSymbol>()
+
+    fun collect(element: JsonElement, inheritedContainer: String?) {
+        val symbol = element as? JsonObject ?: return
+        val name = (symbol["name"] as? JsonPrimitive)?.contentOrNull ?: return
+        val kind = (symbol["kind"] as? JsonPrimitive)?.intOrNull?.let(::symbolKindName) ?: "symbol"
+        val explicitContainer = (symbol["containerName"] as? JsonPrimitive)?.contentOrNull
+        val range = symbol["selectionRange"] as? JsonObject
+            ?: symbol["range"] as? JsonObject
+            ?: ((symbol["location"] as? JsonObject)?.get("range") as? JsonObject)
+        val start = range?.get("start") as? JsonObject
+        val line = (start?.get("line") as? JsonPrimitive)?.intOrNull ?: 0
+        symbols += SourceSymbol(
+            name = name,
+            kind = kind,
+            line = line,
+            containerName = explicitContainer ?: inheritedContainer,
+        )
+        (symbol["children"] as? JsonArray)?.forEach { child -> collect(child, name) }
+    }
+
+    result.forEach { collect(it, null) }
+    return symbols
+}
+
+internal fun decodeDocumentDiagnostics(response: JsonObject): List<SourceDiagnostic> {
+    val result = response["result"] as? JsonObject ?: return emptyList()
+    val items = result["items"] as? JsonArray ?: return emptyList()
+    return decodeDiagnostics(items)
+}
+
+internal fun decodePublishedDiagnostics(message: JsonObject): Pair<String, List<SourceDiagnostic>>? {
+    if ((message["method"] as? JsonPrimitive)?.contentOrNull != "textDocument/publishDiagnostics") return null
+    val params = message["params"] as? JsonObject ?: return null
+    val uri = (params["uri"] as? JsonPrimitive)?.contentOrNull ?: return null
+    val diagnostics = params["diagnostics"] as? JsonArray ?: return uri to emptyList()
+    return uri to decodeDiagnostics(diagnostics)
+}
+
+private fun decodeDiagnostics(items: JsonArray): List<SourceDiagnostic> = items.mapNotNull { element ->
+        val diagnostic = element as? JsonObject ?: return@mapNotNull null
+        val message = (diagnostic["message"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+        val range = diagnostic["range"] as? JsonObject
+        val start = range?.get("start") as? JsonObject
+        val line = (start?.get("line") as? JsonPrimitive)?.intOrNull ?: 0
+        val severity = (diagnostic["severity"] as? JsonPrimitive)?.intOrNull?.let(::diagnosticSeverityName)
+            ?: "unknown"
+        SourceDiagnostic(line = line, severity = severity, message = message)
+    }
+
+private fun symbolKindName(kind: Int): String = when (kind) {
+    1 -> "file"
+    2 -> "module"
+    3 -> "namespace"
+    4 -> "package"
+    5 -> "class"
+    6 -> "method"
+    7 -> "property"
+    8 -> "field"
+    9 -> "constructor"
+    10 -> "enum"
+    11 -> "interface"
+    12 -> "function"
+    13 -> "variable"
+    14 -> "constant"
+    22 -> "enum-member"
+    23 -> "struct"
+    else -> "symbol"
+}
+
+private fun diagnosticSeverityName(severity: Int): String = when (severity) {
+    1 -> "error"
+    2 -> "warning"
+    3 -> "information"
+    4 -> "hint"
+    else -> "unknown"
 }
 
 private val standardSemanticTokenTypes = listOf(

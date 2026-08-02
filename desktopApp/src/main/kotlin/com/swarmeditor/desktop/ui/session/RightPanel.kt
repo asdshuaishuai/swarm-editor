@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Check
+import com.woowla.compose.icon.collections.feather.feather.ChevronRight
 import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenu
@@ -56,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -104,7 +106,9 @@ private fun extColor(ext: String): Color = when (ext) {
 }
 
 private fun logDotColor(type: ActivityType): Color = when (type) {
-    ActivityType.TOOL, ActivityType.MCP -> AgentGemini
+    ActivityType.TOOL -> AgentGemini
+    ActivityType.SKILL -> ControlPurple
+    ActivityType.MCP -> AgentQwen
     ActivityType.FILE -> AgentClaude
     ActivityType.COMMAND -> Ac
     ActivityType.ERROR -> Err
@@ -392,16 +396,13 @@ private fun ColumnScope.ChangesTab(
                 )
                 Spacer(Modifier.weight(1f))
                 if (changes.any { it.hasUnstagedChanges }) {
-                    Box(
-                        modifier = Modifier
-                            .fluidClickable { onStageAll(changes.filter { it.hasUnstagedChanges }.map { it.path }) }
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(OkLight.withAlpha(0.1f))
-                            .border(1.dp, OkLight.withAlpha(0.3f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
-                        Text("全部暂存", color = OkLight, style = AppType.micro)
-                    }
+                    ActionButton(
+                        text = "全部暂存",
+                        tone = ActionTone.POSITIVE,
+                        prominent = false,
+                        compact = true,
+                        onClick = { onStageAll(changes.filter { it.hasUnstagedChanges }.map { it.path }) },
+                    )
                 }
             }
         }
@@ -493,29 +494,21 @@ private fun ColumnScope.ChangesTab(
 
                     // Stage / unstage actions. Never discard working-tree data implicitly.
                     if (change.hasUnstagedChanges) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .fluidClickable { onStageFile(change.path) }
-                                .clip(RoundedCornerShape(6.dp))
-                                .border(1.dp, Line, RoundedCornerShape(6.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(imageVector = Feather.Check, contentDescription = "暂存", tint = AgentGemini, modifier = Modifier.size(12.dp))
-                        }
+                        ChangeIconAction(
+                            icon = Feather.Check,
+                            label = "暂存",
+                            tone = AgentGemini,
+                            onClick = { onStageFile(change.path) },
+                        )
                     }
                     if (change.hasStagedChanges) {
                         Spacer(Modifier.width(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .fluidClickable { onUnstageFile(change.path) }
-                                .clip(RoundedCornerShape(6.dp))
-                                .border(1.dp, Line, RoundedCornerShape(6.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(imageVector = Feather.X, contentDescription = "取消暂存", tint = Err, modifier = Modifier.size(12.dp))
-                        }
+                        ChangeIconAction(
+                            icon = Feather.X,
+                            label = "取消暂存",
+                            tone = ErrLight,
+                            onClick = { onUnstageFile(change.path) },
+                        )
                     }
                     if (change.hasStagedChanges && !change.hasUnstagedChanges) {
                         Icon(imageVector = Feather.Check, contentDescription = "已暂存", tint = AgentGemini, modifier = Modifier.size(14.dp))
@@ -523,6 +516,40 @@ private fun ColumnScope.ChangesTab(
                 }
 
             }
+        }
+    }
+}
+
+@Composable
+private fun ChangeIconAction(
+    icon: ImageVector,
+    label: String,
+    tone: Color,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val background by animateColorAsState(
+        targetValue = tone.withAlpha(if (hovered) 0.18f else 0.09f),
+        animationSpec = Motion.colorDefault,
+        label = "changeActionBackground",
+    )
+    val border by animateColorAsState(
+        targetValue = tone.withAlpha(if (hovered) 0.52f else 0.28f),
+        animationSpec = Motion.colorDefault,
+        label = "changeActionBorder",
+    )
+    HoverTipBox(label) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .fluidClickable(interactionSource = interaction, pressScale = 0.96f, onClick = onClick)
+                .clip(RoundedCornerShape(7.dp))
+                .background(background)
+                .border(1.dp, border, RoundedCornerShape(7.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = label, tint = tone, modifier = Modifier.size(13.dp))
         }
     }
 }
@@ -946,9 +973,11 @@ private fun ColumnScope.BranchesTab(
         }
         Spacer(Modifier.height(8.dp))
         when {
-            isLoading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("正在读取 pi 会话树…", color = Tx3, style = AppType.caption)
-            }
+            isLoading -> InlineLoadingState(
+                text = "正在读取 pi 会话树…",
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 24.dp),
+                minHeight = 64.dp,
+            )
             tree == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text("发送第一条消息后即可查看分支", color = Tx3, style = AppType.caption)
             }
@@ -1188,23 +1217,23 @@ private fun ThinkingLevelChip(
 
 @Composable
 private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
-    var activeFilter by remember { mutableStateOf("全部") }
-    val filters = listOf("全部", "工具", "会话")
+    var activeFilter by remember { mutableStateOf(AgentLogFilter.ALL) }
     val filtered = remember(activities, activeFilter) {
-        activities.asReversed().filter { entry ->
-            when (activeFilter) {
-                "工具" -> entry.type in setOf(ActivityType.TOOL, ActivityType.MCP, ActivityType.FILE, ActivityType.COMMAND)
-                "会话" -> entry.type in setOf(ActivityType.SESSION, ActivityType.MESSAGE)
-                else -> true
-            }
-        }
+        filterAgentActivities(activities, activeFilter)
     }
+    val dateGroups = remember(filtered) { groupAgentActivitiesByDate(filtered) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var followNewest by remember(activeFilter) { mutableStateOf(true) }
     var autoScrolling by remember(activeFilter) { mutableStateOf(false) }
     var latestSeenId by remember(activeFilter) { mutableStateOf<String?>(null) }
     var hasNewActivity by remember(activeFilter) { mutableStateOf(false) }
+    var expandedDates by remember(activeFilter) { mutableStateOf(emptySet<String>()) }
+
+    LaunchedEffect(dateGroups.firstOrNull()?.dateKey, activeFilter) {
+        val newestDate = dateGroups.firstOrNull()?.dateKey ?: return@LaunchedEffect
+        expandedDates = (expandedDates intersect dateGroups.mapTo(mutableSetOf(), AgentActivityDateGroup::dateKey)) + newestDate
+    }
 
     LaunchedEffect(listState, activeFilter) {
         snapshotFlow { listState.isScrollInProgress to autoScrolling }
@@ -1247,18 +1276,18 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "活动日志",
+                "Agent 操作日志",
                 color = Tx3,
                 style = AppType.micro,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.6.sp,
             )
             Spacer(Modifier.weight(1f))
-            filters.forEach { label ->
+            AgentLogFilter.entries.forEach { filter ->
                 LogFilterChip(
-                    label = label,
-                    isActive = activeFilter == label,
-                    onClick = { activeFilter = label },
+                    label = filter.label,
+                    isActive = activeFilter == filter,
+                    onClick = { activeFilter = filter },
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
@@ -1274,15 +1303,34 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
                 if (filtered.isEmpty()) {
                     item(key = "empty-activity") {
                         Text(
-                            "暂无实时会话活动",
+                            "暂无 Agent 工具、Skill 或 MCP 操作",
                             color = Tx3,
                             style = AppType.caption,
                             modifier = Modifier.padding(vertical = 18.dp)
                         )
                     }
                 }
-                items(filtered, key = ActivityEvent::id) { entry ->
-                    TimelineEntry(entry)
+                dateGroups.forEach { group ->
+                    val expanded = group.dateKey in expandedDates
+                    item(key = "activity-date-${group.dateKey}") {
+                        AgentLogDateHeader(
+                            dateKey = group.dateKey,
+                            count = group.entries.size,
+                            expanded = expanded,
+                            onClick = {
+                                expandedDates = if (expanded) {
+                                    expandedDates - group.dateKey
+                                } else {
+                                    expandedDates + group.dateKey
+                                }
+                            },
+                        )
+                    }
+                    if (expanded) {
+                        items(group.entries, key = ActivityEvent::id) { entry ->
+                            TimelineEntry(entry)
+                        }
+                    }
                 }
             }
 
@@ -1312,6 +1360,47 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AgentLogDateHeader(
+    dateKey: String,
+    count: Int,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val background by animateColorAsState(
+        targetValue = if (hovered) Bg3.copy(alpha = 0.7f) else Bg1.copy(alpha = 0.72f),
+        animationSpec = Motion.colorDefault,
+        label = "agentLogDateBackground",
+    )
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = Motion.floatState,
+        label = "agentLogDateChevron",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.xs)
+            .background(background)
+            .fluidClickable(interactionSource = interaction, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Feather.ChevronRight,
+            contentDescription = if (expanded) "收起 $dateKey" else "展开 $dateKey",
+            tint = Tx3,
+            modifier = Modifier.size(13.dp).rotate(chevronRotation),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(dateKey, color = Tx, style = AppType.caption, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        MicroPill(count.toString(), AcLight)
     }
 }
 
@@ -1390,7 +1479,7 @@ private fun TimelineEntry(entry: ActivityEvent) {
                 Spacer(Modifier.width(6.dp))
                 Text(entry.action, color = if (entry.action == "验证通过") AgentGemini else Tx, style = AppType.caption)
                 Spacer(Modifier.weight(1f))
-                Text(entry.timestamp.toString().substring(11, 16), color = Tx3, style = AppType.micro)
+                Text(activityTimeLabel(entry), color = Tx3, style = AppType.micro)
             }
             if (entry.detail.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))

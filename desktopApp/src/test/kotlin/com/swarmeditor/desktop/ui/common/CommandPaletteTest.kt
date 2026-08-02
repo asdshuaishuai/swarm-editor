@@ -8,6 +8,20 @@ import kotlin.test.assertEquals
 
 class CommandPaletteTest {
     @Test
+    fun `lazy list index includes group headers`() {
+        val commands = listOf(
+            Command("one", "One", "Workspace"),
+            Command("two", "Two", "Workspace"),
+            Command("three", "Three", "Pi"),
+        )
+
+        assertEquals(1, commandPaletteLazyIndex(commands, 0))
+        assertEquals(2, commandPaletteLazyIndex(commands, 1))
+        assertEquals(4, commandPaletteLazyIndex(commands, 2))
+        assertEquals(0, commandPaletteLazyIndex(commands, 3))
+    }
+
+    @Test
     fun `command palette exposes only the primary agent configuration`() {
         val commands = buildCommands(
             listOf(

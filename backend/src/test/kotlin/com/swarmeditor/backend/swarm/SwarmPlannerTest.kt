@@ -8,6 +8,9 @@ import com.swarmeditor.common.model.ImageData
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmExperience
 import com.swarmeditor.common.model.SwarmExperienceKind
+import com.swarmeditor.common.model.SwarmRepositoryEvidence
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceBundle
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -29,9 +32,9 @@ class SwarmPlannerTest {
                   "failFast": true,
                   "maxTaskAttempts": 9,
                   "tasks": [
-                    {"id":"inspect","title":"Inspect","prompt":"Inspect architecture and report evidence","role":"PLANNER","agentId":"planner","dependsOn":[]},
-                    {"id":"implement","title":"Implement","prompt":"Implement and run focused tests","role":"IMPLEMENTER","agentId":"missing","dependsOn":["inspect"]},
-                    {"id":"review","title":"Review","prompt":"Review integration and data flow","role":"REVIEWER","dependsOn":["implement"]}
+                    {"id":"inspect","title":"Inspect","prompt":"Inspect architecture and report evidence","role":"PLANNER","agentId":"planner","dependsOn":[],"readPaths":["backend/**"],"writePaths":[]},
+                    {"id":"implement","title":"Implement","prompt":"Implement and run focused tests","role":"IMPLEMENTER","agentId":"missing","dependsOn":["inspect"],"readPaths":["backend/**"],"writePaths":["backend/src/**"],"verificationCommands":[["./gradlew",":backend:test"]]},
+                    {"id":"review","title":"Review","prompt":"Review integration and data flow","role":"REVIEWER","dependsOn":["implement"],"readPaths":["backend/**"],"writePaths":[]}
                   ]
                 }
                 ```
@@ -45,6 +48,8 @@ class SwarmPlannerTest {
         assertEquals(SwarmAgentRole.PLANNER, plan.tasks[0].role)
         assertEquals("planner", plan.tasks[0].agentId)
         assertNull(plan.tasks[1].agentId)
+        assertEquals(listOf("backend/src/**"), plan.tasks[1].writePaths)
+        assertEquals(listOf(listOf("./gradlew", ":backend:test")), plan.tasks[1].verificationCommands)
         assertEquals(listOf("implement"), plan.tasks[2].dependsOn)
     }
 
@@ -141,6 +146,25 @@ class SwarmPlannerTest {
                         updatedAt = Instant.fromEpochMilliseconds(1_000),
                     )
                 ),
+                repositoryEvidence = SwarmRepositoryEvidenceBundle(
+                    queryFingerprint = "repo-query",
+                    generatedAt = Instant.fromEpochMilliseconds(2_000),
+                    scannedFileCount = 20,
+                    candidateFileCount = 2,
+                    characterBudget = 1_000,
+                    consumedCharacters = 120,
+                    truncated = false,
+                    evidence = listOf(
+                        SwarmRepositoryEvidence(
+                            id = "repo-one",
+                            kind = SwarmRepositoryEvidenceKind.SYMBOL,
+                            path = "backend/src/main/kotlin/Scheduler.kt",
+                            line = 42,
+                            score = 31.5,
+                            summary = "method scheduleCriticalPath",
+                        )
+                    ),
+                ),
             )
         )
 
@@ -148,6 +172,8 @@ class SwarmPlannerTest {
         assertEquals(2, prompts.size)
         assertContains(prompts.first(), "Refactor backend concurrency")
         assertContains(prompts.first(), "preserve-cancellation")
+        assertContains(prompts.first(), "backend/src/main/kotlin/Scheduler.kt:42")
+        assertContains(prompts.first(), "method scheduleCriticalPath")
         assertContains(prompts.last(), "previous swarm plan was invalid")
         assertEquals("Repository Planner · Planner", capturedConfig?.name)
         assertTrue(configValidated)

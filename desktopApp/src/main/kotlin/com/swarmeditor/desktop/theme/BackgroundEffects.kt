@@ -1,38 +1,18 @@
 package com.swarmeditor.desktop.theme
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 
 @Composable
 fun BackgroundEffects(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "ambient")
-    val ambientAlpha by transition.animateFloat(
-        initialValue = 0.82f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(12_000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "ambientAlpha",
-    )
-
     Box(modifier = modifier.fillMaxSize()) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = ambientAlpha },
-        ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(Bg0, Bg1.copy(alpha = 1f), Bg2.copy(alpha = 1f)),

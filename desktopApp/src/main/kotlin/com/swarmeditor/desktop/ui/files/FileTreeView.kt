@@ -14,8 +14,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.woowla.compose.icon.collections.feather.Feather
-import com.woowla.compose.icon.collections.feather.feather.Folder
-import com.woowla.compose.icon.collections.feather.feather.File
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 
 /** Color for a file name based on its extension. */
 private fun fileColor(name: String) = when {
@@ -179,11 +179,11 @@ private fun FileTreeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(
-            imageVector = if (node.isDirectory) Feather.Folder else Feather.File,
+        SemanticIconBadge(
+            spec = semanticFileIconSpec(node.name, node.isDirectory),
             contentDescription = if (node.isDirectory) "目录" else "文件",
-            modifier = Modifier.size(if (node.isDirectory) 16.dp else 14.dp),
-            tint = Tx2,
+            size = 20.dp,
+            showBadge = false,
         )
         Text(
             text = node.name,

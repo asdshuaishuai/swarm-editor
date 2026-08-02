@@ -26,6 +26,7 @@ import com.arkivanov.essenty.lifecycle.resume
 import com.swarmeditor.backend.shutdownBackendServices
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.attachment.clipboardContainsImages
+import com.swarmeditor.desktop.attachment.chooseImageFiles
 import com.swarmeditor.desktop.attachment.readClipboardImageAttachments
 import com.swarmeditor.desktop.resources.Res
 import com.swarmeditor.desktop.resources.swarm_editor
@@ -38,8 +39,6 @@ import com.swarmeditor.desktop.theme.ThemeRuntime
 import com.swarmeditor.backend.initializeBackendServices
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
-import java.awt.FileDialog
-import java.awt.Frame
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
 import java.awt.dnd.DropTargetAdapter
@@ -151,15 +150,7 @@ fun main() {
                         }
                     },
                     onPickImages = {
-                        val owner = awtWindow as? java.awt.Frame
-                        FileDialog(owner, "选择图片", FileDialog.LOAD).run {
-                            isMultipleMode = true
-                            filenameFilter = java.io.FilenameFilter { _, name ->
-                                name.substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "webp")
-                            }
-                            isVisible = true
-                            files.toList()
-                        }
+                        chooseImageFiles(awtWindow, File(root.projectVm.projectPath))
                     },
                     droppedImageFiles = droppedImageFiles,
                     clipboardHasImages = ::clipboardContainsImages,

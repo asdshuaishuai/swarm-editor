@@ -4,31 +4,28 @@ import com.swarmeditor.backend.process.CommandRequest
 import com.swarmeditor.backend.process.CommandResult
 import com.swarmeditor.backend.process.CommandRunner
 import com.swarmeditor.backend.process.LocalCommandRunner
+import com.swarmeditor.common.model.SwarmArtifactHunkApplicability
+import com.swarmeditor.common.model.SwarmArtifactHunkApplicabilityStatus
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
+import com.swarmeditor.common.model.SwarmArtifactSelectionApplicabilityStatus
+import com.swarmeditor.common.model.SwarmArtifactSelectionPreview
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import java.io.File
+import java.nio.file.Files
+import java.security.MessageDigest
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-data class SwarmArtifactIntegrationPlan(
-    val runId: String,
-    val taskId: String,
-    val attempt: Int,
-    val workspaceDeltaEvidenceId: String,
-    val verificationEvidenceId: String,
-    val baselineRevision: String,
-    val baselineTree: String,
-    val currentRevision: String,
-    val currentTree: String,
-    val artifactRevision: String,
-    val artifactTree: String,
-    val integratedRevision: String,
-    val integratedTree: String,
-    val pinnedReference: String,
-)
+import kotlinx.coroutines.withContext
 
 class SwarmArtifactMergeConflictException(
     val runId: String,
@@ -36,20 +33,52 @@ class SwarmArtifactMergeConflictException(
     val details: String,
 ) : IllegalStateException("Verified task artifact conflicts with the current repository state")
 
+class SwarmArtifactIntegrationStaleException(
+    val planId: String,
+) : IllegalStateException("Artifact integration plan $planId is stale; prepare a new review plan")
+
+interface SwarmArtifactIntegrator {
+    suspend fun prepare(
+        run: SwarmRun,
+        task: SwarmTask,
+        workspaceDeltaEvidenceId: String,
+        verificationEvidenceId: String,
+    ): SwarmArtifactIntegrationPlan
+
+    suspend fun apply(
+        plan: SwarmArtifactIntegrationPlan,
+        persist: suspend (SwarmArtifactIntegrationPlan) -> Unit = {},
+    ): SwarmArtifactIntegrationPlan
+
+    suspend fun preview(plan: SwarmArtifactIntegrationPlan): SwarmArtifactIntegrationPreview
+
+    suspend fun previewSelection(
+        plan: SwarmArtifactIntegrationPlan,
+        selectedHunkIds: Collection<String>,
+    ): SwarmArtifactSelectionPreview = error("Artifact selection preview is not configured")
+
+    suspend fun releasePreparedPlan(plan: SwarmArtifactIntegrationPlan)
+}
+
 class GitSwarmArtifactIntegrator(
     private val repositoryRoot: File,
     private val evidenceStore: SwarmEvidenceStore,
     private val repositorySnapshotter: SwarmRepositorySnapshotter,
     private val commandRunner: CommandRunner = LocalCommandRunner(),
-) {
+    private val now: () -> Instant = { Clock.System.now() },
+) : SwarmArtifactIntegrator {
     private val integrationMutex = Mutex()
     private val normalizedRepositoryRoot = repositoryRoot.canonicalFile
+    private val hunkApplicabilityChecker = GitSwarmArtifactHunkApplicabilityChecker(
+        repositoryRoot = normalizedRepositoryRoot,
+        commandRunner = commandRunner,
+    )
 
     init {
         require(File(normalizedRepositoryRoot, ".git").exists()) { "Artifact repository must be a Git worktree" }
     }
 
-    suspend fun prepare(
+    override suspend fun prepare(
         run: SwarmRun,
         task: SwarmTask,
         workspaceDeltaEvidenceId: String,
@@ -74,8 +103,6 @@ class GitSwarmArtifactIntegrator(
         require(workspace.attempt == task.attempt && verification.attempt == task.attempt) {
             "Artifact attempt does not match"
         }
-        require(workspace.baseRevision == baseline.revision) { "Artifact does not start from the run baseline" }
-        require(workspace.beforeTree == baseline.treeHash) { "Artifact base tree does not match the run baseline" }
         val artifactRevision = requireNotNull(workspace.artifactRevision) {
             "Workspace evidence has no durable artifact revision"
         }
@@ -84,12 +111,26 @@ class GitSwarmArtifactIntegrator(
         }
 
         requireCommitTree(baseline.revision, baseline.treeHash, "run baseline")
+        requireCommitTree(workspace.baseRevision, workspace.beforeTree, "task dependency base")
+        require(isAncestor(baseline.revision, workspace.baseRevision)) {
+            "Task dependency base is outside the run baseline lineage"
+        }
         requireCommitTree(artifactRevision, workspace.afterTree, "task artifact")
         require(runGitOutput(listOf("rev-parse", "--verify", "$artifactReference^{commit}")).trim() == artifactRevision) {
             "Task artifact reference no longer resolves to the recorded revision"
         }
-        require(runGitOutput(listOf("rev-parse", "$artifactRevision^")).trim() == baseline.revision) {
-            "Task artifact parent does not match the run baseline"
+        require(runGitOutput(listOf("rev-parse", "$artifactRevision^")).trim() == workspace.baseRevision) {
+            "Task artifact parent does not match its dependency base"
+        }
+
+        val mergeArtifactRevision = if (workspace.baseRevision == baseline.revision) {
+            artifactRevision
+        } else {
+            createCommit(
+                tree = workspace.afterTree,
+                parents = listOf(baseline.revision),
+                message = "Swarm full artifact side ${run.id}/${task.id}/${task.attempt}\n",
+            )
         }
 
         val current = repositorySnapshotter.snapshot()
@@ -98,7 +139,7 @@ class GitSwarmArtifactIntegrator(
             baselineRevision = baseline.revision,
             baselineTree = baseline.treeHash,
             currentTree = current.treeHash,
-            artifactRevision = artifactRevision,
+            artifactRevision = mergeArtifactRevision,
             artifactTree = workspace.afterTree,
             runId = run.id,
             taskId = task.id,
@@ -115,6 +156,7 @@ class GitSwarmArtifactIntegrator(
         runGitOutput(listOf("update-ref", pinnedReference, integratedRevision))
 
         SwarmArtifactIntegrationPlan(
+            id = "integration-${sha256("${run.id}\u0000${task.id}\u0000${task.attempt}\u0000$integratedRevision").take(24)}",
             runId = run.id,
             taskId = task.id,
             attempt = task.attempt,
@@ -129,7 +171,211 @@ class GitSwarmArtifactIntegrator(
             integratedRevision = integratedRevision,
             integratedTree = integratedTree,
             pinnedReference = pinnedReference,
+            createdAt = now(),
         )
+    }
+
+    override suspend fun apply(
+        plan: SwarmArtifactIntegrationPlan,
+        persist: suspend (SwarmArtifactIntegrationPlan) -> Unit,
+    ): SwarmArtifactIntegrationPlan = integrationMutex.withLock {
+        require(plan.status == SwarmArtifactIntegrationStatus.PREPARED) {
+            "Only prepared artifact integration plans can be applied"
+        }
+        requirePinnedPlan(plan)
+        val current = repositorySnapshotter.snapshot()
+        if (current.revision != plan.currentRevision || current.treeHash != plan.currentTree) {
+            throw SwarmArtifactIntegrationStaleException(plan.id)
+        }
+        if (plan.currentTree == plan.integratedTree) {
+            return@withLock plan.copy(
+                status = SwarmArtifactIntegrationStatus.APPLIED,
+                appliedAt = now(),
+            ).also { persist(it) }
+        }
+
+        val patchFile = Files.createTempFile("swarm-integration-", ".patch").toFile()
+        var patchApplied = false
+        try {
+            runGitOutput(
+                listOf(
+                    "diff",
+                    "--binary",
+                    "--full-index",
+                    "--output=${patchFile.absolutePath}",
+                    plan.currentTree,
+                    plan.integratedTree,
+                    "--",
+                )
+            )
+            runGitOutput(listOf("apply", "--check", "--whitespace=nowarn", patchFile.absolutePath))
+            runGitOutput(listOf("apply", "--whitespace=nowarn", patchFile.absolutePath))
+            patchApplied = true
+            val appliedSnapshot = repositorySnapshotter.snapshot()
+            check(appliedSnapshot.treeHash == plan.integratedTree) {
+                "Applied artifact tree does not match the reviewed integration plan"
+            }
+            val applied = plan.copy(
+                status = SwarmArtifactIntegrationStatus.APPLIED,
+                appliedAt = now(),
+            )
+            persist(applied)
+            applied
+        } catch (error: CancellationException) {
+            if (patchApplied) rollbackPatch(patchFile, plan.currentTree, error)
+            throw error
+        } catch (error: Throwable) {
+            if (patchApplied) rollbackPatch(patchFile, plan.currentTree, error)
+            throw error
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { patchFile.delete() }
+        }
+    }
+
+    suspend fun apply(plan: SwarmArtifactIntegrationPlan): SwarmArtifactIntegrationPlan = apply(plan) { }
+
+    override suspend fun preview(plan: SwarmArtifactIntegrationPlan): SwarmArtifactIntegrationPreview =
+        integrationMutex.withLock { previewLocked(plan, includeHunkApplicability = true) }
+
+    override suspend fun previewSelection(
+        plan: SwarmArtifactIntegrationPlan,
+        selectedHunkIds: Collection<String>,
+    ): SwarmArtifactSelectionPreview = integrationMutex.withLock {
+        val preview = previewLocked(plan, includeHunkApplicability = false)
+        require(!preview.truncated) { "Cannot preview a partial selection from a truncated diff" }
+        val requestedHunkIds = selectedHunkIds.distinct()
+        require(requestedHunkIds.isNotEmpty()) { "Artifact selection cannot be empty" }
+        require(requestedHunkIds.size <= MAX_SELECTION_HUNKS) { "Artifact selection contains too many hunks" }
+        val hunksById = preview.hunks.associateBy { it.id }
+        require(requestedHunkIds.all(hunksById::containsKey)) { "Artifact selection contains an unknown hunk" }
+        val prerequisiteHunkIds = SwarmArtifactRiskAnalyzer.prerequisiteClosure(
+            preview.hunkDependencies,
+            requestedHunkIds,
+        )
+        val effectiveSet = (requestedHunkIds + prerequisiteHunkIds).toSet()
+        val effectiveHunkIds = preview.hunks.map { it.id }.filter(effectiveSet::contains)
+        val effectiveHunks = effectiveHunkIds.map(hunksById::getValue)
+        val selectedDiff = extractSelectedHunkPatch(
+            unifiedDiff = preview.unifiedDiff,
+            hunks = preview.hunks,
+            selectedHunkIds = effectiveSet,
+        ).orEmpty()
+        val applicabilityStatus = hunkApplicabilityChecker.checkSelection(
+            baseTree = plan.currentTree,
+            unifiedDiff = preview.unifiedDiff,
+            hunks = preview.hunks,
+            selectedHunkIds = effectiveSet,
+        )
+        SwarmArtifactSelectionPreview(
+            planId = plan.id,
+            requestedHunkIds = requestedHunkIds,
+            prerequisiteHunkIds = prerequisiteHunkIds,
+            effectiveHunkIds = effectiveHunkIds,
+            changedPaths = effectiveHunks.map { it.path }.distinct(),
+            unifiedDiff = selectedDiff,
+            applicabilityStatus = applicabilityStatus,
+            checkedAgainstTree = plan.currentTree.takeIf {
+                applicabilityStatus == SwarmArtifactSelectionApplicabilityStatus.APPLICABLE ||
+                    applicabilityStatus == SwarmArtifactSelectionApplicabilityStatus.NOT_APPLICABLE
+            },
+        )
+    }
+
+    private suspend fun previewLocked(
+        plan: SwarmArtifactIntegrationPlan,
+        includeHunkApplicability: Boolean,
+    ): SwarmArtifactIntegrationPreview {
+        requirePinnedPlan(plan)
+        val workspace = checkNotNull(evidenceStore.getWorkspaceDelta(plan.workspaceDeltaEvidenceId)) {
+            "Integration workspace evidence is missing"
+        }
+        val result = runGit(
+            arguments = listOf(
+                "diff",
+                "--no-ext-diff",
+                "--no-color",
+                "--unified=3",
+                plan.currentTree,
+                plan.integratedTree,
+                "--",
+            ),
+            maxOutputChars = MAX_PREVIEW_DIFF_CHARS,
+        )
+        check(result.exitCode == 0 && !result.timedOut) {
+            "Git integration preview failed: ${result.output}"
+        }
+        val truncated = result.output.length >= MAX_PREVIEW_DIFF_CHARS
+        val hunks = SwarmArtifactRiskAnalyzer.analyze(result.output)
+        val hunkDependencies = SwarmArtifactRiskAnalyzer.dependencies(hunks)
+        val hunkApplicability = if (!includeHunkApplicability) {
+            emptyList()
+        } else if (truncated) {
+            hunks.map { hunk ->
+                SwarmArtifactHunkApplicability(
+                    hunkId = hunk.id,
+                    status = SwarmArtifactHunkApplicabilityStatus.SKIPPED_TRUNCATED_PREVIEW,
+                )
+            }
+        } else {
+            hunkApplicabilityChecker.check(
+                baseTree = plan.currentTree,
+                unifiedDiff = result.output,
+                hunks = hunks,
+            )
+        }
+        return SwarmArtifactIntegrationPreview(
+            planId = plan.id,
+            runId = plan.runId,
+            taskId = plan.taskId,
+            status = plan.status,
+            verificationEvidenceId = plan.verificationEvidenceId,
+            currentRevision = plan.currentRevision,
+            integratedRevision = plan.integratedRevision,
+            changedPaths = workspace.changedPaths,
+            unifiedDiff = result.output,
+            truncated = truncated,
+            hunks = hunks,
+            hunkDependencies = hunkDependencies,
+            hunkDependencyComponents = SwarmArtifactRiskAnalyzer.dependencyComponents(hunks, hunkDependencies),
+            hunkApplicability = hunkApplicability,
+        )
+    }
+
+    override suspend fun releasePreparedPlan(plan: SwarmArtifactIntegrationPlan) = integrationMutex.withLock {
+        require(plan.status == SwarmArtifactIntegrationStatus.PREPARED) {
+            "Only prepared artifact integration plans can be released"
+        }
+        val resolved = runGit(listOf("rev-parse", "--verify", "${plan.pinnedReference}^{commit}"))
+        if (resolved.exitCode == 1) return@withLock
+        check(!resolved.timedOut && resolved.exitCode == 0) {
+            "Git integration reference lookup failed: ${resolved.output}"
+        }
+        require(resolved.output.trim() == plan.integratedRevision) {
+            "Integration plan reference points to an unexpected revision"
+        }
+        runGitOutput(listOf("update-ref", "-d", plan.pinnedReference, plan.integratedRevision))
+    }
+
+    private suspend fun rollbackPatch(
+        patchFile: File,
+        expectedTree: String,
+        originalError: Throwable,
+    ) = withContext(NonCancellable) {
+        try {
+            runGitOutput(listOf("apply", "--reverse", "--whitespace=nowarn", patchFile.absolutePath))
+            check(repositorySnapshotter.snapshot().treeHash == expectedTree) {
+                "Artifact integration rollback did not restore the reviewed repository state"
+            }
+        } catch (rollbackError: Throwable) {
+            originalError.addSuppressed(rollbackError)
+        }
+    }
+
+    private suspend fun requirePinnedPlan(plan: SwarmArtifactIntegrationPlan) {
+        requireCommitTree(plan.integratedRevision, plan.integratedTree, "integration plan")
+        require(runGitOutput(listOf("rev-parse", "--verify", "${plan.pinnedReference}^{commit}")).trim() == plan.integratedRevision) {
+            "Integration plan reference no longer resolves to the reviewed revision"
+        }
     }
 
     private suspend fun mergeTrees(
@@ -177,8 +423,8 @@ class GitSwarmArtifactIntegrator(
     )
 
     private suspend fun createCommit(tree: String, parents: List<String>, message: String): String {
-        val now = Clock.System.now()
-        val gitDate = "@${now.epochSeconds} +0000"
+        val timestamp = now()
+        val gitDate = "@${timestamp.epochSeconds} +0000"
         val environment = mapOf(
             "GIT_AUTHOR_NAME" to INTEGRATION_AUTHOR_NAME,
             "GIT_AUTHOR_EMAIL" to INTEGRATION_AUTHOR_EMAIL,
@@ -198,6 +444,14 @@ class GitSwarmArtifactIntegrator(
         return runGitOutput(arguments, environment = environment, stdin = message).trim().also { revision ->
             require(revision.matches(GIT_OBJECT_PATTERN)) { "Created integration revision is invalid" }
         }
+    }
+
+    private suspend fun isAncestor(ancestor: String, descendant: String): Boolean {
+        val result = runGit(listOf("merge-base", "--is-ancestor", ancestor, descendant))
+        check(!result.timedOut && result.exitCode in setOf(0, 1)) {
+            "Git artifact ancestry check failed: ${result.output}"
+        }
+        return result.exitCode == 0
     }
 
     private suspend fun requireCommitTree(revision: String, expectedTree: String, label: String) {
@@ -225,6 +479,7 @@ class GitSwarmArtifactIntegrator(
         arguments: List<String>,
         environment: Map<String, String> = emptyMap(),
         stdin: String? = null,
+        maxOutputChars: Int = 256 * 1024,
     ): CommandResult = commandRunner.run(
         CommandRequest(
             command = listOf("git") + arguments,
@@ -232,13 +487,19 @@ class GitSwarmArtifactIntegrator(
             stdin = stdin,
             timeout = GIT_COMMAND_TIMEOUT,
             environment = environment,
+            maxOutputChars = maxOutputChars,
         )
     )
 }
 
+private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(value.toByteArray(Charsets.UTF_8))
+    .joinToString("") { byte -> "%02x".format(byte) }
 
 private val GIT_OBJECT_PATTERN = Regex("(?:[0-9a-f]{40}|[0-9a-f]{64})")
 private val GIT_COMMAND_TIMEOUT = 2.minutes
+private const val MAX_PREVIEW_DIFF_CHARS = 512 * 1024
+private const val MAX_SELECTION_HUNKS = 20_000
 private const val INTEGRATION_REFERENCE_PREFIX = "refs/swarm-editor/integration-plans"
 private const val INTEGRATION_AUTHOR_NAME = "Swarm Editor"
 private const val INTEGRATION_AUTHOR_EMAIL = "swarm-editor@localhost"

@@ -1,12 +1,10 @@
 package com.swarmeditor.desktop.ui.chat
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -17,10 +15,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.ChevronDown
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
@@ -179,6 +180,8 @@ fun ToolCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .verticalScroll(rememberScrollState())
                     .background(Bg2)
                     .border(1.dp, Line)
                     .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -199,11 +202,7 @@ fun ToolCard(
                     Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
                     Spacer(Modifier.height(10.dp))
                 }
-                AnimatedVisibility(
-                    visible = card.output.isNotEmpty(),
-                    enter = fadeIn(Motion.alphaEnter),
-                    exit = fadeOut(Motion.alphaExit),
-                ) {
+                if (card.output.isNotEmpty()) {
                     Column {
                         Text("输出", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = SansFont)
                         Spacer(Modifier.height(6.dp))
@@ -221,11 +220,7 @@ fun ToolCard(
         }
 
         // Result line (only when the tool produced a status result)
-        AnimatedVisibility(
-            visible = card.showResult,
-            enter = expandVertically(animationSpec = Motion.intSizeExpand) + fadeIn(Motion.alphaEnter),
-            exit = shrinkVertically(animationSpec = Motion.intSizeCollapse) + fadeOut(Motion.alphaExit),
-        ) {
+        if (card.showResult) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -239,19 +234,13 @@ fun ToolCard(
                         .background(statusColor.withAlpha(0.12f))
                         .padding(horizontal = 7.dp, vertical = 2.dp)
                 ) {
-                    AnimatedContent(
-                        targetState = card.resultOk,
-                        transitionSpec = { fadeIn(Motion.alphaEnter) togetherWith fadeOut(Motion.alphaExit) },
-                        label = "toolResultState",
-                    ) { resultOk ->
-                        Text(
-                            if (resultOk) "✓ 成功" else "× 失败",
-                            color = if (resultOk) OkLight else ErrLight,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = SansFont
-                        )
-                    }
+                    Text(
+                        if (card.resultOk) "✓ 成功" else "× 失败",
+                        color = if (card.resultOk) OkLight else ErrLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = SansFont
+                    )
                 }
                 if (card.resultDuration.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))

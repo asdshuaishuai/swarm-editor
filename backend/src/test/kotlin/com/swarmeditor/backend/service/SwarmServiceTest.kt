@@ -11,16 +11,38 @@ import com.swarmeditor.backend.swarm.SwarmPlanner
 import com.swarmeditor.backend.swarm.SwarmPlanningRequest
 import com.swarmeditor.backend.swarm.SwarmRepositorySnapshot
 import com.swarmeditor.backend.swarm.SwarmStore
+import com.swarmeditor.backend.swarm.SwarmArtifactIntegrator
+import com.swarmeditor.backend.swarm.SwarmArtifactIntegrationStaleException
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.SwarmAgentRole
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
+import com.swarmeditor.common.model.SwarmArtifactDiffHunk
+import com.swarmeditor.common.model.SwarmArtifactHunkDependency
+import com.swarmeditor.common.model.SwarmArtifactHunkDependencyKind
+import com.swarmeditor.common.model.SwarmArtifactRejectionReason
+import com.swarmeditor.common.model.SwarmArtifactRejectionResolution
+import com.swarmeditor.common.model.SwarmArtifactRevisionScopeMode
+import com.swarmeditor.common.model.SwarmArtifactReviewAction
+import com.swarmeditor.common.model.SwarmArtifactRiskLevel
+import com.swarmeditor.common.model.SwarmArtifactRiskReason
+import com.swarmeditor.common.model.SwarmArtifactSelectionApplicabilityStatus
+import com.swarmeditor.common.model.SwarmArtifactSelectionPreview
 import com.swarmeditor.common.model.SwarmExperienceKind
 import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
 import com.swarmeditor.common.model.SwarmExperienceRoutingStatus
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
 import com.swarmeditor.common.model.SwarmRepositoryBaseline
+import com.swarmeditor.common.model.SwarmRepositoryEvidence
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceBundle
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
+import com.swarmeditor.common.model.SwarmTaskAttemptRecord
 import com.swarmeditor.common.model.SwarmTaskStatus
+import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -87,12 +109,32 @@ class SwarmServiceTest {
                 dirty = true,
                 pinnedReference = "refs/swarm-editor/evaluation-snapshots/${"1".repeat(40)}",
             )
+            val repositoryEvidence = SwarmRepositoryEvidenceBundle(
+                queryFingerprint = "planning-evidence",
+                generatedAt = Clock.System.now(),
+                scannedFileCount = 10,
+                candidateFileCount = 1,
+                characterBudget = 1_000,
+                consumedCharacters = 90,
+                truncated = false,
+                evidence = listOf(
+                    SwarmRepositoryEvidence(
+                        id = "repo-evidence",
+                        kind = SwarmRepositoryEvidenceKind.FILE_MATCH,
+                        path = "backend/Scheduler.kt",
+                        line = 12,
+                        score = 25.0,
+                        summary = "Matched scheduler",
+                    )
+                ),
+            )
             val service = SwarmService(
                 store = store,
                 scheduler = mockk(relaxed = true),
                 agentService = agentService,
                 planner = planner,
                 experienceStore = experienceStore,
+                repositoryLocalizer = { repositoryEvidence },
                 repositorySnapshotProvider = { repositorySnapshot },
             )
 
@@ -109,6 +151,8 @@ class SwarmServiceTest {
             assertEquals(profile.id, capturedRequest?.preferredPlannerAgentId)
             assertEquals(listOf(profile), capturedRequest?.availableAgents)
             assertEquals(listOf("structured-concurrency"), capturedRequest?.experiences?.map { it.id })
+            assertEquals(repositoryEvidence, capturedRequest?.repositoryEvidence)
+            assertEquals(repositoryEvidence, run.planningEvidence)
             assertEquals(repositorySnapshot.revision, run.repositoryBaseline?.revision)
             assertEquals(repositorySnapshot.baseRevision, run.repositoryBaseline?.baseRevision)
             assertEquals(repositorySnapshot.treeHash, run.repositoryBaseline?.treeHash)
@@ -379,6 +423,305 @@ class SwarmServiceTest {
             assertEquals("retry canceled", cancellation.message)
             assertEquals(original, store.get("run-retry"))
             coVerify(exactly = 1) { scheduler.start("run-retry") }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `persists explicit artifact review plan before applying it`() = runTest {
+        val directory = Files.createTempDirectory("swarm-service-artifact-plan")
+        try {
+            val timestamp = Clock.System.now()
+            val workspaceEvidenceId = "a".repeat(64)
+            val verificationEvidenceId = "b".repeat(64)
+            val successfulTask = SwarmTask(
+                id = "implement",
+                title = "Implement",
+                prompt = "Implement verified change",
+                readPaths = listOf("backend/**"),
+                writePaths = listOf("backend/**"),
+                verificationCommands = listOf(listOf("./gradlew", ":backend:test")),
+                status = SwarmTaskStatus.SUCCEEDED,
+                attempt = 1,
+                attemptRecords = listOf(
+                    SwarmTaskAttemptRecord(
+                        id = "attempt-1",
+                        schedulingDecisionId = "decision-1",
+                        attempt = 1,
+                        outcome = SwarmTaskAttemptOutcome.SUCCEEDED,
+                        startedAt = timestamp,
+                        completedAt = timestamp,
+                        verificationStatus = SwarmVerificationStatus.PASSED,
+                        workspaceDeltaEvidenceId = workspaceEvidenceId,
+                        verificationEvidenceId = verificationEvidenceId,
+                    )
+                ),
+            )
+            val swarmRun = SwarmRun(
+                id = "run-artifact",
+                title = "Artifact",
+                objective = "Review before applying",
+                createdAt = timestamp,
+                updatedAt = timestamp,
+                status = SwarmRunStatus.SUCCEEDED,
+                repositoryBaseline = SwarmRepositoryBaseline(
+                    revision = "1".repeat(40),
+                    baseRevision = "1".repeat(40),
+                    treeHash = "2".repeat(40),
+                    dirty = false,
+                    capturedAt = timestamp,
+                ),
+                tasks = listOf(successfulTask),
+            )
+            val plan = SwarmArtifactIntegrationPlan(
+                id = "integration-test",
+                runId = swarmRun.id,
+                taskId = successfulTask.id,
+                attempt = 1,
+                workspaceDeltaEvidenceId = workspaceEvidenceId,
+                verificationEvidenceId = verificationEvidenceId,
+                baselineRevision = "1".repeat(40),
+                baselineTree = "2".repeat(40),
+                currentRevision = "3".repeat(40),
+                currentTree = "4".repeat(40),
+                artifactRevision = "5".repeat(40),
+                artifactTree = "6".repeat(40),
+                integratedRevision = "7".repeat(40),
+                integratedTree = "8".repeat(40),
+                pinnedReference = "refs/swarm-editor/integration-plans/${"7".repeat(40)}",
+                createdAt = timestamp,
+            )
+            var prepareCount = 0
+            var stalePlanId: String? = null
+            var releasedPlans = 0
+            val previewHunksByPlan = mutableMapOf<String, List<SwarmArtifactDiffHunk>>()
+            val previewDependenciesByPlan = mutableMapOf<String, List<SwarmArtifactHunkDependency>>()
+            val integrator = object : SwarmArtifactIntegrator {
+                override suspend fun prepare(
+                    run: SwarmRun,
+                    task: SwarmTask,
+                    workspaceDeltaEvidenceId: String,
+                    verificationEvidenceId: String,
+                ): SwarmArtifactIntegrationPlan {
+                    prepareCount += 1
+                    assertEquals(swarmRun.id, run.id)
+                    assertEquals(successfulTask.id, task.id)
+                    assertEquals(plan.workspaceDeltaEvidenceId, workspaceDeltaEvidenceId)
+                    assertEquals(plan.verificationEvidenceId, verificationEvidenceId)
+                    return plan
+                }
+
+                override suspend fun apply(
+                    plan: SwarmArtifactIntegrationPlan,
+                    persist: suspend (SwarmArtifactIntegrationPlan) -> Unit,
+                ): SwarmArtifactIntegrationPlan {
+                    if (plan.id == stalePlanId) throw SwarmArtifactIntegrationStaleException(plan.id)
+                    return plan.copy(
+                        status = SwarmArtifactIntegrationStatus.APPLIED,
+                        appliedAt = timestamp,
+                    ).also { persist(it) }
+                }
+
+                override suspend fun preview(plan: SwarmArtifactIntegrationPlan) = SwarmArtifactIntegrationPreview(
+                    planId = plan.id,
+                    runId = plan.runId,
+                    taskId = plan.taskId,
+                    status = plan.status,
+                    verificationEvidenceId = plan.verificationEvidenceId,
+                    currentRevision = plan.currentRevision,
+                    integratedRevision = plan.integratedRevision,
+                    changedPaths = emptyList(),
+                    unifiedDiff = "",
+                    truncated = false,
+                    hunks = previewHunksByPlan[plan.id].orEmpty(),
+                    hunkDependencies = previewDependenciesByPlan[plan.id].orEmpty(),
+                )
+
+                override suspend fun previewSelection(
+                    plan: SwarmArtifactIntegrationPlan,
+                    selectedHunkIds: Collection<String>,
+                ): SwarmArtifactSelectionPreview {
+                    assertEquals(listOf("hunk-${"a".repeat(20)}"), selectedHunkIds.toList())
+                    return SwarmArtifactSelectionPreview(
+                        planId = plan.id,
+                        requestedHunkIds = selectedHunkIds.toList(),
+                        prerequisiteHunkIds = emptyList(),
+                        effectiveHunkIds = selectedHunkIds.toList(),
+                        changedPaths = listOf("backend/src/Main.kt"),
+                        unifiedDiff = "@@ -1 +1 @@\n-old\n+new\n",
+                        applicabilityStatus = SwarmArtifactSelectionApplicabilityStatus.APPLICABLE,
+                        checkedAgainstTree = plan.currentTree,
+                    )
+                }
+
+                override suspend fun releasePreparedPlan(plan: SwarmArtifactIntegrationPlan) {
+                    releasedPlans += 1
+                }
+            }
+            val store = SwarmStore(directory.toFile()).also { it.load(); it.put(swarmRun) }
+            val scheduler = mockk<SwarmScheduler>(relaxed = true)
+            val service = SwarmService(
+                store = store,
+                scheduler = scheduler,
+                agentService = mockk(relaxed = true),
+                artifactIntegrator = integrator,
+            )
+
+            val prepared = service.prepareArtifactIntegration(swarmRun.id, successfulTask.id).getOrThrow()
+            assertEquals(plan, prepared)
+            assertEquals(listOf(plan), store.get(swarmRun.id)?.artifactIntegrationPlans)
+            assertEquals(plan, service.prepareArtifactIntegration(swarmRun.id, successfulTask.id).getOrThrow())
+            assertEquals(1, prepareCount)
+
+            val preview = service.previewArtifactIntegration(swarmRun.id, plan.id).getOrThrow()
+            assertEquals(plan.id, preview.planId)
+            val selection = service.previewArtifactSelection(
+                runId = swarmRun.id,
+                planId = plan.id,
+                selectedHunkIds = listOf("hunk-${"a".repeat(20)}"),
+            ).getOrThrow()
+            assertEquals(SwarmArtifactSelectionApplicabilityStatus.APPLICABLE, selection.applicabilityStatus)
+            assertEquals(plan.currentTree, selection.checkedAgainstTree)
+            service.recordArtifactReviewObservation(
+                runId = swarmRun.id,
+                planId = plan.id,
+                action = SwarmArtifactReviewAction.OPENED,
+                diffCharacterCount = 120,
+                changedPathCount = 2,
+            ).getOrThrow()
+            service.recordArtifactReviewObservation(
+                runId = swarmRun.id,
+                planId = plan.id,
+                action = SwarmArtifactReviewAction.CLOSED,
+                dwellMillis = 1_500,
+            ).getOrThrow()
+
+            val applied = service.applyArtifactIntegration(swarmRun.id, plan.id, reviewDwellMillis = 1_250).getOrThrow()
+            assertEquals(SwarmArtifactIntegrationStatus.APPLIED, applied.status)
+            assertEquals(SwarmArtifactIntegrationStatus.APPLIED, store.get(swarmRun.id)?.artifactIntegrationPlans?.single()?.status)
+            assertEquals(
+                listOf(
+                    SwarmArtifactReviewAction.OPENED,
+                    SwarmArtifactReviewAction.CLOSED,
+                    SwarmArtifactReviewAction.APPLY_REQUESTED,
+                    SwarmArtifactReviewAction.APPLIED,
+                ),
+                store.get(swarmRun.id)?.artifactReviewEvents?.map { it.action },
+            )
+            assertEquals(1_250, store.get(swarmRun.id)?.artifactReviewEvents?.last()?.dwellMillis)
+
+            val highRiskHunk = SwarmArtifactDiffHunk(
+                id = "hunk-${"a".repeat(20)}",
+                path = "backend/src/main/kotlin/Contract.kt",
+                header = "@@ -1 +1 @@",
+                diff = "-data class Contract(val old: String)\n+data class Contract(val next: String)\n",
+                addedLineCount = 1,
+                removedLineCount = 1,
+                riskLevel = SwarmArtifactRiskLevel.HIGH,
+                riskReasons = listOf(SwarmArtifactRiskReason.PUBLIC_CONTRACT),
+            )
+            val riskPlan = plan.copy(id = "integration-risk", status = SwarmArtifactIntegrationStatus.PREPARED, appliedAt = null)
+            previewHunksByPlan[riskPlan.id] = listOf(highRiskHunk)
+            store.update(swarmRun.id) { current ->
+                current.copy(artifactIntegrationPlans = current.artifactIntegrationPlans + riskPlan)
+            }
+
+            val unreviewedRisk = service.applyArtifactIntegration(swarmRun.id, riskPlan.id)
+            assertTrue(unreviewedRisk.exceptionOrNull()?.message?.contains("high-risk") == true)
+            val coverage = service.recordArtifactReviewObservation(
+                runId = swarmRun.id,
+                planId = riskPlan.id,
+                action = SwarmArtifactReviewAction.COVERAGE_RECORDED,
+                dwellMillis = 2_000,
+                firstViewportMillis = 120,
+                viewportDwellMillis = 1_500,
+                viewedHunkIds = listOf(highRiskHunk.id),
+            ).getOrThrow()
+            assertEquals(1_000, coverage.reviewCoveragePermille)
+            assertEquals(1, coverage.viewedHighRiskHunkCount)
+            assertEquals(SwarmArtifactIntegrationStatus.APPLIED, service.applyArtifactIntegration(swarmRun.id, riskPlan.id).getOrThrow().status)
+
+            val rejectionPlan = plan.copy(id = "integration-reject")
+            val prerequisiteHunk = highRiskHunk.copy(
+                id = "hunk-${"b".repeat(20)}",
+                path = "backend/src/main/kotlin/ContractBase.kt",
+                header = "@@ -1 +1 @@",
+                diff = "-fun contractBase() = 1\n+fun contractBase() = 2\n",
+                riskLevel = SwarmArtifactRiskLevel.LOW,
+                riskReasons = emptyList(),
+            )
+            previewHunksByPlan[rejectionPlan.id] = listOf(prerequisiteHunk, highRiskHunk)
+            previewDependenciesByPlan[rejectionPlan.id] = listOf(
+                SwarmArtifactHunkDependency(
+                    id = "hdep-${"c".repeat(20)}",
+                    prerequisiteHunkId = prerequisiteHunk.id,
+                    dependentHunkId = highRiskHunk.id,
+                    kind = SwarmArtifactHunkDependencyKind.SYMBOL_REFERENCE,
+                    symbol = "Contract",
+                )
+            )
+            store.update(swarmRun.id) { current ->
+                current.copy(artifactIntegrationPlans = current.artifactIntegrationPlans + rejectionPlan)
+            }
+            service.recordArtifactReviewObservation(
+                runId = swarmRun.id,
+                planId = rejectionPlan.id,
+                action = SwarmArtifactReviewAction.COVERAGE_RECORDED,
+                dwellMillis = 2_500,
+                viewedHunkIds = listOf(highRiskHunk.id),
+            ).getOrThrow()
+
+            val rejected = service.rejectArtifactIntegration(
+                runId = swarmRun.id,
+                planId = rejectionPlan.id,
+                reason = SwarmArtifactRejectionReason.ROOT_CAUSE_NOT_FIXED,
+                resolution = SwarmArtifactRejectionResolution.REVISE_AND_REVERIFY,
+                rejectedHunkIds = listOf(highRiskHunk.id),
+                reviewDwellMillis = 2_500,
+            ).getOrThrow()
+
+            assertEquals(SwarmArtifactReviewAction.REJECTED, rejected.action)
+            assertEquals(SwarmArtifactRejectionReason.ROOT_CAUSE_NOT_FIXED, rejected.rejectionReason)
+            assertEquals(listOf(highRiskHunk.id), rejected.rejectedHunkIds)
+            assertTrue(rejected.revisionContractId != null)
+            assertTrue(rejected.revisionTaskId != null)
+            val revisedRun = store.get(swarmRun.id) ?: error("run missing")
+            assertEquals(SwarmRunStatus.CREATED, revisedRun.status)
+            assertEquals(
+                SwarmArtifactIntegrationStatus.DISCARDED,
+                revisedRun.artifactIntegrationPlans.single { it.id == rejectionPlan.id }.status,
+            )
+            val revisionTask = revisedRun.tasks.single { it.id == rejected.revisionTaskId }
+            assertEquals(listOf(successfulTask.id), revisionTask.dependsOn)
+            assertEquals(successfulTask.verificationCommands, revisionTask.verificationCommands)
+            assertEquals(listOf(highRiskHunk.path), revisionTask.writePaths)
+            assertEquals(rejectionPlan.artifactRevision, revisionTask.revisionContract?.sourceArtifactRevision)
+            assertEquals(listOf(highRiskHunk.path), revisionTask.revisionContract?.targetPaths)
+            assertEquals(successfulTask.writePaths, revisionTask.revisionContract?.sourceWritePaths)
+            assertEquals(SwarmArtifactRevisionScopeMode.TARGET_PATHS_ONLY, revisionTask.revisionContract?.scopeMode)
+            assertEquals(listOf(prerequisiteHunk.id), revisionTask.revisionContract?.contextHunkIds)
+            assertEquals(listOf(prerequisiteHunk.path), revisionTask.revisionContract?.contextPaths)
+            assertTrue(prerequisiteHunk.path in revisionTask.readPaths)
+            coVerify(exactly = 1) { scheduler.start(swarmRun.id) }
+
+            val stalePlan = plan.copy(id = "integration-stale")
+            stalePlanId = stalePlan.id
+            store.update(swarmRun.id) { current ->
+                current.copy(artifactIntegrationPlans = current.artifactIntegrationPlans + stalePlan)
+            }
+            val staleResult = service.applyArtifactIntegration(swarmRun.id, stalePlan.id)
+            assertTrue(staleResult.exceptionOrNull() is SwarmArtifactIntegrationStaleException)
+            assertEquals(
+                SwarmArtifactIntegrationStatus.DISCARDED,
+                store.get(swarmRun.id)?.artifactIntegrationPlans?.single { it.id == stalePlan.id }?.status,
+            )
+            assertEquals(
+                listOf(SwarmArtifactReviewAction.APPLY_REQUESTED, SwarmArtifactReviewAction.STALE),
+                store.get(swarmRun.id)?.artifactReviewEvents?.takeLast(2)?.map { it.action },
+            )
+            assertEquals(2, releasedPlans)
         } finally {
             directory.deleteRecursively()
         }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -41,22 +42,9 @@ import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
 
 @androidx.compose.runtime.Immutable
-data class ArchiveDayNode(
-    val day: String,
-    val dateStr: String,
-    val sessions: List<ArchiveSessionItem>
-)
-
-@androidx.compose.runtime.Immutable
-data class ArchiveMonthNode(
-    val month: String,
-    val days: List<ArchiveDayNode>
-)
-
-@androidx.compose.runtime.Immutable
-data class ArchiveYearNode(
-    val year: String,
-    val months: List<ArchiveMonthNode>
+data class ArchiveDateNode(
+    val dateKey: String,
+    val sessions: List<ArchiveSessionItem>,
 )
 
 @androidx.compose.runtime.Immutable
@@ -70,22 +58,18 @@ data class ArchiveSessionItem(
 
 @Composable
 fun ArchiveTree(
-    years: List<ArchiveYearNode>,
+    dates: List<ArchiveDateNode>,
     selectedSessionId: String?,
     onSelectSession: (ArchiveSessionItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val expandState = remember { mutableStateMapOf<String, Boolean>() }
+    val todayKey = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
 
-    // Auto-expand current year and month
-    val today = java.time.LocalDate.now()
-    val currentYear = today.year.toString()
-    val currentMonth = today.monthValue.toString().padStart(2, '0')
-    val todayStr = today.toString()
-
-    if (expandState.isEmpty()) {
-        expandState[currentYear] = true
-        expandState["$currentYear-$currentMonth"] = true
+    LaunchedEffect(dates.firstOrNull()?.dateKey) {
+        val newestDate = dates.firstOrNull()?.dateKey ?: return@LaunchedEffect
+        expandState.keys.retainAll(dates.map(ArchiveDateNode::dateKey).toSet())
+        if (expandState.none { it.value }) expandState[newestDate] = true
     }
 
     LazyColumn(modifier = modifier
@@ -93,68 +77,26 @@ fun ArchiveTree(
         .background(Bg3)
         .border(1.dp, Line, RoundedCornerShape(R8))
     ) {
-        years.forEach { year ->
-            val yearKey = year.year
-            val yearExpanded = expandState[yearKey] ?: false
-            val yearCount = year.months.sumOf { m -> m.days.sumOf { d -> d.sessions.size } }
-
-            item(key = "year-$yearKey") {
+        dates.forEach { date ->
+            val expanded = expandState[date.dateKey] ?: false
+            item(key = "date-${date.dateKey}") {
                 TreeNodeRow(
-                    label = year.year,
-                    expanded = yearExpanded,
-                    count = yearCount,
-                    onClick = { expandState[yearKey] = !yearExpanded }
+                    label = date.dateKey,
+                    expanded = expanded,
+                    count = date.sessions.size,
+                    badge = if (date.dateKey == todayKey) "今天" else null,
+                    onClick = { expandState[date.dateKey] = !expanded },
                 )
             }
-
-            if (yearExpanded) {
-                year.months.forEach { month ->
-                    val monthKey = "${year.year}-${month.month}"
-                    val monthExpanded = expandState[monthKey] ?: false
-                    val monthCount = month.days.sumOf { d -> d.sessions.size }
-                    val monthNames = listOf("", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月")
-                    val monthLabel = monthNames.getOrElse(month.month.toIntOrNull() ?: 1) { month.month }
-
-                    item(key = "month-$monthKey") {
-                        TreeNodeRow(
-                            label = monthLabel,
-                            expanded = monthExpanded,
-                            count = monthCount,
-                            depth = 1,
-                            onClick = { expandState[monthKey] = !monthExpanded }
+            if (expanded) {
+                items(date.sessions, key = { "session-${it.id}" }) { session ->
+                    val isSelected = session.id == selectedSessionId
+                    Box(Modifier.animateItem()) {
+                        SessionRow(
+                            session = session,
+                            isSelected = isSelected,
+                            onClick = { onSelectSession(session) },
                         )
-                    }
-
-                    if (monthExpanded) {
-                        month.days.forEach { day ->
-                            val dayKey = "${year.year}-${month.month}-${day.day}"
-                            val dayExpanded = expandState[dayKey] ?: false
-                            val isToday = day.dateStr == todayStr
-
-                            item(key = "day-$dayKey") {
-                                TreeNodeRow(
-                                    label = "${day.day}日",
-                                    expanded = dayExpanded,
-                                    count = day.sessions.size,
-                                    depth = 2,
-                                    badge = if (isToday) "今天" else null,
-                                    onClick = { expandState[dayKey] = !dayExpanded }
-                                )
-                            }
-
-                            if (dayExpanded) {
-                                items(day.sessions, key = { "session-${it.id}" }) { session ->
-                                    val isSelected = session.id == selectedSessionId
-                                    Box(Modifier.animateItem()) {
-                                    SessionRow(
-                                        session = session,
-                                        isSelected = isSelected,
-                                        onClick = { onSelectSession(session) }
-                                    )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -167,7 +109,6 @@ private fun TreeNodeRow(
     label: String,
     expanded: Boolean,
     count: Int,
-    depth: Int = 0,
     badge: String? = null,
     onClick: () -> Unit
 ) {
@@ -190,7 +131,7 @@ private fun TreeNodeRow(
             .clip(AppShapes.xs)
             .background(background)
             .height(30.dp)
-            .padding(start = (8 + depth * 16).dp, end = 8.dp),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Expand arrow
@@ -255,7 +196,7 @@ private fun SessionRow(
         modifier = Modifier
             .fillMaxWidth()
             .fluidClickable(onClick = onClick)
-            .padding(start = 56.dp, top = 2.dp, bottom = 2.dp, end = 8.dp)
+            .padding(start = 24.dp, top = 2.dp, bottom = 2.dp, end = 8.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isSelected) Bg2 else Bg3)
             .padding(horizontal = 8.dp, vertical = 6.dp),

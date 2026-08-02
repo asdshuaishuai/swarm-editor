@@ -1,14 +1,11 @@
 package com.swarmeditor.desktop.ui.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
@@ -168,16 +165,7 @@ fun SettingsModal(
                 }
                 // Body
                 Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(10.dp).surfaceCard(bg = Bg2.copy(alpha = 0.82f), border = Line2, elevation = Elevation.medium, shape = AppShapes.lg)) {
-                    AnimatedContent(
-                        targetState = activeTab,
-                        transitionSpec = {
-                            val direction = if (tabs.indexOfFirst { it.id == targetState } >= tabs.indexOfFirst { it.id == initialState }) 1 else -1
-                            (fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { direction * 12 }) togetherWith
-                                (fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { -direction * 8 })
-                        },
-                        label = "settingsContent",
-                    ) { tab ->
-                    when (tab) {
+                    when (activeTab) {
                         "agent" -> AgentConfigTab(agents, configFields, configPath, settingsVm)
                         "models" -> ModelConfigTab(
                             models = models,
@@ -200,7 +188,6 @@ fun SettingsModal(
                         "appearance" -> AppearanceTab(themeMode, onThemeChange)
                         "shortcuts" -> ShortcutsTab()
                         "about" -> AboutTab()
-                    }
                     }
                 }
             }
@@ -303,8 +290,9 @@ private fun AgentConfigTab(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(bottom = 44.dp)
                 .verticalScroll(scrollState)
-                .padding(start = 16.dp, top = 16.dp, end = 30.dp, bottom = 18.dp)
+                .padding(start = 16.dp, top = 16.dp, end = 30.dp, bottom = 20.dp)
         ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -367,23 +355,27 @@ private fun AgentConfigTab(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .padding(vertical = 12.dp, horizontal = 7.dp)
+                    .padding(top = 12.dp, bottom = 52.dp, start = 7.dp, end = 7.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Line.withAlpha(0.24f)),
             )
         }
-        if (canScrollDown) {
+        AnimatedVisibility(
+            visible = canScrollDown,
+            enter = fadeIn(Motion.alphaEnter),
+            exit = fadeOut(Motion.alphaExit),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(44.dp)
                     .background(
                         Brush.verticalGradient(
                             listOf(Color.Transparent, Bg2.withAlpha(0.96f)),
                         )
                     )
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = 7.dp),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 Text(

@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,8 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +50,8 @@ import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.semanticAgentIcon
+import com.swarmeditor.desktop.ui.common.semanticPluginIcon
 
 // ── 侧栏通用标题行（对齐核心稿 .side-header）──────────────────────
 @Composable
@@ -106,6 +111,11 @@ private fun AgentSideRow(agent: AgentInfo, onClick: () -> Unit) {
     }
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val iconScale by animateFloatAsState(
+        targetValue = if (isHovered) 1.06f else 1f,
+        animationSpec = Motion.floatState,
+        label = "agentSideIconScale",
+    )
 
     Row(
         modifier = Modifier
@@ -125,7 +135,15 @@ private fun AgentSideRow(agent: AgentInfo, onClick: () -> Unit) {
                     .background(Brush.linearGradient(listOf(agent.color, agent.color.copy(alpha = 0.7f)))),
                 contentAlignment = Alignment.Center
             ) {
-                Text(agent.letter, color = OnAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Icon(
+                    imageVector = semanticAgentIcon(agent.name, agent.id),
+                    contentDescription = "${agent.name} 图标",
+                    tint = OnAccent,
+                    modifier = Modifier.size(15.dp).graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    },
+                )
             }
             Box(
                 Modifier
@@ -204,7 +222,7 @@ fun PluginSideBar(
                         McpRuntimeStatus.FAILED -> ErrLight to "运行失败"
                     }
                     PluginSideRow(
-                        iconText = s.icon.ifEmpty { s.name.take(1) },
+                        icon = semanticPluginIcon(s.name.ifBlank { s.id }, isSkill = false),
                         iconBg = Ac,
                         title = s.id,
                         meta = buildList {
@@ -219,7 +237,7 @@ fun PluginSideBar(
                 }
                 PluginSideTab.SKILLS -> items(skills, key = { it.id }) { s ->
                     PluginSideRow(
-                        iconText = s.name.take(1),
+                        icon = semanticPluginIcon(s.name, isSkill = true),
                         iconBg = if (s.source == "MCP") AgentQwen else AgentGemini,
                         title = s.name,
                         titleSuffix = s.source,
@@ -277,7 +295,7 @@ private fun PluginSideTabButton(
 
 @Composable
 private fun PluginSideRow(
-    iconText: String,
+    icon: ImageVector,
     iconBg: Color,
     title: String,
     meta: String,
@@ -289,6 +307,11 @@ private fun PluginSideRow(
 ) {
     val hovInt = remember { MutableInteractionSource() }
     val hov by hovInt.collectIsHoveredAsState()
+    val iconScale by animateFloatAsState(
+        targetValue = if (hov) 1.06f else 1f,
+        animationSpec = Motion.floatState,
+        label = "pluginSideIconScale",
+    )
     val rowBg by animateColorAsState(
         when {
             isActive -> Ac.withAlpha(0.1f)
@@ -307,7 +330,17 @@ private fun PluginSideRow(
         Box(
             Modifier.size(26.dp).clip(AppShapes.sm).background(iconBg.withAlpha(0.15f)),
             contentAlignment = Alignment.Center
-        ) { Text(iconText.uppercase(), color = iconBg, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = "$title 图标",
+                tint = iconBg,
+                modifier = Modifier.size(14.dp).graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                },
+            )
+        }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

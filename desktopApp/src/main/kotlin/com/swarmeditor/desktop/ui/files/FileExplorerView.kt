@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Folder
 import com.woowla.compose.icon.collections.feather.feather.RefreshCw
-import com.woowla.compose.icon.collections.feather.feather.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,13 +38,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 
 // ── Stats helpers ──────────────────────────────────────────────────
@@ -116,15 +120,15 @@ fun FileExplorerView(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = when {
-                    isLoading -> "正在加载项目文件…"
-                    !error.isNullOrBlank() -> "无法加载项目文件\n$error"
-                    else -> "暂无项目文件"
-                },
-                color = if (!error.isNullOrBlank()) ErrLight else Tx2,
-                fontSize = 14.sp,
-            )
+            if (isLoading) {
+                InlineLoadingState(text = "正在加载项目文件…", minHeight = 48.dp)
+            } else {
+                Text(
+                    text = if (!error.isNullOrBlank()) "无法加载项目文件\n$error" else "暂无项目文件",
+                    color = if (!error.isNullOrBlank()) ErrLight else Tx2,
+                    fontSize = 14.sp,
+                )
+            }
             if (!error.isNullOrBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Box(
@@ -184,21 +188,28 @@ fun FileExplorerView(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
             if (isLoading || !error.isNullOrBlank()) {
                 val noticeColor = if (!error.isNullOrBlank()) ErrLight else AcLight
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(noticeColor.copy(alpha = 0.08f))
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (isLoading) "正在刷新项目文件…" else "刷新失败：${error.orEmpty()}",
+                if (isLoading) {
+                    InlineLoadingState(
+                        text = "正在刷新项目文件…",
+                        modifier = Modifier.fillMaxWidth().background(noticeColor.copy(alpha = 0.08f)).padding(horizontal = 12.dp),
                         color = noticeColor,
-                        fontSize = 10.sp,
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f),
+                        minHeight = 34.dp,
                     )
-                    if (!isLoading && !error.isNullOrBlank()) {
+                } else {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(noticeColor.copy(alpha = 0.08f))
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "刷新失败：${error.orEmpty()}",
+                            color = noticeColor,
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            modifier = Modifier.weight(1f),
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "重试",
@@ -314,10 +325,26 @@ private fun FilePreview(
 ) {
     Column(Modifier.fillMaxSize().padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = Feather.File, contentDescription = "文件", modifier = Modifier.size(18.dp), tint = Tx2)
+            SemanticIconBadge(
+                spec = semanticFileIconSpec(preview.path.orEmpty()),
+                contentDescription = "文件类型",
+                size = 30.dp,
+            )
             Spacer(Modifier.width(8.dp))
-            Text(preview.path.orEmpty(), color = Tx, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
+            Text(
+                preview.path.orEmpty(),
+                color = Tx,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(10.dp))
+            if (!preview.isLoading && !preview.binary && preview.error == null && preview.path != null) {
+                HighlightStatusChip(preview)
+                Spacer(Modifier.width(10.dp))
+            }
             if (change != null) {
                 Box(
                     Modifier
@@ -341,17 +368,47 @@ private fun FilePreview(
                 .border(1.dp, Line, RoundedCornerShape(R8)).padding(14.dp)
         ) {
             val message = when {
-                preview.isLoading -> "正在读取文件…"
                 preview.binary -> "二进制文件不提供文本预览"
                 else -> null
             }
-            if (message != null) {
+            if (preview.isLoading) {
+                InlineLoadingState(
+                    text = "正在读取文件…",
+                    modifier = Modifier.align(Alignment.Center),
+                    minHeight = 36.dp,
+                )
+            } else if (message != null) {
                 Text(message, color = Tx3, fontSize = 12.sp)
             } else {
                 FileContentRenderer(preview, onSaveFile, Modifier.fillMaxSize())
             }
         }
     }
+}
+
+@Composable
+private fun HighlightStatusChip(preview: ProjectViewModel.FilePreviewState) {
+    val server = preview.lspServer?.takeIf(String::isNotBlank)
+    val label = if (server != null) "LSP 语义 · $server" else "JVM 语法高亮"
+    val color = if (server != null) AgentGemini else Tx3
+    val detail = preview.lspMessage?.takeIf(String::isNotBlank)
+        ?: if (server != null) "语义高亮由 $server 提供" else "当前文件由 RSyntaxTextArea 提供本地语法高亮"
+
+    Text(
+        text = label,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .widthIn(max = 180.dp)
+            .clip(AppShapes.pill)
+            .background(color.withAlpha(0.10f))
+            .border(1.dp, color.withAlpha(0.24f), AppShapes.pill)
+            .semantics { contentDescription = detail }
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
 
 private fun formatFileSize(bytes: Long): String = when {

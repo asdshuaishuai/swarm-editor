@@ -11,7 +11,7 @@ The product constraints remain strict: Kotlin UI and backend communication stays
 1. **Bubblewrap remains the stable Linux native-command baseline.** It is already integrated, available on the current machine as an 86,552-byte executable, and adds no image lifecycle.
 2. **Wasmtime remains the portable deterministic-plugin boundary.** WASM modules must be hash-pinned and capability-denied by default.
 3. **Sandlock is an experimental Linux provider, not a replacement yet.** Its design is highly aligned with Agent workloads, but the project was created in March 2026 and requires Linux 6.12+ for its complete protection set.
-4. **OCI is not part of interactive Agent execution.** Rootless Podman may remain an opt-in offline evaluation backend when a reproducible toolchain image is worth its disk cost. Bubblewrap plus WASM is sufficient for normal machines.
+4. **OCI is not part of Agent execution or evaluation.** Bubblewrap plus WASM is the complete lightweight sandbox stack for normal machines.
 5. **Windows native execution remains fail-closed** until an AppContainer launcher and broker exist. macOS needs a native helper with explicit filesystem and network policy.
 6. **`changedFileCount` must remain `null` until each mutation task owns a separate Git worktree and produces tree-based evidence.** Shared workspaces make per-Agent attribution false.
 7. **Implement deterministic replay before causal replay.** Reproducible inputs and effects are prerequisites for meaningful counterfactual attribution.
@@ -24,11 +24,11 @@ The existing implementation already establishes useful boundaries:
 |---|---|---|
 | Native Pi tools | `BubblewrapPiToolBroker` denies network, hides the home directory, binds only the workspace writable, strips Profile secrets, audits requests, and optionally enters a systemd user scope | Extract a provider-neutral policy and preflight contract; add stricter syscall/resource evidence |
 | WASM | `WasmtimeCliSandbox` verifies runtime version and module SHA-256 and grants no ambient directories or environment | Package a pinned runtime and add a host-owned module/capability manifest |
-| Evaluation | `RootlessContainerSwarmVerifier` uses a digest-pinned image, no network, read-only root, dropped capabilities, and resource limits | Keep optional and offline; introduce a non-OCI verifier for local development evidence |
+| Evaluation | `BubblewrapSwarmEvaluationVerifier` runs matched worktrees with no network, a read-only host root, one writable workspace, an ephemeral home, and a scrubbed environment | Add platform-native equivalents while preserving the same evidence contract |
 | Scheduler provenance | Attempt records persist Agent IDs, timing, token use, broker/audit IDs, retries, and verification state | Replace placeholder changed-file and verification fields with typed evidence references |
 | Workspace | Parallel tasks can still operate on one project directory | Allocate one detached worktree per mutation task and merge only verified artifacts |
 
-Local evidence from this workstation is Linux `7.0.12-201.fc44.x86_64`; Bubblewrap and `systemd-run` are installed, Podman is installed as a 45,107,616-byte executable, and Wasmtime/Sandlock are absent. The missing `/sys/kernel/security/landlock/abi` file does **not** prove Landlock is unavailable; a real syscall-level preflight is required.
+Local evidence from this workstation is Linux `7.0.12-201.fc44.x86_64`; Bubblewrap and `systemd-run` are installed, while Wasmtime/Sandlock are absent. The missing `/sys/kernel/security/landlock/abi` file does **not** prove Landlock is unavailable; a real syscall-level preflight is required.
 
 ## GitHub Evidence Matrix
 
@@ -167,7 +167,7 @@ Research correction: `arXiv:2501.15466` is a target-speaker speech-recognition p
 ### Phase C — Deterministic Verification
 
 - Add a Bubblewrap-based local verifier for ordinary machines.
-- Keep Podman verification opt-in for digest-pinned offline evaluation.
+- Use Bubblewrap for matched repository-command evaluation without an image lifecycle.
 - Normalize outputs, hash evidence, and replay identical task inputs against the same tree and environment fingerprint.
 
 ### Phase D — Provider Abstraction
@@ -184,4 +184,4 @@ Research correction: `arXiv:2501.15466` is a target-speaker speech-recognition p
 
 ## Final Position
 
-For ordinary machines, the correct execution stack is intentionally small: **Pi + Kotlin control plane + Bubblewrap/native OS sandbox + Wasmtime**. Podman is an optional laboratory instrument, not a runtime dependency. The next high-value engineering work is not adding another sandbox; it is separating task workspaces and building a content-addressed evidence chain so every file change, verification result, scheduling decision, and future self-improvement claim can be independently replayed and audited.
+For ordinary machines, the correct execution stack is intentionally small: **Pi + Kotlin control plane + Bubblewrap/native OS sandbox + Wasmtime**. OCI is unnecessary for this architecture. The next high-value engineering work is not adding another sandbox; it is separating task workspaces and building a content-addressed evidence chain so every file change, verification result, scheduling decision, and future self-improvement claim can be independently replayed and audited.

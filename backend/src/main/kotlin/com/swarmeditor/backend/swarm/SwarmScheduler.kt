@@ -37,6 +37,7 @@ class SwarmScheduler(
     private val store: SwarmStore,
     private val executor: SwarmTaskExecutor,
     private val scope: CoroutineScope,
+    private val schedulingPolicy: SwarmSchedulingPolicy = CriticalPathSwarmSchedulingPolicy(),
     private val learner: SwarmRunLearner = SwarmRunLearner {},
     private val now: () -> Instant = { Clock.System.now() },
 ) {
@@ -207,13 +208,18 @@ class SwarmScheduler(
                         run.tasks.first { it.id == dependencyId }.status == SwarmTaskStatus.SUCCEEDED
                     }
             }
-            val ready = readyCandidates.take(capacity.coerceAtLeast(0))
+            val schedulingSelection = schedulingPolicy.select(
+                run = run,
+                readyCandidates = readyCandidates,
+                activeTaskIds = active.keys,
+                capacity = capacity,
+            )
+            val ready = schedulingSelection.rankedCandidates.filter { it.id in schedulingSelection.selectedTaskIds }
 
             if (ready.isNotEmpty()) {
                 val runningRun = markRunning(
                     runId = runId,
-                    candidates = readyCandidates,
-                    selectedTaskIds = ready.map(SwarmTask::id).toSet(),
+                    selection = schedulingSelection,
                     activeTaskIds = active.keys,
                     availableCapacity = capacity,
                 )
@@ -281,7 +287,10 @@ class SwarmScheduler(
                                 verificationEvidenceId =
                                     (error as? SwarmTaskExecutionException)?.verificationEvidenceId,
                                 outcome = SwarmTaskAttemptOutcome.FAILED,
-                                errorCategory = error::class.simpleName ?: "Throwable",
+                                errorCategory = error.cause?.let { cause -> cause::class.simpleName }
+                                    ?: error::class.simpleName
+                                    ?: "Throwable",
+                                retryable = error !is SwarmDependencyArtifactConflictException,
                             )
                         }
                         outcomes.send(outcome)
@@ -348,8 +357,7 @@ class SwarmScheduler(
 
     private suspend fun markRunning(
         runId: String,
-        candidates: List<SwarmTask>,
-        selectedTaskIds: Set<String>,
+        selection: SwarmSchedulingSelection,
         activeTaskIds: Set<String>,
         availableCapacity: Int,
     ): SwarmRun = store.update(runId) { run ->
@@ -360,28 +368,32 @@ class SwarmScheduler(
         val decision = SwarmSchedulingDecision(
             id = decisionId,
             sequence = decisionSequence,
-            policyId = CONTROL_SCHEDULING_POLICY_ID,
-            stateFingerprint = schedulingStateFingerprint(run, activeTaskIds, availableCapacity),
+            policyId = schedulingPolicy.id,
+            stateFingerprint = schedulingStateFingerprint(run, activeTaskIds, availableCapacity, schedulingPolicy.id),
             createdAt = startedAt,
             availableCapacity = availableCapacity,
             activeTaskIds = activeTaskIds.sorted(),
-            candidates = candidates.map { task ->
-                val selected = task.id in selectedTaskIds
+            candidates = selection.rankedCandidates.map { task ->
+                val selected = task.id in selection.selectedTaskIds
+                val score = selection.scores.getValue(task.id)
                 SwarmSchedulingCandidate(
                     taskId = task.id,
                     taskOrder = taskOrder.getValue(task.id),
                     nextAttempt = task.attempt + 1,
                     requestedAgentId = task.agentId,
-                    disposition = if (selected) {
-                        SwarmSchedulingCandidateDisposition.SELECTED
-                    } else {
-                        SwarmSchedulingCandidateDisposition.DEFERRED_CAPACITY
+                    disposition = when {
+                        selected -> SwarmSchedulingCandidateDisposition.SELECTED
+                        task.id in selection.deferredOwnershipReasons ->
+                            SwarmSchedulingCandidateDisposition.DEFERRED_OWNERSHIP_CONFLICT
+                        else -> SwarmSchedulingCandidateDisposition.DEFERRED_CAPACITY
                     },
                     reason = if (selected) {
-                        "Selected by stored-order ready queue"
+                        score.explanation("Selected by critical-path dynamic programming")
                     } else {
-                        "Deferred because the parallelism capacity was exhausted"
+                        selection.deferredOwnershipReasons[task.id]
+                            ?: score.explanation("Deferred because the critical-path rank exceeded available capacity")
                     },
+                    estimatedUtility = score.utility,
                 )
             },
         )
@@ -389,7 +401,7 @@ class SwarmScheduler(
             updatedAt = startedAt,
             schedulingDecisions = run.schedulingDecisions + decision,
             tasks = run.tasks.map { task ->
-                if (task.id in selectedTaskIds) {
+                if (task.id in selection.selectedTaskIds) {
                     val attempt = task.attempt + 1
                     task.copy(
                         status = SwarmTaskStatus.RUNNING,
@@ -472,7 +484,7 @@ class SwarmScheduler(
                 updatedAt = completedAt,
                 tasks = run.tasks.map { task ->
                     if (task.id != outcome.taskId) return@map task
-                    val exhausted = task.attempt >= run.policy.maxTaskAttempts
+                    val exhausted = !outcome.retryable || task.attempt >= run.policy.maxTaskAttempts
                     task.copy(
                         status = if (exhausted) SwarmTaskStatus.FAILED else SwarmTaskStatus.PENDING,
                         output = "",
@@ -580,9 +592,10 @@ private fun schedulingStateFingerprint(
     run: SwarmRun,
     activeTaskIds: Set<String>,
     availableCapacity: Int,
+    policyId: String,
 ): String {
     val canonicalState = buildString {
-        append(CONTROL_SCHEDULING_POLICY_ID)
+        append(policyId)
         append('|').append(run.policy.maxParallelism)
         append('|').append(run.policy.failFast)
         append('|').append(run.policy.taskTimeoutSeconds)
@@ -596,12 +609,20 @@ private fun schedulingStateFingerprint(
             append(':').append(task.attempt)
             append(':').append(task.agentId.orEmpty())
             append(':').append(task.dependsOn.joinToString(","))
+            append(':').append(task.readPaths.joinToString(","))
+            append(':').append(task.writePaths.joinToString(","))
         }
     }
     return MessageDigest.getInstance("SHA-256")
         .digest(canonicalState.encodeToByteArray())
         .joinToString("") { byte -> "%02x".format(byte) }
 }
+
+private fun SwarmSchedulingScore.explanation(prefix: String): String =
+    "$prefix; utility=${String.format(java.util.Locale.ROOT, "%.3f", utility)}, " +
+        "criticalPath=${String.format(java.util.Locale.ROOT, "%.3f", remainingCriticalPath)}, " +
+        "directUnlocks=$directUnlocks, retries=$retryCount, " +
+        "activeAgentPenalty=${String.format(java.util.Locale.ROOT, "%.2f", activeAgentPenalty)}"
 
 private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
     completedAt: Instant,
@@ -655,6 +676,7 @@ private sealed interface TaskOutcome {
         val errorCategory: String,
         val workspaceDeltaEvidenceId: String? = null,
         val verificationEvidenceId: String? = null,
+        val retryable: Boolean = true,
     ) : TaskOutcome
 }
 
@@ -664,5 +686,3 @@ private fun mergeRoutingDecisions(
 ): List<com.swarmeditor.common.model.SwarmExperienceRoutingDecision> = (current + additions).distinctBy { decision ->
     "${decision.attempt}:${decision.experienceId}:${decision.status}:${decision.queryFingerprint}"
 }
-
-private const val CONTROL_SCHEDULING_POLICY_ID = "fifo-ready-v1"

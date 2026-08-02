@@ -14,6 +14,7 @@ import javax.swing.text.Element
 import javax.swing.text.StyleConstants
 import javax.swing.text.html.HTML
 import javax.swing.text.html.HTMLDocument
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea
 import java.net.URI
 import java.net.URL
 import java.net.URLConnection
@@ -23,6 +24,30 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 class FileContentRendererTest {
+    @Test
+    fun `JVM editor maps Kotlin and Java to dedicated syntax modes`() {
+        assertEquals("text/kotlin", sourceSyntaxStyle("kotlin"))
+        assertEquals("text/java", sourceSyntaxStyle("java"))
+        assertEquals("text/typescript", sourceSyntaxStyle("tsx"))
+        assertEquals("text/plain", sourceSyntaxStyle("swift"))
+    }
+
+    @Test
+    fun `local source viewer is read only and keeps line numbers`() = onSwingThread {
+        val scroll = createSourceEditorPane(
+            value = "fun main() = Unit",
+            languageId = "kotlin",
+            onValueChange = {},
+            onSave = {},
+            editable = false,
+        )
+        val editor = scroll.viewport.view as RSyntaxTextArea
+
+        assertFalse(editor.isEditable)
+        assertEquals("text/kotlin", editor.syntaxEditingStyle)
+        assertTrue(scroll.lineNumbersEnabled)
+    }
+
     @Test
     fun `rendered preview requires a complete supported text file`() {
         assertTrue(supportsRenderedPreview("README.md", binary = false, truncated = false))

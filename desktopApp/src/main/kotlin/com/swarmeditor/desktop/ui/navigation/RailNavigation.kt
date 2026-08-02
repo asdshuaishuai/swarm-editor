@@ -1,6 +1,5 @@
 package com.swarmeditor.desktop.ui.navigation
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -218,16 +218,19 @@ private fun RailTip(text: String) {
         animationSpec = Motion.alphaEnter,
         label = "railTipAlpha",
     )
-    val offsetX by animateDpAsState(
-        targetValue = if (shown) 0.dp else (-4).dp,
-        animationSpec = Motion.dpDefault,
-        label = "railTipOffset",
+    val hiddenOffsetPx = with(LocalDensity.current) { -4.dp.toPx() }
+    val translationX by animateFloatAsState(
+        targetValue = if (shown) 0f else hiddenOffsetPx,
+        animationSpec = Motion.floatDefault,
+        label = "railTipTranslation",
     )
     Text(
         text, color = Tx, fontSize = 11.sp, fontFamily = SansFont,
         modifier = Modifier
-            .offset(x = offsetX)
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer {
+                this.alpha = alpha
+                this.translationX = translationX
+            }
             .clip(RoundedCornerShape(6.dp))
             .background(Bg2)
             .border(1.dp, Line2, RoundedCornerShape(6.dp))

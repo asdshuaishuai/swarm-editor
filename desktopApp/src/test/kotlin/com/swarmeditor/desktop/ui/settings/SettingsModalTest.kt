@@ -12,7 +12,7 @@ class SettingsModalTest {
 
     @Test
     fun `known settings tabs remain addressable`() {
-        listOf("agent", "mcp", "skills", "general", "appearance", "shortcuts", "about").forEach { tabId ->
+        listOf("agent", "models", "mcp", "skills", "general", "appearance", "shortcuts", "about").forEach { tabId ->
             assertEquals(tabId, normalizeSettingsTab(tabId))
         }
     }

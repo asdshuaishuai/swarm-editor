@@ -88,21 +88,21 @@ Swarm Editor can now produce evaluation records from two prepared code patches u
 1. Control and treatment start from the same explicit Git commit hash.
 2. Each variant receives its own detached worktree under `~/.swarm-editor/evaluation-worktrees`.
 3. Patches are applied with direct `git apply` arguments; no shell interpolation is used.
-4. Verification runs concurrently for both variants through a pre-existing local Podman image.
-5. Podman must report `rootless=true` before any verification starts.
-6. The container uses `--pull=never`, disabled networking, a read-only root filesystem, dropped capabilities, `no-new-privileges`, private IPC, PID/memory/CPU limits, and an ephemeral `/tmp`.
-7. The only writable host mount is the individual evaluation worktree.
-8. Podman infrastructure exits (`125`–`127`) abort the replay and are never recorded as experience failures.
+4. Verification runs concurrently for both variants through Bubblewrap without an image or daemon.
+5. Bubblewrap version and namespace preflight must pass before any verifier command starts.
+6. The sandbox disables networking and other separable namespaces, mounts the host root read-only, and gives only the individual evaluation worktree write access.
+7. HOME is ephemeral and the environment is rebuilt from a small non-secret toolchain allowlist.
+8. Sandbox infrastructure failures abort replay and are never recorded as experience failures.
 9. Worktrees are removed in `NonCancellable` cleanup even when patching, verification, or sibling execution fails.
 
 Configuration is intentionally explicit:
 
 ```bash
-export SWARM_EVAL_IMAGE=localhost/swarm-eval:current
-export SWARM_EVAL_RUNTIME=/usr/bin/podman # optional when podman is on PATH
+export SWARM_EVAL_SANDBOX=bubblewrap
+export SWARM_EVAL_BWRAP=/usr/bin/bwrap # optional when bwrap is on PATH
 ```
 
-`infra/evaluation/build-image.sh` builds the project-specific offline image and emits a local manifest containing the exact source revision, source-tree hash, pinned base-image digest, and resulting image ID. Use the emitted `sha256:...` ID as `SWARM_EVAL_IMAGE`; promotion-grade evidence should only use manifests whose `sourceDirty` field is `false`.
+No OCI image is built. Reproducibility comes from the pinned Git snapshot, structured verifier argv, Bubblewrap security profile, executable digest, scrubbed environment fingerprint, and persisted verification evidence.
 
 Uncommitted editor state is captured without touching the user's index: a temporary `GIT_INDEX_FILE` stages the effective working tree, two consecutive tree captures must agree, and a deterministic `git commit-tree` object is pinned under `refs/swarm-editor/evaluation-snapshots/`. The resulting commit hash is the shared replay revision, so both variants start from identical tracked and untracked content.
 

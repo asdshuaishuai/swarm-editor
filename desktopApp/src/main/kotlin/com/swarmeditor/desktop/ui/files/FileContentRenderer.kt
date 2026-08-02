@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,23 +29,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -75,9 +66,18 @@ import com.swarmeditor.desktop.theme.WarnLight
 import com.swarmeditor.desktop.theme.surfaceInput
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import java.awt.Color as AwtColor
+import java.awt.Font
+import java.awt.Insets
+import java.awt.Toolkit
+import java.awt.event.ActionEvent
 import java.net.URL
+import javax.swing.AbstractAction
+import javax.swing.BorderFactory
 import javax.swing.JEditorPane
+import javax.swing.KeyStroke
 import javax.swing.JScrollPane
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.text.Element
 import javax.swing.text.StyleConstants
 import javax.swing.text.ViewFactory
@@ -85,6 +85,10 @@ import javax.swing.text.html.HTML
 import javax.swing.text.html.HTMLEditorKit
 import javax.swing.text.html.ImageView
 import javax.swing.text.html.StyleSheet
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants
+import org.fife.ui.rsyntaxtextarea.Theme
+import org.fife.ui.rtextarea.RTextScrollPane
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -141,17 +145,17 @@ internal fun FileContentRenderer(
             val status = when {
                 preview.isSaving -> "正在原子保存…"
                 preview.error != null -> preview.error
-                preview.lspServer != null -> "${preview.lspServer} · semantic"
-                else -> preview.lspMessage
+                else -> null
             }
             if (!status.isNullOrBlank()) {
-                Text(status, color = if (preview.lspServer != null) AgentGemini else Tx3, fontSize = 10.sp, maxLines = 1)
+                Text(status, color = if (preview.error != null) ErrLight else Tx3, fontSize = 10.sp, maxLines = 1)
             }
         }
         Box(Modifier.fillMaxSize().background(Bg0)) {
             when {
                 effectiveMode == FileRenderMode.SOURCE && editing -> SourceEditorPane(
                     value = draft,
+                    languageId = preview.languageId,
                     onValueChange = { draft = it },
                     onSave = saveDraft,
                     canSave = !preview.isSaving && draft != preview.content,
@@ -174,44 +178,126 @@ internal fun supportsRenderedPreview(path: String?, binary: Boolean, truncated: 
 @Composable
 private fun SourceEditorPane(
     value: String,
+    languageId: String,
     onValueChange: (String) -> Unit,
     onSave: () -> Unit,
     canSave: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val verticalState = rememberScrollState()
-    val horizontalState = rememberScrollState()
-    Box(modifier.fillMaxSize().padding(10.dp).surfaceInput(bg = Bg1.copy(alpha = 0.68f), border = Line2)) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            textStyle = TextStyle(color = Tx, fontFamily = CodeFont, fontSize = 12.sp, lineHeight = 19.sp),
-            cursorBrush = SolidColor(Ac),
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(verticalState)
-                .horizontalScroll(horizontalState)
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        (event.isCtrlPressed || event.isMetaPressed) &&
-                        event.key == Key.S
-                    ) {
-                        if (canSave) onSave()
-                        true
-                    } else {
-                        false
-                    }
+    val latestOnValueChange by rememberUpdatedState(onValueChange)
+    val latestOnSave by rememberUpdatedState(onSave)
+    val latestCanSave by rememberUpdatedState(canSave)
+    SwingPanel(
+        modifier = modifier.fillMaxSize().padding(10.dp),
+        background = Bg1,
+        factory = {
+            createSourceEditorPane(
+                value = value,
+                languageId = languageId,
+                onValueChange = { latestOnValueChange(it) },
+                onSave = { if (latestCanSave) latestOnSave() },
+            )
+        },
+        update = { scroll ->
+            val editor = scroll.viewport.view as? RSyntaxTextArea ?: return@SwingPanel
+            val style = sourceSyntaxStyle(languageId)
+            if (editor.syntaxEditingStyle != style) editor.syntaxEditingStyle = style
+            if (editor.text != value) {
+                val caret = editor.caretPosition.coerceAtMost(value.length)
+                editor.putClientProperty(SOURCE_EDITOR_UPDATING_PROPERTY, true)
+                editor.text = value
+                editor.caretPosition = caret
+                editor.putClientProperty(SOURCE_EDITOR_UPDATING_PROPERTY, false)
+            }
+        },
+    )
+}
+
+private const val SOURCE_EDITOR_UPDATING_PROPERTY = "swarm.sourceEditorUpdating"
+
+internal fun sourceSyntaxStyle(languageId: String): String = when (languageId.lowercase()) {
+    "kotlin", "kt", "kts" -> SyntaxConstants.SYNTAX_STYLE_KOTLIN
+    "java" -> SyntaxConstants.SYNTAX_STYLE_JAVA
+    "typescript", "ts", "tsx" -> SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT
+    "javascript", "js", "jsx" -> SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT
+    "python", "py" -> SyntaxConstants.SYNTAX_STYLE_PYTHON
+    "rust", "rs" -> SyntaxConstants.SYNTAX_STYLE_RUST
+    "go" -> SyntaxConstants.SYNTAX_STYLE_GO
+    "c", "h" -> SyntaxConstants.SYNTAX_STYLE_C
+    "cpp", "cc", "cxx", "hpp" -> SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS
+    "csharp", "cs" -> SyntaxConstants.SYNTAX_STYLE_CSHARP
+    "dart" -> SyntaxConstants.SYNTAX_STYLE_DART
+    "php", "phtml" -> SyntaxConstants.SYNTAX_STYLE_PHP
+    "ruby", "rb" -> SyntaxConstants.SYNTAX_STYLE_RUBY
+    "json", "jsonl" -> SyntaxConstants.SYNTAX_STYLE_JSON
+    "html", "htm" -> SyntaxConstants.SYNTAX_STYLE_HTML
+    "xml" -> SyntaxConstants.SYNTAX_STYLE_XML
+    "css", "scss" -> SyntaxConstants.SYNTAX_STYLE_CSS
+    "less" -> SyntaxConstants.SYNTAX_STYLE_LESS
+    "sql" -> SyntaxConstants.SYNTAX_STYLE_SQL
+    "sh", "bash", "zsh", "fish" -> SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL
+    "yaml", "yml" -> SyntaxConstants.SYNTAX_STYLE_YAML
+    "markdown", "md", "mdx" -> SyntaxConstants.SYNTAX_STYLE_MARKDOWN
+    else -> SyntaxConstants.SYNTAX_STYLE_NONE
+}
+
+internal fun createSourceEditorPane(
+    value: String,
+    languageId: String,
+    onValueChange: (String) -> Unit,
+    onSave: () -> Unit,
+    editable: Boolean = true,
+): RTextScrollPane {
+    val editor = RSyntaxTextArea(30, 100).apply {
+        RSyntaxTextArea::class.java.getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/dark.xml")
+            ?.use { Theme.load(it).apply(this) }
+        syntaxEditingStyle = sourceSyntaxStyle(languageId)
+        text = value
+        isEditable = editable
+        isCodeFoldingEnabled = true
+        antiAliasingEnabled = true
+        tabsEmulated = true
+        tabSize = 4
+        font = Font(Font.MONOSPACED, Font.PLAIN, 13)
+        background = AwtColor(14, 20, 30)
+        foreground = AwtColor(222, 229, 238)
+        caretColor = AwtColor(111, 168, 255)
+        selectionColor = AwtColor(66, 105, 160)
+        selectedTextColor = AwtColor(245, 248, 252)
+        currentLineHighlightColor = AwtColor(20, 29, 42)
+        matchedBracketBGColor = AwtColor(50, 68, 96)
+        matchedBracketBorderColor = AwtColor(111, 168, 255)
+        margin = Insets(10, 12, 10, 12)
+        border = BorderFactory.createEmptyBorder()
+        if (editable) {
+            document.addDocumentListener(object : DocumentListener {
+                override fun insertUpdate(event: DocumentEvent) = publish()
+                override fun removeUpdate(event: DocumentEvent) = publish()
+                override fun changedUpdate(event: DocumentEvent) = publish()
+
+                private fun publish() {
+                    if (getClientProperty(SOURCE_EDITOR_UPDATING_PROPERTY) != true) onValueChange(text)
                 }
-                .padding(12.dp),
-        )
-        VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(verticalState),
-            modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 4.dp),
-        )
-        HorizontalScrollbar(
-            adapter = rememberScrollbarAdapter(horizontalState),
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
-        )
+            })
+            val shortcutMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+            inputMap.put(KeyStroke.getKeyStroke('S'.code, shortcutMask), "swarm-save")
+            actionMap.put("swarm-save", object : AbstractAction() {
+                override fun actionPerformed(event: ActionEvent?) = onSave()
+            })
+        }
+    }
+    return RTextScrollPane(editor).apply {
+        lineNumbersEnabled = true
+        viewport.background = editor.background
+        border = BorderFactory.createLineBorder(AwtColor(43, 55, 72))
+        gutter.apply {
+            background = AwtColor(12, 17, 26)
+            lineNumberColor = AwtColor(102, 116, 136)
+            currentLineNumberColor = AwtColor(173, 190, 214)
+            borderColor = AwtColor(43, 55, 72)
+            foldIndicatorForeground = AwtColor(102, 116, 136)
+            foldIndicatorArmedForeground = AwtColor(111, 168, 255)
+        }
     }
 }
 
@@ -233,6 +319,14 @@ private fun RenderModeTab(label: String, active: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState) {
+    if (preview.semanticHighlights.isEmpty()) {
+        LocalSyntaxSourcePane(
+            content = preview.content,
+            languageId = preview.languageId,
+            truncated = preview.truncated,
+        )
+        return
+    }
     val lines = remember(preview.content) { preview.content.lines() }
     val semanticByLine = remember(preview.semanticHighlights) { preview.semanticHighlights.groupBy(SemanticHighlight::line) }
     val horizontalState = rememberScrollState()
@@ -277,6 +371,43 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState) {
             adapter = rememberScrollbarAdapter(horizontalState),
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
         )
+    }
+}
+
+@Composable
+private fun LocalSyntaxSourcePane(
+    content: String,
+    languageId: String,
+    truncated: Boolean,
+) {
+    Column(Modifier.fillMaxSize()) {
+        SwingPanel(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            background = Bg0,
+            factory = {
+                createSourceEditorPane(
+                    value = content,
+                    languageId = languageId,
+                    onValueChange = {},
+                    onSave = {},
+                    editable = false,
+                )
+            },
+            update = { scroll ->
+                val editor = scroll.viewport.view as? RSyntaxTextArea ?: return@SwingPanel
+                val style = sourceSyntaxStyle(languageId)
+                if (editor.syntaxEditingStyle != style) editor.syntaxEditingStyle = style
+                if (editor.text != content) editor.text = content
+            },
+        )
+        if (truncated) {
+            Text(
+                "预览已截断至 256 KiB",
+                color = WarnLight,
+                fontSize = 10.sp,
+                modifier = Modifier.fillMaxWidth().background(Bg1).padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 

@@ -33,7 +33,7 @@ import com.swarmeditor.desktop.theme.*
 @androidx.compose.runtime.Immutable
 data class TimelineEvent(
     val id: String,
-    val type: String,       // "mcp" | "file" | "cmd" | "message"
+    val type: String,       // "tool" | "skill" | "mcp" | "file" | "cmd" | "message"
     val timestamp: String,
     val actor: String,
     val action: String,
@@ -57,6 +57,8 @@ fun EventTimeline(
 ) {
     val filtered = if (filter == "全部") events else events.filter { ev ->
         when (filter) {
+            "工具" -> ev.type == "tool"
+            "Skill" -> ev.type == "skill"
             "MCP" -> ev.type == "mcp"
             "文件" -> ev.type == "file"
             "命令" -> ev.type == "cmd"
@@ -120,7 +122,7 @@ fun EventTimeline(
                             }
                             Spacer(Modifier.height(12.dp))
                             Text(
-                                if (events.isEmpty()) "此会话暂无活动记录" else "当前筛选没有匹配事件",
+                                if (events.isEmpty()) "此会话暂无 Agent 操作" else "当前筛选没有匹配事件",
                                 color = Tx,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -130,7 +132,7 @@ fun EventTimeline(
                                 if (filter == "全部") {
                                     "主智能体调用工具、修改文件或执行命令后，事件会按时间顺序显示在这里。"
                                 } else {
-                                    "切换到“全部”查看该会话的完整执行历史。"
+                                    "切换到“全部”查看该会话的完整 Agent 操作历史。"
                                 },
                                 color = Tx3,
                                 fontSize = 12.sp,
@@ -162,7 +164,9 @@ private fun StatChip(label: String, value: String) {
 @Composable
 private fun TimelineEntry(event: TimelineEvent) {
     val dotColor = when (event.type) {
-        "mcp" -> AgentGemini
+        "tool" -> AgentGemini
+        "skill" -> ControlPurple
+        "mcp" -> AgentQwen
         "file" -> AgentClaude
         "cmd" -> Ac
         else -> Tx2

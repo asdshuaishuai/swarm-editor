@@ -14,4 +14,10 @@ class AgentOrchestrationLayoutTest {
     fun `splits orchestration panels when enough width is available`() {
         assertTrue(useSplitAgentLayout(860))
     }
+
+    @Test
+    fun `uses compact overview height before swarm activity starts`() {
+        kotlin.test.assertEquals(172, swarmOverviewHeightDp(hasRuns = false))
+        kotlin.test.assertEquals(236, swarmOverviewHeightDp(hasRuns = true))
+    }
 }

@@ -36,12 +36,16 @@ import com.swarmeditor.backend.swarm.SwarmEvolutionStore
 import com.swarmeditor.backend.swarm.PiSwarmSkillCandidateGenerator
 import com.swarmeditor.backend.swarm.SwarmCounterfactualReplayFactory
 import com.swarmeditor.backend.swarm.GitContentAddressedSnapshotter
+import com.swarmeditor.backend.swarm.GitDependencyAwareSwarmTaskBaseRevisionResolver
 import com.swarmeditor.backend.swarm.EvidenceDrivenSwarmRoutingChallengePlanner
+import com.swarmeditor.backend.swarm.EvidenceDrivenSwarmRepositoryLocalizer
 import com.swarmeditor.backend.swarm.EvidenceDrivenSwarmRoutingEvaluationCasePlanner
 import com.swarmeditor.backend.swarm.SwarmStore
 import com.swarmeditor.backend.swarm.SwarmEvidenceStore
+import com.swarmeditor.backend.swarm.EvidenceBackedSwarmTaskVerifier
 import com.swarmeditor.backend.swarm.GitSwarmTaskWorkspaceManager
 import com.swarmeditor.backend.swarm.GitSwarmWorkspaceDeltaCapturer
+import com.swarmeditor.backend.swarm.GitSwarmArtifactIntegrator
 import com.swarmeditor.common.config.ConfigPaths
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +121,9 @@ val lspService = LspService(projectRoot)
 val projectService = ProjectService(projectRoot, lspService)
 val swarmStore = SwarmStore(File(ConfigPaths.SWARM_RUNS_DIR))
 val swarmEvidenceStore = SwarmEvidenceStore(File(ConfigPaths.SWARM_EVIDENCE_DIR))
+val swarmTaskVerifier by lazy {
+    EvidenceBackedSwarmTaskVerifier(evidenceStore = swarmEvidenceStore)
+}
 val swarmTaskWorkspaceManager by lazy {
     GitSwarmTaskWorkspaceManager(
         repositoryRoot = projectRoot,
@@ -129,10 +136,23 @@ val swarmWorkspaceDeltaCapturer by lazy {
         evidenceStore = swarmEvidenceStore,
     )
 }
+val swarmTaskBaseRevisionResolver by lazy {
+    GitDependencyAwareSwarmTaskBaseRevisionResolver(
+        repositoryRoot = projectRoot,
+        evidenceStore = swarmEvidenceStore,
+    )
+}
 val swarmRepositorySnapshotter by lazy {
     GitContentAddressedSnapshotter(
         repositoryRoot = projectRoot,
         indexRoot = File(ConfigPaths.SWARM_EVALUATION_INDEXES_DIR),
+    )
+}
+val swarmArtifactIntegrator by lazy {
+    GitSwarmArtifactIntegrator(
+        repositoryRoot = projectRoot,
+        evidenceStore = swarmEvidenceStore,
+        repositorySnapshotter = swarmRepositorySnapshotter,
     )
 }
 val swarmExperienceStore = SwarmExperienceStore(File(ConfigPaths.SWARM_EXPERIENCES_JSON))
@@ -146,6 +166,10 @@ val swarmScheduler: SwarmScheduler by lazy {
         store = swarmStore,
         executor = PiSwarmTaskExecutor(
             sessions = piRuntimeManager,
+            workspaceManager = swarmTaskWorkspaceManager,
+            workspaceDeltaCapturer = swarmWorkspaceDeltaCapturer,
+            baseRevisionResolver = swarmTaskBaseRevisionResolver,
+            taskVerifier = swarmTaskVerifier,
             agentResolver = com.swarmeditor.backend.swarm.SwarmAgentResolver { task ->
                 swarmService.resolveAgent(task)
             },
@@ -181,7 +205,12 @@ val swarmService: SwarmService by lazy {
         ),
         experienceStore = swarmExperienceStore,
         experienceSelector = swarmExperienceSelector,
+        repositoryLocalizer = EvidenceDrivenSwarmRepositoryLocalizer(
+            repositoryRoot = projectRoot,
+            sourceIntelligence = lspService,
+        ),
         repositorySnapshotProvider = { swarmRepositorySnapshotter.snapshot() },
+        artifactIntegrator = swarmArtifactIntegrator,
         dynamicAgentLimitProvider = {
             agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.maxDynamicSubagents
                 ?: AgentRegistry.defaultConfig().maxDynamicSubagents

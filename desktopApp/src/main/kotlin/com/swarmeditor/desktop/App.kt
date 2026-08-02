@@ -4,10 +4,10 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -115,6 +115,9 @@ fun WindowScope.App(
     // ViewModels are now from RootComponent
     val agents by root.agentVm.agents.collectAsState()
     val swarmRuns by root.swarmVm.runs.collectAsState()
+    val swarmArtifactReview by root.swarmVm.artifactReview.collectAsState()
+    val swarmArtifactSelectionPreview by root.swarmVm.artifactSelectionPreview.collectAsState()
+    val swarmArtifactActionRunning by root.swarmVm.artifactActionRunning.collectAsState()
     val sessions by root.sessionVm.sessions.collectAsState()
     val messages by root.sessionVm.messages.collectAsState()
     val conversationActivities by root.sessionVm.activities.collectAsState()
@@ -156,6 +159,12 @@ fun WindowScope.App(
     }
     LaunchedEffect(Unit) {
         root.swarmVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.swarmVm.artifactApplied.collect {
+            root.gitVm.refresh()
+            root.projectVm.load()
+        }
     }
     LaunchedEffect(Unit) {
         root.sessionVm.errorEvents.collect { message -> root.showToast(message, ToastType.ERROR) }
@@ -203,9 +212,29 @@ fun WindowScope.App(
         )
     }
     var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
-    var pluginSubTab by remember { mutableStateOf("mcp") }
+    var pluginSubTab by remember {
+        mutableStateOf(System.getProperty("swarm.pluginTab")?.takeIf { it == "mcp" || it == "skills" } ?: "mcp")
+    }
     // 插件侧栏点击 → 切换到详情页（如 VS Code 插件页）
     var pluginSelectedItem by remember { mutableStateOf<com.swarmeditor.desktop.ui.plugins.PluginItem?>(null) }
+    var requestedPluginDetail by remember { mutableStateOf(System.getProperty("swarm.pluginDetail")) }
+    LaunchedEffect(requestedPluginDetail, mcpServers, skills) {
+        val request = requestedPluginDetail ?: return@LaunchedEffect
+        val item = when {
+            request == "mcp:first" -> mcpServers.firstOrNull()?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Mcp)
+            request == "skill:first" -> skills.firstOrNull()?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Skill)
+            request.startsWith("mcp:") -> mcpServers.find { it.id == request.removePrefix("mcp:") }
+                ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Mcp)
+            request.startsWith("skill:") -> skills.find { it.id == request.removePrefix("skill:") }
+                ?.let(com.swarmeditor.desktop.ui.plugins.PluginItem::Skill)
+            else -> null
+        }
+        if (item != null) {
+            pluginSubTab = if (item is com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp) "mcp" else "skills"
+            pluginSelectedItem = item
+            requestedPluginDetail = null
+        }
+    }
     var inputText by remember { mutableStateOf("") }
     var imageAttachments by remember { mutableStateOf<List<UiImageAttachment>>(emptyList()) }
     var wasSending by remember { mutableStateOf(false) }
@@ -403,21 +432,24 @@ fun WindowScope.App(
             EnhancedTopBar(
                 projectName = File(root.projectVm.projectPath).name,
                 branchName = gitStatus.branch.ifBlank { "—" },
-                agentCount = agents.size,
-                onlineCount = derivedOnlineCount,
-                agentAvatars = agents.map { com.swarmeditor.desktop.ui.navigation.TopBarAgentAvatar(it.letter, it.color) },
-                currentAgentLetter = selectedAgent.letter,
+                workspaceLabel = when (currentConfig) {
+                    MainConfig.Chat -> "会话"
+                    MainConfig.Agents -> "智能体"
+                    MainConfig.Plugins -> "插件"
+                    MainConfig.Files -> "文件"
+                    MainConfig.Activity -> "活动"
+                },
+                currentAgentName = selectedAgent.name,
+                currentAgentId = selectedAgent.id,
                 currentAgentColor = selectedAgent.color,
-                unreadNotifications = 0,
+                currentAgentOnline = selectedAgent.isConnected,
                 onCmdK = { root.showCmdKDialog() },
-                onNotifications = { root.switchView("activity") },
                 onSettings = { root.showSettingsDialog() },
-                onUserAvatar = {
+                onAgent = {
                     if (selectedAgent.id.isBlank()) root.showSettingsDialog()
                     else root.showAgentConfigDialog(selectedAgent.id)
                 },
                 onProjectSwitcher = { root.switchView("files") },
-                onSwarmStatus = { root.switchView("agents") },
                 onClose = onClose,
                 onMinimize = onMinimize,
                 onMaximizeToggle = onMaximizeToggle,
@@ -443,14 +475,12 @@ fun WindowScope.App(
 
                 AnimatedVisibility(
                     visible = shellLayout.showLeftSidebar && currentConfig in setOf(MainConfig.Chat, MainConfig.Plugins),
-                    enter = fadeIn(Motion.alphaEnter) + expandHorizontally(
-                        expandFrom = Alignment.Start,
-                        animationSpec = Motion.intSizeExpand,
-                    ),
-                    exit = fadeOut(Motion.alphaExit) + shrinkHorizontally(
-                        shrinkTowards = Alignment.Start,
-                        animationSpec = Motion.intSizeCollapse,
-                    ),
+                    enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) {
+                        -minOf(it, 28)
+                    },
+                    exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) {
+                        -minOf(it, 20)
+                    },
                 ) {
                     Box(Modifier.width(shellLayout.leftSidebarWidth.dp).fillMaxHeight()) {
                         when (currentConfig) {
@@ -476,7 +506,10 @@ fun WindowScope.App(
                                     }
                                 },
                                 activeTab = pluginSubTab,
-                                onTabChange = { pluginSubTab = it },
+                                onTabChange = { tab ->
+                                    pluginSubTab = tab
+                                    pluginSelectedItem = null
+                                },
                                 selectedMcpId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Mcp)?.server?.id,
                                 selectedSkillId = (pluginSelectedItem as? com.swarmeditor.desktop.ui.plugins.PluginItem.Skill)?.skill?.id,
                                 modifier = Modifier.fillMaxSize(),
@@ -522,8 +555,8 @@ fun WindowScope.App(
                                 sessionTitle = derivedSessionTitle ?: selectedAgent.name,
                                 contextUsageText = contextUsageText,
                                 onSelectAgent = { root.agentVm.selectAgent(it) },
-                                onMcpClick = { root.switchView("plugins") },
-                                onSkillClick = { root.switchView("plugins") }
+                                mcpServers = mcpServers,
+                                piCommands = piCommands,
                             )
                             MainConfig.Agents -> AgentOrchestrationView(
                                 agents = agentDtos,
@@ -533,6 +566,15 @@ fun WindowScope.App(
                                 },
                                 onCancelSwarm = root.swarmVm::cancel,
                                 onRetrySwarm = root.swarmVm::retry,
+                                artifactReview = swarmArtifactReview,
+                                artifactSelectionPreview = swarmArtifactSelectionPreview,
+                                artifactActionRunning = swarmArtifactActionRunning,
+                                onReviewArtifact = root.swarmVm::reviewArtifact,
+                                onApplyArtifact = root.swarmVm::applyArtifact,
+                                onRejectArtifact = root.swarmVm::rejectArtifact,
+                                onPreviewArtifactSelection = root.swarmVm::previewArtifactSelection,
+                                onArtifactReviewViewportChanged = root.swarmVm::observeArtifactReviewViewport,
+                                onCloseArtifactReview = root.swarmVm::closeArtifactReview,
                                 onRefresh = { root.agentVm.scan() },
                                 onConfigClick = { root.showAgentConfigDialog(it.config.id) },
                                 modifier = Modifier.fillMaxSize()
@@ -579,14 +621,12 @@ fun WindowScope.App(
 
                     AnimatedVisibility(
                         visible = shellLayout.shouldMountRightPanel(showRightPanel, currentConfig == MainConfig.Chat),
-                        enter = fadeIn(Motion.alphaEnter) + expandHorizontally(
-                            expandFrom = Alignment.End,
-                            animationSpec = Motion.intSizeExpand,
-                        ),
-                        exit = fadeOut(Motion.alphaExit) + shrinkHorizontally(
-                            shrinkTowards = Alignment.End,
-                            animationSpec = Motion.intSizeCollapse,
-                        ),
+                        enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) {
+                            minOf(it, 28)
+                        },
+                        exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) {
+                            minOf(it, 20)
+                        },
                     ) {
                         RightPanel(
                             currentTab = rightTab,

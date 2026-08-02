@@ -167,7 +167,9 @@ private enum class EvidenceKind(val directoryName: String, val label: String) {
 }
 
 private fun validateWorkspaceDelta(evidence: SwarmWorkspaceDeltaEvidence) {
-    require(evidence.schemaVersion == CURRENT_EVIDENCE_SCHEMA_VERSION) { "Unsupported workspace evidence schema" }
+    require(evidence.schemaVersion in 1..CURRENT_WORKSPACE_EVIDENCE_SCHEMA_VERSION) {
+        "Unsupported workspace evidence schema"
+    }
     requireLabel(evidence.runId, "runId")
     requireLabel(evidence.taskId, "taskId")
     require(evidence.attempt > 0) { "Workspace evidence attempt must be positive" }
@@ -184,6 +186,42 @@ private fun validateWorkspaceDelta(evidence: SwarmWorkspaceDeltaEvidence) {
     }
     requireSha256(evidence.nameStatusSha256, "nameStatusSha256")
     require(evidence.changedPathCount >= 0) { "changedPathCount cannot be negative" }
+    if (evidence.schemaVersion >= 2) {
+        require(evidence.changedPaths.size == evidence.changedPathCount) {
+            "Workspace changed path records do not match changedPathCount"
+        }
+    }
+    require(evidence.changedPaths.distinctBy { it.path }.size == evidence.changedPaths.size) {
+        "Workspace changed paths must be unique"
+    }
+    evidence.changedPaths.forEach { changed ->
+        require(changed.status.matches(GIT_CHANGE_STATUS_PATTERN)) { "Invalid workspace change status" }
+        validateOwnershipScope(changed.path)
+    }
+    evidence.declaredWritePaths.forEach(::validateOwnershipScope)
+    require(evidence.declaredWritePaths.distinct().size == evidence.declaredWritePaths.size) {
+        "Declared write paths must be unique"
+    }
+    if (evidence.ownershipCompliant == null) {
+        require(evidence.ownershipPolicyVersion == null && evidence.ownershipViolations.isEmpty()) {
+            "Unaudited workspace evidence cannot contain ownership audit details"
+        }
+    } else {
+        require(!evidence.ownershipPolicyVersion.isNullOrBlank()) { "Ownership audit requires a policy version" }
+        if (evidence.ownershipCompliant == true) {
+            require(evidence.ownershipViolations.isEmpty()) { "Compliant ownership audit cannot contain violations" }
+        } else {
+            require(evidence.ownershipViolations.isNotEmpty()) { "Failed ownership audit must contain violations" }
+        }
+    }
+    evidence.ownershipViolations.forEach { violation ->
+        require(violation.status.matches(GIT_CHANGE_STATUS_PATTERN)) { "Invalid ownership violation status" }
+        validateOwnershipScope(violation.path)
+        requireLabel(violation.reason, "ownershipViolationReason", MAX_REASON_LENGTH)
+        require(evidence.changedPaths.any { changed ->
+            changed.path == violation.path && changed.status == violation.status
+        }) { "Ownership violation must reference a changed path" }
+    }
     requireLabel(evidence.gitVersion, "gitVersion")
     requireLabel(evidence.capturePolicyVersion, "capturePolicyVersion")
 }
@@ -294,7 +332,9 @@ private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
     .joinToString("") { byte -> "%02x".format(byte) }
 
 private const val CURRENT_EVIDENCE_SCHEMA_VERSION = 1
+private const val CURRENT_WORKSPACE_EVIDENCE_SCHEMA_VERSION = 2
 private const val MAX_LABEL_LENGTH = 512
 private const val MAX_REASON_LENGTH = 2_048
 private val SHA256_PATTERN = Regex("[0-9a-f]{64}")
 private val GIT_OBJECT_PATTERN = Regex("(?:[0-9a-f]{40}|[0-9a-f]{64})")
+private val GIT_CHANGE_STATUS_PATTERN = Regex("[ACDMTUXB]")
