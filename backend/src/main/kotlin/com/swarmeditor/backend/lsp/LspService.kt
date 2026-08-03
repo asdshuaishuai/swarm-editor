@@ -19,6 +19,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -85,6 +89,23 @@ data class LspDocumentInsight(
     val message: String? = null,
 )
 
+enum class LspConnectionPhase {
+    IDLE,
+    CONNECTING,
+    CONNECTED,
+    UNAVAILABLE,
+    FAILED,
+}
+
+data class LspServerConnectionState(
+    val id: String,
+    val displayName: String,
+    val phase: LspConnectionPhase = LspConnectionPhase.IDLE,
+    val command: List<String> = emptyList(),
+    val serverName: String? = null,
+    val message: String? = null,
+)
+
 interface SourceSemanticHighlighter {
     suspend fun highlight(file: File, content: String): LspHighlightResult
     suspend fun close() = Unit
@@ -101,29 +122,42 @@ class LspService(
         StdioLspSession(projectRoot, spec)
     },
     private val commandAvailability: (String) -> Boolean = ::commandAvailable,
+    private val managedCommandProvider: suspend (LspServerSpec) -> List<String>? = { null },
 ) : SourceCodeIntelligence {
     private val sessions = ConcurrentHashMap<String, LspSession>()
     private val sessionLifecycleLocks = ConcurrentHashMap<String, Mutex>()
     private val sessionMutex = Mutex()
     private val closed = AtomicBoolean()
+    private val _serverStates = MutableStateFlow(
+        specs.associate { spec ->
+            spec.id to LspServerConnectionState(id = spec.id, displayName = spec.displayName)
+        },
+    )
+    val serverStates: StateFlow<Map<String, LspServerConnectionState>> = _serverStates.asStateFlow()
 
     override suspend fun highlight(file: File, content: String): LspHighlightResult {
         check(!closed.get()) { "LSP service is closed" }
         val extension = file.extension.lowercase()
         val spec = specs.firstOrNull { extension in it.extensions }
             ?: return LspHighlightResult(languageId = extension, message = "该文件类型未配置 LSP")
-        val commands = resolveLspCommands(spec, commandAvailability)
         val activeSession = sessionMutex.withLock {
             check(!closed.get()) { "LSP service is closed" }
             sessions[spec.id]
         }
         if (activeSession != null) {
             try {
-                return activeSession.highlight(file, content)
+                return activeSession.highlight(file, content).also { result ->
+                    updateServerState(
+                        spec,
+                        phase = LspConnectionPhase.CONNECTED,
+                        serverName = result.serverName,
+                    )
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 check(!closed.get()) { "LSP service is closed" }
+                updateServerState(spec, phase = LspConnectionPhase.FAILED, message = error.message)
                 val closeError = discardSession(spec.id, activeSession)
                 log.warn(error) { "Active ${spec.displayName} session failed; trying configured commands" }
                 if (closeError != null) {
@@ -132,13 +166,24 @@ class LspService(
                 }
             }
         }
+        val managedCommand = if (spec.hasExplicitCommandOverride) null else managedCommandProvider(spec)
+        val candidates = buildList {
+            managedCommand?.let(::add)
+            addAll(spec.commandCandidates)
+        }.distinct()
+        val commands = candidates.filter { commandAvailability(it.first()) }
         if (commands.isEmpty()) {
-            val candidates = spec.commandCandidates.joinToString(" / ") { it.joinToString(" ") }
+            val candidateDescription = candidates.joinToString(" / ") { it.joinToString(" ") }
             val environmentVariable = "SWARM_LSP_${spec.id.uppercase()}"
+            updateServerState(
+                spec,
+                phase = LspConnectionPhase.UNAVAILABLE,
+                message = "未发现可执行的语言服务器",
+            )
             return LspHighlightResult(
                 languageId = spec.languageId,
                 message = buildString {
-                    append("未发现 ${spec.displayName}（尝试：$candidates；可通过 ")
+                    append("未发现 ${spec.displayName}（尝试：$candidateDescription；可通过 ")
                     append("$environmentVariable 或 swarm.lsp.${spec.id} 配置），已使用本地语法高亮")
                 },
             )
@@ -147,12 +192,20 @@ class LspService(
         commands.forEach { command ->
             var session: LspSession? = null
             try {
+                updateServerState(spec, phase = LspConnectionPhase.CONNECTING, command = command)
                 val resolvedSpec = spec.copy(commandCandidates = listOf(command))
                 session = sessionMutex.withLock {
                     check(!closed.get()) { "LSP service is closed" }
                     sessions[spec.id] ?: sessionFactory(resolvedSpec).also { sessions[spec.id] = it }
                 }
-                return session.highlight(file, content)
+                return session.highlight(file, content).also { result ->
+                    updateServerState(
+                        spec,
+                        phase = LspConnectionPhase.CONNECTED,
+                        command = command,
+                        serverName = result.serverName,
+                    )
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -160,6 +213,12 @@ class LspService(
                 val closeError = discardSession(spec.id, session)
                 val executable = command.first()
                 failures += "$executable：${error.message ?: "未知错误"}"
+                updateServerState(
+                    spec,
+                    phase = LspConnectionPhase.FAILED,
+                    command = command,
+                    message = error.message,
+                )
                 log.warn(error) { "$executable failed; trying the next ${spec.displayName} command" }
                 if (closeError != null) {
                     error.addSuppressed(closeError)
@@ -192,7 +251,13 @@ class LspService(
                 message = highlighted.message,
             )
         return try {
-            session.inspect(file, content).copy(highlights = highlighted.highlights)
+            session.inspect(file, content).copy(highlights = highlighted.highlights).also { insight ->
+                updateServerState(
+                    spec,
+                    phase = LspConnectionPhase.CONNECTED,
+                    serverName = insight.serverName ?: highlighted.serverName,
+                )
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -210,6 +275,31 @@ class LspService(
         languageId = spec.languageId,
         message = "${spec.displayName} 语义高亮不可用（${failures.joinToString("；")}），已使用本地语法高亮",
     )
+
+    suspend fun restart(serverId: String) {
+        val spec = specs.firstOrNull { it.id == serverId } ?: return
+        val active = sessionMutex.withLock { sessions[serverId] }
+        discardSession(serverId, active)?.let { throw it }
+        updateServerState(spec, phase = LspConnectionPhase.IDLE)
+    }
+
+    private fun updateServerState(
+        spec: LspServerSpec,
+        phase: LspConnectionPhase,
+        command: List<String> = emptyList(),
+        serverName: String? = null,
+        message: String? = null,
+    ) {
+        _serverStates.update { current ->
+            val previous = current[spec.id] ?: LspServerConnectionState(spec.id, spec.displayName)
+            current + (spec.id to previous.copy(
+                phase = phase,
+                command = command.ifEmpty { previous.command.takeIf { phase == LspConnectionPhase.CONNECTED }.orEmpty() },
+                serverName = serverName,
+                message = message,
+            ))
+        }
+    }
 
     private suspend fun discardSession(id: String, expected: LspSession?): Throwable? {
         if (expected == null) return null
@@ -246,6 +336,9 @@ class LspService(
                     }
                 }
             }
+            _serverStates.value = _serverStates.value.mapValues { (_, state) ->
+                state.copy(phase = LspConnectionPhase.IDLE, serverName = null, message = null)
+            }
             firstFailure?.let { throw it }
         }
     }
@@ -258,6 +351,7 @@ data class LspServerSpec(
     val extensions: Set<String>,
     val commandCandidates: List<List<String>>,
     val initializationOptions: JsonObject? = null,
+    val hasExplicitCommandOverride: Boolean = false,
 ) {
     init {
         require(commandCandidates.isNotEmpty() && commandCandidates.all(List<String>::isNotEmpty)) {
@@ -381,7 +475,15 @@ internal fun lspSpec(
         ?: systemProperty("swarm.lsp.$id")
     val overrideCommand = override?.trim()?.split(Regex("\\s+"))?.filter(String::isNotBlank).orEmpty()
     val commandCandidates = if (overrideCommand.isEmpty()) fallbackCommands else listOf(overrideCommand)
-    return LspServerSpec(id, displayName, languageId, extensions, commandCandidates, initializationOptions)
+    return LspServerSpec(
+        id = id,
+        displayName = displayName,
+        languageId = languageId,
+        extensions = extensions,
+        commandCandidates = commandCandidates,
+        initializationOptions = initializationOptions,
+        hasExplicitCommandOverride = overrideCommand.isNotEmpty(),
+    )
 }
 
 internal fun resolveLspCommand(

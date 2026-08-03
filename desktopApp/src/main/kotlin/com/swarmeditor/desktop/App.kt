@@ -137,6 +137,7 @@ fun WindowScope.App(
     val skills by root.skillVm.skills.collectAsState()
     val wasmPluginState by root.wasmPluginVm.state.collectAsState()
     val wasmExecution by root.wasmPluginVm.execution.collectAsState()
+    val kotlinLspRuntimeState by root.kotlinLspRuntimeVm.state.collectAsState()
     val projectTree by root.projectVm.tree.collectAsState()
     val isProjectLoading by root.projectVm.isLoading.collectAsState()
     val projectTreeError by root.projectVm.treeError.collectAsState()
@@ -185,6 +186,9 @@ fun WindowScope.App(
     }
     LaunchedEffect(Unit) {
         root.wasmPluginVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.kotlinLspRuntimeVm.events.collect { event -> root.showToast(event.message, event.type) }
     }
     val dialogSlot by root.dialog.subscribeAsState()
     val dialog = dialogSlot.child?.configuration
@@ -320,6 +324,7 @@ fun WindowScope.App(
         root.mcpVm.load()
         root.skillVm.load()
         root.wasmPluginVm.load()
+        root.kotlinLspRuntimeVm.load()
         root.projectVm.load()
         root.gitVm.refresh()
         // 截图/测试用：启动时打开指定浮层
@@ -734,6 +739,11 @@ fun WindowScope.App(
             onThemeChange = root::setTheme,
             onDefaultAgentChange = root.agentVm::selectAgent,
             projectPath = root.projectVm.projectPath,
+            kotlinLspState = kotlinLspRuntimeState,
+            onRefreshKotlinLsp = root.kotlinLspRuntimeVm::refresh,
+            onInstallKotlinLsp = root.kotlinLspRuntimeVm::install,
+            onProbeKotlinLsp = root.kotlinLspRuntimeVm::probe,
+            onOpenKotlinLspDirectory = root.kotlinLspRuntimeVm::openRuntimeDirectory,
             onRefreshMcp = root.mcpVm::reload,
             onAddMcp = { root.showMcpConfigDialog(UUID.randomUUID().toString()) },
             onEditMcp = root::showMcpConfigDialog

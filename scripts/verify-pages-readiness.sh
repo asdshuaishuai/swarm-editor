@@ -38,7 +38,9 @@ for forbidden in \
 done
 
 for required in \
-    "LSP + JVM fallback" \
+    "Managed LSP + JVM fallback" \
+    "JetBrains Kotlin LSP 262.9593.0" \
+    "真实 stdio 初始化成功" \
     "文档符号、诊断与行级导航" \
     "Bubblewrap + Managed Wasmtime" \
     "Wasmtime 47.0.2" \

@@ -9,6 +9,7 @@
 - `PiRuntimeManager` 为每个 Swarm 会话按需启动 pi RPC/JSONL 子进程。
 - Pi 与 Kotlin 之间使用 nonce 绑定、限长、可取消且要求审计 ID 的 stdio 工具代理协议；Linux 使用 Bubblewrap 在无镜像、无守护进程的禁网沙箱中运行原生命令，可移植能力插件由独立 Wasmtime 沙箱执行。
 - 仓库定位会构建源码依赖图并使用 Tarjan SCC 折叠循环依赖簇；定位证据与关键路径调度分别持久化，避免把 SCC 误当作任务 DAG 执行器。
+- Kotlin 源码智能可按需安装 JetBrains Kotlin LSP `262.9593.0`；安装器验证官方归档 SHA-256，安全提取并固定使用 JSON-RPC stdio，设置中心显示运行时完整性与真实连接状态。
 - Pi-only 沙箱、动态图调度、LSP 代码智能与可验证自进化的 GitHub/arXiv 深度研究见 `docs/research/2026-07-28-pi-agent-runtime-orchestration-deep-dive.md`。
 - 轻量跨平台沙箱、Sandlock 准入门槛、独立 Git worktree 与可重放验证证据链见 `docs/research/2026-07-28-lightweight-sandbox-verification-deep-dive.md`。
 - 完成的兵团运行会由 Pi 反思器提炼为可追溯经验，并在后续规划和任务执行时按目标与角色检索复用；设计依据见 `docs/research/2026-07-27-pi-swarm-self-evolution.md`。
@@ -94,3 +95,16 @@ Bubblewrap 运行时关闭网络、隐藏用户主目录，只读挂载系统运
 WASM 通道固定使用 Wasmtime `47.0.2`。插件中心可以安装或修复受管运行时，并显示运行时来源、版本、完整哈希、插件清单错误与测试输出；运行时安装包按官方 SHA-256 校验，安装后的二进制与 `runtime.json` 再次绑定。插件通过模块 SHA-256、执行时限、输入输出上限以及无继承环境、无文件系统预打开的 JSON stdin/stdout 协议运行。插件清单和安全模型见 `docs/architecture/wasm-plugins.md`。
 
 WASM 不会代替 Gradle、npm、Git 或其他原生命令；这些操作继续由 Bubblewrap 通道处理。未启用 Bubblewrap 的 Agent 仍可使用经过审计的 WASM 工具，同时保留 Pi 本地核心工具。OCI/Podman 不属于当前执行或评估架构。
+
+## Managed Kotlin LSP
+
+设置中心的“代码智能”页可以按需安装或修复 JetBrains Kotlin LSP `262.9593.0`。官方独立包约 390MB，因此不会捆绑进桌面安装包。运行时位于 `~/.swarm-editor/runtimes/kotlin-lsp/`，索引缓存与版本、平台隔离；安装器固定六个平台归档的 SHA-256，限制下载和解压规模，拒绝路径穿越，并将归档内安全相对链接实体化后再原子发布。
+
+受管启动命令强制使用 `--stdio`，不会启用 Kotlin LSP 默认的 `127.0.0.1:9999` socket。仍可通过 `SWARM_LSP_KOTLIN` 或 `-Dswarm.lsp.kotlin=...` 显式覆盖，也会回退探测 `PATH` 中的 `kotlin-lsp` 和 `kotlin-language-server`。文件视图仅在真实 JSON-RPC 初始化与 semantic tokens 请求成功后显示服务器名称，否则继续使用 JVM 语法高亮。
+
+维护者可以使用已下载的官方归档执行真实连接烟测：
+
+```bash
+SWARM_KOTLIN_LSP_TEST_ARCHIVE=/path/to/kotlin-server-262.9593.0.tar.gz \
+  ./gradlew :backend:test --tests 'com.swarmeditor.backend.lsp.KotlinLspOfficialSmokeTest'
+```

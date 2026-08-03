@@ -6,6 +6,7 @@ import com.swarmeditor.backend.mcp.McpStore
 import com.swarmeditor.backend.mcp.UserMcpScanner
 import com.swarmeditor.backend.model.ModelRegistry
 import com.swarmeditor.backend.lsp.LspService
+import com.swarmeditor.backend.lsp.KotlinLspRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimeDistribution
 import com.swarmeditor.backend.pi.PiMcpExtensionInstaller
 import com.swarmeditor.backend.pi.PiRuntimeManager
@@ -21,6 +22,7 @@ import com.swarmeditor.backend.pi.WasmtimeRuntimeManager
 import com.swarmeditor.backend.service.AgentService
 import com.swarmeditor.backend.service.ConversationService
 import com.swarmeditor.backend.service.GitService
+import com.swarmeditor.backend.service.KotlinLspRuntimeService
 import com.swarmeditor.backend.service.McpService
 import com.swarmeditor.backend.service.ModelService
 import com.swarmeditor.backend.service.ProjectService
@@ -137,7 +139,19 @@ val mcpService = McpService(
 )
 val conversationService = ConversationService(sessionService, agentService, piRuntimeManager, activityStore)
 val gitService = GitService(projectRoot)
-val lspService = LspService(projectRoot)
+val kotlinLspRuntimeManager = KotlinLspRuntimeManager(File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR))
+val lspService = LspService(
+    projectRoot = projectRoot,
+    managedCommandProvider = { spec ->
+        if (spec.id == "kotlin") kotlinLspRuntimeManager.managedCommandOrNull() else null
+    },
+)
+val kotlinLspRuntimeService = KotlinLspRuntimeService(
+    runtimeManager = kotlinLspRuntimeManager,
+    lspService = lspService,
+    projectRoot = projectRoot,
+    runtimeDirectory = File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR),
+)
 val projectService = ProjectService(projectRoot, lspService)
 val swarmStore = SwarmStore(File(ConfigPaths.SWARM_RUNS_DIR))
 val swarmEvidenceStore = SwarmEvidenceStore(File(ConfigPaths.SWARM_EVIDENCE_DIR))
@@ -281,6 +295,7 @@ suspend fun initializeBackendServices() {
         mcpService.init()
         skillService.init()
         wasmPluginService.init()
+        kotlinLspRuntimeService.init()
         swarmExperienceStore.load()
         swarmEvolutionService.init()
         swarmService.init()

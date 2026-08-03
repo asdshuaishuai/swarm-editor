@@ -15,6 +15,7 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.swarmeditor.desktop.viewmodel.AgentViewModel
 import com.swarmeditor.desktop.viewmodel.SessionViewModel
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
+import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeViewModel
 import com.swarmeditor.desktop.viewmodel.McpViewModel
 import com.swarmeditor.desktop.viewmodel.SkillViewModel
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
@@ -35,6 +36,8 @@ import com.swarmeditor.backend.projectService
 import com.swarmeditor.backend.gitService
 import com.swarmeditor.backend.swarmService
 import com.swarmeditor.backend.wasmPluginService
+import com.swarmeditor.backend.kotlinLspRuntimeService
+import com.swarmeditor.backend.lspService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,6 +63,7 @@ class RootComponent(
     val mcpVm = McpViewModel(mcpService, sessionVm.runtimeState, scope)
     val skillVm = SkillViewModel(skillService, scope)
     val wasmPluginVm = WasmPluginViewModel(wasmPluginService, scope)
+    val kotlinLspRuntimeVm = KotlinLspRuntimeViewModel(kotlinLspRuntimeService, lspService, scope)
     val gitVm = GitViewModel(gitService, scope)
     val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status, onFileSaved = gitVm::refresh)
     val swarmVm = SwarmViewModel(swarmService, scope)

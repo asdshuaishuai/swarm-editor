@@ -70,6 +70,77 @@ class LspServiceTest {
             listOf(listOf("/opt/kotlin/bin/kotlin-lsp", "--stdio")),
             spec.commandCandidates,
         )
+        assertTrue(spec.hasExplicitCommandOverride)
+    }
+
+    @Test
+    fun `managed Kotlin command is preferred and connection state becomes concrete`() = runTest {
+        val managedCommand = listOf("/managed/kotlin-lsp")
+        var launchedCommand: List<String>? = null
+        val service = LspService(
+            projectRoot = File("."),
+            specs = listOf(kotlinSpec()),
+            sessionFactory = { spec ->
+                launchedCommand = spec.command
+                object : LspSession {
+                    override suspend fun highlight(file: File, content: String) = LspHighlightResult(
+                        languageId = "kotlin",
+                        serverName = "JetBrains Kotlin LSP",
+                    )
+
+                    override suspend fun close() = Unit
+                }
+            },
+            commandAvailability = { true },
+            managedCommandProvider = { managedCommand },
+        )
+
+        val result = service.highlight(File("Main.kt"), "fun main() = Unit")
+        val connection = service.serverStates.value.getValue("kotlin")
+
+        assertEquals(managedCommand, launchedCommand)
+        assertEquals("JetBrains Kotlin LSP", result.serverName)
+        assertEquals(LspConnectionPhase.CONNECTED, connection.phase)
+        assertEquals(managedCommand, connection.command)
+        assertEquals("JetBrains Kotlin LSP", connection.serverName)
+        service.close()
+    }
+
+    @Test
+    fun `explicit override prevents managed command injection`() = runTest {
+        var managedLookups = 0
+        val overrideSpec = lspSpec(
+            id = "kotlin",
+            displayName = "Kotlin Language Server",
+            languageId = "kotlin",
+            extensions = setOf("kt", "kts"),
+            fallbackCommands = kotlinCommands,
+            environment = { "/explicit/kotlin-lsp" },
+            systemProperty = { null },
+        )
+        val service = LspService(
+            projectRoot = File("."),
+            specs = listOf(overrideSpec),
+            sessionFactory = { spec ->
+                object : LspSession {
+                    override suspend fun highlight(file: File, content: String) =
+                        LspHighlightResult("kotlin", serverName = spec.command.first())
+
+                    override suspend fun close() = Unit
+                }
+            },
+            commandAvailability = { true },
+            managedCommandProvider = {
+                managedLookups++
+                listOf("/managed/kotlin-lsp")
+            },
+        )
+
+        val result = service.highlight(File("Main.kt"), "fun main() = Unit")
+
+        assertEquals("/explicit/kotlin-lsp", result.serverName)
+        assertEquals(0, managedLookups)
+        service.close()
     }
 
     @Test

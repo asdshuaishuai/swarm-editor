@@ -66,6 +66,9 @@ object ConfigPaths {
     /** Swarm Editor 管理的固定版本 Wasmtime 运行时。 */
     val WASMTIME_RUNTIME_DIR: String = "$SWARM_EDITOR_DIR/runtimes/wasmtime"
 
+    /** Swarm Editor 按需安装的 JetBrains Kotlin Language Server。 */
+    val KOTLIN_LSP_RUNTIME_DIR: String = "$SWARM_EDITOR_DIR/runtimes/kotlin-lsp"
+
     /** pi 全局 Skills 目录。 */
     val PI_SKILLS_DIR: String = "$PI_AGENT_DIR/skills"
 }

@@ -74,10 +74,23 @@ import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
+import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeUiState
+import com.swarmeditor.backend.lsp.KotlinLspRuntimeHealth
+import com.swarmeditor.backend.lsp.LspConnectionPhase
 import com.swarmeditor.common.model.ModelConfig
 
 private const val DEFAULT_SETTINGS_TAB = "agent"
-private val SETTINGS_TAB_IDS = setOf("agent", "models", "mcp", "skills", "general", "appearance", "shortcuts", "about")
+private val SETTINGS_TAB_IDS = setOf(
+    "agent",
+    "models",
+    "mcp",
+    "skills",
+    "code-intelligence",
+    "general",
+    "appearance",
+    "shortcuts",
+    "about",
+)
 
 internal fun normalizeSettingsTab(tabId: String?): String =
     tabId?.takeIf(SETTINGS_TAB_IDS::contains) ?: DEFAULT_SETTINGS_TAB
@@ -96,6 +109,11 @@ fun SettingsModal(
     onThemeChange: (AppThemeMode) -> Unit = {},
     onDefaultAgentChange: (String) -> Unit = {},
     projectPath: String = "",
+    kotlinLspState: KotlinLspRuntimeUiState = KotlinLspRuntimeUiState(),
+    onRefreshKotlinLsp: () -> Unit = {},
+    onInstallKotlinLsp: () -> Unit = {},
+    onProbeKotlinLsp: () -> Unit = {},
+    onOpenKotlinLspDirectory: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf(normalizeSettingsTab(System.getProperty("swarm.settingsTab"))) }
     var presented by remember { mutableStateOf(false) }
@@ -117,6 +135,14 @@ fun SettingsModal(
         SettingsTile("models", "M", "模型池", "Provider、模型、凭据与能力", ControlPurple, models.count { it.enabled }.toString()),
         SettingsTile("mcp", "M", "MCP 服务", "工具桥接与授权", ControlOrange, mcpServers.size.toString()),
         SettingsTile("skills", "S", "Skills 能力", "本地能力与同步", ControlGreen, skills.size.toString()),
+        SettingsTile(
+            "code-intelligence",
+            "LSP",
+            "代码智能",
+            "语言服务器、语义高亮与诊断",
+            ControlBlue,
+            if (kotlinLspState.connectionPhase == LspConnectionPhase.CONNECTED) "在线" else lspRuntimeBadge(kotlinLspState),
+        ),
         SettingsTile("general", "W", "工作区", "目录、默认行为与持久化", AgentKimi),
         SettingsTile("appearance", "A", "外观", "统一 Fusion 语言与字体", AgentClaude),
         SettingsTile("shortcuts", "⌘", "快捷键", "导航与编辑效率", ControlPurple),
@@ -184,6 +210,13 @@ fun SettingsModal(
                         onEdit = onEditMcp
                     )
                         "skills" -> SkillsManagementTab(skills, agents, settingsVm)
+                        "code-intelligence" -> CodeIntelligenceTab(
+                            state = kotlinLspState,
+                            onRefresh = onRefreshKotlinLsp,
+                            onInstall = onInstallKotlinLsp,
+                            onProbe = onProbeKotlinLsp,
+                            onOpenDirectory = onOpenKotlinLspDirectory,
+                        )
                         "general" -> GeneralTab(agents, projectPath, onDefaultAgentChange)
                         "appearance" -> AppearanceTab(themeMode, onThemeChange)
                         "shortcuts" -> ShortcutsTab()
@@ -771,6 +804,115 @@ private fun AgentToggle(name: String, enabled: Boolean, onToggle: () -> Unit) {
     }
 }
 
+// ==================== 代码智能 Tab ====================
+@Composable
+private fun CodeIntelligenceTab(
+    state: KotlinLspRuntimeUiState,
+    onRefresh: () -> Unit,
+    onInstall: () -> Unit,
+    onProbe: () -> Unit,
+    onOpenDirectory: () -> Unit,
+) {
+    val busy = state.isRefreshing || state.isInstalling || state.isProbing
+    val runtimeColor = when (state.health) {
+        KotlinLspRuntimeHealth.READY -> OkLight
+        KotlinLspRuntimeHealth.MISSING -> Warn
+        KotlinLspRuntimeHealth.INVALID -> Err
+        KotlinLspRuntimeHealth.UNSUPPORTED -> Tx3
+    }
+    val connectionColor = when (state.connectionPhase) {
+        LspConnectionPhase.CONNECTED -> OkLight
+        LspConnectionPhase.CONNECTING -> ControlBlue
+        LspConnectionPhase.FAILED -> Err
+        LspConnectionPhase.UNAVAILABLE -> Warn
+        LspConnectionPhase.IDLE -> Tx3
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("代码智能", color = Tx, style = AppType.body, fontWeight = FontWeight.SemiBold)
+                Text("按需管理 JetBrains Kotlin LSP；连接成功后提供语义高亮、符号与诊断", color = Tx3, style = AppType.micro)
+                Spacer(Modifier.height(7.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MicroPill(lspRuntimeBadge(state), runtimeColor)
+                    MicroPill(lspConnectionBadge(state.connectionPhase), connectionColor)
+                }
+            }
+            GhostButton("刷新", onClick = onRefresh)
+            Spacer(Modifier.width(8.dp))
+            GhostButton("打开目录", onClick = onOpenDirectory)
+            Spacer(Modifier.width(8.dp))
+            GlowButton(
+                text = if (state.health == KotlinLspRuntimeHealth.INVALID) "修复运行时" else "安装运行时",
+                active = state.installSupported && !busy,
+                onClick = onInstall,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+
+        Section("JetBrains Kotlin Language Server") {
+            InfoRow("固定版本", state.expectedVersion.ifBlank { "检查中" })
+            InfoRow("平台", state.platform.ifBlank { "检查中" })
+            InfoRow("来源", state.source.name.lowercase())
+            InfoRow("命令", state.command.ifBlank { "尚未发现" }, Tx2, AppType.caption.copy(fontFamily = CodeFont))
+            InfoRow("运行时目录", state.runtimeDirectory, Tx3, AppType.caption.copy(fontFamily = CodeFont))
+            InfoRow("状态", state.runtimeMessage.ifBlank { "等待检查" }, runtimeColor)
+            if (state.artifactSha256.isNotBlank()) {
+                InfoRow("归档 SHA", state.artifactSha256, Tx3, AppType.micro.copy(fontFamily = CodeFont))
+            }
+            if (state.launcherSha256.isNotBlank()) {
+                InfoRow("启动器 SHA", state.launcherSha256, Tx3, AppType.micro.copy(fontFamily = CodeFont))
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "官方独立包约 390MB，仅在用户主动安装时下载；不会随桌面安装包捆绑。",
+                color = Tx3,
+                style = AppType.caption,
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+
+        Section("真实连接") {
+            InfoRow("阶段", lspConnectionBadge(state.connectionPhase), connectionColor)
+            InfoRow("服务器", state.connectedServer.ifBlank { "尚未建立会话" })
+            if (state.connectionCommand.isNotBlank()) {
+                InfoRow("实际命令", state.connectionCommand, Tx2, AppType.caption.copy(fontFamily = CodeFont))
+            }
+            if (state.lastProbeFile.isNotBlank()) InfoRow("探测文件", state.lastProbeFile)
+            if (state.connectionMessage.isNotBlank()) InfoRow("连接信息", state.connectionMessage, connectionColor)
+            GlowButton(
+                text = if (state.isProbing) "正在连接…" else "执行连接测试",
+                active = state.health == KotlinLspRuntimeHealth.READY && !busy,
+                onClick = onProbe,
+            )
+        }
+        state.lastError?.takeIf(String::isNotBlank)?.let { error ->
+            Spacer(Modifier.height(14.dp))
+            Box(
+                Modifier.fillMaxWidth().clip(AppShapes.sm).background(Err.withAlpha(0.08f))
+                    .border(1.dp, Err.withAlpha(0.28f), AppShapes.sm).padding(10.dp),
+            ) {
+                Text(error, color = Err, style = AppType.caption)
+            }
+        }
+    }
+}
+
+private fun lspRuntimeBadge(state: KotlinLspRuntimeUiState): String = when (state.health) {
+    KotlinLspRuntimeHealth.READY -> "RUNTIME READY"
+    KotlinLspRuntimeHealth.MISSING -> "NOT INSTALLED"
+    KotlinLspRuntimeHealth.INVALID -> "REPAIR REQUIRED"
+    KotlinLspRuntimeHealth.UNSUPPORTED -> "EXTERNAL ONLY"
+}
+
+private fun lspConnectionBadge(phase: LspConnectionPhase): String = when (phase) {
+    LspConnectionPhase.IDLE -> "NOT CONNECTED"
+    LspConnectionPhase.CONNECTING -> "CONNECTING"
+    LspConnectionPhase.CONNECTED -> "CONNECTED"
+    LspConnectionPhase.UNAVAILABLE -> "UNAVAILABLE"
+    LspConnectionPhase.FAILED -> "FAILED"
+}
+
 // ==================== 通用 Tab ====================
 @Composable
 private fun GeneralTab(
@@ -922,7 +1064,7 @@ private fun AboutTab() {
         Text("v0.1.0 MVP", color = Tx3, style = AppType.caption)
         Spacer(Modifier.height(16.dp))
         Text(
-            "本地优先的 Pi 智能体桌面工作台\nKotlin/JVM · Compose Desktop · Pi 0.80.10",
+            "本地优先的 Pi 智能体桌面工作台\nKotlin/JVM · Compose Desktop · Pi 0.83.0",
             color = Tx3,
             style = AppType.caption,
         )
@@ -931,7 +1073,7 @@ private fun AboutTab() {
             InfoRow("技术栈", "Kotlin 2.3.10 + JDK 21")
             InfoRow("前端", "Compose Desktop 1.8.1")
             InfoRow("后端", "进程内 Kotlin Services")
-            InfoRow("运行时", "Pi 0.80.10 · 进程内桥接")
+            InfoRow("运行时", "Pi 0.83.0 · JSONL stdio")
             InfoRow("构建", "Gradle 9.3.0 + npm")
         }
         Spacer(Modifier.height(16.dp))
