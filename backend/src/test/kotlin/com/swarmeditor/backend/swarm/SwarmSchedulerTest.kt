@@ -11,6 +11,8 @@ import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmSchedulingCandidateDisposition
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
+import com.swarmeditor.common.model.SwarmTaskHandoff
+import com.swarmeditor.common.model.SwarmTaskHandoffStatus
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
@@ -294,6 +296,21 @@ class SwarmSchedulerTest {
                 dependencyClusterSize = 4,
                 reasons = listOf("sccFiles=4"),
             )
+            val failedHandoff = SwarmTaskHandoff(
+                outcome = "Implementation completed but verification failed.",
+                verification = "Focused verification failed.",
+                status = SwarmTaskHandoffStatus.PARTIAL,
+                missingSections = listOf("Evidence", "Changes", "Residual Risk", "Downstream Handoff"),
+            )
+            val successfulHandoff = SwarmTaskHandoff(
+                outcome = "Implementation completed.",
+                evidence = "Runtime and persistence paths agree.",
+                changes = "Updated implementation.",
+                verification = "Focused tests passed.",
+                residualRisk = "None known.",
+                downstreamHandoff = "Review the integrated behavior.",
+                status = SwarmTaskHandoffStatus.COMPLETE,
+            )
             store.put(
                 run(
                     policy = SwarmExecutionPolicy(maxTaskAttempts = 2),
@@ -313,6 +330,7 @@ class SwarmSchedulerTest {
                             resolvedModel = "gpt-review",
                             modelDemand = modelDemand,
                             modelSelectionReason = "balanced fallback",
+                            handoff = failedHandoff,
                             changedFileCount = 1,
                             verificationStatus = SwarmVerificationStatus.FAILED,
                             workspaceDeltaEvidenceId = "a".repeat(64),
@@ -330,6 +348,7 @@ class SwarmSchedulerTest {
                         resolvedModel = "claude-code",
                         modelDemand = modelDemand,
                         modelSelectionReason = "balanced demand match target=high",
+                        handoff = successfulHandoff,
                         toolBrokerSessionIds = listOf("broker-second"),
                         toolAuditIds = listOf("audit-second"),
                         changedFileCount = 2,
@@ -357,6 +376,7 @@ class SwarmSchedulerTest {
             assertEquals("gpt-review", failedAttempt.resolvedModel)
             assertEquals(modelDemand, failedAttempt.modelDemand)
             assertEquals("balanced fallback", failedAttempt.modelSelectionReason)
+            assertEquals(failedHandoff, failedAttempt.handoff)
             assertEquals(listOf("broker-first"), failedAttempt.toolBrokerSessionIds)
             assertEquals("a".repeat(64), failedAttempt.workspaceDeltaEvidenceId)
             assertEquals("b".repeat(64), failedAttempt.verificationEvidenceId)
@@ -368,6 +388,8 @@ class SwarmSchedulerTest {
             assertEquals("claude-code", successfulAttempt.resolvedModel)
             assertEquals(modelDemand, successfulAttempt.modelDemand)
             assertEquals("balanced demand match target=high", successfulAttempt.modelSelectionReason)
+            assertEquals(successfulHandoff, successfulAttempt.handoff)
+            assertEquals(successfulHandoff, completedTask.handoff)
             assertEquals("c".repeat(64), successfulAttempt.workspaceDeltaEvidenceId)
             assertEquals("d".repeat(64), successfulAttempt.verificationEvidenceId)
             assertEquals(TokenUsage(input = 8, output = 3, total = 11, cost = 0.002), successfulAttempt.tokenUsage)

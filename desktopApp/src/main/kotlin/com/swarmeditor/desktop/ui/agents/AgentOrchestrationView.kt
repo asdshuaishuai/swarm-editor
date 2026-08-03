@@ -617,6 +617,16 @@ private fun SubagentTaskItem(
             if (successfulAttempt?.verificationStatus == SwarmVerificationStatus.PASSED) {
                 DispatchMeta("机械验证通过")
             }
+            task.handoff?.let { handoff ->
+                DispatchMeta(
+                    when (handoff.status) {
+                        com.swarmeditor.common.model.SwarmTaskHandoffStatus.COMPLETE -> "交付完整"
+                        com.swarmeditor.common.model.SwarmTaskHandoffStatus.PARTIAL ->
+                            "交付缺 ${handoff.missingSections.size} 项"
+                        com.swarmeditor.common.model.SwarmTaskHandoffStatus.UNSTRUCTURED -> "交付未结构化"
+                    }
+                )
+            }
             schedulingCandidate?.estimatedUtility?.let { utility ->
                 DispatchMeta("DP ${String.format(java.util.Locale.ROOT, "%.2f", utility)}")
             }
@@ -662,7 +672,10 @@ private fun SubagentTaskItem(
             }
         }
 
-        val detail = task.errorMessage ?: task.output.takeIf(String::isNotBlank)?.take(180)
+        val detail = task.errorMessage
+            ?: task.handoff?.downstreamHandoff?.takeIf(String::isNotBlank)?.take(180)
+            ?: task.handoff?.outcome?.takeIf(String::isNotBlank)?.take(180)
+            ?: task.output.takeIf(String::isNotBlank)?.take(180)
         if (detail != null) {
             Text(
                 text = detail,

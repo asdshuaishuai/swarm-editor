@@ -226,6 +226,25 @@ data class SwarmModelDemand(
 )
 
 @Serializable
+enum class SwarmTaskHandoffStatus {
+    COMPLETE,
+    PARTIAL,
+    UNSTRUCTURED,
+}
+
+@Serializable
+data class SwarmTaskHandoff(
+    val outcome: String = "",
+    val evidence: String = "",
+    val changes: String = "",
+    val verification: String = "",
+    val residualRisk: String = "",
+    val downstreamHandoff: String = "",
+    val status: SwarmTaskHandoffStatus = SwarmTaskHandoffStatus.UNSTRUCTURED,
+    val missingSections: List<String> = emptyList(),
+)
+
+@Serializable
 data class SwarmTaskAttemptRecord(
     val id: String,
     val schedulingDecisionId: String,
@@ -237,6 +256,7 @@ data class SwarmTaskAttemptRecord(
     val resolvedModel: String? = null,
     val modelDemand: SwarmModelDemand? = null,
     val modelSelectionReason: String? = null,
+    val handoff: SwarmTaskHandoff? = null,
     val outcome: SwarmTaskAttemptOutcome = SwarmTaskAttemptOutcome.RUNNING,
     val startedAt: Instant,
     val completedAt: Instant? = null,
@@ -265,6 +285,7 @@ data class SwarmTask(
     val revisionContract: SwarmArtifactRevisionContract? = null,
     val status: SwarmTaskStatus = SwarmTaskStatus.PENDING,
     val output: String = "",
+    val handoff: SwarmTaskHandoff? = null,
     val errorMessage: String? = null,
     val tokenUsage: TokenUsage = TokenUsage(),
     val attempt: Int = 0,

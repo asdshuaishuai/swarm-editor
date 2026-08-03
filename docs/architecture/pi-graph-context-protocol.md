@@ -23,3 +23,5 @@ Repository excerpts and upstream output are delimited and labeled as evidence ra
 ## Result Handoff
 
 Pi tasks return structured sections for outcome, evidence, changes, verification, residual risk, and downstream handoff. This keeps observations separate from inference, prevents unexecuted checks from being presented as proof, and gives dependent nodes a stable artifact they can consume without repeating discovery.
+
+The backend parses Markdown, plain-text, and localized section headings into `SwarmTaskHandoff`. Complete, partial, and unstructured responses are distinguished explicitly. The original Pi output remains stored for audit compatibility, while the parsed handoff is persisted on the task and attempt record, consumed by downstream prompts, and summarized by the Swarm UI and experience learner. Fenced code blocks are excluded from heading detection, and oversized sections are bounded independently.

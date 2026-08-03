@@ -5,6 +5,7 @@ import com.swarmeditor.common.model.SwarmExperience
 import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskHandoff
 import com.swarmeditor.common.model.SwarmTaskStatus
 import java.util.Locale
 
@@ -167,12 +168,33 @@ private fun StringBuilder.appendDependencyHandoffs(run: SwarmRun, task: SwarmTas
             appendLine("[omitted: dependency handoff budget exhausted]")
         } else {
             val allowed = minOf(MAX_DEPENDENCY_OUTPUT_CHARS, remainingBudget)
-            val rendered = boundedText(dependency.output.ifBlank { "<no textual output>" }, allowed)
+            val handoffText = dependency.handoff?.let(::renderStructuredHandoff)
+                ?: dependency.output.ifBlank { "<no textual output>" }
+            val rendered = boundedText(handoffText, allowed)
             appendLine(rendered)
             remainingBudget -= rendered.length.coerceAtMost(allowed)
         }
         appendLine("--- end handoff ${dependency.id} ---")
     }
+}
+
+private fun renderStructuredHandoff(handoff: SwarmTaskHandoff): String = buildString {
+    appendLine("Structured handoff status: ${handoff.status}")
+    if (handoff.missingSections.isNotEmpty()) {
+        appendLine("Missing sections: ${handoff.missingSections.joinToString()}")
+    }
+    appendHandoffSection("Outcome", handoff.outcome)
+    appendHandoffSection("Evidence", handoff.evidence)
+    appendHandoffSection("Changes", handoff.changes)
+    appendHandoffSection("Verification", handoff.verification)
+    appendHandoffSection("Residual Risk", handoff.residualRisk)
+    appendHandoffSection("Downstream Handoff", handoff.downstreamHandoff)
+}.trim()
+
+private fun StringBuilder.appendHandoffSection(name: String, value: String) {
+    if (value.isBlank()) return
+    appendLine("$name:")
+    appendLine(value)
 }
 
 private fun boundedText(value: String, maxChars: Int): String {

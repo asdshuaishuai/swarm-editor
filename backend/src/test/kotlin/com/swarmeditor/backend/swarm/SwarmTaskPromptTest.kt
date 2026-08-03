@@ -16,6 +16,8 @@ import com.swarmeditor.common.model.SwarmSchedulingCandidate
 import com.swarmeditor.common.model.SwarmSchedulingCandidateDisposition
 import com.swarmeditor.common.model.SwarmSchedulingDecision
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskHandoff
+import com.swarmeditor.common.model.SwarmTaskHandoffStatus
 import com.swarmeditor.common.model.SwarmTaskStatus
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -24,6 +26,54 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class SwarmTaskPromptTest {
+    @Test
+    fun `downstream prompt consumes structured handoff instead of raw output`() {
+        val now = Instant.fromEpochMilliseconds(1_000)
+        val source = SwarmTask(
+            id = "source",
+            title = "Source",
+            prompt = "Inspect",
+            status = SwarmTaskStatus.SUCCEEDED,
+            output = "raw-output-should-not-be-forwarded",
+            handoff = SwarmTaskHandoff(
+                outcome = "Located the persistence boundary.",
+                evidence = "Store write is missing.",
+                changes = "No changes; read-only task.",
+                verification = "Inspected callers.",
+                residualRisk = "Runtime behavior remains untested.",
+                downstreamHandoff = "Patch Service.save and verify Store.write.",
+                status = SwarmTaskHandoffStatus.COMPLETE,
+            ),
+        )
+        val task = SwarmTask(
+            id = "implement",
+            title = "Implement",
+            prompt = "Apply the fix",
+            dependsOn = listOf(source.id),
+        )
+        val run = SwarmRun(
+            id = "run-structured-handoff",
+            title = "Structured handoff",
+            objective = "Fix persistence",
+            createdAt = now,
+            updatedAt = now,
+            tasks = listOf(source, task),
+        )
+
+        val prompt = buildSwarmTaskPrompt(
+            run = run,
+            task = task,
+            experiences = emptyList(),
+            resolvedAgent = AgentConfig(id = "pi-default", name = "Pi"),
+            modelDemand = null,
+            modelSelectionReason = null,
+        )
+
+        assertContains(prompt, "Structured handoff status: COMPLETE")
+        assertContains(prompt, "Patch Service.save and verify Store.write.")
+        assertFalse(prompt.contains("raw-output-should-not-be-forwarded"))
+    }
+
     @Test
     fun `prompt carries bounded graph evidence allocation and revision context`() {
         val now = Instant.fromEpochMilliseconds(1_000)

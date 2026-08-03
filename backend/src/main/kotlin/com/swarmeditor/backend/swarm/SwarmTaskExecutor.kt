@@ -8,6 +8,7 @@ import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
 import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskHandoff
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
@@ -29,6 +30,7 @@ data class SwarmTaskExecution(
     val resolvedModel: String? = null,
     val modelDemand: SwarmModelDemand? = null,
     val modelSelectionReason: String? = null,
+    val handoff: SwarmTaskHandoff? = null,
     val toolBrokerSessionIds: List<String> = emptyList(),
     val toolAuditIds: List<String> = emptyList(),
     val changedFileCount: Int? = null,
@@ -53,6 +55,7 @@ class SwarmTaskExecutionException(
     val resolvedModel: String? = null,
     val modelDemand: SwarmModelDemand? = null,
     val modelSelectionReason: String? = null,
+    val handoff: SwarmTaskHandoff? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -72,6 +75,7 @@ class SwarmTaskTimedOutException(
     val resolvedModel: String? = null,
     val modelDemand: SwarmModelDemand? = null,
     val modelSelectionReason: String? = null,
+    val handoff: SwarmTaskHandoff? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -198,6 +202,7 @@ class PiSwarmTaskExecutor(
                 resolvedModel = metadata.resolvedModel,
                 modelDemand = metadata.modelDemand,
                 modelSelectionReason = metadata.modelSelectionReason,
+                handoff = metadata.handoff,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -243,6 +248,7 @@ class PiSwarmTaskExecutor(
                 resolvedModel = completedExecution.resolvedModel,
                 modelDemand = completedExecution.modelDemand,
                 modelSelectionReason = completedExecution.modelSelectionReason,
+                handoff = completedExecution.handoff,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -268,6 +274,7 @@ class PiSwarmTaskExecutor(
                 resolvedModel = completedExecution.resolvedModel,
                 modelDemand = completedExecution.modelDemand,
                 modelSelectionReason = completedExecution.modelSelectionReason,
+                handoff = completedExecution.handoff,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -331,6 +338,7 @@ class PiSwarmTaskExecutor(
             )
             execution = SwarmTaskExecution(
                 output = output,
+                handoff = parseSwarmTaskHandoff(output),
                 tokenUsage = readTokenUsage(session),
                 experienceIds = experienceIds,
                 experienceRoutingDecisions = routingDecisions,
@@ -418,6 +426,7 @@ class PiSwarmTaskExecutor(
                         resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
                         modelDemand = allocation.modelDemand,
                         modelSelectionReason = allocation.modelSelectionReason,
+                        handoff = execution?.handoff,
                         changedFileCount = execution?.changedFileCount,
                         verificationStatus = execution?.verificationStatus ?: SwarmVerificationStatus.NOT_RECORDED,
                         workspaceDeltaEvidenceId = execution?.workspaceDeltaEvidenceId,
@@ -464,6 +473,7 @@ private data class SwarmExecutionMetadata(
     val resolvedModel: String?,
     val modelDemand: SwarmModelDemand?,
     val modelSelectionReason: String?,
+    val handoff: SwarmTaskHandoff?,
     val toolBrokerSessionIds: List<String>,
     val toolAuditIds: List<String>,
     val verificationEvidenceId: String?,
@@ -483,6 +493,7 @@ private fun executionMetadata(
         resolvedModel = failure.resolvedModel,
         modelDemand = failure.modelDemand,
         modelSelectionReason = failure.modelSelectionReason,
+        handoff = failure.handoff,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -497,6 +508,7 @@ private fun executionMetadata(
         resolvedModel = failure.resolvedModel,
         modelDemand = failure.modelDemand,
         modelSelectionReason = failure.modelSelectionReason,
+        handoff = failure.handoff,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -511,6 +523,7 @@ private fun executionMetadata(
         resolvedModel = execution?.resolvedModel,
         modelDemand = execution?.modelDemand,
         modelSelectionReason = execution?.modelSelectionReason,
+        handoff = execution?.handoff,
         toolBrokerSessionIds = execution?.toolBrokerSessionIds.orEmpty(),
         toolAuditIds = execution?.toolAuditIds.orEmpty(),
         verificationEvidenceId = execution?.verificationEvidenceId,

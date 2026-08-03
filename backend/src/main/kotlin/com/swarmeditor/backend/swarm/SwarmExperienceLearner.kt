@@ -98,7 +98,19 @@ class PiSwarmExperienceLearner(
             appendLine("Instruction: ${task.prompt.take(MAX_TASK_TEXT)}")
             if (task.failureHistory.isNotEmpty()) appendLine("Failures: ${task.failureHistory.joinToString(" | ")}")
             if (!task.errorMessage.isNullOrBlank()) appendLine("Final error: ${task.errorMessage}")
-            if (task.output.isNotBlank()) appendLine("Output: ${task.output.take(MAX_TASK_TEXT)}")
+            task.handoff?.let { handoff ->
+                appendLine("Handoff status: ${handoff.status}; missing=${handoff.missingSections.joinToString()}")
+                if (handoff.outcome.isNotBlank()) appendLine("Outcome: ${handoff.outcome.take(MAX_TASK_TEXT)}")
+                if (handoff.evidence.isNotBlank()) appendLine("Evidence: ${handoff.evidence.take(MAX_TASK_TEXT)}")
+                if (handoff.verification.isNotBlank()) {
+                    appendLine("Verification: ${handoff.verification.take(MAX_TASK_TEXT)}")
+                }
+                if (handoff.residualRisk.isNotBlank()) {
+                    appendLine("Residual risk: ${handoff.residualRisk.take(MAX_TASK_TEXT)}")
+                }
+            } ?: task.output.takeIf(String::isNotBlank)?.let { output ->
+                appendLine("Output: ${output.take(MAX_TASK_TEXT)}")
+            }
         }
         appendLine()
         appendLine("Return JSON only using this schema:")

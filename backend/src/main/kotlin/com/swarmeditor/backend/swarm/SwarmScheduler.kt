@@ -9,6 +9,7 @@ import com.swarmeditor.common.model.SwarmSchedulingDecision
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
 import com.swarmeditor.common.model.SwarmTaskAttemptRecord
+import com.swarmeditor.common.model.SwarmTaskHandoff
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
@@ -246,6 +247,7 @@ class SwarmScheduler(
                                 resolvedModel = error.resolvedModel,
                                 modelDemand = error.modelDemand,
                                 modelSelectionReason = error.modelSelectionReason,
+                                handoff = error.handoff,
                                 toolBrokerSessionIds = error.toolBrokerSessionIds,
                                 toolAuditIds = error.toolAuditIds,
                                 changedFileCount = error.changedFileCount,
@@ -268,6 +270,7 @@ class SwarmScheduler(
                                 resolvedModel = null,
                                 modelDemand = null,
                                 modelSelectionReason = null,
+                                handoff = null,
                                 toolBrokerSessionIds = emptyList(),
                                 toolAuditIds = emptyList(),
                                 changedFileCount = null,
@@ -294,6 +297,7 @@ class SwarmScheduler(
                                 modelDemand = (error as? SwarmTaskExecutionException)?.modelDemand,
                                 modelSelectionReason =
                                     (error as? SwarmTaskExecutionException)?.modelSelectionReason,
+                                handoff = (error as? SwarmTaskExecutionException)?.handoff,
                                 toolBrokerSessionIds =
                                     (error as? SwarmTaskExecutionException)?.toolBrokerSessionIds.orEmpty(),
                                 toolAuditIds = (error as? SwarmTaskExecutionException)?.toolAuditIds.orEmpty(),
@@ -458,6 +462,7 @@ class SwarmScheduler(
                         task.copy(
                             status = if (error == null) SwarmTaskStatus.SUCCEEDED else SwarmTaskStatus.FAILED,
                             output = execution.output,
+                            handoff = execution.handoff,
                             tokenUsage = task.tokenUsage + execution.tokenUsage,
                             experienceIds = (task.experienceIds + execution.experienceIds).distinct(),
                             experienceRoutingDecisions = mergeRoutingDecisions(
@@ -481,6 +486,7 @@ class SwarmScheduler(
                                 resolvedModel = execution.resolvedModel,
                                 modelDemand = execution.modelDemand,
                                 modelSelectionReason = execution.modelSelectionReason,
+                                handoff = execution.handoff,
                                 toolBrokerSessionIds = execution.toolBrokerSessionIds,
                                 toolAuditIds = execution.toolAuditIds,
                                 changedFileCount = execution.changedFileCount,
@@ -511,6 +517,7 @@ class SwarmScheduler(
                     task.copy(
                         status = if (exhausted) SwarmTaskStatus.FAILED else SwarmTaskStatus.PENDING,
                         output = "",
+                        handoff = outcome.handoff.takeIf { exhausted },
                         tokenUsage = task.tokenUsage + outcome.tokenUsage,
                         experienceIds = (task.experienceIds + outcome.experienceIds).distinct(),
                         experienceRoutingDecisions = mergeRoutingDecisions(
@@ -530,6 +537,7 @@ class SwarmScheduler(
                             resolvedModel = outcome.resolvedModel,
                             modelDemand = outcome.modelDemand,
                             modelSelectionReason = outcome.modelSelectionReason,
+                            handoff = outcome.handoff,
                             toolBrokerSessionIds = outcome.toolBrokerSessionIds,
                             toolAuditIds = outcome.toolAuditIds,
                             changedFileCount = outcome.changedFileCount,
@@ -668,6 +676,7 @@ private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
     resolvedModel: String? = null,
     modelDemand: SwarmModelDemand? = null,
     modelSelectionReason: String? = null,
+    handoff: SwarmTaskHandoff? = null,
     toolBrokerSessionIds: List<String> = emptyList(),
     toolAuditIds: List<String> = emptyList(),
     changedFileCount: Int? = null,
@@ -686,6 +695,7 @@ private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
         resolvedModel = resolvedModel ?: active.resolvedModel,
         modelDemand = modelDemand ?: active.modelDemand,
         modelSelectionReason = modelSelectionReason ?: active.modelSelectionReason,
+        handoff = handoff ?: active.handoff,
         outcome = outcome,
         completedAt = completedAt,
         durationMillis = (completedAt.toEpochMilliseconds() - active.startedAt.toEpochMilliseconds()).coerceAtLeast(0),
@@ -717,6 +727,7 @@ private sealed interface TaskOutcome {
         val resolvedModel: String?,
         val modelDemand: SwarmModelDemand?,
         val modelSelectionReason: String?,
+        val handoff: SwarmTaskHandoff?,
         val toolBrokerSessionIds: List<String>,
         val toolAuditIds: List<String>,
         val changedFileCount: Int?,

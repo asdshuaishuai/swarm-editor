@@ -17,6 +17,7 @@ import com.swarmeditor.common.model.SwarmExperienceRoutingStatus
 import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
+import com.swarmeditor.common.model.SwarmTaskHandoffStatus
 import com.swarmeditor.common.model.TokenUsage
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -240,6 +241,8 @@ class SwarmTaskExecutorTest {
         assertEquals("gpt", result.resolvedModel)
         assertEquals(modelDemand, result.modelDemand)
         assertEquals("balanced demand match target=high", result.modelSelectionReason)
+        assertEquals(SwarmTaskHandoffStatus.UNSTRUCTURED, result.handoff?.status)
+        assertEquals("review complete", result.handoff?.outcome)
         assertEquals(0L, result.tokenUsage.total)
     }
 
