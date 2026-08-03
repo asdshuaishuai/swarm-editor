@@ -12,7 +12,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 
 @OptIn(ExperimentalPathApi::class)
 class ModelRegistryTest {
@@ -100,6 +103,49 @@ class ModelRegistryTest {
 
             assertEquals(first.id, second.id)
             assertTrue(first.id in setOf("review-a", "review-b"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `model allocations wait for capacity and release exactly once`() = runTest {
+        val directory = Files.createTempDirectory("model-allocation")
+        try {
+            val service = ModelService(
+                ModelRegistry(
+                    configPath = directory.resolve("models.json").toFile(),
+                    legacyAgentsPath = directory.resolve("agents.json").toFile(),
+                )
+            )
+            service.init()
+            service.upsert(ModelRegistry.defaultConfig().copy(enabled = false)).getOrThrow()
+            service.upsert(
+                ModelConfig(
+                    id = "review-only",
+                    name = "Review Only",
+                    roles = listOf(SwarmAgentRole.REVIEWER),
+                    maxConcurrentAgents = 1,
+                )
+            ).getOrThrow()
+
+            val first = service.acquire(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "first")
+            val waiting = backgroundScope.async {
+                service.acquire(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "second")
+            }
+            yield()
+
+            assertFalse(waiting.isCompleted)
+            assertEquals(mapOf("review-only" to 1), service.activeAllocations.value)
+
+            first.release()
+            val second = withTimeout(1_000) { waiting.await() }
+            assertEquals("review-only", second.config.id)
+            assertEquals(mapOf("review-only" to 1), service.activeAllocations.value)
+
+            second.release()
+            second.release()
+            assertTrue(service.activeAllocations.value.isEmpty())
         } finally {
             directory.deleteRecursively()
         }

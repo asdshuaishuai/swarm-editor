@@ -205,7 +205,12 @@ val swarmScheduler: SwarmScheduler by lazy {
             baseRevisionResolver = swarmTaskBaseRevisionResolver,
             taskVerifier = swarmTaskVerifier,
             agentResolver = com.swarmeditor.backend.swarm.SwarmAgentResolver { task ->
-                swarmService.resolveAgent(task)
+                val allocation = agentService.acquireDynamicAgent(task)
+                com.swarmeditor.backend.swarm.SwarmAgentAllocation(
+                    config = allocation.config,
+                    isCurrent = allocation.isCurrent,
+                    releaseAllocation = allocation::release,
+                )
             },
             experienceProvider = { run, task ->
                 val selection = swarmExperienceSelector.select(

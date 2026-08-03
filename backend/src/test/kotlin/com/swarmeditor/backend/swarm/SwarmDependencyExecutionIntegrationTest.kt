@@ -128,7 +128,9 @@ class SwarmDependencyExecutionIntegrationTest {
                     evidenceStore,
                 ),
                 baseRevisionResolver = GitDependencyAwareSwarmTaskBaseRevisionResolver(repository, evidenceStore),
-                agentResolver = SwarmAgentResolver { AgentConfig(id = "pi", name = "Pi") },
+                agentResolver = SwarmAgentResolver {
+                    SwarmAgentAllocation(AgentConfig(id = "pi", name = "Pi"))
+                },
             )
             val schedulerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val scheduler = SwarmScheduler(store, executor, schedulerScope)

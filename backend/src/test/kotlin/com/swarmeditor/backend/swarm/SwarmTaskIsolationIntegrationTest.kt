@@ -232,7 +232,9 @@ class SwarmTaskIsolationIntegrationTest {
             workspaceManager = GitSwarmTaskWorkspaceManager(repository, worktreeRoot),
             workspaceDeltaCapturer = GitSwarmWorkspaceDeltaCapturer(File(root, "indexes"), evidenceStore),
             taskVerifier = EvidenceBackedSwarmTaskVerifier(evidenceStore),
-            agentResolver = SwarmAgentResolver { AgentConfig(id = "pi", name = "Pi") },
+            agentResolver = SwarmAgentResolver {
+                SwarmAgentAllocation(AgentConfig(id = "pi", name = "Pi"))
+            },
         )
         return Fixture(
             repository = repository,

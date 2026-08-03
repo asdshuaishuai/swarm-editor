@@ -11,6 +11,7 @@ import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.SwarmVerificationStatus
 import com.swarmeditor.common.model.TokenUsage
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -22,6 +23,9 @@ data class SwarmTaskExecution(
     val experienceIds: List<String> = emptyList(),
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
     val resolvedAgentId: String? = null,
+    val resolvedModelConfigId: String? = null,
+    val resolvedProvider: String? = null,
+    val resolvedModel: String? = null,
     val toolBrokerSessionIds: List<String> = emptyList(),
     val toolAuditIds: List<String> = emptyList(),
     val changedFileCount: Int? = null,
@@ -41,6 +45,9 @@ class SwarmTaskExecutionException(
     val experienceIds: List<String> = emptyList(),
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
     val resolvedAgentId: String? = null,
+    val resolvedModelConfigId: String? = null,
+    val resolvedProvider: String? = null,
+    val resolvedModel: String? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -55,6 +62,9 @@ class SwarmTaskTimedOutException(
     val experienceIds: List<String> = emptyList(),
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
     val resolvedAgentId: String? = null,
+    val resolvedModelConfigId: String? = null,
+    val resolvedProvider: String? = null,
+    val resolvedModel: String? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -90,7 +100,19 @@ fun interface SwarmTaskExecutor {
 }
 
 fun interface SwarmAgentResolver {
-    suspend fun resolve(task: SwarmTask): AgentConfig
+    suspend fun resolve(task: SwarmTask): SwarmAgentAllocation
+}
+
+class SwarmAgentAllocation(
+    val config: AgentConfig,
+    val isCurrent: suspend () -> Boolean = { true },
+    private val releaseAllocation: suspend () -> Unit = {},
+) {
+    private val released = AtomicBoolean(false)
+
+    suspend fun release() {
+        if (released.compareAndSet(false, true)) releaseAllocation()
+    }
 }
 
 class PiSwarmTaskExecutor(
@@ -162,6 +184,9 @@ class PiSwarmTaskExecutor(
                 experienceIds = metadata.experienceIds,
                 experienceRoutingDecisions = metadata.experienceRoutingDecisions,
                 resolvedAgentId = metadata.resolvedAgentId,
+                resolvedModelConfigId = metadata.resolvedModelConfigId,
+                resolvedProvider = metadata.resolvedProvider,
+                resolvedModel = metadata.resolvedModel,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -202,6 +227,9 @@ class PiSwarmTaskExecutor(
                 experienceIds = completedExecution.experienceIds,
                 experienceRoutingDecisions = completedExecution.experienceRoutingDecisions,
                 resolvedAgentId = completedExecution.resolvedAgentId,
+                resolvedModelConfigId = completedExecution.resolvedModelConfigId,
+                resolvedProvider = completedExecution.resolvedProvider,
+                resolvedModel = completedExecution.resolvedModel,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -222,6 +250,9 @@ class PiSwarmTaskExecutor(
                 experienceIds = completedExecution.experienceIds,
                 experienceRoutingDecisions = completedExecution.experienceRoutingDecisions,
                 resolvedAgentId = completedExecution.resolvedAgentId,
+                resolvedModelConfigId = completedExecution.resolvedModelConfigId,
+                resolvedProvider = completedExecution.resolvedProvider,
+                resolvedModel = completedExecution.resolvedModel,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -243,21 +274,33 @@ class PiSwarmTaskExecutor(
         task: SwarmTask,
         workingDirectory: File?,
     ): SwarmTaskExecution {
-        val baseConfig = agentResolver.resolve(task)
         val experienceContext = experienceProvider(run, task)
         val experiences = experienceContext.experiences
         val experienceIds = experiences.map(SwarmExperience::id).distinct()
         val routingDecisions = experienceContext.routingDecisions.map { it.copy(attempt = task.attempt) }
-        val config = buildSwarmTaskAgentConfig(baseConfig, task.role, run.policy.taskTimeoutSeconds).let { configured ->
-            workingDirectory?.let { configured.copy(workingDirectory = it.canonicalPath) } ?: configured
-        }
+        val allocation = agentResolver.resolve(task)
+        val baseConfig = allocation.config
         val sessionId = "swarm:${run.id}:${task.id}"
-        val session = sessions.getOrCreateValidated(
-            sessionId = sessionId,
-            config = config,
-            remoteSessionId = null,
-            isConfigCurrent = { agentResolver.resolve(task) == baseConfig },
-        )
+        val session = try {
+            val config = buildSwarmTaskAgentConfig(baseConfig, task.role, run.policy.taskTimeoutSeconds).let { configured ->
+                workingDirectory?.let { configured.copy(workingDirectory = it.canonicalPath) } ?: configured
+            }
+            sessions.getOrCreateValidated(
+                sessionId = sessionId,
+                config = config,
+                remoteSessionId = null,
+                isConfigCurrent = allocation.isCurrent,
+            )
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                try {
+                    allocation.release()
+                } catch (releaseError: Throwable) {
+                    error.addSuppressed(releaseError)
+                }
+            }
+            throw error
+        }
         var execution: SwarmTaskExecution? = null
         var primaryFailure: Throwable? = null
         try {
@@ -268,6 +311,9 @@ class PiSwarmTaskExecutor(
                 experienceIds = experienceIds,
                 experienceRoutingDecisions = routingDecisions,
                 resolvedAgentId = baseConfig.id,
+                resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
+                resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
+                resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
             )
         } catch (error: TimeoutCancellationException) {
             val failure = SwarmTaskTimedOutException(
@@ -276,6 +322,9 @@ class PiSwarmTaskExecutor(
                 experienceIds,
                 routingDecisions,
                 resolvedAgentId = baseConfig.id,
+                resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
+                resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
+                resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
             )
             primaryFailure = failure
             throw failure
@@ -289,15 +338,18 @@ class PiSwarmTaskExecutor(
                 experienceIds,
                 routingDecisions,
                 resolvedAgentId = baseConfig.id,
+                resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
+                resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
+                resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
             )
             primaryFailure = failure
             throw failure
         } finally {
-            var closeError: Throwable? = null
+            var cleanupError: Throwable? = null
             try {
                 withContext(NonCancellable) { sessions.close(sessionId) }
             } catch (error: Throwable) {
-                closeError = error
+                cleanupError = error
             }
             val toolBrokerSessionIds = listOfNotNull(session.toolBrokerSessionId)
             val toolAuditIds = session.toolAuditIds.distinct()
@@ -315,17 +367,25 @@ class PiSwarmTaskExecutor(
                     failure.toolAuditIds = toolAuditIds
                 }
             }
-            if (closeError != null) {
+            try {
+                withContext(NonCancellable) { allocation.release() }
+            } catch (error: Throwable) {
+                cleanupError?.addSuppressed(error) ?: run { cleanupError = error }
+            }
+            if (cleanupError != null) {
                 val failure = primaryFailure
                 if (failure != null) {
-                    failure.addSuppressed(closeError)
+                    failure.addSuppressed(cleanupError)
                 } else {
                     throw SwarmTaskExecutionException(
-                        closeError,
+                        cleanupError,
                         execution?.tokenUsage ?: TokenUsage(),
                         execution?.experienceIds ?: experienceIds,
                         execution?.experienceRoutingDecisions ?: routingDecisions,
                         resolvedAgentId = baseConfig.id,
+                        resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
+                        resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
+                        resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
                         changedFileCount = execution?.changedFileCount,
                         verificationStatus = execution?.verificationStatus ?: SwarmVerificationStatus.NOT_RECORDED,
                         workspaceDeltaEvidenceId = execution?.workspaceDeltaEvidenceId,
@@ -445,6 +505,9 @@ private data class SwarmExecutionMetadata(
     val experienceIds: List<String>,
     val experienceRoutingDecisions: List<SwarmExperienceRoutingDecision>,
     val resolvedAgentId: String?,
+    val resolvedModelConfigId: String?,
+    val resolvedProvider: String?,
+    val resolvedModel: String?,
     val toolBrokerSessionIds: List<String>,
     val toolAuditIds: List<String>,
     val verificationEvidenceId: String?,
@@ -459,6 +522,9 @@ private fun executionMetadata(
         experienceIds = failure.experienceIds,
         experienceRoutingDecisions = failure.experienceRoutingDecisions,
         resolvedAgentId = failure.resolvedAgentId,
+        resolvedModelConfigId = failure.resolvedModelConfigId,
+        resolvedProvider = failure.resolvedProvider,
+        resolvedModel = failure.resolvedModel,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -468,6 +534,9 @@ private fun executionMetadata(
         experienceIds = failure.experienceIds,
         experienceRoutingDecisions = failure.experienceRoutingDecisions,
         resolvedAgentId = failure.resolvedAgentId,
+        resolvedModelConfigId = failure.resolvedModelConfigId,
+        resolvedProvider = failure.resolvedProvider,
+        resolvedModel = failure.resolvedModel,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -477,6 +546,9 @@ private fun executionMetadata(
         experienceIds = execution?.experienceIds.orEmpty(),
         experienceRoutingDecisions = execution?.experienceRoutingDecisions.orEmpty(),
         resolvedAgentId = execution?.resolvedAgentId,
+        resolvedModelConfigId = execution?.resolvedModelConfigId,
+        resolvedProvider = execution?.resolvedProvider,
+        resolvedModel = execution?.resolvedModel,
         toolBrokerSessionIds = execution?.toolBrokerSessionIds.orEmpty(),
         toolAuditIds = execution?.toolAuditIds.orEmpty(),
         verificationEvidenceId = execution?.verificationEvidenceId,

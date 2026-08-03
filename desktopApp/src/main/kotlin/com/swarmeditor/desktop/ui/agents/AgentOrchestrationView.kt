@@ -555,6 +555,7 @@ private fun SubagentTaskItem(
     artifactPlan: SwarmArtifactIntegrationPlan?,
     onReviewArtifact: () -> Unit,
 ) {
+    val latestAttempt = task.attemptRecords.lastOrNull()
     val successfulAttempt = task.attemptRecords.lastOrNull { attempt ->
         attempt.attempt == task.attempt && attempt.outcome == SwarmTaskAttemptOutcome.SUCCEEDED
     }
@@ -587,7 +588,14 @@ private fun SubagentTaskItem(
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
                 Text(task.title, color = Tx, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text(roleLabel(task.role), color = Tx3, fontSize = 10.sp)
+                Text(
+                    listOfNotNull(
+                        roleLabel(task.role),
+                        latestAttempt?.resolvedModel?.takeIf(String::isNotBlank),
+                    ).joinToString(" · "),
+                    color = Tx3,
+                    fontSize = 10.sp,
+                )
             }
             StatusPill(taskStatusLabel(task.status), statusColor)
         }

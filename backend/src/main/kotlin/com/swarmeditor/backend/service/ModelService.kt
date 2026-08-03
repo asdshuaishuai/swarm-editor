@@ -6,24 +6,43 @@ import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+class ModelAllocation internal constructor(
+    val config: ModelConfig,
+    private val releaseAllocation: suspend () -> Unit,
+) {
+    private val released = AtomicBoolean(false)
+
+    suspend fun release() {
+        if (released.compareAndSet(false, true)) releaseAllocation()
+    }
+}
 
 class ModelService(
     private val registry: ModelRegistry,
     private val invalidateRuntimes: suspend () -> Unit = {},
 ) {
     private val mutex = Mutex()
+    private val allocationMutex = Mutex()
     private val sequence = AtomicLong()
+    private val activeAllocationCounts = mutableMapOf<String, Int>()
+    private val allocationVersion = MutableStateFlow(0L)
     private val _models = MutableStateFlow<List<ModelConfig>>(emptyList())
     val models: StateFlow<List<ModelConfig>> = _models.asStateFlow()
+    private val _activeAllocations = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val activeAllocations: StateFlow<Map<String, Int>> = _activeAllocations.asStateFlow()
 
     suspend fun init() {
         registry.load()
@@ -93,33 +112,42 @@ class ModelService(
     ): ModelConfig {
         val enabled = registry.getAll().filter(ModelConfig::enabled)
         check(enabled.isNotEmpty()) { "没有已启用的模型配置" }
-        val roleScoped = enabled.filter { role in it.roles }
-            .ifEmpty { enabled.filter { it.roles.isEmpty() } }
-            .ifEmpty { enabled }
-        val ordered = when (strategy) {
-            AgentModelSelectionStrategy.QUALITY_FIRST -> roleScoped.sortedWith(
-                compareByDescending<ModelConfig> { it.thinkingLevel.qualityRank() }
-                    .thenByDescending(ModelConfig::priority)
-                    .thenBy(ModelConfig::id)
-            )
-            AgentModelSelectionStrategy.SPEED_FIRST -> roleScoped.sortedWith(
-                compareBy<ModelConfig> { it.thinkingLevel.qualityRank() }
-                    .thenByDescending(ModelConfig::priority)
-                    .thenBy(ModelConfig::id)
-            )
-            AgentModelSelectionStrategy.BALANCED -> roleScoped.sortedWith(
-                compareByDescending<ModelConfig>(ModelConfig::priority)
-                    .thenByDescending(ModelConfig::maxConcurrentAgents)
-                    .thenBy(ModelConfig::id)
-            )
-        }
-        if (strategy != AgentModelSelectionStrategy.BALANCED || ordered.size == 1) return ordered.first()
-        val seed = affinityKey.takeIf(String::isNotBlank)?.hashCode()?.toLong() ?: sequence.getAndIncrement()
-        val totalWeight = ordered.sumOf(ModelConfig::maxConcurrentAgents)
-        var slot = Math.floorMod(seed, totalWeight.toLong()).toInt()
-        return ordered.first { config ->
-            slot -= config.maxConcurrentAgents
-            slot < 0
+        return selectCandidate(
+            candidates = roleScoped(enabled, role),
+            strategy = strategy,
+            affinityKey = affinityKey,
+            weight = ModelConfig::maxConcurrentAgents,
+        )
+    }
+
+    suspend fun acquire(
+        role: SwarmAgentRole,
+        strategy: AgentModelSelectionStrategy,
+        affinityKey: String = "",
+    ): ModelAllocation {
+        while (true) {
+            val observedVersion = allocationVersion.value
+            val allocation = allocationMutex.withLock {
+                val enabled = registry.getAll().filter(ModelConfig::enabled)
+                check(enabled.isNotEmpty()) { "没有已启用的模型配置" }
+                val available = roleScoped(enabled, role).filter { config ->
+                    activeAllocationCounts.getOrDefault(config.id, 0) < config.maxConcurrentAgents
+                }
+                if (available.isEmpty()) return@withLock null
+                val selected = selectCandidate(
+                    candidates = available,
+                    strategy = strategy,
+                    affinityKey = affinityKey,
+                    weight = { config ->
+                        config.maxConcurrentAgents - activeAllocationCounts.getOrDefault(config.id, 0)
+                    },
+                )
+                activeAllocationCounts[selected.id] = activeAllocationCounts.getOrDefault(selected.id, 0) + 1
+                publishActiveAllocationsLocked()
+                ModelAllocation(selected) { release(selected.id) }
+            }
+            if (allocation != null) return allocation
+            allocationVersion.first { version -> version != observedVersion }
         }
     }
 
@@ -132,8 +160,62 @@ class ModelService(
 
     private suspend fun refresh() {
         _models.value = registry.getAll()
+        allocationVersion.update(Long::inc)
+    }
+
+    private suspend fun release(modelId: String) {
+        allocationMutex.withLock {
+            val active = activeAllocationCounts.getOrDefault(modelId, 0)
+            check(active > 0) { "Model allocation is not active: $modelId" }
+            if (active == 1) activeAllocationCounts.remove(modelId) else activeAllocationCounts[modelId] = active - 1
+            publishActiveAllocationsLocked()
+            allocationVersion.update(Long::inc)
+        }
+    }
+
+    private fun publishActiveAllocationsLocked() {
+        _activeAllocations.value = activeAllocationCounts.toSortedMap()
+    }
+
+    private fun selectCandidate(
+        candidates: List<ModelConfig>,
+        strategy: AgentModelSelectionStrategy,
+        affinityKey: String,
+        weight: (ModelConfig) -> Int,
+    ): ModelConfig {
+        val ordered = when (strategy) {
+            AgentModelSelectionStrategy.QUALITY_FIRST -> candidates.sortedWith(
+                compareByDescending<ModelConfig> { it.thinkingLevel.qualityRank() }
+                    .thenByDescending(ModelConfig::priority)
+                    .thenBy(ModelConfig::id)
+            )
+            AgentModelSelectionStrategy.SPEED_FIRST -> candidates.sortedWith(
+                compareBy<ModelConfig> { it.thinkingLevel.qualityRank() }
+                    .thenByDescending(ModelConfig::priority)
+                    .thenBy(ModelConfig::id)
+            )
+            AgentModelSelectionStrategy.BALANCED -> candidates.sortedWith(
+                compareByDescending<ModelConfig>(ModelConfig::priority)
+                    .thenByDescending(ModelConfig::maxConcurrentAgents)
+                    .thenBy(ModelConfig::id)
+            )
+        }
+        if (strategy != AgentModelSelectionStrategy.BALANCED || ordered.size == 1) return ordered.first()
+        val seed = affinityKey.takeIf(String::isNotBlank)?.hashCode()?.toLong() ?: sequence.getAndIncrement()
+        val totalWeight = ordered.sumOf(weight)
+        check(totalWeight > 0) { "Model allocation capacity must be positive" }
+        var slot = Math.floorMod(seed, totalWeight.toLong()).toInt()
+        return ordered.first { config ->
+            slot -= weight(config)
+            slot < 0
+        }
     }
 }
+
+private fun roleScoped(enabled: List<ModelConfig>, role: SwarmAgentRole): List<ModelConfig> =
+    enabled.filter { role in it.roles }
+        .ifEmpty { enabled.filter { it.roles.isEmpty() } }
+        .ifEmpty { enabled }
 
 private fun AgentThinkingLevel.qualityRank(): Int = when (this) {
     AgentThinkingLevel.OFF -> 0

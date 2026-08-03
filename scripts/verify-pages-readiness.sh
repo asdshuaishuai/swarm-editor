@@ -42,6 +42,8 @@ for required in \
     "JetBrains Kotlin LSP 262.9593.0" \
     "真实 stdio 初始化成功" \
     "文档符号、诊断与行级导航" \
+    "模型池与主 Agent 双重并发上限" \
+    "释放租约并记录实际模型" \
     "Bubblewrap + Managed Wasmtime" \
     "Wasmtime 47.0.2" \
     "Tarjan SCC 折叠循环依赖簇" \

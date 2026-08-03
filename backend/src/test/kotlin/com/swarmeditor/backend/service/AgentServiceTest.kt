@@ -350,6 +350,66 @@ class AgentServiceTest {
     }
 
     @Test
+    fun `dynamic agent allocation enforces agent and model capacity`() = runTest {
+        val directory = Files.createTempDirectory("dynamic-agent-capacity")
+        try {
+            val manager = PiRuntimeManager(
+                distribution = PiRuntimeDistribution(directory.toFile()),
+                defaultWorkingDirectory = directory.toFile(),
+                factory = PiSessionFactory { _, _, _ -> ClosingSession() },
+            )
+            val modelService = ModelService(
+                ModelRegistry(
+                    configPath = directory.resolve("models.json").toFile(),
+                    legacyAgentsPath = directory.resolve("agents.json").toFile(),
+                )
+            )
+            modelService.init()
+            modelService.upsert(ModelRegistry.defaultConfig().copy(enabled = false)).getOrThrow()
+            modelService.upsert(
+                ModelConfig(
+                    id = "single-review-model",
+                    name = "Single Review Model",
+                    roles = listOf(SwarmAgentRole.REVIEWER),
+                    maxConcurrentAgents = 1,
+                )
+            ).getOrThrow()
+            val service = AgentService(
+                registry = AgentRegistry(directory.resolve("agents.json").toFile()),
+                runtimeManager = manager,
+                inspectRuntime = {
+                    Result.success(PiRuntimeInfo("0.83.0", "v22.19.0", directory.resolve("rpc-entry.js").toFile()))
+                },
+                modelService = modelService,
+            )
+            service.init()
+            val primary = service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)!!
+            service.upsert(primary.copy(maxDynamicSubagents = 1)).getOrThrow()
+            val firstTask = SwarmTask("review-first", "Review first", "Review first", SwarmAgentRole.REVIEWER)
+            val secondTask = SwarmTask("review-second", "Review second", "Review second", SwarmAgentRole.REVIEWER)
+
+            val first = service.acquireDynamicAgent(firstTask)
+            val waiting = backgroundScope.async { service.acquireDynamicAgent(secondTask) }
+            yield()
+
+            assertFalse(waiting.isCompleted)
+            assertEquals(mapOf(AgentRegistry.DEFAULT_AGENT_ID to 1), service.activeDynamicAgents.value)
+            assertEquals(mapOf("single-review-model" to 1), modelService.activeAllocations.value)
+
+            first.release()
+            val second = withTimeout(1_000) { waiting.await() }
+            assertEquals("single-review-model", second.config.modelConfigId)
+
+            second.release()
+            second.release()
+            assertTrue(service.activeDynamicAgents.value.isEmpty())
+            assertTrue(modelService.activeAllocations.value.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `turning off auto start disconnects the profile after update`() = runTest {
         val directory = Files.createTempDirectory("agent-auto-start")
         try {

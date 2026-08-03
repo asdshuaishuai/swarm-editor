@@ -299,6 +299,9 @@ class SwarmSchedulerTest {
                             cause = IllegalStateException("verification failed"),
                             tokenUsage = TokenUsage(input = 4, output = 2, total = 6, cost = 0.001),
                             resolvedAgentId = "resolved-agent",
+                            resolvedModelConfigId = "review-model",
+                            resolvedProvider = "openai",
+                            resolvedModel = "gpt-review",
                             changedFileCount = 1,
                             verificationStatus = SwarmVerificationStatus.FAILED,
                             workspaceDeltaEvidenceId = "a".repeat(64),
@@ -311,6 +314,9 @@ class SwarmSchedulerTest {
                         output = "implemented",
                         tokenUsage = TokenUsage(input = 8, output = 3, total = 11, cost = 0.002),
                         resolvedAgentId = "resolved-agent",
+                        resolvedModelConfigId = "implementation-model",
+                        resolvedProvider = "anthropic",
+                        resolvedModel = "claude-code",
                         toolBrokerSessionIds = listOf("broker-second"),
                         toolAuditIds = listOf("audit-second"),
                         changedFileCount = 2,
@@ -333,12 +339,18 @@ class SwarmSchedulerTest {
             assertEquals(SwarmVerificationStatus.FAILED, failedAttempt.verificationStatus)
             assertEquals(1, failedAttempt.changedFileCount)
             assertEquals("resolved-agent", failedAttempt.resolvedAgentId)
+            assertEquals("review-model", failedAttempt.resolvedModelConfigId)
+            assertEquals("openai", failedAttempt.resolvedProvider)
+            assertEquals("gpt-review", failedAttempt.resolvedModel)
             assertEquals(listOf("broker-first"), failedAttempt.toolBrokerSessionIds)
             assertEquals("a".repeat(64), failedAttempt.workspaceDeltaEvidenceId)
             assertEquals("b".repeat(64), failedAttempt.verificationEvidenceId)
             assertEquals(SwarmTaskAttemptOutcome.SUCCEEDED, successfulAttempt.outcome)
             assertEquals(SwarmVerificationStatus.PASSED, successfulAttempt.verificationStatus)
             assertEquals(2, successfulAttempt.changedFileCount)
+            assertEquals("implementation-model", successfulAttempt.resolvedModelConfigId)
+            assertEquals("anthropic", successfulAttempt.resolvedProvider)
+            assertEquals("claude-code", successfulAttempt.resolvedModel)
             assertEquals("c".repeat(64), successfulAttempt.workspaceDeltaEvidenceId)
             assertEquals("d".repeat(64), successfulAttempt.verificationEvidenceId)
             assertEquals(TokenUsage(input = 8, output = 3, total = 11, cost = 0.002), successfulAttempt.tokenUsage)

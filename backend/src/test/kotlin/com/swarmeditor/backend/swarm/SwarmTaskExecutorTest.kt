@@ -79,7 +79,13 @@ class SwarmTaskExecutorTest {
 
     @Test
     fun `executor launches and closes the role-specific pi session`() = runTest {
-        val base = AgentConfig(id = "pi-default", name = "Pi", provider = "openai", model = "gpt")
+        val base = AgentConfig(
+            id = "pi-default",
+            name = "Pi",
+            provider = "openai",
+            model = "gpt",
+            modelConfigId = "review-model",
+        )
         val task = SwarmTask(
             id = "review-data-flow",
             title = "Review data flow",
@@ -104,6 +110,7 @@ class SwarmTaskExecutorTest {
         var closedSessionId = ""
         var resolvedTask: SwarmTask? = null
         var resolutionCount = 0
+        var releaseCount = 0
         var configValidated = false
         val session = object : PiSession {
             override val pid: Long? = null
@@ -153,7 +160,11 @@ class SwarmTaskExecutorTest {
             agentResolver = SwarmAgentResolver { candidate ->
                 resolutionCount += 1
                 resolvedTask = candidate
-                base
+                SwarmAgentAllocation(
+                    config = base,
+                    isCurrent = { true },
+                    releaseAllocation = { releaseCount += 1 },
+                )
             },
             experienceProvider = { _, _ ->
                 SwarmTaskExperienceContext(
@@ -192,7 +203,8 @@ class SwarmTaskExecutorTest {
         assertEquals("pi-default", capturedConfig?.id)
         assertEquals(45, capturedConfig?.timeoutSeconds)
         assertEquals(task, resolvedTask)
-        assertEquals(2, resolutionCount)
+        assertEquals(1, resolutionCount)
+        assertEquals(1, releaseCount)
         assertTrue(configValidated)
         assertContains(capturedConfig?.systemPrompt.orEmpty(), "integration boundaries")
         assertContains(capturedPrompt, "Verify integration correctness")
@@ -208,6 +220,9 @@ class SwarmTaskExecutorTest {
         assertEquals(task.attempt, result.experienceRoutingDecisions.single().attempt)
         assertEquals(listOf("broker-11111111111111111111111111111111"), result.toolBrokerSessionIds)
         assertEquals(listOf("audit-11111111111111111111111111111111"), result.toolAuditIds)
+        assertEquals("review-model", result.resolvedModelConfigId)
+        assertEquals("openai", result.resolvedProvider)
+        assertEquals("gpt", result.resolvedModel)
         assertEquals(0L, result.tokenUsage.total)
     }
 
@@ -257,7 +272,9 @@ class SwarmTaskExecutorTest {
                 closed = true
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) { AgentConfig(id = "pi-default", name = "Pi") }
+        val executor = PiSwarmTaskExecutor(sessions) {
+            SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
+        }
 
         val error = assertFailsWith<SwarmTaskTimedOutException> {
             withTimeout(1_000) { executor.execute(run, task) }
@@ -267,6 +284,49 @@ class SwarmTaskExecutorTest {
         assertEquals(listOf("broker-22222222222222222222222222222222"), error.toolBrokerSessionIds)
         assertEquals(listOf("audit-22222222222222222222222222222222"), error.toolAuditIds)
         assertTrue(closed)
+    }
+
+    @Test
+    fun `session creation failure releases the dynamic agent allocation`() = runTest {
+        val task = SwarmTask(id = "create-failure", title = "Create failure", prompt = "Start")
+        val now = Instant.fromEpochMilliseconds(1_000)
+        val run = SwarmRun(
+            id = "run-create-failure",
+            title = "Create failure",
+            objective = "Release allocation",
+            createdAt = now,
+            updatedAt = now,
+            tasks = listOf(task),
+        )
+        var releaseCount = 0
+        val sessions = object : PiSessionProvider {
+            override suspend fun getOrCreate(
+                sessionId: String,
+                config: AgentConfig,
+                remoteSessionId: String?,
+            ): PiSession = error("creation failed")
+
+            override suspend fun getOrCreateValidated(
+                sessionId: String,
+                config: AgentConfig,
+                remoteSessionId: String?,
+                isConfigCurrent: suspend () -> Boolean,
+            ): PiSession = error("creation failed")
+
+            override suspend fun abort(sessionId: String) = Unit
+            override suspend fun close(sessionId: String) = Unit
+        }
+        val executor = PiSwarmTaskExecutor(sessions) {
+            SwarmAgentAllocation(
+                config = AgentConfig(id = "pi-default", name = "Pi"),
+                releaseAllocation = { releaseCount += 1 },
+            )
+        }
+
+        val failure = assertFailsWith<IllegalStateException> { executor.execute(run, task) }
+
+        assertEquals("creation failed", failure.message)
+        assertEquals(1, releaseCount)
     }
 
     @Test
@@ -307,7 +367,9 @@ class SwarmTaskExecutorTest {
                 error("close failed")
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) { AgentConfig(id = "pi-default", name = "Pi") }
+        val executor = PiSwarmTaskExecutor(sessions) {
+            SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
+        }
 
         val cancellation = assertFailsWith<CancellationException> {
             executor.execute(run, task)
@@ -357,7 +419,9 @@ class SwarmTaskExecutorTest {
                 error("close failed")
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) { AgentConfig(id = "pi-default", name = "Pi") }
+        val executor = PiSwarmTaskExecutor(sessions) {
+            SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
+        }
 
         val failure = assertFailsWith<SwarmTaskExecutionException> {
             executor.execute(run, task)
