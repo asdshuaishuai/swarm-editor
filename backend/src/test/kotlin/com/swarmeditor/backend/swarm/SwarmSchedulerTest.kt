@@ -1,11 +1,13 @@
 package com.swarmeditor.backend.swarm
 
+import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.SwarmExecutionPolicy
 import com.swarmeditor.common.model.SwarmOwnershipViolation
 import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
 import com.swarmeditor.common.model.SwarmExperienceRoutingStatus
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
+import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmSchedulingCandidateDisposition
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
@@ -113,7 +115,7 @@ class SwarmSchedulerTest {
 
             val running = store.get("run-test")!!
             val firstDecision = running.schedulingDecisions.single()
-            assertEquals("critical-path-graph-leverage-ownership-v3", firstDecision.policyId)
+            assertEquals("critical-path-graph-risk-ownership-v4", firstDecision.policyId)
             assertEquals(2, firstDecision.availableCapacity)
             assertTrue(firstDecision.stateFingerprint.matches(Regex("[0-9a-f]{64}")))
             assertEquals(listOf("first", "second", "deferred"), firstDecision.candidates.map { it.taskId })
@@ -285,6 +287,13 @@ class SwarmSchedulerTest {
         try {
             val store = SwarmStore(directory.toFile()).also { it.load() }
             val executions = AtomicInteger()
+            val modelDemand = SwarmModelDemand(
+                normalizedScore = 0.72,
+                targetThinkingLevel = AgentThinkingLevel.HIGH,
+                repositoryRiskScore = 0.45,
+                dependencyClusterSize = 4,
+                reasons = listOf("sccFiles=4"),
+            )
             store.put(
                 run(
                     policy = SwarmExecutionPolicy(maxTaskAttempts = 2),
@@ -302,6 +311,8 @@ class SwarmSchedulerTest {
                             resolvedModelConfigId = "review-model",
                             resolvedProvider = "openai",
                             resolvedModel = "gpt-review",
+                            modelDemand = modelDemand,
+                            modelSelectionReason = "balanced fallback",
                             changedFileCount = 1,
                             verificationStatus = SwarmVerificationStatus.FAILED,
                             workspaceDeltaEvidenceId = "a".repeat(64),
@@ -317,6 +328,8 @@ class SwarmSchedulerTest {
                         resolvedModelConfigId = "implementation-model",
                         resolvedProvider = "anthropic",
                         resolvedModel = "claude-code",
+                        modelDemand = modelDemand,
+                        modelSelectionReason = "balanced demand match target=high",
                         toolBrokerSessionIds = listOf("broker-second"),
                         toolAuditIds = listOf("audit-second"),
                         changedFileCount = 2,
@@ -342,6 +355,8 @@ class SwarmSchedulerTest {
             assertEquals("review-model", failedAttempt.resolvedModelConfigId)
             assertEquals("openai", failedAttempt.resolvedProvider)
             assertEquals("gpt-review", failedAttempt.resolvedModel)
+            assertEquals(modelDemand, failedAttempt.modelDemand)
+            assertEquals("balanced fallback", failedAttempt.modelSelectionReason)
             assertEquals(listOf("broker-first"), failedAttempt.toolBrokerSessionIds)
             assertEquals("a".repeat(64), failedAttempt.workspaceDeltaEvidenceId)
             assertEquals("b".repeat(64), failedAttempt.verificationEvidenceId)
@@ -351,6 +366,8 @@ class SwarmSchedulerTest {
             assertEquals("implementation-model", successfulAttempt.resolvedModelConfigId)
             assertEquals("anthropic", successfulAttempt.resolvedProvider)
             assertEquals("claude-code", successfulAttempt.resolvedModel)
+            assertEquals(modelDemand, successfulAttempt.modelDemand)
+            assertEquals("balanced demand match target=high", successfulAttempt.modelSelectionReason)
             assertEquals("c".repeat(64), successfulAttempt.workspaceDeltaEvidenceId)
             assertEquals("d".repeat(64), successfulAttempt.verificationEvidenceId)
             assertEquals(TokenUsage(input = 8, output = 3, total = 11, cost = 0.002), successfulAttempt.tokenUsage)

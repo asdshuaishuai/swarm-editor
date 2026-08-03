@@ -105,7 +105,7 @@
           <article class="feature-tile tile-wide tile-blue reveal">
             <div class="tile-icon graph-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div><p class="tile-kicker">Dynamic Swarm</p><h3>Agent 按需生成，而非预设堆叠</h3></div>
-            <p>主 Agent 生成任务 DAG，运行时按需实例化子 Agent，并按角色与策略从模型池租用模型；模型池与主 Agent 双重并发上限真实限流，完成、失败或取消都会释放租约并记录实际模型。关键路径、结构影响力与依赖关系参与执行调度，仓库定位另行使用 Tarjan SCC 折叠循环依赖簇。</p>
+            <p>主 Agent 生成任务 DAG，运行时按需实例化子 Agent；角色、重试、写入与验证范围、任务图位置，以及仓库定位通过 Tarjan SCC 折叠循环依赖簇得到的风险证据，共同形成目标推理强度，再从模型池选择最匹配且有实时容量的模型。关键路径、结构影响力与 SCC 风险参与调度，模型池与主 Agent 双重并发上限负责真实限流，完成、失败或取消都会释放租约并记录实际模型，同时保存需求评分与选择原因。</p>
           </article>
           <article class="feature-tile tile-tall tile-violet reveal">
             <div class="code-stack" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>

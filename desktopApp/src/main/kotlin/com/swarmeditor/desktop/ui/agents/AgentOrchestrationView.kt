@@ -592,6 +592,10 @@ private fun SubagentTaskItem(
                     listOfNotNull(
                         roleLabel(task.role),
                         latestAttempt?.resolvedModel?.takeIf(String::isNotBlank),
+                        latestAttempt?.modelDemand?.let { demand ->
+                            "目标 ${demand.targetThinkingLevel.name.lowercase()} · 风险 " +
+                                String.format(java.util.Locale.ROOT, "%.2f", demand.repositoryRiskScore)
+                        },
                     ).joinToString(" · "),
                     color = Tx3,
                     fontSize = 10.sp,

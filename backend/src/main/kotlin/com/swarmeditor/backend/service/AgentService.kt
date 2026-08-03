@@ -7,6 +7,7 @@ import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.AgentRuntimeInfo
 import com.swarmeditor.common.model.AgentStatus
 import com.swarmeditor.common.model.SwarmAgentRole
+import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmTask
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -23,6 +24,8 @@ import kotlinx.coroutines.withContext
 
 class DynamicAgentAllocation internal constructor(
     val config: AgentConfig,
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     val isCurrent: suspend () -> Boolean,
     private val releaseAllocation: suspend () -> Unit,
 ) {
@@ -170,7 +173,10 @@ class AgentService(
         resolveModel(base, task.role, "${task.id}:${task.title}:${task.prompt}")
     }
 
-    suspend fun acquireDynamicAgent(task: SwarmTask): DynamicAgentAllocation {
+    suspend fun acquireDynamicAgent(
+        task: SwarmTask,
+        demand: SwarmModelDemand? = null,
+    ): DynamicAgentAllocation {
         val agentId = task.agentId ?: AgentRegistry.DEFAULT_AGENT_ID
         val base = acquireDynamicAgentSlot(agentId)
         var modelAllocation: ModelAllocation? = null
@@ -179,10 +185,13 @@ class AgentService(
                 role = task.role,
                 strategy = base.modelSelectionStrategy,
                 affinityKey = "${task.id}:${task.title}:${task.prompt}",
+                demand = demand,
             )
             val config = applyResolvedModel(base, modelAllocation?.config)
             return DynamicAgentAllocation(
                 config = config,
+                modelDemand = modelAllocation?.demand,
+                modelSelectionReason = modelAllocation?.selectionReason,
                 isCurrent = { isLaunchConfigCurrent(config) },
                 releaseAllocation = {
                     withContext(NonCancellable) {

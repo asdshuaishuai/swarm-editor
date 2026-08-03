@@ -2,6 +2,7 @@ package com.swarmeditor.backend.swarm
 
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
+import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmSchedulingCandidate
 import com.swarmeditor.common.model.SwarmSchedulingCandidateDisposition
 import com.swarmeditor.common.model.SwarmSchedulingDecision
@@ -243,6 +244,8 @@ class SwarmScheduler(
                                 resolvedModelConfigId = error.resolvedModelConfigId,
                                 resolvedProvider = error.resolvedProvider,
                                 resolvedModel = error.resolvedModel,
+                                modelDemand = error.modelDemand,
+                                modelSelectionReason = error.modelSelectionReason,
                                 toolBrokerSessionIds = error.toolBrokerSessionIds,
                                 toolAuditIds = error.toolAuditIds,
                                 changedFileCount = error.changedFileCount,
@@ -263,6 +266,8 @@ class SwarmScheduler(
                                 resolvedModelConfigId = null,
                                 resolvedProvider = null,
                                 resolvedModel = null,
+                                modelDemand = null,
+                                modelSelectionReason = null,
                                 toolBrokerSessionIds = emptyList(),
                                 toolAuditIds = emptyList(),
                                 changedFileCount = null,
@@ -286,6 +291,9 @@ class SwarmScheduler(
                                     (error as? SwarmTaskExecutionException)?.resolvedModelConfigId,
                                 resolvedProvider = (error as? SwarmTaskExecutionException)?.resolvedProvider,
                                 resolvedModel = (error as? SwarmTaskExecutionException)?.resolvedModel,
+                                modelDemand = (error as? SwarmTaskExecutionException)?.modelDemand,
+                                modelSelectionReason =
+                                    (error as? SwarmTaskExecutionException)?.modelSelectionReason,
                                 toolBrokerSessionIds =
                                     (error as? SwarmTaskExecutionException)?.toolBrokerSessionIds.orEmpty(),
                                 toolAuditIds = (error as? SwarmTaskExecutionException)?.toolAuditIds.orEmpty(),
@@ -471,6 +479,8 @@ class SwarmScheduler(
                                 resolvedModelConfigId = execution.resolvedModelConfigId,
                                 resolvedProvider = execution.resolvedProvider,
                                 resolvedModel = execution.resolvedModel,
+                                modelDemand = execution.modelDemand,
+                                modelSelectionReason = execution.modelSelectionReason,
                                 toolBrokerSessionIds = execution.toolBrokerSessionIds,
                                 toolAuditIds = execution.toolAuditIds,
                                 changedFileCount = execution.changedFileCount,
@@ -518,6 +528,8 @@ class SwarmScheduler(
                             resolvedModelConfigId = outcome.resolvedModelConfigId,
                             resolvedProvider = outcome.resolvedProvider,
                             resolvedModel = outcome.resolvedModel,
+                            modelDemand = outcome.modelDemand,
+                            modelSelectionReason = outcome.modelSelectionReason,
                             toolBrokerSessionIds = outcome.toolBrokerSessionIds,
                             toolAuditIds = outcome.toolAuditIds,
                             changedFileCount = outcome.changedFileCount,
@@ -640,6 +652,10 @@ private fun SwarmSchedulingScore.explanation(prefix: String): String =
         "directUnlocks=$directUnlocks, downstreamReach=$downstreamReach, " +
         "bridgeCentrality=${String.format(java.util.Locale.ROOT, "%.3f", bridgeCentrality)}, " +
         "retries=$retryCount, " +
+        "modelDemand=${String.format(java.util.Locale.ROOT, "%.3f", modelDemandScore)}, " +
+        "targetThinking=${targetThinkingLevel.name.lowercase()}, " +
+        "repositoryRisk=${String.format(java.util.Locale.ROOT, "%.3f", repositoryRiskScore)}, " +
+        "sccFiles=$dependencyClusterSize, " +
         "activeAgentPenalty=${String.format(java.util.Locale.ROOT, "%.2f", activeAgentPenalty)}"
 
 private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
@@ -650,6 +666,8 @@ private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
     resolvedModelConfigId: String? = null,
     resolvedProvider: String? = null,
     resolvedModel: String? = null,
+    modelDemand: SwarmModelDemand? = null,
+    modelSelectionReason: String? = null,
     toolBrokerSessionIds: List<String> = emptyList(),
     toolAuditIds: List<String> = emptyList(),
     changedFileCount: Int? = null,
@@ -666,6 +684,8 @@ private fun List<SwarmTaskAttemptRecord>.completeLatestAttempt(
         resolvedModelConfigId = resolvedModelConfigId ?: active.resolvedModelConfigId,
         resolvedProvider = resolvedProvider ?: active.resolvedProvider,
         resolvedModel = resolvedModel ?: active.resolvedModel,
+        modelDemand = modelDemand ?: active.modelDemand,
+        modelSelectionReason = modelSelectionReason ?: active.modelSelectionReason,
         outcome = outcome,
         completedAt = completedAt,
         durationMillis = (completedAt.toEpochMilliseconds() - active.startedAt.toEpochMilliseconds()).coerceAtLeast(0),
@@ -695,6 +715,8 @@ private sealed interface TaskOutcome {
         val resolvedModelConfigId: String?,
         val resolvedProvider: String?,
         val resolvedModel: String?,
+        val modelDemand: SwarmModelDemand?,
+        val modelSelectionReason: String?,
         val toolBrokerSessionIds: List<String>,
         val toolAuditIds: List<String>,
         val changedFileCount: Int?,

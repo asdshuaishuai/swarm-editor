@@ -1,5 +1,6 @@
 package com.swarmeditor.backend.swarm
 
+import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
@@ -14,6 +15,10 @@ data class SwarmSchedulingScore(
     val bridgeCentrality: Double,
     val retryCount: Int,
     val activeAgentPenalty: Double,
+    val modelDemandScore: Double,
+    val targetThinkingLevel: AgentThinkingLevel,
+    val repositoryRiskScore: Double,
+    val dependencyClusterSize: Int,
 )
 
 data class SwarmSchedulingSelection(
@@ -35,7 +40,7 @@ interface SwarmSchedulingPolicy {
 }
 
 class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
-    override val id: String = "critical-path-graph-leverage-ownership-v3"
+    override val id: String = "critical-path-graph-risk-ownership-v4"
 
     override fun select(
         run: SwarmRun,
@@ -58,6 +63,9 @@ class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
         }
         val activeAgentIds = activeTaskIds.mapNotNull { tasksById[it]?.agentId }.toSet()
         val criticalPathMemo = mutableMapOf<String, Double>()
+        val modelDemands = readyCandidates.associate { task ->
+            task.id to SwarmModelDemandAssessor.assess(run, task, graphAnalysis)
+        }
 
         fun remainingCriticalPath(taskId: String): Double = criticalPathMemo.getOrPut(taskId) {
             val task = tasksById.getValue(taskId)
@@ -88,10 +96,12 @@ class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
             val activeAgentPenalty = if (task.agentId != null && task.agentId in activeAgentIds) 0.75 else 0.0
             val criticalPath = remainingCriticalPath(task.id)
             val graphMetrics = graphAnalysis.metrics.getValue(task.id)
+            val modelDemand = modelDemands.getValue(task.id)
             val structuralLeverage = ln(1.0 + graphMetrics.downstreamReach) * 0.45 +
                 graphMetrics.bridgeCentrality * 0.8
             val utility = criticalPath + directUnlocks * 0.4 + structuralLeverage +
-                task.attempt * 0.25 - activeAgentPenalty
+                task.attempt * 0.25 + modelDemand.normalizedScore * 0.15 +
+                modelDemand.repositoryRiskScore * 0.55 - activeAgentPenalty
             task.id to SwarmSchedulingScore(
                 utility = utility,
                 remainingCriticalPath = criticalPath,
@@ -100,6 +110,10 @@ class CriticalPathSwarmSchedulingPolicy : SwarmSchedulingPolicy {
                 bridgeCentrality = graphMetrics.bridgeCentrality,
                 retryCount = task.attempt,
                 activeAgentPenalty = activeAgentPenalty,
+                modelDemandScore = modelDemand.normalizedScore,
+                targetThinkingLevel = modelDemand.targetThinkingLevel,
+                repositoryRiskScore = modelDemand.repositoryRiskScore,
+                dependencyClusterSize = modelDemand.dependencyClusterSize,
             )
         }
         val ranked = readyCandidates.sortedWith(

@@ -217,6 +217,15 @@ data class SwarmSchedulingDecision(
 )
 
 @Serializable
+data class SwarmModelDemand(
+    val normalizedScore: Double,
+    val targetThinkingLevel: AgentThinkingLevel,
+    val repositoryRiskScore: Double,
+    val dependencyClusterSize: Int = 0,
+    val reasons: List<String> = emptyList(),
+)
+
+@Serializable
 data class SwarmTaskAttemptRecord(
     val id: String,
     val schedulingDecisionId: String,
@@ -226,6 +235,8 @@ data class SwarmTaskAttemptRecord(
     val resolvedModelConfigId: String? = null,
     val resolvedProvider: String? = null,
     val resolvedModel: String? = null,
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     val outcome: SwarmTaskAttemptOutcome = SwarmTaskAttemptOutcome.RUNNING,
     val startedAt: Instant,
     val completedAt: Instant? = null,

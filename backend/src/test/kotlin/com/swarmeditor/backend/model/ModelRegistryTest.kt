@@ -5,6 +5,7 @@ import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
+import com.swarmeditor.common.model.SwarmModelDemand
 import java.nio.file.Files
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
@@ -13,6 +14,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -145,6 +147,129 @@ class ModelRegistryTest {
 
             second.release()
             second.release()
+            assertTrue(service.activeAllocations.value.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `balanced allocation matches task demand and falls back when preferred capacity is full`() = runTest {
+        val directory = Files.createTempDirectory("model-demand-allocation")
+        try {
+            val service = ModelService(
+                ModelRegistry(
+                    configPath = directory.resolve("models.json").toFile(),
+                    legacyAgentsPath = directory.resolve("agents.json").toFile(),
+                )
+            )
+            service.init()
+            service.upsert(ModelRegistry.defaultConfig().copy(enabled = false)).getOrThrow()
+            service.upsert(
+                ModelConfig(
+                    id = "fast-low",
+                    name = "Fast Low",
+                    thinkingLevel = AgentThinkingLevel.LOW,
+                    priority = 100,
+                    maxConcurrentAgents = 1,
+                )
+            ).getOrThrow()
+            service.upsert(
+                ModelConfig(
+                    id = "deep-high",
+                    name = "Deep High",
+                    thinkingLevel = AgentThinkingLevel.HIGH,
+                    priority = 100,
+                    roles = listOf(SwarmAgentRole.REVIEWER),
+                    maxConcurrentAgents = 1,
+                )
+            ).getOrThrow()
+            val highDemand = SwarmModelDemand(
+                normalizedScore = 0.74,
+                targetThinkingLevel = AgentThinkingLevel.HIGH,
+                repositoryRiskScore = 0.6,
+                reasons = listOf("sccFiles=5"),
+            )
+            val lowDemand = SwarmModelDemand(
+                normalizedScore = 0.28,
+                targetThinkingLevel = AgentThinkingLevel.LOW,
+                repositoryRiskScore = 0.0,
+            )
+
+            val preferred = service.acquire(
+                SwarmAgentRole.REVIEWER,
+                AgentModelSelectionStrategy.BALANCED,
+                "risky-task",
+                highDemand,
+            )
+            val fallback = service.acquire(
+                SwarmAgentRole.REVIEWER,
+                AgentModelSelectionStrategy.BALANCED,
+                "risky-task-2",
+                highDemand,
+            )
+            val lowSelection = service.select(
+                SwarmAgentRole.GENERAL,
+                AgentModelSelectionStrategy.BALANCED,
+                "small-task",
+                lowDemand,
+            )
+
+            assertEquals("deep-high", preferred.config.id)
+            assertEquals("fast-low", fallback.config.id)
+            assertEquals("fast-low", lowSelection.id)
+            assertTrue(preferred.selectionReason.orEmpty().contains("target=high"))
+
+            fallback.release()
+            preferred.release()
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `canceling a saturated demand allocation does not leak capacity`() = runTest {
+        val directory = Files.createTempDirectory("model-demand-cancellation")
+        try {
+            val service = ModelService(
+                ModelRegistry(
+                    configPath = directory.resolve("models.json").toFile(),
+                    legacyAgentsPath = directory.resolve("agents.json").toFile(),
+                )
+            )
+            service.init()
+            service.upsert(
+                ModelRegistry.defaultConfig().copy(
+                    maxConcurrentAgents = 1,
+                    thinkingLevel = AgentThinkingLevel.HIGH,
+                )
+            ).getOrThrow()
+            val demand = SwarmModelDemand(
+                normalizedScore = 0.7,
+                targetThinkingLevel = AgentThinkingLevel.HIGH,
+                repositoryRiskScore = 0.5,
+            )
+
+            val active = service.acquire(
+                SwarmAgentRole.GENERAL,
+                AgentModelSelectionStrategy.BALANCED,
+                "active",
+                demand,
+            )
+            val waiting = backgroundScope.async {
+                service.acquire(
+                    SwarmAgentRole.GENERAL,
+                    AgentModelSelectionStrategy.BALANCED,
+                    "waiting",
+                    demand,
+                )
+            }
+            yield()
+
+            waiting.cancelAndJoin()
+            assertEquals(mapOf(active.config.id to 1), service.activeAllocations.value)
+
+            active.release()
             assertTrue(service.activeAllocations.value.isEmpty())
         } finally {
             directory.deleteRecursively()

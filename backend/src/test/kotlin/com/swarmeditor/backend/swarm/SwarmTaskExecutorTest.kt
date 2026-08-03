@@ -14,6 +14,7 @@ import com.swarmeditor.common.model.SwarmExperience
 import com.swarmeditor.common.model.SwarmExperienceKind
 import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
 import com.swarmeditor.common.model.SwarmExperienceRoutingStatus
+import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.TokenUsage
@@ -108,10 +109,17 @@ class SwarmTaskExecutorTest {
         var capturedConfig: AgentConfig? = null
         var capturedPrompt = ""
         var closedSessionId = ""
+        var resolvedRun: SwarmRun? = null
         var resolvedTask: SwarmTask? = null
         var resolutionCount = 0
         var releaseCount = 0
         var configValidated = false
+        val modelDemand = SwarmModelDemand(
+            normalizedScore = 0.7,
+            targetThinkingLevel = AgentThinkingLevel.HIGH,
+            repositoryRiskScore = 0.4,
+            reasons = listOf("integration-risk"),
+        )
         val session = object : PiSession {
             override val pid: Long? = null
             override val remoteSessionId: String = "remote-1"
@@ -157,12 +165,15 @@ class SwarmTaskExecutorTest {
         }
         val executor = PiSwarmTaskExecutor(
             sessions = sessions,
-            agentResolver = SwarmAgentResolver { candidate ->
+            agentResolver = SwarmAgentResolver { candidateRun, candidate ->
                 resolutionCount += 1
+                resolvedRun = candidateRun
                 resolvedTask = candidate
                 SwarmAgentAllocation(
                     config = base,
                     isCurrent = { true },
+                    modelDemand = modelDemand,
+                    modelSelectionReason = "balanced demand match target=high",
                     releaseAllocation = { releaseCount += 1 },
                 )
             },
@@ -202,6 +213,7 @@ class SwarmTaskExecutorTest {
         assertEquals("Pi · Reviewer", capturedConfig?.name)
         assertEquals("pi-default", capturedConfig?.id)
         assertEquals(45, capturedConfig?.timeoutSeconds)
+        assertEquals(run, resolvedRun)
         assertEquals(task, resolvedTask)
         assertEquals(1, resolutionCount)
         assertEquals(1, releaseCount)
@@ -223,6 +235,8 @@ class SwarmTaskExecutorTest {
         assertEquals("review-model", result.resolvedModelConfigId)
         assertEquals("openai", result.resolvedProvider)
         assertEquals("gpt", result.resolvedModel)
+        assertEquals(modelDemand, result.modelDemand)
+        assertEquals("balanced demand match target=high", result.modelSelectionReason)
         assertEquals(0L, result.tokenUsage.total)
     }
 
@@ -272,7 +286,7 @@ class SwarmTaskExecutorTest {
                 closed = true
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) {
+        val executor = PiSwarmTaskExecutor(sessions) { _, _ ->
             SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
         }
 
@@ -316,7 +330,7 @@ class SwarmTaskExecutorTest {
             override suspend fun abort(sessionId: String) = Unit
             override suspend fun close(sessionId: String) = Unit
         }
-        val executor = PiSwarmTaskExecutor(sessions) {
+        val executor = PiSwarmTaskExecutor(sessions) { _, _ ->
             SwarmAgentAllocation(
                 config = AgentConfig(id = "pi-default", name = "Pi"),
                 releaseAllocation = { releaseCount += 1 },
@@ -367,7 +381,7 @@ class SwarmTaskExecutorTest {
                 error("close failed")
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) {
+        val executor = PiSwarmTaskExecutor(sessions) { _, _ ->
             SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
         }
 
@@ -419,7 +433,7 @@ class SwarmTaskExecutorTest {
                 error("close failed")
             }
         }
-        val executor = PiSwarmTaskExecutor(sessions) {
+        val executor = PiSwarmTaskExecutor(sessions) { _, _ ->
             SwarmAgentAllocation(AgentConfig(id = "pi-default", name = "Pi"))
         }
 

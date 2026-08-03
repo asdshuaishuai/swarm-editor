@@ -128,7 +128,7 @@ class SwarmDependencyExecutionIntegrationTest {
                     evidenceStore,
                 ),
                 baseRevisionResolver = GitDependencyAwareSwarmTaskBaseRevisionResolver(repository, evidenceStore),
-                agentResolver = SwarmAgentResolver {
+                agentResolver = SwarmAgentResolver { _, _ ->
                     SwarmAgentAllocation(AgentConfig(id = "pi", name = "Pi"))
                 },
             )

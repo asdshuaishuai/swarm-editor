@@ -5,6 +5,7 @@ import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmExperience
 import com.swarmeditor.common.model.SwarmExperienceRoutingDecision
+import com.swarmeditor.common.model.SwarmModelDemand
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskStatus
@@ -26,6 +27,8 @@ data class SwarmTaskExecution(
     val resolvedModelConfigId: String? = null,
     val resolvedProvider: String? = null,
     val resolvedModel: String? = null,
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     val toolBrokerSessionIds: List<String> = emptyList(),
     val toolAuditIds: List<String> = emptyList(),
     val changedFileCount: Int? = null,
@@ -48,6 +51,8 @@ class SwarmTaskExecutionException(
     val resolvedModelConfigId: String? = null,
     val resolvedProvider: String? = null,
     val resolvedModel: String? = null,
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -65,6 +70,8 @@ class SwarmTaskTimedOutException(
     val resolvedModelConfigId: String? = null,
     val resolvedProvider: String? = null,
     val resolvedModel: String? = null,
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     var changedFileCount: Int? = null,
     var verificationStatus: SwarmVerificationStatus = SwarmVerificationStatus.NOT_RECORDED,
     var workspaceDeltaEvidenceId: String? = null,
@@ -100,12 +107,14 @@ fun interface SwarmTaskExecutor {
 }
 
 fun interface SwarmAgentResolver {
-    suspend fun resolve(task: SwarmTask): SwarmAgentAllocation
+    suspend fun resolve(run: SwarmRun, task: SwarmTask): SwarmAgentAllocation
 }
 
 class SwarmAgentAllocation(
     val config: AgentConfig,
     val isCurrent: suspend () -> Boolean = { true },
+    val modelDemand: SwarmModelDemand? = null,
+    val modelSelectionReason: String? = null,
     private val releaseAllocation: suspend () -> Unit = {},
 ) {
     private val released = AtomicBoolean(false)
@@ -187,6 +196,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = metadata.resolvedModelConfigId,
                 resolvedProvider = metadata.resolvedProvider,
                 resolvedModel = metadata.resolvedModel,
+                modelDemand = metadata.modelDemand,
+                modelSelectionReason = metadata.modelSelectionReason,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -230,6 +241,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = completedExecution.resolvedModelConfigId,
                 resolvedProvider = completedExecution.resolvedProvider,
                 resolvedModel = completedExecution.resolvedModel,
+                modelDemand = completedExecution.modelDemand,
+                modelSelectionReason = completedExecution.modelSelectionReason,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -253,6 +266,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = completedExecution.resolvedModelConfigId,
                 resolvedProvider = completedExecution.resolvedProvider,
                 resolvedModel = completedExecution.resolvedModel,
+                modelDemand = completedExecution.modelDemand,
+                modelSelectionReason = completedExecution.modelSelectionReason,
                 changedFileCount = captured.evidence.changedPathCount,
                 verificationStatus = SwarmVerificationStatus.FAILED,
                 workspaceDeltaEvidenceId = captured.id,
@@ -278,7 +293,7 @@ class PiSwarmTaskExecutor(
         val experiences = experienceContext.experiences
         val experienceIds = experiences.map(SwarmExperience::id).distinct()
         val routingDecisions = experienceContext.routingDecisions.map { it.copy(attempt = task.attempt) }
-        val allocation = agentResolver.resolve(task)
+        val allocation = agentResolver.resolve(run, task)
         val baseConfig = allocation.config
         val sessionId = "swarm:${run.id}:${task.id}"
         val session = try {
@@ -314,6 +329,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
                 resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
                 resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
+                modelDemand = allocation.modelDemand,
+                modelSelectionReason = allocation.modelSelectionReason,
             )
         } catch (error: TimeoutCancellationException) {
             val failure = SwarmTaskTimedOutException(
@@ -325,6 +342,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
                 resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
                 resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
+                modelDemand = allocation.modelDemand,
+                modelSelectionReason = allocation.modelSelectionReason,
             )
             primaryFailure = failure
             throw failure
@@ -341,6 +360,8 @@ class PiSwarmTaskExecutor(
                 resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
                 resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
                 resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
+                modelDemand = allocation.modelDemand,
+                modelSelectionReason = allocation.modelSelectionReason,
             )
             primaryFailure = failure
             throw failure
@@ -386,6 +407,8 @@ class PiSwarmTaskExecutor(
                         resolvedModelConfigId = baseConfig.modelConfigId.takeIf(String::isNotBlank),
                         resolvedProvider = baseConfig.provider.takeIf(String::isNotBlank),
                         resolvedModel = baseConfig.model.takeIf(String::isNotBlank),
+                        modelDemand = allocation.modelDemand,
+                        modelSelectionReason = allocation.modelSelectionReason,
                         changedFileCount = execution?.changedFileCount,
                         verificationStatus = execution?.verificationStatus ?: SwarmVerificationStatus.NOT_RECORDED,
                         workspaceDeltaEvidenceId = execution?.workspaceDeltaEvidenceId,
@@ -508,6 +531,8 @@ private data class SwarmExecutionMetadata(
     val resolvedModelConfigId: String?,
     val resolvedProvider: String?,
     val resolvedModel: String?,
+    val modelDemand: SwarmModelDemand?,
+    val modelSelectionReason: String?,
     val toolBrokerSessionIds: List<String>,
     val toolAuditIds: List<String>,
     val verificationEvidenceId: String?,
@@ -525,6 +550,8 @@ private fun executionMetadata(
         resolvedModelConfigId = failure.resolvedModelConfigId,
         resolvedProvider = failure.resolvedProvider,
         resolvedModel = failure.resolvedModel,
+        modelDemand = failure.modelDemand,
+        modelSelectionReason = failure.modelSelectionReason,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -537,6 +564,8 @@ private fun executionMetadata(
         resolvedModelConfigId = failure.resolvedModelConfigId,
         resolvedProvider = failure.resolvedProvider,
         resolvedModel = failure.resolvedModel,
+        modelDemand = failure.modelDemand,
+        modelSelectionReason = failure.modelSelectionReason,
         toolBrokerSessionIds = failure.toolBrokerSessionIds,
         toolAuditIds = failure.toolAuditIds,
         verificationEvidenceId = failure.verificationEvidenceId,
@@ -549,6 +578,8 @@ private fun executionMetadata(
         resolvedModelConfigId = execution?.resolvedModelConfigId,
         resolvedProvider = execution?.resolvedProvider,
         resolvedModel = execution?.resolvedModel,
+        modelDemand = execution?.modelDemand,
+        modelSelectionReason = execution?.modelSelectionReason,
         toolBrokerSessionIds = execution?.toolBrokerSessionIds.orEmpty(),
         toolAuditIds = execution?.toolAuditIds.orEmpty(),
         verificationEvidenceId = execution?.verificationEvidenceId,

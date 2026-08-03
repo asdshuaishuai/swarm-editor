@@ -2,6 +2,9 @@ package com.swarmeditor.backend.swarm
 
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmExecutionPolicy
+import com.swarmeditor.common.model.SwarmRepositoryEvidence
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceBundle
+import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
@@ -133,6 +136,43 @@ class SwarmSchedulingPolicyTest {
         assertEquals(1, selection.selectedTaskIds.size)
         val deferredId = setOf("first", "second").single { it !in selection.selectedTaskIds }
         assertTrue(selection.deferredOwnershipReasons.getValue(deferredId).contains("read"))
+    }
+
+    @Test
+    fun `dependency cluster evidence raises repository risk scheduling rank`() {
+        val ordinary = task("ordinary").copy(writePaths = listOf("desktopApp/src/Ordinary.kt"))
+        val clustered = task("clustered").copy(writePaths = listOf("backend/**"))
+        val run = run(listOf(ordinary, clustered)).copy(
+            planningEvidence = SwarmRepositoryEvidenceBundle(
+                queryFingerprint = "query",
+                generatedAt = Clock.System.now(),
+                scannedFileCount = 3,
+                candidateFileCount = 3,
+                characterBudget = 1_000,
+                consumedCharacters = 100,
+                truncated = false,
+                evidence = listOf(
+                    SwarmRepositoryEvidence(
+                        id = "scc",
+                        kind = SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER,
+                        path = "backend/src/A.kt",
+                        line = null,
+                        score = 20.0,
+                        summary = "Strongly connected source cluster",
+                        excerpt = "backend/src/A.kt, backend/src/B.kt, backend/src/C.kt",
+                    )
+                ),
+            )
+        )
+
+        val selection = policy.select(run, listOf(ordinary, clustered), emptySet(), capacity = 1)
+
+        assertEquals("clustered", selection.rankedCandidates.first().id)
+        assertEquals(3, selection.scores.getValue("clustered").dependencyClusterSize)
+        assertTrue(
+            selection.scores.getValue("clustered").repositoryRiskScore >
+                selection.scores.getValue("ordinary").repositoryRiskScore
+        )
     }
 
     private fun task(

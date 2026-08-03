@@ -204,11 +204,14 @@ val swarmScheduler: SwarmScheduler by lazy {
             workspaceDeltaCapturer = swarmWorkspaceDeltaCapturer,
             baseRevisionResolver = swarmTaskBaseRevisionResolver,
             taskVerifier = swarmTaskVerifier,
-            agentResolver = com.swarmeditor.backend.swarm.SwarmAgentResolver { task ->
-                val allocation = agentService.acquireDynamicAgent(task)
+            agentResolver = com.swarmeditor.backend.swarm.SwarmAgentResolver { run, task ->
+                val demand = com.swarmeditor.backend.swarm.SwarmModelDemandAssessor.assess(run, task)
+                val allocation = agentService.acquireDynamicAgent(task, demand)
                 com.swarmeditor.backend.swarm.SwarmAgentAllocation(
                     config = allocation.config,
                     isCurrent = allocation.isCurrent,
+                    modelDemand = allocation.modelDemand,
+                    modelSelectionReason = allocation.modelSelectionReason,
                     releaseAllocation = allocation::release,
                 )
             },

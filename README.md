@@ -9,7 +9,7 @@
 - `PiRuntimeManager` 为每个 Swarm 会话按需启动 pi RPC/JSONL 子进程。
 - Pi 与 Kotlin 之间使用 nonce 绑定、限长、可取消且要求审计 ID 的 stdio 工具代理协议；Linux 使用 Bubblewrap 在无镜像、无守护进程的禁网沙箱中运行原生命令，可移植能力插件由独立 Wasmtime 沙箱执行。
 - 仓库定位会构建源码依赖图并使用 Tarjan SCC 折叠循环依赖簇；定位证据与关键路径调度分别持久化，避免把 SCC 误当作任务 DAG 执行器。
-- 主 Agent 按任务角色与选择策略从独立模型池租用模型，真实执行 `maxDynamicSubagents` 与 `maxConcurrentAgents` 双重并发上限；Pi 会话结束、失败或取消后都会释放租约，并把实际 provider/model 写入任务尝试证据。
+- 主 Agent 按任务角色、重试、写入/验证范围、任务图位置与仓库 SCC 风险计算目标 thinking level，再从独立模型池租用最匹配且有容量的模型；真实执行 `maxDynamicSubagents` 与 `maxConcurrentAgents` 双重并发上限，并把需求评分、选择原因与实际 provider/model 写入任务尝试证据。
 - Kotlin 源码智能可按需安装 JetBrains Kotlin LSP `262.9593.0`；安装器验证官方归档 SHA-256，安全提取并固定使用 JSON-RPC stdio，设置中心显示运行时完整性与真实连接状态。
 - Pi-only 沙箱、动态图调度、LSP 代码智能与可验证自进化的 GitHub/arXiv 深度研究见 `docs/research/2026-07-28-pi-agent-runtime-orchestration-deep-dive.md`。
 - 轻量跨平台沙箱、Sandlock 准入门槛、独立 Git worktree 与可重放验证证据链见 `docs/research/2026-07-28-lightweight-sandbox-verification-deep-dive.md`。
