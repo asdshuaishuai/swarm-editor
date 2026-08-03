@@ -84,6 +84,7 @@ compose.desktop {
         mainClass = "com.swarmeditor.desktop.MainKt"
 
         nativeDistributions {
+            modules("java.naming")
             appResourcesRootDir.set(piResourcesRoot)
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "SwarmEditor"

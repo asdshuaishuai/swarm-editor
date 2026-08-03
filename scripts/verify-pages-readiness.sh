@@ -55,6 +55,29 @@ for required in \
     }
 done
 
+for bilingual_hook in \
+    'data-language="zh-CN"' \
+    'data-language="en"' \
+    'data-i18n="hero.lead"' \
+    'data-i18n-content="meta.description"'; do
+    grep -Fq "$bilingual_hook" site/index.html || {
+        echo "Required bilingual Pages hook is missing: $bilingual_hook" >&2
+        exit 1
+    }
+done
+
+for english_copy in \
+    "Move agents beyond chat" \
+    "A complete engineering loop" \
+    "Pages deployment must pass the complete test and build gate"; do
+    grep -Fq "$english_copy" site/app.js || {
+        echo "Required English Pages copy is missing: $english_copy" >&2
+        exit 1
+    }
+done
+
+node --check site/app.js
+
 git diff --check
 
 if [[ "$STATIC_ONLY" == false ]]; then
