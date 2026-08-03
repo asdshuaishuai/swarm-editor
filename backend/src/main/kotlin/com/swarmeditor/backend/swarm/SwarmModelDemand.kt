@@ -3,7 +3,6 @@ package com.swarmeditor.backend.swarm
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmModelDemand
-import com.swarmeditor.common.model.SwarmRepositoryEvidence
 import com.swarmeditor.common.model.SwarmRepositoryEvidenceKind
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmTask
@@ -86,64 +85,9 @@ object SwarmModelDemandAssessor {
         .orEmpty()
         .asSequence()
         .filter { it.kind == SwarmRepositoryEvidenceKind.DEPENDENCY_CLUSTER }
-        .filter { evidence -> evidence.matches(task) }
-        .maxOfOrNull { evidence -> evidence.clusterSize() }
+        .filter { evidence -> evidence.matchesTask(task) }
+        .maxOfOrNull { evidence -> evidence.dependencyClusterSize() }
         ?: 0
-
-    private fun SwarmRepositoryEvidence.matches(task: SwarmTask): Boolean {
-        val members = clusterMembers()
-        val scopes = task.readPaths + task.writePaths
-        return members.any { member ->
-            scopes.any { scope -> scopeMatchesPath(scope, member) } ||
-                task.prompt.contains(member, ignoreCase = true)
-        }
-    }
-
-    private fun SwarmRepositoryEvidence.clusterMembers(): Set<String> = buildSet {
-        path?.normalizeRepositoryPath()?.takeIf(String::isNotBlank)?.let(::add)
-        excerpt.orEmpty().split(',').forEach { candidate ->
-            candidate.normalizeRepositoryPath().takeIf(String::isNotBlank)?.let(::add)
-        }
-    }
-
-    private fun SwarmRepositoryEvidence.clusterSize(): Int = dependencyClusterSize
-        .find(summary)
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.toIntOrNull()
-        ?: clusterMembers().size
-
-    private fun scopeMatchesPath(scope: String, path: String): Boolean {
-        val normalizedScope = scope.normalizeRepositoryPath()
-        val normalizedPath = path.normalizeRepositoryPath()
-        if (normalizedScope == normalizedPath) return true
-        if ('*' !in normalizedScope && '?' !in normalizedScope) {
-            return normalizedPath.startsWith(normalizedScope.trimEnd('/') + "/")
-        }
-        return globRegex(normalizedScope).matches(normalizedPath)
-    }
-
-    private fun globRegex(scope: String): Regex = buildString {
-        append('^')
-        var index = 0
-        while (index < scope.length) {
-            when (val character = scope[index]) {
-                '*' -> {
-                    if (scope.getOrNull(index + 1) == '*') {
-                        append(".*")
-                        index += 1
-                    } else {
-                        append("[^/]*")
-                    }
-                }
-                '?' -> append("[^/]")
-                '.', '(', ')', '[', ']', '{', '}', '+', '^', '$', '|', '\\' -> append('\\').append(character)
-                else -> append(character)
-            }
-            index += 1
-        }
-        append('$')
-    }.toRegex()
 
     private fun String.normalizeRepositoryPath(): String = trim().replace('\\', '/').removePrefix("./").trim('/')
 
@@ -155,5 +99,4 @@ object SwarmModelDemandAssessor {
 
     private fun rounded(value: Double): Double = round(value * 1_000.0) / 1_000.0
 
-    private val dependencyClusterSize = Regex("Strongly connected source cluster: (\\d+)")
 }

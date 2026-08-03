@@ -10,8 +10,10 @@
 - Pi 与 Kotlin 之间使用 nonce 绑定、限长、可取消且要求审计 ID 的 stdio 工具代理协议；Linux 使用 Bubblewrap 在无镜像、无守护进程的禁网沙箱中运行原生命令，可移植能力插件由独立 Wasmtime 沙箱执行。
 - 仓库定位会构建源码依赖图并使用 Tarjan SCC 折叠循环依赖簇；定位证据与关键路径调度分别持久化，避免把 SCC 误当作任务 DAG 执行器。
 - 主 Agent 按任务角色、重试、写入/验证范围、任务图位置与仓库 SCC 风险计算目标 thinking level，再从独立模型池租用最匹配且有容量的模型；真实执行 `maxDynamicSubagents` 与 `maxConcurrentAgents` 双重并发上限，并把需求评分、选择原因与实际 provider/model 写入任务尝试证据。
+- Pi 规划与执行使用有预算的图上下文协议：任务只接收匹配其所有权的仓库证据、持久化调度依据、修订契约和截断后的上游交付，并按 Outcome/Evidence/Changes/Verification/Residual Risk/Downstream Handoff 结构返回结果。
 - Kotlin 源码智能可按需安装 JetBrains Kotlin LSP `262.9593.0`；安装器验证官方归档 SHA-256，安全提取并固定使用 JSON-RPC stdio，设置中心显示运行时完整性与真实连接状态。
 - Pi-only 沙箱、动态图调度、LSP 代码智能与可验证自进化的 GitHub/arXiv 深度研究见 `docs/research/2026-07-28-pi-agent-runtime-orchestration-deep-dive.md`。
+- Pi 图上下文与提示协议见 `docs/architecture/pi-graph-context-protocol.md`。
 - 轻量跨平台沙箱、Sandlock 准入门槛、独立 Git worktree 与可重放验证证据链见 `docs/research/2026-07-28-lightweight-sandbox-verification-deep-dive.md`。
 - 完成的兵团运行会由 Pi 反思器提炼为可追溯经验，并在后续规划和任务执行时按目标与角色检索复用；设计依据见 `docs/research/2026-07-27-pi-swarm-self-evolution.md`。
 - 经验注入经过效用感知门控：重复负效用或同环境跨任务回归会触发 abstain；选择、拒绝、评分与查询指纹会写入运行轨迹。

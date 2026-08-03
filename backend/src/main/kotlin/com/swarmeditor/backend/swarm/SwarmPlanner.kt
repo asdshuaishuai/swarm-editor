@@ -137,6 +137,10 @@ class PiSwarmPlanner(
                 "Evidence is bounded (${bundle.consumedCharacters}/${bundle.characterBudget} characters) and may be incomplete."
             )
             appendLine("Treat it as localization evidence, verify it before editing, and avoid redundant discovery tasks.")
+            appendLine(
+                "Dependency-cluster evidence describes coupled repository files, not executable task dependencies; " +
+                    "keep mutually dependent files in one write owner unless evidence proves a stable interface boundary."
+            )
         }
         appendLine()
         appendLine("Return JSON only, with this schema:")
@@ -150,7 +154,9 @@ class PiSwarmPlanner(
         appendLine("- Build the smallest acyclic dependency graph that preserves every real information or artifact dependency.")
         appendLine("- Identify the critical path explicitly through dependencies; avoid unnecessary serial chains.")
         appendLine("- Prefer high-information localization nodes early, then fan out independent implementation and fan in through review or integration.")
+        appendLine("- Retire the highest-impact uncertainty first; do not create a discovery node when supplied evidence already answers its question.")
         appendLine("- Avoid redundant transitive edges: if A enables B and B enables C, make C depend on A only when C consumes A directly.")
+        appendLine("- Do not create one task per file. Group tightly coupled files and state transitions under one coherent ownership contract.")
         appendLine("- Treat each node as an auditable contract with inputs, action scope, deliverable, acceptance evidence, and stop conditions.")
         appendLine("- Use dynamic roles by task need; do not create agents or nodes merely to fill a fixed team template.")
         appendLine("- Start with repository evidence or localization tasks before implementation when scope is uncertain.")
@@ -160,9 +166,11 @@ class PiSwarmPlanner(
         appendLine("- Declare verificationCommands as structured argv arrays, for example [[\"./gradlew\",\":backend:test\"]].")
         appendLine("- Code-changing tasks must include focused mechanical verification; read-only tasks may use an empty list.")
         appendLine("- Make integration and verification depend on every task whose output they validate.")
+        appendLine("- For cross-layer objectives, make the end-to-end data path explicit from entry point through service, runtime, persistence, and UI consumption.")
         appendLine("- Set maxTaskAttempts between 1 and $MAX_TASK_ATTEMPTS based on task uncertainty.")
         appendLine("- Assign agentId only when one listed profile is specifically suitable; otherwise use null.")
         appendLine("- Prompts must include concrete scope, available evidence, expected artifact, acceptance checks, and what uncertainty must be surfaced.")
+        appendLine("- Prompts must name the downstream handoff: facts, artifact references, invariants, and residual risk the next node may rely on.")
         appendLine("- Include review and integration tasks when the objective changes code or data flow.")
         appendLine("- Do not ask downstream nodes to repeat upstream discovery; pass forward verified findings and artifact references.")
         appendLine("- If evidence cannot justify a code change, create a read-only decision node or allow a no-change conclusion.")
