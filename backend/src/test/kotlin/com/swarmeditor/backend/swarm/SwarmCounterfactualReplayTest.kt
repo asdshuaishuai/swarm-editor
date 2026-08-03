@@ -17,6 +17,45 @@ import kotlinx.coroutines.test.runTest
 class SwarmCounterfactualReplayTest {
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
+    fun `factory disables replay when launch directory is not a Git worktree`() = runTest {
+        val directory = Files.createTempDirectory("swarm-counterfactual-non-git")
+        try {
+            val worktreeRoot = directory.resolve("worktrees").toFile()
+            val replayer = SwarmCounterfactualReplayFactory.fromEnvironment(
+                repositoryRoot = directory.toFile(),
+                worktreeRoot = worktreeRoot,
+                experienceStore = SwarmExperienceStore(directory.resolve("experiences.json").toFile()),
+                evolutionStore = SwarmEvolutionStore(directory.resolve("evolution.json").toFile()),
+                environment = mapOf("SWARM_EVAL_SANDBOX" to "auto"),
+                osName = "Linux",
+            )
+
+            val failure = runCatching {
+                replayer.replay(
+                    SwarmCounterfactualReplayRequest(
+                        experienceId = "unused",
+                        repositoryRevision = "0".repeat(40),
+                        taskFingerprint = "unused",
+                        controlPatch = "control",
+                        treatmentPatch = "treatment",
+                        verifierCommand = listOf("true"),
+                    )
+                )
+            }.exceptionOrNull()
+
+            assertIs<IllegalStateException>(failure)
+            assertEquals(
+                "Counterfactual replay is unavailable: repository root is not a Git worktree",
+                failure.message,
+            )
+            assertFalse(worktreeRoot.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
     fun `replays control and treatment in detached worktrees and records matched evidence`() = runTest {
         val directory = Files.createTempDirectory("swarm-counterfactual-replay")
         try {

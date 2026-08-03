@@ -90,6 +90,9 @@ object SwarmCounterfactualReplayFactory {
         if (!osName.contains("Linux", ignoreCase = true)) {
             return unavailable("Bubblewrap counterfactual replay is only available on Linux")
         }
+        if (!File(repositoryRoot, ".git").exists()) {
+            return unavailable("repository root is not a Git worktree")
+        }
         val runtime = resolveExecutable(
             environment["SWARM_EVAL_BWRAP"]?.trim()?.takeIf(String::isNotBlank) ?: "bwrap",
             environment["PATH"].orEmpty(),
