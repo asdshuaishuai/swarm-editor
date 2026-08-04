@@ -45,7 +45,6 @@ private fun Map<String, String>.toEditableText(): String = entries.joinToString(
 @Composable
 fun McpConfigModal(
     serverId: String?,
-    visible: Boolean = true,
     servers: List<McpServerDto> = emptyList(),
     agents: List<AgentInfo> = emptyList(),
     onSave: (McpServerDto) -> Unit = {},
@@ -69,15 +68,23 @@ fun McpConfigModal(
     val enabledAgents = remember(server) { mutableStateMapOf<String, Boolean>().apply { putAll(server.enabledAgents) } }
 
     Box(
-        modifier = Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.58f)),
+        modifier = Modifier
+            .fillMaxSize()
+            .modalInputBarrier()
+            .overlayBackdrop(OverlayDepth.SECONDARY)
+            .padding(horizontal = 28.dp, vertical = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
-                .fillMaxHeight(0.9f)
+                .fillMaxHeight(0.82f)
                 .widthIn(max = 920.dp)
-                .modalSurfaceMotion(visible)
-                .surfaceCard(bg = Bg1.copy(alpha = 0.98f), border = Line2, elevation = Elevation.modal, shape = AppShapes.xl)
+                .layeredSurface(
+                    depth = OverlayDepth.SECONDARY,
+                    bg = Bg1.copy(alpha = 0.985f),
+                    border = Line2,
+                    shape = AppShapes.xl,
+                )
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp, vertical = 20.dp),
         ) {

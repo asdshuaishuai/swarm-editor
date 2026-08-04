@@ -116,13 +116,6 @@ fun SettingsModal(
     onOpenKotlinLspDirectory: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf(normalizeSettingsTab(System.getProperty("swarm.settingsTab"))) }
-    var presented by remember { mutableStateOf(false) }
-    val cardScale by animateFloatAsState(
-        targetValue = if (presented) 1f else 0.985f,
-        animationSpec = Motion.floatRelease,
-        label = "settingsCardScale",
-    )
-    LaunchedEffect(Unit) { presented = true }
     val configFields by settingsVm.configFields.collectAsState()
     val configPath by settingsVm.configPath.collectAsState()
     val models by settingsVm.models.collectAsState()
@@ -150,7 +143,11 @@ fun SettingsModal(
     )
 
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.48f)),
+        modifier = Modifier
+            .fillMaxSize()
+            .modalInputBarrier()
+            .overlayBackdrop(OverlayDepth.PRIMARY)
+            .padding(18.dp),
         contentAlignment = Alignment.Center,
     ) {
         val dialogWidth = minOf(maxWidth * 0.92f, 1120.dp)
@@ -159,11 +156,12 @@ fun SettingsModal(
             modifier = Modifier
                 .width(dialogWidth)
                 .height(dialogHeight)
-                .graphicsLayer {
-                    scaleX = cardScale
-                    scaleY = cardScale
-                }
-                .surfaceCard(bg = Bg1.copy(alpha = 0.97f), border = Line2, elevation = Elevation.modal, shape = AppShapes.xl),
+                .layeredSurface(
+                    depth = OverlayDepth.PRIMARY,
+                    bg = Bg1.copy(alpha = 0.975f),
+                    border = Line2,
+                    shape = AppShapes.xl,
+                ),
         ) {
             // Header
             Row(modifier = Modifier.fillMaxWidth().height(56.dp).background(Bg0.copy(alpha = 0.88f)).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {

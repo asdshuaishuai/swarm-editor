@@ -33,7 +33,6 @@ private fun descOf(id: String) = if (id.isNotBlank()) {
 @Composable
 fun AgentConfigModal(
     agentId: String?,
-    visible: Boolean = true,
     agents: List<AgentInfo> = emptyList(),
     configFields: List<AgentConfigField> = emptyList(),
     configPath: String = "",
@@ -54,15 +53,23 @@ fun AgentConfigModal(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.58f)),
+        modifier = Modifier
+            .fillMaxSize()
+            .modalInputBarrier()
+            .overlayBackdrop(OverlayDepth.SECONDARY)
+            .padding(horizontal = 28.dp, vertical = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxHeight(0.9f)
                 .widthIn(max = 880.dp)
-                .modalSurfaceMotion(visible)
-                .surfaceCard(bg = Bg1.copy(alpha = 0.98f), border = Line2, elevation = Elevation.modal, shape = AppShapes.xl)
+                .layeredSurface(
+                    depth = OverlayDepth.SECONDARY,
+                    bg = Bg1.copy(alpha = 0.985f),
+                    border = Line2,
+                    shape = AppShapes.xl,
+                )
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp, vertical = 20.dp),
         ) {

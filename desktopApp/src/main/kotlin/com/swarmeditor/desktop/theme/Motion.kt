@@ -1,5 +1,13 @@
 package com.swarmeditor.desktop.theme
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.TweenSpec
@@ -9,6 +17,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -81,4 +90,26 @@ object Motion {
         dampingRatio = Spring.DampingRatioNoBouncy,
         stiffness = 820f,
     )
+
+    fun modalEnter(depth: OverlayDepth): EnterTransition =
+        fadeIn(animationSpec = alphaEnter) +
+            scaleIn(
+                animationSpec = floatGentle,
+                initialScale = depth.enterScale,
+                transformOrigin = TransformOrigin.Center,
+            ) +
+            slideInVertically(animationSpec = intOffsetEnter) { height ->
+                (height * depth.verticalOffsetFraction).toInt().coerceAtMost(42)
+            }
+
+    fun modalExit(depth: OverlayDepth): ExitTransition =
+        fadeOut(animationSpec = alphaExit) +
+            scaleOut(
+                animationSpec = floatState,
+                targetScale = 0.992f + (depth.enterScale - 0.955f) * 0.12f,
+                transformOrigin = TransformOrigin.Center,
+            ) +
+            slideOutVertically(animationSpec = intOffsetExit) { height ->
+                (height * depth.verticalOffsetFraction * 0.45f).toInt().coerceAtMost(20)
+            }
 }

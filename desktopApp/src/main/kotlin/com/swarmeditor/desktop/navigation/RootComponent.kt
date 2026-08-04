@@ -129,14 +129,24 @@ class RootComponent(
         nav.bringToFront(config)
     }
 
-    // ── Dialogs: childSlot ──
+    // ── Dialogs: primary + detail layers ──
     private val dialogNav = SlotNavigation<DialogConfig>()
+    private val detailDialogNav = SlotNavigation<DialogConfig>()
 
     val dialog: Value<ChildSlot<DialogConfig, DialogChild>> = childSlot(
         source = dialogNav,
         serializer = serializer<DialogConfig>(),
+        key = "PrimaryDialogSlot",
         handleBackButton = true,
         childFactory = { config, _ -> createDialogChild(config) }
+    )
+
+    val detailDialog: Value<ChildSlot<DialogConfig, DialogChild>> = childSlot(
+        source = detailDialogNav,
+        serializer = serializer<DialogConfig>(),
+        key = "DetailDialogSlot",
+        handleBackButton = true,
+        childFactory = { config, _ -> createDialogChild(config) },
     )
 
     private fun createDialogChild(config: DialogConfig): DialogChild = when (config) {
@@ -146,15 +156,23 @@ class RootComponent(
         is DialogConfig.CommandPalette -> DialogChild.CommandPalette(agentVm)
     }
 
-    fun openDialog(config: DialogConfig) { dialogNav.activate(config) }
+    fun openDialog(config: DialogConfig) {
+        when (config) {
+            DialogConfig.Settings,
+            DialogConfig.CommandPalette -> dialogNav.activate(config)
+            is DialogConfig.AgentConfig,
+            is DialogConfig.McpConfig -> detailDialogNav.activate(config)
+        }
+    }
     fun closeDialog() { dialogNav.dismiss {} }
+    fun closeDetailDialog() { detailDialogNav.dismiss {} }
     fun showSettingsDialog() { openDialog(DialogConfig.Settings) }
     fun showAgentConfigDialog(agentId: String) { openDialog(DialogConfig.AgentConfig(agentId)) }
     fun showMcpConfigDialog(serverId: String) { openDialog(DialogConfig.McpConfig(serverId)) }
     fun showCmdKDialog() { openDialog(DialogConfig.CommandPalette) }
     fun hideCmdKDialog() { closeDialog() }
-    fun dismissAgentConfigDialog() { closeDialog() }
-    fun dismissMcpConfigDialog() { closeDialog() }
+    fun dismissAgentConfigDialog() { closeDetailDialog() }
+    fun dismissMcpConfigDialog() { closeDetailDialog() }
 }
 
 sealed class MainChild {

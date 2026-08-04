@@ -249,6 +249,19 @@ fun AgentOrchestrationView(
 
         AnimatedVisibility(
             visible = artifactReview != null,
+            enter = fadeIn(Motion.alphaEnter),
+            exit = fadeOut(Motion.alphaExit),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .modalInputBarrier()
+                    .overlayBackdrop(OverlayDepth.SIDE_SHEET)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = artifactReview != null,
             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
             enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) { width -> width },
             exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) { width -> width },

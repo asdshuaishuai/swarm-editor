@@ -36,16 +36,26 @@ fun ConfirmDialog(
     val backdropInteraction = remember { MutableInteractionSource() }
     val contentInteraction = remember { MutableInteractionSource() }
     Box(
-        modifier = Modifier.fillMaxSize().background(Scrim.copy(alpha = 0.64f)).clickable(
-            interactionSource = backdropInteraction,
-            indication = null,
-            onClick = onCancel,
-        ),
+        modifier = Modifier
+            .fillMaxSize()
+            .overlayBackdrop(OverlayDepth.CRITICAL)
+            .clickable(
+                interactionSource = backdropInteraction,
+                indication = null,
+                onClick = onCancel,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier.width(380.dp).modalEnter()
-                .surfaceCard(bg = Bg2.copy(alpha = 0.98f), border = Line2, elevation = Elevation.modal, shape = AppShapes.lg)
+            modifier = Modifier
+                .width(380.dp)
+                .modalEnter(OverlayDepth.CRITICAL)
+                .layeredSurface(
+                    depth = OverlayDepth.CRITICAL,
+                    bg = Bg2.copy(alpha = 0.99f),
+                    border = Line2,
+                    shape = AppShapes.lg,
+                )
                 .clickable(interactionSource = contentInteraction, indication = null) {}
                 .padding(20.dp)
         ) {

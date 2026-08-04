@@ -10,6 +10,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -44,6 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
@@ -91,32 +94,57 @@ fun HoverTipBox(
 
 // ── 模态打开入场动画（淡入 + 轻微放大，对齐核心稿 @keyframes modalIn）──
 @Composable
-fun Modifier.modalEnter(): Modifier {
+fun Modifier.modalEnter(depth: OverlayDepth = OverlayDepth.PRIMARY): Modifier {
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
+    val initialOffsetPx = with(LocalDensity.current) {
+        when (depth) {
+            OverlayDepth.PRIMARY -> 10.dp
+            OverlayDepth.SECONDARY -> 16.dp
+            OverlayDepth.CRITICAL -> 20.dp
+            OverlayDepth.SIDE_SHEET -> 0.dp
+        }.toPx()
+    }
     val alpha by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
         animationSpec = Motion.alphaEnter,
         label = "modalAlpha",
     )
     val scale by animateFloatAsState(
-        targetValue = if (shown) 1f else 0.985f,
-        animationSpec = Motion.floatRelease,
+        targetValue = if (shown) 1f else depth.enterScale,
+        animationSpec = Motion.floatGentle,
         label = "modalScale",
     )
-    return this.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }
+    val offsetY by animateFloatAsState(
+        targetValue = if (shown) 0f else initialOffsetPx,
+        animationSpec = Motion.floatGentle,
+        label = "modalOffsetY",
+    )
+    return this.graphicsLayer {
+        this.alpha = alpha
+        scaleX = scale
+        scaleY = scale
+        translationY = offsetY
+    }
 }
 
 @Composable
-fun Modifier.modalSurfaceMotion(visible: Boolean): Modifier {
+fun Modifier.modalSurfaceMotion(
+    visible: Boolean,
+    depth: OverlayDepth = OverlayDepth.SECONDARY,
+): Modifier {
     var mounted by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { mounted = true }
     val scale by animateFloatAsState(
-        targetValue = if (mounted && visible) 1f else 0.985f,
-        animationSpec = if (visible) Motion.floatRelease else Motion.floatState,
+        targetValue = if (mounted && visible) 1f else depth.enterScale,
+        animationSpec = if (visible) Motion.floatGentle else Motion.floatState,
         label = "modalSurfaceScale",
     )
     return this.graphicsLayer { scaleX = scale; scaleY = scale }
+}
+
+fun Modifier.modalInputBarrier(): Modifier = pointerInput(Unit) {
+    detectTapGestures(onTap = {})
 }
 
 // ── Card style ───────────────────────────────────────────────

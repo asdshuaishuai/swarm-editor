@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.HorizontalScrollbar
@@ -46,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -67,12 +70,15 @@ import com.swarmeditor.desktop.theme.Line
 import com.swarmeditor.desktop.theme.Line2
 import com.swarmeditor.desktop.theme.Scrim
 import com.swarmeditor.desktop.theme.Motion
+import com.swarmeditor.desktop.theme.OverlayDepth
 import com.swarmeditor.desktop.theme.OkLight
 import com.swarmeditor.desktop.theme.AppShapes
 import com.swarmeditor.desktop.theme.Tx
 import com.swarmeditor.desktop.theme.Tx2
 import com.swarmeditor.desktop.theme.Tx3
 import com.swarmeditor.desktop.theme.fluidClickable
+import com.swarmeditor.desktop.theme.layeredSurface
+import com.swarmeditor.desktop.theme.overlayBackdrop
 import kotlin.math.roundToInt
 
 internal fun drawerMotionOffsetPx(width: Int): Int {
@@ -123,7 +129,7 @@ fun DiffDrawer(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(Scrim.copy(alpha = 0.46f))
+                    .overlayBackdrop(OverlayDepth.SIDE_SHEET)
                     .clickable(
                         interactionSource = backdropInteraction,
                         indication = null,
@@ -136,14 +142,26 @@ fun DiffDrawer(
             enter = slideInHorizontally(
                 initialOffsetX = ::drawerMotionOffsetPx,
                 animationSpec = Motion.intOffsetEnter,
+            ) + scaleIn(
+                initialScale = OverlayDepth.SIDE_SHEET.enterScale,
+                transformOrigin = TransformOrigin(1f, 0.5f),
+                animationSpec = Motion.floatGentle,
             ) + fadeIn(animationSpec = Motion.alphaEnter),
             exit = slideOutHorizontally(
                 targetOffsetX = ::drawerMotionOffsetPx,
                 animationSpec = Motion.intOffsetExit,
+            ) + scaleOut(
+                targetScale = 0.996f,
+                transformOrigin = TransformOrigin(1f, 0.5f),
+                animationSpec = Motion.floatState,
             ) + fadeOut(animationSpec = Motion.alphaExit),
             modifier = Modifier.align(Alignment.CenterEnd),
         ) {
-            BoxWithConstraints(Modifier.fillMaxHeight()) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxHeight()
+                    .padding(top = 14.dp, bottom = 14.dp, end = 14.dp)
+            ) {
                 val preferredWidth = minOf(1120.dp, maxWidth * 0.68f)
                 val drawerWidth = minOf(maxWidth, maxOf(560.dp, preferredWidth))
                 displayedChange?.let {
@@ -172,8 +190,12 @@ private fun DiffDrawerContent(
     Column(
         modifier
             .fillMaxHeight()
-            .background(Bg1)
-            .border(1.dp, Line)
+            .layeredSurface(
+                depth = OverlayDepth.SIDE_SHEET,
+                bg = Bg1.copy(alpha = 0.985f),
+                border = Line2,
+                shape = AppShapes.xl,
+            )
             .clickable(interactionSource = contentInteraction, indication = null) {},
     ) {
         Row(

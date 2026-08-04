@@ -74,11 +74,13 @@ import com.swarmeditor.desktop.theme.Line2
 import com.swarmeditor.desktop.theme.Motion
 import com.swarmeditor.desktop.theme.Ok
 import com.swarmeditor.desktop.theme.OkLight
+import com.swarmeditor.desktop.theme.OverlayDepth
 import com.swarmeditor.desktop.theme.Tx
 import com.swarmeditor.desktop.theme.Tx2
 import com.swarmeditor.desktop.theme.Tx3
 import com.swarmeditor.desktop.theme.Warn
 import com.swarmeditor.desktop.theme.WarnLight
+import com.swarmeditor.desktop.theme.layeredSurface
 import com.swarmeditor.desktop.theme.surfaceCard
 import com.swarmeditor.desktop.theme.withAlpha
 import com.swarmeditor.desktop.ui.common.semanticAgentIcon
@@ -172,7 +174,12 @@ internal fun SwarmArtifactReviewDrawer(
             .fillMaxHeight()
             .widthIn(min = 430.dp, max = 680.dp)
             .padding(12.dp)
-            .surfaceCard(bg = Bg1, border = Line2, elevation = Elevation.modal, shape = AppShapes.xl)
+            .layeredSurface(
+                depth = OverlayDepth.SIDE_SHEET,
+                bg = Bg1.copy(alpha = 0.985f),
+                border = Line2,
+                shape = AppShapes.xl,
+            )
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

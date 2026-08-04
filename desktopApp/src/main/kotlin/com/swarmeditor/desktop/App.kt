@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -192,20 +194,22 @@ fun WindowScope.App(
     }
     val dialogSlot by root.dialog.subscribeAsState()
     val dialog = dialogSlot.child?.configuration
+    val detailDialogSlot by root.detailDialog.subscribeAsState()
+    val detailDialog = detailDialogSlot.child?.configuration
     var retainedAgentDialogId by remember { mutableStateOf<String?>(null) }
     var retainedMcpDialogId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(dialog) {
-        when (dialog) {
-            is DialogConfig.AgentConfig -> retainedAgentDialogId = dialog.agentId
-            is DialogConfig.McpConfig -> retainedMcpDialogId = dialog.serverId
+    LaunchedEffect(detailDialog) {
+        when (detailDialog) {
+            is DialogConfig.AgentConfig -> retainedAgentDialogId = detailDialog.agentId
+            is DialogConfig.McpConfig -> retainedMcpDialogId = detailDialog.serverId
             else -> Unit
         }
     }
     LaunchedEffect(dialog) {
         if (dialog == DialogConfig.CommandPalette) root.sessionVm.refreshPiCommands()
     }
-    LaunchedEffect((dialog as? DialogConfig.AgentConfig)?.agentId) {
-        (dialog as? DialogConfig.AgentConfig)?.agentId?.let(root.settingsVm::selectAgent)
+    LaunchedEffect((detailDialog as? DialogConfig.AgentConfig)?.agentId) {
+        (detailDialog as? DialogConfig.AgentConfig)?.agentId?.let(root.settingsVm::selectAgent)
     }
     LaunchedEffect(currentSessionId, piRuntimeState?.sessionId) {
         if (piRuntimeState != null) root.sessionVm.refreshPiModels()
@@ -403,6 +407,17 @@ fun WindowScope.App(
             }
         }
     }
+    val overlayActive = diffChange != null || dialog != null || detailDialog != null
+    val workspaceScale by animateFloatAsState(
+        targetValue = if (overlayActive) 0.994f else 1f,
+        animationSpec = Motion.floatGentle,
+        label = "workspaceDepthScale",
+    )
+    val workspaceAlpha by animateFloatAsState(
+        targetValue = if (overlayActive) 0.955f else 1f,
+        animationSpec = Motion.alphaEnter,
+        label = "workspaceDepthAlpha",
+    )
 
     Box(
         modifier = Modifier
@@ -436,10 +451,10 @@ fun WindowScope.App(
                         else -> false
                     }
                     keyEvent.key == Key.Escape -> when {
+                        detailDialog is DialogConfig.AgentConfig -> { root.closeDetailDialog(); true }
+                        detailDialog is DialogConfig.McpConfig -> { root.closeDetailDialog(); true }
                         dialog == DialogConfig.CommandPalette -> { root.closeDialog(); true }
                         dialog == DialogConfig.Settings -> { root.closeDialog(); true }
-                        dialog is DialogConfig.AgentConfig -> { root.closeDialog(); true }
-                        dialog is DialogConfig.McpConfig -> { root.closeDialog(); true }
                         else -> false
                     }
                     else -> false
@@ -449,7 +464,17 @@ fun WindowScope.App(
         // Background effects (z-index: 0)
         BackgroundEffects()
 
-    Column(Modifier.fillMaxSize().hazeSource(hazeState).background(Bg0)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = workspaceScale
+                scaleY = workspaceScale
+                alpha = workspaceAlpha
+            }
+            .hazeSource(hazeState)
+            .background(Bg0)
+    ) {
         // Enhanced TopBar — spans full width
         WindowDraggableArea(Modifier.fillMaxWidth()) {
             EnhancedTopBar(
@@ -726,8 +751,8 @@ fun WindowScope.App(
 
     AnimatedVisibility(
         visible = dialog == DialogConfig.Settings,
-        enter = fadeIn(Motion.alphaEnter),
-        exit = fadeOut(Motion.alphaExit),
+        enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+        exit = Motion.modalExit(OverlayDepth.PRIMARY),
     ) {
         SettingsModal(
             agents = agents.ifEmpty { listOf(selectedAgent) },
@@ -751,13 +776,12 @@ fun WindowScope.App(
     }
 
     AnimatedVisibility(
-        visible = dialog is DialogConfig.AgentConfig,
-        enter = fadeIn(Motion.alphaEnter),
-        exit = fadeOut(Motion.alphaExit),
+        visible = detailDialog is DialogConfig.AgentConfig,
+        enter = Motion.modalEnter(OverlayDepth.SECONDARY),
+        exit = Motion.modalExit(OverlayDepth.SECONDARY),
     ) {
         AgentConfigModal(
             agentId = retainedAgentDialogId,
-            visible = dialog is DialogConfig.AgentConfig,
             agents = agents,
             configFields = agentConfigFields,
             configPath = agentConfigPath,
@@ -767,23 +791,22 @@ fun WindowScope.App(
             },
             onConnect = { root.agentVm.connect(it) },
             onDisconnect = { root.agentVm.disconnect(it) },
-            onDismiss = { root.closeDialog() }
+            onDismiss = { root.closeDetailDialog() }
         )
     }
 
     AnimatedVisibility(
-        visible = dialog is DialogConfig.McpConfig,
-        enter = fadeIn(Motion.alphaEnter),
-        exit = fadeOut(Motion.alphaExit),
+        visible = detailDialog is DialogConfig.McpConfig,
+        enter = Motion.modalEnter(OverlayDepth.SECONDARY),
+        exit = Motion.modalExit(OverlayDepth.SECONDARY),
     ) {
         McpConfigModal(
             serverId = retainedMcpDialogId,
-            visible = dialog is DialogConfig.McpConfig,
             servers = mcpServers,
             agents = agents,
             onSave = root.mcpVm::upsert,
             onDelete = root.mcpVm::delete,
-            onDismiss = { root.closeDialog() }
+            onDismiss = { root.closeDetailDialog() }
         )
     }
 

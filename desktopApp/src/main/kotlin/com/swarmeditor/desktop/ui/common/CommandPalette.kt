@@ -1,5 +1,8 @@
 package com.swarmeditor.desktop.ui.common
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -98,15 +101,25 @@ fun CommandPalette(
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        if (isVisible) {
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(Motion.alphaEnter),
+            exit = fadeOut(Motion.alphaExit),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Scrim.copy(alpha = 0.72f))
+                    .overlayBackdrop(OverlayDepth.PRIMARY)
                     .pointerInput(onDismiss) {
                         detectTapGestures(onTap = { onDismiss() })
                     },
             )
+        }
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+            exit = Motion.modalExit(OverlayDepth.PRIMARY),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -170,6 +183,13 @@ private fun CommandPaletteModal(
 
     Column(
         modifier = modifier
+            .shadow(
+                elevation = OverlayDepth.PRIMARY.elevation,
+                shape = modalShape,
+                clip = false,
+                ambientColor = Scrim.copy(alpha = 0.42f),
+                spotColor = Scrim.copy(alpha = 0.64f),
+            )
             .clip(modalShape)
             .hazeEffect(hazeState)
             .background(Bg1.copy(alpha = 0.94f))

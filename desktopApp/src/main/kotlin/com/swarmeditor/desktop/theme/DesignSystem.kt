@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -119,6 +120,38 @@ object Elevation {
     val modal = 20.dp
 }
 
+enum class OverlayDepth(
+    val scrimAlpha: Float,
+    val elevation: androidx.compose.ui.unit.Dp,
+    val enterScale: Float,
+    val verticalOffsetFraction: Float,
+) {
+    PRIMARY(
+        scrimAlpha = 0.48f,
+        elevation = 24.dp,
+        enterScale = 0.982f,
+        verticalOffsetFraction = 0.028f,
+    ),
+    SECONDARY(
+        scrimAlpha = 0.62f,
+        elevation = 34.dp,
+        enterScale = 0.968f,
+        verticalOffsetFraction = 0.042f,
+    ),
+    CRITICAL(
+        scrimAlpha = 0.72f,
+        elevation = 42.dp,
+        enterScale = 0.955f,
+        verticalOffsetFraction = 0.052f,
+    ),
+    SIDE_SHEET(
+        scrimAlpha = 0.52f,
+        elevation = 32.dp,
+        enterScale = 0.992f,
+        verticalOffsetFraction = 0f,
+    ),
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CSS-like Modifier extensions — 可复用样式（类似 CSS class）
 // ═══════════════════════════════════════════════════════════════
@@ -133,6 +166,36 @@ fun Modifier.surfaceCard(
     .clip(shape)
     .background(bg)
     .border(1.dp, border, shape)
+
+fun Modifier.overlayBackdrop(depth: OverlayDepth): Modifier = this.background(
+    Brush.verticalGradient(
+        colors = listOf(
+            Scrim.copy(alpha = depth.scrimAlpha * 0.82f),
+            Scrim.copy(alpha = depth.scrimAlpha),
+        )
+    )
+)
+
+fun Modifier.layeredSurface(
+    depth: OverlayDepth,
+    bg: Color = Bg1,
+    border: Color = Line2,
+    shape: RoundedCornerShape = AppShapes.xl,
+): Modifier = this
+    .shadow(
+        elevation = depth.elevation,
+        shape = shape,
+        clip = false,
+        ambientColor = Scrim.copy(alpha = 0.46f),
+        spotColor = Scrim.copy(alpha = 0.68f),
+    )
+    .clip(shape)
+    .background(bg)
+    .border(
+        width = if (depth == OverlayDepth.PRIMARY) 1.dp else 1.25.dp,
+        color = border.copy(alpha = if (depth == OverlayDepth.PRIMARY) 0.9f else 1f),
+        shape = shape,
+    )
 
 /** 输入框表面（bg + border，无 shadow） */
 fun Modifier.surfaceInput(
