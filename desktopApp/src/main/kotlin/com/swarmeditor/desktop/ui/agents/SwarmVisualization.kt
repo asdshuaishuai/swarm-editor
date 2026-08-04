@@ -1,5 +1,11 @@
 package com.swarmeditor.desktop.ui.agents
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,9 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,7 +43,6 @@ import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.*
-import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -121,18 +124,19 @@ fun SwarmVisualization(
     onNodeClick: (AgentDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var rotationAngle by remember { mutableFloatStateOf(0f) }
     var hoveredIndex by remember { mutableStateOf(-1) }
     var hoveredPos by remember { mutableStateOf<Offset?>(null) }
     val primaryAgent = agents.firstOrNull()
     val visualNodes = remember(agents, tasks) { buildSwarmVisualNodes(agents, tasks) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(33)
-            rotationAngle = (rotationAngle + 1f) % 360f
-        }
-    }
+    val rotationAngle by rememberInfiniteTransition(label = "swarmRingRotation").animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 12_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "swarmRingAngle",
+    )
 
     val textMeasurer = rememberTextMeasurer()
     val nodeRadius = 15f  // ~30px 卫星节点
@@ -171,6 +175,11 @@ fun SwarmVisualization(
                     while (true) {
                         val event = awaitPointerEvent()
                         if (event.type == PointerEventType.Move || event.type == PointerEventType.Exit) {
+                            if (event.type == PointerEventType.Exit) {
+                                hoveredIndex = -1
+                                hoveredPos = null
+                                continue
+                            }
                             val pos = event.changes.firstOrNull()?.position
                             if (pos == null) { hoveredIndex = -1; hoveredPos = null; continue }
                             val canvasW = size.width.toFloat()
@@ -183,8 +192,10 @@ fun SwarmVisualization(
                                 val dy = pos.y - c.y
                                 if (dx * dx + dy * dy <= (nodeRadius + 8f) * (nodeRadius + 8f)) { newHovered = i; newPos = c }
                             }
-                            hoveredIndex = newHovered
-                            hoveredPos = newPos
+                            if (newHovered != hoveredIndex) {
+                                hoveredIndex = newHovered
+                                hoveredPos = newPos
+                            }
                         }
                     }
                 }
@@ -195,12 +206,6 @@ fun SwarmVisualization(
         val cx = canvasW / 2f
         val cy = canvasH / 2f
         val centerRadius = min(cx, cy) * 0.22f
-
-        val conicColors = listOf(
-            AgentClaude, AgentQwen, AgentGemini,
-            AgentKimi, AgentOpenCode, Ac2,
-        )
-        val sweepAngle = 360f / (conicColors.size - 1)
 
         // 中心 → 各卫星的虚线
         visualNodes.forEachIndexed { i, node ->
@@ -218,21 +223,6 @@ fun SwarmVisualization(
             )
         }
 
-        // 中心旋转 conic 环
-        rotate(rotationAngle) {
-            for (i in 0 until conicColors.size - 1) {
-                val startAngle = i * sweepAngle - 90f
-                drawArc(
-                    color = conicColors[i],
-                    startAngle = startAngle,
-                    sweepAngle = sweepAngle + 2f,
-                    useCenter = false,
-                    topLeft = Offset(cx - centerRadius, cy - centerRadius),
-                    size = Size(centerRadius * 2, centerRadius * 2),
-                    style = Stroke(width = 4f, cap = StrokeCap.Round)
-                )
-            }
-        }
         // 中心实心填充 + 光晕
         drawCircle(color = Ac.copy(alpha = 0.15f), radius = centerRadius + 10f, center = Offset(cx, cy))
         drawCircle(color = Bg1, radius = centerRadius - 4f, center = Offset(cx, cy))
@@ -311,6 +301,33 @@ fun SwarmVisualization(
             )
         }
     }
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val centerRadius = min(center.x, center.y) * 0.22f
+            val conicColors = listOf(
+                AgentClaude,
+                AgentQwen,
+                AgentGemini,
+                AgentKimi,
+                AgentOpenCode,
+                Ac2,
+            )
+            val sweepAngle = 360f / (conicColors.size - 1)
+            rotate(rotationAngle) {
+                for (index in 0 until conicColors.size - 1) {
+                    val startAngle = index * sweepAngle - 90f
+                    drawArc(
+                        color = conicColors[index],
+                        startAngle = startAngle,
+                        sweepAngle = sweepAngle + 2f,
+                        useCenter = false,
+                        topLeft = Offset(center.x - centerRadius, center.y - centerRadius),
+                        size = Size(centerRadius * 2, centerRadius * 2),
+                        style = Stroke(width = 4f, cap = StrokeCap.Round),
+                    )
+                }
+            }
+        }
         // 节点 hover tooltip（对齐核心稿 .swarm-node[data-tip]）
         val hp = hoveredPos
         if (hp != null && hoveredIndex >= 0) {
