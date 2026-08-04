@@ -52,8 +52,9 @@ fun MentionDropdown(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val filtered = agents.filter {
-        it.name.lowercase().contains(filter.lowercase())
+    val normalizedFilter = remember(filter) { filter.lowercase() }
+    val filtered = remember(agents, normalizedFilter) {
+        agents.filter { agent -> agent.name.lowercase().contains(normalizedFilter) }
     }
     if (filtered.isEmpty()) return
 
@@ -66,7 +67,9 @@ fun MentionDropdown(
 
     LaunchedEffect(selectedIndex) {
         if (selectedIndex in filtered.indices) {
-            listState.animateScrollToItem(selectedIndex)
+            if (listState.layoutInfo.visibleItemsInfo.none { it.index == selectedIndex }) {
+                listState.scrollToItem(selectedIndex)
+            }
         }
     }
 

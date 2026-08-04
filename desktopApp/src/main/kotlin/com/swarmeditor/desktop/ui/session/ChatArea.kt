@@ -203,7 +203,7 @@ fun ChatArea(
                         if (isSending) {
                             listState.scrollToItem(endAnchorIndex)
                         } else {
-                            listState.animateScrollToItem(endAnchorIndex)
+                            listState.scrollToItem(endAnchorIndex)
                         }
                     } finally {
                         autoScrolling = false
@@ -280,7 +280,7 @@ fun ChatArea(
                         timelineScope.launch {
                             autoScrolling = true
                             try {
-                                listState.animateScrollToItem(endAnchorIndex)
+                                listState.scrollToItem(endAnchorIndex)
                             } finally {
                                 autoScrolling = false
                             }

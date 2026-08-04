@@ -1351,7 +1351,7 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
                         scope.launch {
                             autoScrolling = true
                             try {
-                                listState.animateScrollToItem(0)
+                                listState.scrollToItem(0)
                             } finally {
                                 autoScrolling = false
                             }

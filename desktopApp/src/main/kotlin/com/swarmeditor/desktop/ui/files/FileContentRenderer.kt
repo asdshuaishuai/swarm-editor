@@ -345,7 +345,7 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
     val horizontalState = rememberScrollState()
     val verticalState = rememberLazyListState()
     LaunchedEffect(navigationTarget?.requestId, lines.size) {
-        normalizedNavigationIndex(navigationTarget?.line, lines.size)?.let { verticalState.animateScrollToItem(it) }
+        normalizedNavigationIndex(navigationTarget?.line, lines.size)?.let { verticalState.scrollToItem(it) }
     }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(

@@ -4,10 +4,6 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -521,15 +517,7 @@ fun WindowScope.App(
                     modifier = Modifier.fillMaxHeight()
                 )
 
-                AnimatedVisibility(
-                    visible = shellLayout.showLeftSidebar && currentConfig in setOf(MainConfig.Chat, MainConfig.Plugins),
-                    enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) {
-                        -minOf(it, 28)
-                    },
-                    exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) {
-                        -minOf(it, 20)
-                    },
-                ) {
+                if (shellLayout.showLeftSidebar && currentConfig in setOf(MainConfig.Chat, MainConfig.Plugins)) {
                     Box(Modifier.width(shellLayout.leftSidebarWidth.dp).fillMaxHeight()) {
                         when (currentConfig) {
                             MainConfig.Chat -> SessionPanel(
@@ -685,15 +673,7 @@ fun WindowScope.App(
                         }
                     }
 
-                    AnimatedVisibility(
-                        visible = shellLayout.shouldMountRightPanel(showRightPanel, currentConfig == MainConfig.Chat),
-                        enter = fadeIn(Motion.alphaEnter) + slideInHorizontally(Motion.intOffsetEnter) {
-                            minOf(it, 28)
-                        },
-                        exit = fadeOut(Motion.alphaExit) + slideOutHorizontally(Motion.intOffsetExit) {
-                            minOf(it, 20)
-                        },
-                    ) {
+                    if (shellLayout.shouldMountRightPanel(showRightPanel, currentConfig == MainConfig.Chat)) {
                         RightPanel(
                             currentTab = rightTab,
                             onTabChange = { rightTab = it },
