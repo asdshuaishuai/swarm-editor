@@ -63,6 +63,18 @@
 ./scripts/fast-build.sh pi               # 仅准备 pi runtime
 ```
 
+平台开发启动脚本提供一致的 `run`、`compile`、`test`、`build` 和 `pi` 模式，并在启动前检查 JDK 与 Node.js 版本：
+
+```bash
+./scripts/dev-linux.sh run
+./scripts/dev-linux.sh test -- --stacktrace
+```
+
+```powershell
+.\scripts\dev-windows.ps1 run
+.\scripts\dev-windows.ps1 test -- --stacktrace
+```
+
 ### Project Website
 
 GitHub Pages 静态站位于 `site/`。本地预览使用 `python3 -m http.server 4173 --directory site`，然后访问 `http://127.0.0.1:4173`。`.github/workflows/pages.yml` 会在 `main`、`master` 或 `old_ui` 分支的站点文件变更后部署；首次使用时需要在 GitHub 仓库的 **Settings → Pages** 中将 Source 设为 **GitHub Actions**。
