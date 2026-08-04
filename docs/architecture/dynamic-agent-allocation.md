@@ -1,15 +1,15 @@
 # Dynamic Agent Allocation
 
-Swarm tasks do not bind to persisted child-Agent profiles. The primary Pi profile supplies identity, prompt policy, working directory, timeout, and model-selection strategy. At execution time, `AgentService.acquireDynamicAgent` creates an ephemeral allocation for the task role.
+Swarm tasks do not bind to persisted child-Agent profiles. The primary Pi Agent is system-defined and persists only its selected main-model ID. At execution time, `AgentService.acquireDynamicAgent` derives an ephemeral runtime profile from the task role and assessed model demand.
 
 ## Capacity Model
 
 Two independent limits must be available before a Pi session starts:
 
-- `AgentConfig.maxDynamicSubagents` limits concurrent children of the selected primary profile.
+- The system `AgentConfig.maxDynamicSubagents` default limits concurrent ephemeral children; it is not a user-facing primary-Agent setting.
 - `ModelConfig.maxConcurrentAgents` limits concurrent sessions using one configured model.
 
-`ModelService.acquire` selects only enabled, role-compatible models with remaining capacity. Quality-first and speed-first preserve their explicit ordering. Balanced Swarm allocation matches the task's target thinking level first, then model priority and remaining capacity; if the closest model is saturated, it falls back to the closest available model. Saturated tasks suspend without polling and remain cancellable.
+`ModelService.acquire` selects only enabled, role-compatible models with remaining capacity. Dynamic Swarm allocation uses balanced demand matching: target thinking level first, then model priority and remaining capacity. If the closest model is saturated, it falls back to the closest available model. Saturated tasks suspend without polling and remain cancellable. The main model does not pin child-Agent model selection.
 
 ## Task-Aware Demand
 

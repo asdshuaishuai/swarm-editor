@@ -14,7 +14,7 @@ enum class AgentThinkingLevel {
     XHIGH
 }
 
-/** 主智能体从模型池选择执行模型的策略。 */
+/** 运行时从模型池选择模型的内部策略。 */
 @Serializable
 enum class AgentModelSelectionStrategy {
     BALANCED,
@@ -23,10 +23,10 @@ enum class AgentModelSelectionStrategy {
 }
 
 /**
- * 主智能体策略。
+ * Pi Agent 运行时配置。
  *
- * 持久化内容只描述智能体身份、提示与调度策略。模型与凭据由独立模型池管理，
- * 子智能体由主智能体按任务动态构建，不再持久化静态子智能体 Profile。
+ * `AgentRegistry` 只持久化主模型 ID；其余字段由系统为默认主智能体和临时子智能体生成。
+ * 模型凭据、能力角色与并发容量由独立模型池管理，不持久化静态子智能体 Profile。
  */
 @Serializable
 data class AgentConfig(

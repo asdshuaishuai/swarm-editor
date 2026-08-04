@@ -57,11 +57,12 @@ class SettingsViewModelTest {
             viewModel.selectModel("secondary-model")
             runCurrent()
 
-            viewModel.saveFields(mapOf("Name" to "Pi Renamed"))
+            viewModel.saveFields(mapOf("Primary Model" to "secondary-model"))
             viewModel.saveModelField("Name", "Review Model")
             runCurrent()
 
-            assertEquals("Pi Renamed", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
+            assertEquals("secondary-model", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
+            assertEquals("Pi 主智能体", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
             assertEquals("Review Model", modelService.get("secondary-model")?.name)
             assertEquals(AgentRegistry.DEFAULT_AGENT_ID, viewModel.selectedAgentId.value)
             assertEquals("secondary-model", viewModel.selectedModelId.value)

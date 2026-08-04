@@ -4,6 +4,7 @@ import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.pi.PiRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimeInfo
 import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentRuntimeInfo
 import com.swarmeditor.common.model.AgentStatus
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -130,9 +131,14 @@ class AgentService(
         lifecycleMutex.withLock {
             val previous = registry.getConfig(config.id)
             registry.upsert(config)
+            val updated = registry.getConfig(config.id) ?: error("Agent profile not found after update: ${config.id}")
             updateLaunchableSnapshotLocked()
+            if (updated == previous) {
+                publishAvailabilityLocked()
+                return@withLock
+            }
             try {
-                runtimeManager.closeAgent(config.id)
+                runtimeManager.closeAgent(updated.id)
             } catch (error: Throwable) {
                 withContext(NonCancellable) {
                     try {
@@ -144,11 +150,11 @@ class AgentService(
                 }
                 throw error
             }
-            if (!config.enabled) {
-                explicitConnections -= config.id
-                suppressedAutoStarts -= config.id
-            } else if (!config.autoStart) {
-                suppressedAutoStarts -= config.id
+            if (!updated.enabled) {
+                explicitConnections -= updated.id
+                suppressedAutoStarts -= updated.id
+            } else if (!updated.autoStart) {
+                suppressedAutoStarts -= updated.id
             }
             publishAvailabilityLocked()
         }
@@ -165,11 +171,11 @@ class AgentService(
 
     suspend fun requireLaunchConfig(agentId: String): AgentConfig = lifecycleMutex.withLock {
         val config = requireBaseLaunchConfigLocked(agentId)
-        resolveModel(config, SwarmAgentRole.GENERAL, "session:$agentId")
+        resolvePrimaryModel(config, "session:$agentId")
     }
 
     suspend fun createDynamicAgent(task: SwarmTask): AgentConfig = lifecycleMutex.withLock {
-        val base = requireBaseLaunchConfigLocked(task.agentId ?: AgentRegistry.DEFAULT_AGENT_ID)
+        val base = requireBaseLaunchConfigLocked(AgentRegistry.DEFAULT_AGENT_ID)
         resolveModel(base, task.role, "${task.id}:${task.title}:${task.prompt}")
     }
 
@@ -177,13 +183,13 @@ class AgentService(
         task: SwarmTask,
         demand: SwarmModelDemand? = null,
     ): DynamicAgentAllocation {
-        val agentId = task.agentId ?: AgentRegistry.DEFAULT_AGENT_ID
-        val base = acquireDynamicAgentSlot(agentId)
+        val primaryAgentId = AgentRegistry.DEFAULT_AGENT_ID
+        val base = acquireDynamicAgentSlot(primaryAgentId)
         var modelAllocation: ModelAllocation? = null
         try {
             modelAllocation = modelService?.acquire(
                 role = task.role,
-                strategy = base.modelSelectionStrategy,
+                strategy = AgentModelSelectionStrategy.BALANCED,
                 affinityKey = "${task.id}:${task.title}:${task.prompt}",
                 demand = demand,
             )
@@ -202,7 +208,7 @@ class AgentService(
                             releaseFailure = error
                         }
                         try {
-                            releaseDynamicAgentSlot(agentId)
+                            releaseDynamicAgentSlot(primaryAgentId)
                         } catch (error: Throwable) {
                             releaseFailure?.addSuppressed(error) ?: throw error
                         }
@@ -218,7 +224,7 @@ class AgentService(
                     error.addSuppressed(releaseError)
                 }
                 try {
-                    releaseDynamicAgentSlot(agentId)
+                    releaseDynamicAgentSlot(primaryAgentId)
                 } catch (releaseError: Throwable) {
                     error.addSuppressed(releaseError)
                 }
@@ -232,7 +238,7 @@ class AgentService(
                     error.addSuppressed(releaseError)
                 }
                 try {
-                    releaseDynamicAgentSlot(agentId)
+                    releaseDynamicAgentSlot(primaryAgentId)
                 } catch (releaseError: Throwable) {
                     error.addSuppressed(releaseError)
                 }
@@ -260,7 +266,24 @@ class AgentService(
     }
 
     suspend fun getLaunchableConfigs(): List<AgentConfig> = launchableConfigs.get().values.map { config ->
-        resolveModel(config, SwarmAgentRole.GENERAL, "available:${config.id}")
+        resolvePrimaryModel(config, "available:${config.id}")
+    }
+
+    private suspend fun resolvePrimaryModel(
+        config: AgentConfig,
+        affinityKey: String,
+    ): AgentConfig {
+        val service = modelService ?: return applyResolvedModel(config, null)
+        val configured = config.modelConfigId
+            .takeIf(String::isNotBlank)
+            ?.let { service.get(it) }
+            ?.takeIf { it.enabled }
+        val model = configured ?: service.select(
+            role = SwarmAgentRole.GENERAL,
+            strategy = AgentModelSelectionStrategy.BALANCED,
+            affinityKey = affinityKey,
+        )
+        return applyResolvedModel(config, model)
     }
 
     private suspend fun resolveModel(
@@ -268,7 +291,7 @@ class AgentService(
         role: SwarmAgentRole,
         affinityKey: String,
     ): AgentConfig {
-        val model = modelService?.select(role, config.modelSelectionStrategy, affinityKey)
+        val model = modelService?.select(role, AgentModelSelectionStrategy.BALANCED, affinityKey)
         return applyResolvedModel(config, model)
     }
 
@@ -380,6 +403,7 @@ private fun AgentConfig.revision(): String = listOf(
     autoStart.toString(),
     maxDynamicSubagents.toString(),
     modelSelectionStrategy.name,
+    modelConfigId,
 ).joinToString("\u0000")
 
 private data class RuntimeAvailability(

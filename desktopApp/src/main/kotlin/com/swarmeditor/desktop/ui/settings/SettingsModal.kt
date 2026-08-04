@@ -124,7 +124,7 @@ fun SettingsModal(
     val modelConfigPath by settingsVm.modelConfigPath.collectAsState()
 
     val tabs = listOf(
-        SettingsTile("agent", "PI", "主智能体", "身份、提示与动态调度策略", ControlBlue, if (agents.any { it.isConnected }) "在线" else "离线"),
+        SettingsTile("agent", "PI", "主智能体", "默认主模型与动态子智能体", ControlBlue, if (agents.any { it.isConnected }) "在线" else "离线"),
         SettingsTile("models", "M", "模型池", "Provider、模型、凭据与能力", ControlPurple, models.count { it.enabled }.toString()),
         SettingsTile("mcp", "M", "MCP 服务", "工具桥接与授权", ControlOrange, mcpServers.size.toString()),
         SettingsTile("skills", "S", "Skills 能力", "本地能力与同步", ControlGreen, skills.size.toString()),
@@ -190,7 +190,7 @@ fun SettingsModal(
                 // Body
                 Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(10.dp).surfaceCard(bg = Bg2.copy(alpha = 0.82f), border = Line2, elevation = Elevation.medium, shape = AppShapes.lg)) {
                     when (activeTab) {
-                        "agent" -> AgentConfigTab(agents, configFields, configPath, settingsVm)
+                        "agent" -> AgentConfigTab(agents, models, configFields, configPath, settingsVm)
                         "models" -> ModelConfigTab(
                             models = models,
                             selectedId = selectedModelId,
@@ -309,6 +309,7 @@ private fun MetroSettingsTile(
 @Composable
 private fun AgentConfigTab(
     agents: List<AgentInfo>,
+    models: List<ModelConfig>,
     fields: List<com.swarmeditor.desktop.viewmodel.AgentConfigField>,
     configPath: String,
     settingsVm: SettingsViewModel,
@@ -348,7 +349,7 @@ private fun AgentConfigTab(
             Spacer(Modifier.width(9.dp))
             Column {
                 Text("子智能体不会写入静态 Profile", color = Tx, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
-                Text("主智能体按任务角色从模型池自主选型；会话结束后临时实例即释放。", color = Tx3, style = AppType.caption)
+                Text("主智能体使用指定主模型；子智能体按职责、能力与负载从模型池动态生成。", color = Tx3, style = AppType.caption)
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -364,11 +365,33 @@ private fun AgentConfigTab(
             Spacer(Modifier.height(14.dp))
         }
 
-        Section("智能体策略") {
-            if (fields.isEmpty()) {
-                Text("当前 Profile 暂无配置或 Pi Runtime 未就绪", color = Tx3, style = AppType.bodySm)
+        Section("主模型") {
+            val primaryModelId = fields.firstOrNull { it.label == "Primary Model" }?.value.orEmpty()
+            Text(
+                "主智能体是系统默认协调者，不需要单独维护名称、提示词或工作目录。这里只指定它使用的模型。",
+                color = Tx3,
+                style = AppType.bodySm,
+            )
+            Spacer(Modifier.height(10.dp))
+            if (models.isEmpty()) {
+                Text("模型池为空，请先在“模型池”中添加可用模型。", color = WarnLight, style = AppType.bodySm)
+            } else {
+                models.forEach { model ->
+                    PrimaryModelOption(
+                        model = model,
+                        selected = model.id == primaryModelId,
+                        onSelect = { settingsVm.saveField("Primary Model", model.id) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
-            ConfigFieldGrid(fields, settingsVm::saveField)
+        }
+        Spacer(Modifier.height(14.dp))
+        Section("动态子智能体") {
+            InfoRow("生成方式", "按任务职责即时创建")
+            InfoRow("模型分配", "职责标签 + 推理需求 + 可用并发")
+            InfoRow("生命周期", "任务结束后自动释放")
+            InfoRow("静态 Profile", "不创建、不持久化", AgentGemini)
         }
         }
         CompositionLocalProvider(
@@ -417,6 +440,53 @@ private fun AgentConfigTab(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PrimaryModelOption(
+    model: ModelConfig,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val enabled = model.enabled
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.md)
+            .background(if (selected) Ac.withAlpha(0.1f) else Bg3)
+            .border(1.dp, if (selected) Ac.withAlpha(0.42f) else Line2, AppShapes.md)
+            .clickable(enabled = enabled && !selected, onClick = onSelect)
+            .semantics {
+                this.selected = selected
+                contentDescription = "${model.name} 主模型${if (selected) "，已选择" else ""}"
+            }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(9.dp).clip(CircleShape)
+                .background(if (selected) Ac else if (enabled) Ok else Tx3)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(model.name, color = if (enabled) Tx else Tx3, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+            Text(
+                listOf(model.provider, model.model).filter(String::isNotBlank).joinToString(" / ").ifBlank { model.id },
+                color = Tx3,
+                style = AppType.caption.copy(fontFamily = CodeFont),
+            )
+        }
+        Text(
+            when {
+                selected -> "主模型"
+                !enabled -> "已停用"
+                else -> "选择"
+            },
+            color = if (selected) AcLight else Tx3,
+            style = AppType.caption,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }
 

@@ -30,18 +30,30 @@ class AgentRegistryTest {
     }
 
     @Test
-    fun `pi configuration update survives reload`() = runTest {
+    fun `primary model selection survives reload`() = runTest {
         val directory = createTempDirectory("agent-registry-").toFile()
         val configFile = File(directory, "agents.json")
         AgentRegistry(configFile).apply {
             load()
-            upsert(AgentConfig(AgentRegistry.DEFAULT_AGENT_ID, "Custom name", systemPrompt = "Review carefully"))
+            upsert(
+                AgentConfig(
+                    id = AgentRegistry.DEFAULT_AGENT_ID,
+                    name = "Custom name",
+                    systemPrompt = "Review carefully",
+                    modelConfigId = "review-model",
+                )
+            )
         }
 
         val reloaded = AgentRegistry(configFile).apply { load() }
 
-        assertEquals("Review carefully", reloaded.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.systemPrompt)
-        assertEquals("Custom name", reloaded.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
+        val config = reloaded.getConfig(AgentRegistry.DEFAULT_AGENT_ID)
+        assertEquals("review-model", config?.modelConfigId)
+        assertEquals("Pi 主智能体", config?.name)
+        assertEquals("", config?.systemPrompt)
+        assertTrue("primaryModelConfigId" in configFile.readText())
+        assertTrue("Custom name" !in configFile.readText())
+        assertTrue("\"agents\"" !in configFile.readText())
         directory.deleteRecursively()
     }
 
@@ -92,7 +104,7 @@ class AgentRegistryTest {
         assertEquals(listOf(AgentRegistry.DEFAULT_AGENT_ID), registry.getAllConfigs().map { it.id })
         assertEquals("Pi 主智能体", registry.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
         assertTrue("claude-code" !in configFile.readText())
-        assertTrue(AgentRegistry.DEFAULT_AGENT_ID in configFile.readText())
+        assertTrue("primaryModelConfigId" in configFile.readText())
         directory.deleteRecursively()
     }
 
@@ -106,7 +118,7 @@ class AgentRegistryTest {
 
         assertEquals(listOf(AgentRegistry.DEFAULT_AGENT_ID), registry.getAllConfigs().map { it.id })
         assertTrue(configFile.isFile)
-        assertTrue(AgentRegistry.DEFAULT_AGENT_ID in configFile.readText())
+        assertTrue("primaryModelConfigId" in configFile.readText())
         val quarantined = directory.listFiles().orEmpty().single { it.name.startsWith("agents.json.corrupt-") }
         assertEquals("not json", quarantined.readText())
         directory.deleteRecursively()
@@ -169,7 +181,7 @@ class AgentRegistryTest {
             registry.load()
             val failedUpdate = backgroundScope.async {
                 try {
-                    registry.upsert(AgentConfig(AgentRegistry.DEFAULT_AGENT_ID, "Pi", model = "first"))
+                    registry.upsert(AgentRegistry.defaultConfig().copy(modelConfigId = "first"))
                     false
                 } catch (_: IllegalStateException) {
                     true
@@ -177,7 +189,7 @@ class AgentRegistryTest {
             }
             firstWriteStarted.await()
             val successfulUpdate = backgroundScope.async {
-                registry.upsert(AgentConfig(AgentRegistry.DEFAULT_AGENT_ID, "Pi", model = "second"))
+                registry.upsert(AgentRegistry.defaultConfig().copy(modelConfigId = "second"))
             }
             yield()
             assertEquals(2, writeCount)
@@ -186,7 +198,7 @@ class AgentRegistryTest {
             assertTrue(failedUpdate.await())
             successfulUpdate.await()
 
-            assertEquals("second", registry.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.model)
+            assertEquals("second", registry.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
         } finally {
             directory.deleteRecursively()
         }

@@ -144,6 +144,7 @@ fun WindowScope.App(
     val gitStatus by root.gitVm.status.collectAsState()
     val agentConfigFields by root.settingsVm.configFields.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
+    val modelConfigs by root.settingsVm.models.collectAsState()
     val stackState by root.stack.subscribeAsState()
     val currentConfig = stackState.active.configuration
     val currentChild = stackState.active.instance
@@ -763,6 +764,7 @@ fun WindowScope.App(
         AgentConfigModal(
             agentId = retainedAgentDialogId,
             agents = agents,
+            models = modelConfigs,
             configFields = agentConfigFields,
             configPath = agentConfigPath,
             onSave = { fields ->

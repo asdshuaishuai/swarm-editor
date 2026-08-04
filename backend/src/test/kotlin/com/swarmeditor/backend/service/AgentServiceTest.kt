@@ -61,7 +61,7 @@ class AgentServiceTest {
     }
 
     @Test
-    fun `updating profile closes running pi sessions and publishes new config`() = runTest {
+    fun `updating primary model closes running pi sessions and publishes new config`() = runTest {
         val directory = Files.createTempDirectory("agent-service")
         try {
             val session = ClosingSession()
@@ -74,21 +74,21 @@ class AgentServiceTest {
                 registry = AgentRegistry(directory.resolve("agents.json").toFile()),
                 runtimeManager = manager
             )
-            val original = AgentConfig(id = AgentRegistry.DEFAULT_AGENT_ID, name = "Pi", systemPrompt = "old prompt")
+            val original = AgentRegistry.defaultConfig().copy(modelConfigId = "primary-a")
             service.upsert(original).getOrThrow()
             manager.getOrCreate("session-1", original, null)
 
-            service.upsert(original.copy(systemPrompt = "new prompt")).getOrThrow()
+            service.upsert(original.copy(modelConfigId = "primary-b")).getOrThrow()
 
             assertTrue(session.closed)
-            assertEquals("new prompt", service.agents.value.single().config.systemPrompt)
+            assertEquals("primary-b", service.agents.value.single().config.modelConfigId)
         } finally {
             directory.deleteRecursively()
         }
     }
 
     @Test
-    fun `profile update invalidates in-flight pi startup without lock inversion`() = runTest {
+    fun `primary model update invalidates in-flight pi startup without lock inversion`() = runTest {
         val directory = Files.createTempDirectory("agent-update-startup-race")
         val allowCreation = CompletableDeferred<Unit>()
         try {
@@ -122,7 +122,7 @@ class AgentServiceTest {
             }
             creationStarted.await()
             val update = backgroundScope.async {
-                service.upsert(original.copy(systemPrompt = "new prompt")).getOrThrow()
+                service.upsert(original.copy(modelConfigId = "primary-b")).getOrThrow()
             }
             withTimeout(1_000) {
                 while (service.isLaunchConfigCurrent(original)) yield()
@@ -134,7 +134,7 @@ class AgentServiceTest {
 
             assertTrue(creationError is IllegalStateException)
             assertTrue(session.closed)
-            assertEquals("new prompt", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.systemPrompt)
+            assertEquals("primary-b", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
             assertTrue(service.isLaunchConfigCurrent(service.requireLaunchConfig(AgentRegistry.DEFAULT_AGENT_ID)))
         } finally {
             allowCreation.complete(Unit)
@@ -143,7 +143,7 @@ class AgentServiceTest {
     }
 
     @Test
-    fun `failed runtime shutdown rolls back the updated profile`() = runTest {
+    fun `failed runtime shutdown rolls back the primary model`() = runTest {
         val directory = Files.createTempDirectory("agent-update-rollback")
         try {
             val agentsFile = directory.resolve("agents.json").toFile()
@@ -153,26 +153,26 @@ class AgentServiceTest {
                 factory = PiSessionFactory { _, _, _ -> FailingCloseSession() },
             )
             val service = AgentService(AgentRegistry(agentsFile), manager)
-            val original = AgentConfig(id = AgentRegistry.DEFAULT_AGENT_ID, name = "Pi", systemPrompt = "old prompt")
+            val original = AgentRegistry.defaultConfig().copy(modelConfigId = "primary-a")
             service.upsert(original).getOrThrow()
             manager.getOrCreate("session-1", original, null)
 
-            val result = service.upsert(original.copy(systemPrompt = "new prompt"))
+            val result = service.upsert(original.copy(modelConfigId = "primary-b"))
 
             assertTrue(result.isFailure)
-            assertEquals("old prompt", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.systemPrompt)
-            assertEquals("old prompt", service.agents.value.single().config.systemPrompt)
+            assertEquals("primary-a", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
+            assertEquals("primary-a", service.agents.value.single().config.modelConfigId)
 
             val reloaded = AgentRegistry(agentsFile)
             reloaded.load()
-            assertEquals("old prompt", reloaded.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.systemPrompt)
+            assertEquals("primary-a", reloaded.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
         } finally {
             directory.deleteRecursively()
         }
     }
 
     @Test
-    fun `canceled runtime shutdown rolls back the updated profile`() = runTest {
+    fun `canceled runtime shutdown rolls back the primary model`() = runTest {
         val directory = Files.createTempDirectory("agent-update-cancellation-rollback")
         try {
             val manager = PiRuntimeManager(
@@ -181,17 +181,17 @@ class AgentServiceTest {
                 factory = PiSessionFactory { _, _, _ -> CanceledCloseSession() },
             )
             val service = AgentService(AgentRegistry(directory.resolve("agents.json").toFile()), manager)
-            val original = AgentConfig(id = AgentRegistry.DEFAULT_AGENT_ID, name = "Pi", systemPrompt = "old prompt")
+            val original = AgentRegistry.defaultConfig().copy(modelConfigId = "primary-a")
             service.upsert(original).getOrThrow()
             manager.getOrCreate("session-1", original, null)
 
             val cancellation = assertFailsWith<CancellationException> {
-                service.upsert(original.copy(systemPrompt = "new prompt"))
+                service.upsert(original.copy(modelConfigId = "primary-b"))
             }
 
             assertEquals("pi shutdown canceled", cancellation.message)
-            assertEquals("old prompt", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.systemPrompt)
-            assertEquals("old prompt", service.agents.value.single().config.systemPrompt)
+            assertEquals("primary-a", service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
+            assertEquals("primary-a", service.agents.value.single().config.modelConfigId)
         } finally {
             directory.deleteRecursively()
         }
@@ -327,6 +327,7 @@ class AgentServiceTest {
                 modelService = modelService,
             )
             service.init()
+            val primary = service.requireLaunchConfig(AgentRegistry.DEFAULT_AGENT_ID)
 
             val dynamic = service.createDynamicAgent(
                 SwarmTask(
@@ -334,9 +335,11 @@ class AgentServiceTest {
                     title = "Review",
                     prompt = "Review integration boundaries",
                     role = SwarmAgentRole.REVIEWER,
+                    agentId = "requested-reviewer",
                 )
             )
 
+            assertEquals(ModelRegistry.DEFAULT_MODEL_ID, primary.modelConfigId)
             assertEquals(AgentRegistry.DEFAULT_AGENT_ID, dynamic.id)
             assertEquals("review-model", dynamic.modelConfigId)
             assertEquals("openai", dynamic.provider)
@@ -350,7 +353,7 @@ class AgentServiceTest {
     }
 
     @Test
-    fun `dynamic agent allocation enforces agent and model capacity`() = runTest {
+    fun `dynamic agent allocation waits for model capacity`() = runTest {
         val directory = Files.createTempDirectory("dynamic-agent-capacity")
         try {
             val manager = PiRuntimeManager(
@@ -383,8 +386,6 @@ class AgentServiceTest {
                 modelService = modelService,
             )
             service.init()
-            val primary = service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)!!
-            service.upsert(primary.copy(maxDynamicSubagents = 1)).getOrThrow()
             val firstTask = SwarmTask("review-first", "Review first", "Review first", SwarmAgentRole.REVIEWER)
             val secondTask = SwarmTask("review-second", "Review second", "Review second", SwarmAgentRole.REVIEWER)
 
@@ -393,7 +394,7 @@ class AgentServiceTest {
             yield()
 
             assertFalse(waiting.isCompleted)
-            assertEquals(mapOf(AgentRegistry.DEFAULT_AGENT_ID to 1), service.activeDynamicAgents.value)
+            assertEquals(mapOf(AgentRegistry.DEFAULT_AGENT_ID to 2), service.activeDynamicAgents.value)
             assertEquals(mapOf("single-review-model" to 1), modelService.activeAllocations.value)
 
             first.release()
@@ -410,7 +411,7 @@ class AgentServiceTest {
     }
 
     @Test
-    fun `turning off auto start disconnects the profile after update`() = runTest {
+    fun `legacy primary agent fields are normalized to system defaults`() = runTest {
         val directory = Files.createTempDirectory("agent-auto-start")
         try {
             val manager = PiRuntimeManager(
@@ -429,9 +430,21 @@ class AgentServiceTest {
             val config = service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)!!
             assertEquals(AgentStatus.CONNECTED, service.agents.value.single().status)
 
-            service.upsert(config.copy(autoStart = false)).getOrThrow()
+            service.upsert(
+                config.copy(
+                    name = "Custom main agent",
+                    autoStart = false,
+                    maxDynamicSubagents = 1,
+                    systemPrompt = "custom prompt",
+                )
+            ).getOrThrow()
 
-            assertEquals(AgentStatus.DISCONNECTED, service.agents.value.single().status)
+            val normalized = service.getConfig(AgentRegistry.DEFAULT_AGENT_ID)!!
+            assertEquals("Pi 主智能体", normalized.name)
+            assertTrue(normalized.autoStart)
+            assertEquals(4, normalized.maxDynamicSubagents)
+            assertTrue(normalized.systemPrompt.isEmpty())
+            assertEquals(AgentStatus.CONNECTED, service.agents.value.single().status)
         } finally {
             directory.deleteRecursively()
         }

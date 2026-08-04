@@ -1,5 +1,6 @@
 package com.swarmeditor.backend.agent
 
+import com.swarmeditor.backend.model.ModelRegistry
 import com.swarmeditor.backend.storage.atomicWriteText
 import com.swarmeditor.backend.storage.quarantineCorruptFile
 import com.swarmeditor.backend.storage.readBoundedUtf8
@@ -67,12 +68,10 @@ class AgentRegistry(
             null
         } else {
             try {
-                decodedFile to when {
-                    decodedFile.schemaVersion < CURRENT_SCHEMA -> listOf(
-                        normalizeDefaultConfig(decodedFile.agents.firstOrNull { it.id == DEFAULT_AGENT_ID })
-                    )
-                    else -> listOf(normalizeDefaultConfig(decodedFile.agents.firstOrNull { it.id == DEFAULT_AGENT_ID }))
-                }
+                val primaryModelConfigId = decodedFile.primaryModelConfigId
+                    .takeIf(String::isNotBlank)
+                    ?: ModelRegistry.DEFAULT_MODEL_ID
+                decodedFile to listOf(normalizeDefaultConfig(primaryModelConfigId))
             } catch (error: Exception) {
                 val quarantine = quarantineAgentFile(error)
                 quarantined = true
@@ -90,7 +89,11 @@ class AgentRegistry(
             normalized.forEach { configs[it.id] = it }
             configs.keys.forEach { statuses[it] = AgentStatus.DISCONNECTED }
         }
-        if (loadedFile == null || loadedFile.first.schemaVersion != CURRENT_SCHEMA || loadedFile.first.agents != normalized) {
+        if (
+            loadedFile == null ||
+            loadedFile.first.schemaVersion != CURRENT_SCHEMA ||
+            loadedFile.first.primaryModelConfigId != normalized.single().modelConfigId
+        ) {
             save()
         }
     }
@@ -101,7 +104,7 @@ class AgentRegistry(
 
     suspend fun upsert(config: AgentConfig) {
         require(config.id == DEFAULT_AGENT_ID) { "Static subagent profiles are no longer supported" }
-        val normalized = normalizeDefaultConfig(config)
+        val normalized = normalizeDefaultConfig(config.modelConfigId)
         mutateAndSave {
             configs[normalized.id] = normalized
             statuses.putIfAbsent(normalized.id, AgentStatus.DISCONNECTED)
@@ -156,7 +159,10 @@ class AgentRegistry(
 
     suspend fun save() {
         val snapshot = mutex.withLock {
-            AgentsFile(schemaVersion = CURRENT_SCHEMA, agents = configs.values.toList())
+            AgentsFile(
+                schemaVersion = CURRENT_SCHEMA,
+                primaryModelConfigId = configs[DEFAULT_AGENT_ID]?.modelConfigId.orEmpty(),
+            )
         }
         persist(
             json.encodeToString(AgentsFile.serializer(), snapshot)
@@ -176,7 +182,10 @@ class AgentRegistry(
             persist(
                 json.encodeToString(
                     AgentsFile.serializer(),
-                    AgentsFile(schemaVersion = CURRENT_SCHEMA, agents = configs.values.toList())
+                    AgentsFile(
+                        schemaVersion = CURRENT_SCHEMA,
+                        primaryModelConfigId = configs[DEFAULT_AGENT_ID]?.modelConfigId.orEmpty(),
+                    )
                 ).requireUtf8Size(maxFileBytes, "Agent profile data")
             )
         } catch (error: Throwable) {
@@ -194,26 +203,21 @@ class AgentRegistry(
 
     companion object {
         const val DEFAULT_AGENT_ID = "pi-default"
-        private const val CURRENT_SCHEMA = 4
+        private const val CURRENT_SCHEMA = 5
         private val SUPPORTED_SCHEMAS = 1..CURRENT_SCHEMA
-        private val PROFILE_ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
         fun defaultConfig() = AgentConfig(
             id = DEFAULT_AGENT_ID,
             name = "Pi 主智能体",
             description = "负责规划任务并按需创建 Pi 子智能体",
-            tags = listOf("pi", "builtin")
+            tags = listOf("pi", "builtin"),
+            modelConfigId = ModelRegistry.DEFAULT_MODEL_ID,
         )
 
-        private fun normalizeDefaultConfig(config: AgentConfig?): AgentConfig {
+        private fun normalizeDefaultConfig(primaryModelConfigId: String?): AgentConfig {
             val default = defaultConfig()
-            return (config ?: default).copy(
-                id = DEFAULT_AGENT_ID,
-                name = config?.name?.trim().takeUnless { it.isNullOrBlank() } ?: default.name,
-                description = config?.description?.takeIf { it.isNotBlank() } ?: default.description,
-                enabled = true,
-                tags = (config?.tags.orEmpty() + default.tags).distinct(),
-                maxDynamicSubagents = (config?.maxDynamicSubagents ?: default.maxDynamicSubagents).coerceIn(1, 32),
+            return default.copy(
+                modelConfigId = primaryModelConfigId?.trim().orEmpty().ifBlank { default.modelConfigId },
             )
         }
     }
@@ -236,5 +240,5 @@ private data class RegistrySnapshot(
 @Serializable
 private data class AgentsFile(
     val schemaVersion: Int = 1,
-    val agents: List<AgentConfig> = emptyList()
+    val primaryModelConfigId: String = "",
 )

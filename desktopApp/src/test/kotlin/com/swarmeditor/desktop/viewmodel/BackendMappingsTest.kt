@@ -13,6 +13,7 @@ import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.theme.AgentClaude
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class BackendMappingsTest {
     @Test
@@ -116,7 +117,7 @@ class BackendMappingsTest {
     }
 
     @Test
-    fun `partial agent field update preserves omitted runtime settings`() {
+    fun `primary model update preserves runtime settings`() {
         val config = AgentConfig(
             id = "reviewer",
             name = "Reviewer",
@@ -126,9 +127,10 @@ class BackendMappingsTest {
             systemPrompt = "Review carefully"
         )
 
-        val updated = config.updatedWith(mapOf("Name" to "Senior Reviewer"))
+        val updated = config.updatedWith(mapOf("Primary Model" to "review-model"))
 
-        assertEquals("Senior Reviewer", updated.name)
+        assertEquals("Reviewer", updated.name)
+        assertEquals("review-model", updated.modelConfigId)
         assertEquals("openai", updated.provider)
         assertEquals("gpt-5", updated.model)
         assertEquals("/workspace", updated.workingDirectory)
@@ -136,19 +138,16 @@ class BackendMappingsTest {
     }
 
     @Test
-    fun `agent and model field updates remain independent`() {
+    fun `primary agent and model pool updates remain independent`() {
         val updated = AgentConfig("pi-review", "Reviewer").updatedWith(
-            mapOf(
-                "Tags" to "review, security, review",
-                "Max Dynamic Subagents" to "8",
-            )
+            mapOf("Primary Model" to "review-model")
         )
         val model = ModelConfig("review-model", "Reviewer Model").updatedWith(
             mapOf("Environment" to "MODE=strict; API_BASE=https://example.test/v1")
         )
 
-        assertEquals(listOf("review", "security"), updated.tags)
-        assertEquals(8, updated.maxDynamicSubagents)
+        assertEquals("review-model", updated.modelConfigId)
+        assertTrue(updated.tags.isEmpty())
         assertEquals("strict", model.env["MODE"])
         assertEquals("https://example.test/v1", model.env["API_BASE"])
     }

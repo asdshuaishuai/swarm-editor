@@ -9,7 +9,6 @@ import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.common.config.ConfigPaths
-import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.ModelConfig
@@ -113,31 +112,7 @@ class SettingsViewModel(
         if (requestId != agentSelectionRequests.get() || _selectedAgentId.value != id) return
         _configPath.value = ConfigPaths.AGENTS_JSON
         _configFields.value = listOf(
-            AgentConfigField("Name", config.name),
-            AgentConfigField("Description", config.description),
-            AgentConfigField(
-                label = "Enabled",
-                value = config.enabled.toString(),
-                isSelect = true,
-                options = listOf("true", "false")
-            ),
-            AgentConfigField("Working Directory", config.workingDirectory),
-            AgentConfigField("System Prompt", config.systemPrompt),
-            AgentConfigField("Tags", config.tags.joinToString(", ")),
-            AgentConfigField("Timeout Seconds", config.timeoutSeconds.toString()),
-            AgentConfigField("Max Dynamic Subagents", config.maxDynamicSubagents.toString()),
-            AgentConfigField(
-                label = "Model Selection",
-                value = config.modelSelectionStrategy.name.lowercase(),
-                isSelect = true,
-                options = AgentModelSelectionStrategy.entries.map { it.name.lowercase() }
-            ),
-            AgentConfigField(
-                label = "Auto Start",
-                value = config.autoStart.toString(),
-                isSelect = true,
-                options = listOf("true", "false")
-            )
+            AgentConfigField("Primary Model", config.modelConfigId)
         )
     }
 
@@ -321,24 +296,7 @@ internal fun Map<String, Boolean>.updatedAgentAccess(
 }
 
 internal fun AgentConfig.updatedWith(fields: Map<String, String>): AgentConfig = copy(
-    name = fields["Name"]?.trim().orEmpty().ifBlank { name },
-    description = fields["Description"]?.trim() ?: description,
-    enabled = fields["Enabled"]?.toBooleanStrictOrNull() ?: enabled,
-    workingDirectory = fields["Working Directory"]?.trim() ?: workingDirectory,
-    systemPrompt = fields["System Prompt"]?.trim() ?: systemPrompt,
-    tags = fields["Tags"]
-        ?.split(',')
-        ?.map(String::trim)
-        ?.filter(String::isNotBlank)
-        ?.distinct()
-        ?: tags,
-    timeoutSeconds = fields["Timeout Seconds"]?.toIntOrNull()?.coerceAtLeast(1) ?: timeoutSeconds,
-    autoStart = fields["Auto Start"]?.toBooleanStrictOrNull() ?: autoStart,
-    maxDynamicSubagents = fields["Max Dynamic Subagents"]?.toIntOrNull()?.coerceIn(1, 32) ?: maxDynamicSubagents,
-    modelSelectionStrategy = fields["Model Selection"]
-        ?.uppercase()
-        ?.let { value -> AgentModelSelectionStrategy.entries.find { it.name == value } }
-        ?: modelSelectionStrategy,
+    modelConfigId = fields["Primary Model"]?.trim()?.ifBlank { modelConfigId } ?: modelConfigId,
 )
 
 internal fun ModelConfig.updatedWith(fields: Map<String, String>): ModelConfig = copy(

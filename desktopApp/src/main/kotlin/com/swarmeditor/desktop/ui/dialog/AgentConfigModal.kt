@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.viewmodel.AgentConfigField
+import com.swarmeditor.common.model.ModelConfig
 
 private fun descOf(id: String) = if (id.isNotBlank()) {
     "编辑器内置主智能体。它负责规划任务，并从独立模型池按需创建临时子智能体。"
@@ -34,6 +35,7 @@ private fun descOf(id: String) = if (id.isNotBlank()) {
 fun AgentConfigModal(
     agentId: String?,
     agents: List<AgentInfo> = emptyList(),
+    models: List<ModelConfig> = emptyList(),
     configFields: List<AgentConfigField> = emptyList(),
     configPath: String = "",
     onSave: (Map<String, String>) -> Unit = {},
@@ -84,7 +86,7 @@ fun AgentConfigModal(
                         Spacer(Modifier.width(14.dp))
                         Column {
                             Text(
-                                editedFields["Name"].orEmpty().ifBlank { agent.name },
+                                agent.name,
                                 color = Tx,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -138,7 +140,7 @@ fun AgentConfigModal(
                 )
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("智能体策略")
+                SectionLabel("主模型")
                 Spacer(Modifier.height(8.dp))
                 if (configFields.isEmpty()) {
                     InlineLoadingState(
@@ -146,17 +148,32 @@ fun AgentConfigModal(
                         modifier = Modifier.fillMaxWidth(),
                         minHeight = 48.dp,
                     )
+                } else if (models.isEmpty()) {
+                    Text("模型池为空，请先在设置中心添加模型。", color = WarnLight, fontSize = 12.sp)
                 } else {
-                    configFields.forEachIndexed { index, field ->
-                        FormField(
-                            label = field.label,
-                            value = editedFields[field.label].orEmpty(),
-                            onChange = { editedFields[field.label] = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            isPassword = field.isPassword
+                    Text(
+                        "主智能体只需要指定主模型；身份、工作目录和系统策略由编辑器统一管理。",
+                        color = Tx3,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    val selectedModelId = editedFields["Primary Model"].orEmpty()
+                    models.forEach { model ->
+                        ModalPrimaryModelOption(
+                            model = model,
+                            selected = model.id == selectedModelId,
+                            onSelect = { editedFields["Primary Model"] = model.id },
                         )
-                        if (index != configFields.lastIndex) Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "子智能体仍会根据任务职责、模型能力与并发余量动态分配，不固定使用主模型。",
+                        color = Tx3,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                    )
                 }
 
                 // 底部按钮
@@ -187,6 +204,49 @@ fun AgentConfigModal(
                     }
                 }
         }
+    }
+}
+
+@Composable
+private fun ModalPrimaryModelOption(
+    model: ModelConfig,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.md)
+            .background(if (selected) Ac.withAlpha(0.1f) else Bg2)
+            .border(1.dp, if (selected) Ac.withAlpha(0.42f) else Line2, AppShapes.md)
+            .clickable(enabled = model.enabled && !selected, onClick = onSelect)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(9.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                .background(if (selected) Ac else if (model.enabled) Ok else Tx3)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(model.name, color = if (model.enabled) Tx else Tx3, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                listOf(model.provider, model.model).filter(String::isNotBlank).joinToString(" / ").ifBlank { model.id },
+                color = Tx3,
+                fontSize = 11.sp,
+                fontFamily = CodeFont,
+            )
+        }
+        Text(
+            when {
+                selected -> "主模型"
+                !model.enabled -> "已停用"
+                else -> "选择"
+            },
+            color = if (selected) AcLight else Tx3,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }
 
