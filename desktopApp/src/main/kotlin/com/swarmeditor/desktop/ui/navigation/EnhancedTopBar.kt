@@ -443,7 +443,7 @@ private fun WindowControlButton(
         label = "windowControlBackground",
     )
     val scale by animateFloatAsState(
-        if (pressed) 0.94f else 1f,
+        if (pressed) 0.975f else 1f,
         if (pressed) Motion.floatPress else Motion.floatRelease,
         label = "windowControlScale",
     )

@@ -68,9 +68,15 @@ fun HoverTipBox(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     var showTip by remember { mutableStateOf(false) }
-    // 防抖：hover 持续 300ms 才显示；离开立即隐藏。避免 Popup 弹出后鼠标循环触发的闪烁。
+    var hasShownTip by remember { mutableStateOf(false) }
     LaunchedEffect(hovered) {
-        if (hovered) { delay(300); showTip = true } else { showTip = false }
+        if (hovered) {
+            if (!hasShownTip) delay(300)
+            showTip = true
+            hasShownTip = true
+        } else {
+            showTip = false
+        }
     }
     Box(modifier.hoverable(interaction)) {
         content()
@@ -282,7 +288,7 @@ fun InlineLoadingState(
 fun Modifier.fluidClickable(
     enabled: Boolean = true,
     interactionSource: MutableInteractionSource? = null,
-    pressScale: Float = 0.985f,
+    pressScale: Float = 0.992f,
     onClick: () -> Unit,
 ): Modifier {
     val interaction = interactionSource ?: remember { MutableInteractionSource() }

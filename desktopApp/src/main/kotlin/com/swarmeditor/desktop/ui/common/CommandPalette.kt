@@ -1,8 +1,5 @@
 package com.swarmeditor.desktop.ui.common
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -96,51 +93,41 @@ fun CommandPalette(
     piCommands: List<PiCommandInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
+    if (!isVisible) return
+
     Box(
         modifier = modifier
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(Motion.alphaEnter),
-            exit = fadeOut(Motion.alphaExit),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .overlayBackdrop(OverlayDepth.PRIMARY)
+                .pointerInput(onDismiss) {
+                    detectTapGestures(onTap = { onDismiss() })
+                },
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .overlayBackdrop(OverlayDepth.PRIMARY)
-                    .pointerInput(onDismiss) {
-                        detectTapGestures(onTap = { onDismiss() })
-                    },
-            )
-        }
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = Motion.modalEnter(OverlayDepth.PRIMARY),
-            exit = Motion.modalExit(OverlayDepth.PRIMARY),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center,
+                    .widthIn(max = 640.dp)
+                    .fillMaxWidth()
+                    .pointerInput(Unit) { detectTapGestures(onTap = {}) },
             ) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = 640.dp)
-                        .fillMaxWidth()
-                        .pointerInput(Unit) { detectTapGestures(onTap = {}) },
-                ) {
-                    CommandPaletteModal(
-                        hazeState = hazeState,
-                        agents = agents,
-                        piCommands = piCommands,
-                        onDismiss = onDismiss,
-                        onCommand = onCommand,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                CommandPaletteModal(
+                    hazeState = hazeState,
+                    agents = agents,
+                    piCommands = piCommands,
+                    onDismiss = onDismiss,
+                    onCommand = onCommand,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -167,6 +154,10 @@ private fun CommandPaletteModal(
         val q = searchQuery.text.lowercase(Locale.ROOT)
         if (q.isBlank()) commands
         else commands.filter { it.name.lowercase(Locale.ROOT).contains(q) }
+    }
+    val groupedCommands = remember(filteredCommands) { filteredCommands.groupBy { it.group } }
+    val commandIndexes = remember(filteredCommands) {
+        filteredCommands.mapIndexed { index, command -> command.id to index }.toMap()
     }
 
     // Reset selection when filter changes
@@ -232,7 +223,7 @@ private fun CommandPaletteModal(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🔍", fontSize = 14.sp)
@@ -297,12 +288,9 @@ private fun CommandPaletteModal(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 360.dp)
-                .padding(vertical = 6.dp)
+                .padding(vertical = 4.dp)
         ) {
-            // Group filtered commands
-            val grouped = filteredCommands.groupBy { it.group }
-
-            grouped.forEach { (group, cmds) ->
+            groupedCommands.forEach { (group, cmds) ->
                 // Group header
                 item(key = "header_$group") {
                     Text(
@@ -310,7 +298,7 @@ private fun CommandPaletteModal(
                         color = Tx3,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
                     )
                 }
 
@@ -318,7 +306,7 @@ private fun CommandPaletteModal(
                     items = cmds,
                     key = { _, cmd -> cmd.id }
                 ) { indexInGroup, cmd ->
-                    val absoluteIndex = filteredCommands.indexOf(cmd)
+                    val absoluteIndex = commandIndexes[cmd.id] ?: -1
                     val isSelected = absoluteIndex == selectedIndex
 
                     CommandItem(
@@ -354,18 +342,14 @@ private fun CommandItem(
     onClick: () -> Unit
 ) {
     val tone = commandTone(command)
-    val bgColor by androidx.compose.animation.animateColorAsState(
-        if (isSelected) tone.withAlpha(0.14f) else Color.Transparent,
-        Motion.colorDefault,
-        label = "commandBackground",
-    )
+    val bgColor = if (isSelected) tone.withAlpha(0.14f) else Color.Transparent
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor, RoundedCornerShape(6.dp))
-            .fluidClickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .fluidClickable(pressScale = 0.995f, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Icon / letter circle

@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.theme
 
 import androidx.compose.animation.core.SnapSpec
+import androidx.compose.animation.core.Spring
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -10,6 +11,7 @@ class MotionTest {
     fun `press feedback is immediate and release remains spring driven`() {
         assertTrue(Motion.floatPress is SnapSpec<Float>)
         assertTrue(Motion.floatRelease.stiffness > 0f)
+        assertEquals(Spring.DampingRatioNoBouncy, Motion.floatRelease.dampingRatio)
     }
 
     @Test

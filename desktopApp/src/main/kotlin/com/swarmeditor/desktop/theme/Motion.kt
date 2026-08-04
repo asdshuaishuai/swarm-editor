@@ -43,8 +43,8 @@ object Motion {
     )
     val floatPress: FiniteAnimationSpec<Float> = snap()
     val floatRelease: SpringSpec<Float> = spring(
-        dampingRatio = 0.86f,
-        stiffness = 560f,
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 650f,
     )
     val floatDefault: SpringSpec<Float> = spring(
         dampingRatio = 0.86f,

@@ -1,6 +1,5 @@
 package com.swarmeditor.desktop.ui.navigation
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -36,9 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -125,8 +122,15 @@ private fun RailNavItem(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val tone = railTone(item.key)
     var showTip by remember { mutableStateOf(false) }
+    var hasShownTip by remember { mutableStateOf(false) }
     LaunchedEffect(isHovered) {
-        if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
+        if (isHovered) {
+            if (!hasShownTip) kotlinx.coroutines.delay(300)
+            showTip = true
+            hasShownTip = true
+        } else {
+            showTip = false
+        }
     }
     val bgColor = when {
         isActive -> tone.withAlpha(0.14f)
@@ -211,26 +215,9 @@ private fun RailNavItem(
 
 @Composable
 private fun RailTip(text: String) {
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val alpha by animateFloatAsState(
-        targetValue = if (shown) 1f else 0f,
-        animationSpec = Motion.alphaEnter,
-        label = "railTipAlpha",
-    )
-    val hiddenOffsetPx = with(LocalDensity.current) { -4.dp.toPx() }
-    val translationX by animateFloatAsState(
-        targetValue = if (shown) 0f else hiddenOffsetPx,
-        animationSpec = Motion.floatDefault,
-        label = "railTipTranslation",
-    )
     Text(
         text, color = Tx, fontSize = 11.sp, fontFamily = SansFont,
         modifier = Modifier
-            .graphicsLayer {
-                this.alpha = alpha
-                this.translationX = translationX
-            }
             .clip(RoundedCornerShape(6.dp))
             .background(Bg2)
             .border(1.dp, Line2, RoundedCornerShape(6.dp))
@@ -248,8 +235,15 @@ private fun RailButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     var showTip by remember { mutableStateOf(false) }
+    var hasShownTip by remember { mutableStateOf(false) }
     LaunchedEffect(isHovered) {
-        if (isHovered) { kotlinx.coroutines.delay(300); showTip = true } else { showTip = false }
+        if (isHovered) {
+            if (!hasShownTip) kotlinx.coroutines.delay(300)
+            showTip = true
+            hasShownTip = true
+        } else {
+            showTip = false
+        }
     }
     val bgColor = when {
         isActive -> ControlOrange.withAlpha(0.14f)

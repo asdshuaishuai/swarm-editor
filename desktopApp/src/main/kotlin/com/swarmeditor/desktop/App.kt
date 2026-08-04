@@ -407,7 +407,7 @@ fun WindowScope.App(
             }
         }
     }
-    val overlayActive = diffChange != null || dialog != null || detailDialog != null
+    val overlayActive = diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
     val workspaceScale by animateFloatAsState(
         targetValue = if (overlayActive) 0.994f else 1f,
         animationSpec = Motion.floatGentle,
