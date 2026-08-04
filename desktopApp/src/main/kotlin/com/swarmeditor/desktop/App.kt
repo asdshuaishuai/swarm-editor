@@ -91,7 +91,7 @@ import java.util.UUID
 @androidx.compose.runtime.Immutable
 data class AgentInfo(
     val id: String, val name: String, val emoji: String, val color: Color,
-    val isConnected: Boolean = false, val version: String = "", val isSelected: Boolean = false,
+    val isConnected: Boolean = false, val version: String = "",
     val letter: String = name.firstOrNull()?.toString() ?: "?",
     val description: String = "",
     val provider: String = "",
@@ -142,7 +142,7 @@ fun WindowScope.App(
     val projectFilePreview by root.projectVm.filePreview.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
-    val agentConfigFields by root.settingsVm.configFields.collectAsState()
+    val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
     val modelConfigs by root.settingsVm.models.collectAsState()
     val stackState by root.stack.subscribeAsState()
@@ -206,7 +206,9 @@ fun WindowScope.App(
         if (dialog == DialogConfig.CommandPalette) root.sessionVm.refreshPiCommands()
     }
     LaunchedEffect((detailDialog as? DialogConfig.AgentConfig)?.agentId) {
-        (detailDialog as? DialogConfig.AgentConfig)?.agentId?.let(root.settingsVm::selectAgent)
+        if ((detailDialog as? DialogConfig.AgentConfig)?.agentId != null) {
+            root.settingsVm.refreshPrimaryAgentConfig()
+        }
     }
     LaunchedEffect(currentSessionId, piRuntimeState?.sessionId) {
         if (piRuntimeState != null) root.sessionVm.refreshPiModels()
@@ -356,7 +358,7 @@ fun WindowScope.App(
     }
 
     val selectedAgent = root.agentVm.selectedAgent.collectAsState().value
-        ?: AgentInfo("", "主智能体未就绪", "", AgentClaude, false, "", true, "—")
+        ?: AgentInfo("", "主智能体未就绪", "", AgentClaude, false, "", "—")
     val derivedOnlineCount by root.agentVm.onlineCount.collectAsState()
     val derivedSessionTitle by root.sessionVm.currentSessionTitle.collectAsState()
     val contextUsageText = piRuntimeStats?.let { stats ->
@@ -595,7 +597,6 @@ fun WindowScope.App(
                                 agents = agents,
                                 sessionTitle = derivedSessionTitle ?: selectedAgent.name,
                                 contextUsageText = contextUsageText,
-                                onSelectAgent = { root.agentVm.selectAgent(it) },
                                 mcpServers = mcpServers,
                                 piCommands = piCommands,
                             )
@@ -743,7 +744,6 @@ fun WindowScope.App(
             skills = skills,
             themeMode = themeMode,
             onThemeChange = root::setTheme,
-            onDefaultAgentChange = root.agentVm::selectAgent,
             projectPath = root.projectVm.projectPath,
             kotlinLspState = kotlinLspRuntimeState,
             onRefreshKotlinLsp = root.kotlinLspRuntimeVm::refresh,
@@ -765,11 +765,10 @@ fun WindowScope.App(
             agentId = retainedAgentDialogId,
             agents = agents,
             models = modelConfigs,
-            configFields = agentConfigFields,
+            primaryModelId = primaryModelId,
             configPath = agentConfigPath,
-            onSave = { fields ->
-                root.settingsVm.saveFields(fields)
-                retainedAgentDialogId?.let(root.agentVm::selectAgent)
+            onSave = { modelId ->
+                root.settingsVm.setPrimaryModel(modelId)
             },
             onConnect = { root.agentVm.connect(it) },
             onDisconnect = { root.agentVm.disconnect(it) },

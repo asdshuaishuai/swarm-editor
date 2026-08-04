@@ -27,7 +27,7 @@ import kotlinx.coroutines.test.runTest
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, ExperimentalPathApi::class)
 class SettingsViewModelTest {
     @Test
-    fun `agent and model selections stay independent while saving`() = runTest {
+    fun `primary agent and model pool saves stay independent`() = runTest {
         val directory = Files.createTempDirectory("settings-save-target")
         try {
             val dispatcher = StandardTestDispatcher(testScheduler)
@@ -53,18 +53,16 @@ class SettingsViewModelTest {
             )
 
             runCurrent()
-            viewModel.selectAgent(AgentRegistry.DEFAULT_AGENT_ID)
             viewModel.selectModel("secondary-model")
             runCurrent()
 
-            viewModel.saveFields(mapOf("Primary Model" to "secondary-model"))
+            viewModel.setPrimaryModel("secondary-model")
             viewModel.saveModelField("Name", "Review Model")
             runCurrent()
 
             assertEquals("secondary-model", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
             assertEquals("Pi 主智能体", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
             assertEquals("Review Model", modelService.get("secondary-model")?.name)
-            assertEquals(AgentRegistry.DEFAULT_AGENT_ID, viewModel.selectedAgentId.value)
             assertEquals("secondary-model", viewModel.selectedModelId.value)
         } finally {
             directory.deleteRecursively()

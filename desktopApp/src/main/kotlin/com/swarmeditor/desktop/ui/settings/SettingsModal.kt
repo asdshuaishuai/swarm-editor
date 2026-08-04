@@ -63,8 +63,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -107,7 +105,6 @@ fun SettingsModal(
     onEditMcp: (String) -> Unit = {},
     themeMode: AppThemeMode = AppThemeMode.FUSION,
     onThemeChange: (AppThemeMode) -> Unit = {},
-    onDefaultAgentChange: (String) -> Unit = {},
     projectPath: String = "",
     kotlinLspState: KotlinLspRuntimeUiState = KotlinLspRuntimeUiState(),
     onRefreshKotlinLsp: () -> Unit = {},
@@ -116,7 +113,7 @@ fun SettingsModal(
     onOpenKotlinLspDirectory: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf(normalizeSettingsTab(System.getProperty("swarm.settingsTab"))) }
-    val configFields by settingsVm.configFields.collectAsState()
+    val primaryModelId by settingsVm.primaryModelId.collectAsState()
     val configPath by settingsVm.configPath.collectAsState()
     val models by settingsVm.models.collectAsState()
     val selectedModelId by settingsVm.selectedModelId.collectAsState()
@@ -190,7 +187,7 @@ fun SettingsModal(
                 // Body
                 Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(10.dp).surfaceCard(bg = Bg2.copy(alpha = 0.82f), border = Line2, elevation = Elevation.medium, shape = AppShapes.lg)) {
                     when (activeTab) {
-                        "agent" -> AgentConfigTab(agents, models, configFields, configPath, settingsVm)
+                        "agent" -> AgentConfigTab(agents, models, primaryModelId, configPath, settingsVm)
                         "models" -> ModelConfigTab(
                             models = models,
                             selectedId = selectedModelId,
@@ -215,7 +212,7 @@ fun SettingsModal(
                             onProbe = onProbeKotlinLsp,
                             onOpenDirectory = onOpenKotlinLspDirectory,
                         )
-                        "general" -> GeneralTab(agents, projectPath, onDefaultAgentChange)
+                        "general" -> GeneralTab(projectPath)
                         "appearance" -> AppearanceTab(themeMode, onThemeChange)
                         "shortcuts" -> ShortcutsTab()
                         "about" -> AboutTab()
@@ -310,7 +307,7 @@ private fun MetroSettingsTile(
 private fun AgentConfigTab(
     agents: List<AgentInfo>,
     models: List<ModelConfig>,
-    fields: List<com.swarmeditor.desktop.viewmodel.AgentConfigField>,
+    primaryModelId: String,
     configPath: String,
     settingsVm: SettingsViewModel,
 ) {
@@ -366,7 +363,6 @@ private fun AgentConfigTab(
         }
 
         Section("主模型") {
-            val primaryModelId = fields.firstOrNull { it.label == "Primary Model" }?.value.orEmpty()
             Text(
                 "主智能体是系统默认协调者，不需要单独维护名称、提示词或工作目录。这里只指定它使用的模型。",
                 color = Tx3,
@@ -380,7 +376,7 @@ private fun AgentConfigTab(
                     PrimaryModelOption(
                         model = model,
                         selected = model.id == primaryModelId,
-                        onSelect = { settingsVm.saveField("Primary Model", model.id) },
+                        onSelect = { settingsVm.setPrimaryModel(model.id) },
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -496,7 +492,7 @@ private fun ModelConfigTab(
     models: List<ModelConfig>,
     selectedId: String,
     onSelect: (String) -> Unit,
-    fields: List<com.swarmeditor.desktop.viewmodel.AgentConfigField>,
+    fields: List<com.swarmeditor.desktop.viewmodel.ModelConfigField>,
     configPath: String,
     settingsVm: SettingsViewModel,
 ) {
@@ -751,7 +747,7 @@ private fun InfoRow(
 }
 
 @Composable
-private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigField, onSave: (String, String) -> Unit) {
+private fun EditableField(field: com.swarmeditor.desktop.viewmodel.ModelConfigField, onSave: (String, String) -> Unit) {
     var editValue by remember(field.label, field.value) { mutableStateOf(field.value) }
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
         Text(field.label.localizedConfigLabel(), color = Tx3, style = AppType.caption, fontWeight = FontWeight.Medium)
@@ -780,7 +776,7 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
                 }
             }
         } else {
-            val multiline = field.label == "Description" || field.label == "System Prompt" || field.label == "Environment"
+            val multiline = field.label == "Environment"
             BasicTextField(
                 value = editValue,
                 onValueChange = { editValue = it },
@@ -789,7 +785,6 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
                 maxLines = if (multiline) 5 else 1,
                 textStyle = AppType.bodySm.copy(color = Tx),
                 cursorBrush = SolidColor(Ac),
-                visualTransformation = if (field.isPassword) PasswordVisualTransformation() else VisualTransformation.None,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(AppShapes.sm)
@@ -814,11 +809,11 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.AgentConfigFi
 
 @Composable
 private fun ConfigFieldGrid(
-    fields: List<com.swarmeditor.desktop.viewmodel.AgentConfigField>,
+    fields: List<com.swarmeditor.desktop.viewmodel.ModelConfigField>,
     onSave: (String, String) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val fullWidthLabels = setOf("Description", "System Prompt", "Environment", "Roles")
+        val fullWidthLabels = setOf("Environment", "Roles")
         val compact = fields.filterNot { it.label in fullWidthLabels }
         val fullWidth = fields.filter { it.label in fullWidthLabels }
         val useColumns = maxWidth >= 700.dp
@@ -842,19 +837,11 @@ private fun ConfigFieldGrid(
 
 private fun String.localizedConfigLabel(): String = when (this) {
     "Name" -> "名称"
-    "Description" -> "说明"
     "Enabled" -> "启用"
     "Provider" -> "Provider"
     "Model" -> "模型标识"
     "Thinking" -> "推理强度"
-    "Working Directory" -> "工作目录"
-    "System Prompt" -> "系统提示词"
     "Environment" -> "环境变量"
-    "Tags" -> "标签"
-    "Timeout Seconds" -> "任务超时（秒）"
-    "Auto Start" -> "自动启动"
-    "Max Dynamic Subagents" -> "动态子智能体上限"
-    "Model Selection" -> "模型选择策略"
     "Priority" -> "调度优先级"
     "Roles" -> "适用角色"
     "Max Concurrent Agents" -> "模型并发上限"
@@ -984,28 +971,12 @@ private fun lspConnectionBadge(phase: LspConnectionPhase): String = when (phase)
 // ==================== 通用 Tab ====================
 @Composable
 private fun GeneralTab(
-    agents: List<AgentInfo>,
     projectPath: String,
-    onDefaultAgentChange: (String) -> Unit,
 ) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Section("当前项目目录") {
             Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).border(1.dp, Line, RoundedCornerShape(R8)).padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(projectPath, color = Tx, style = AppType.bodySm)
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-
-        Section("默认 Pi Profile") {
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).padding(4.dp)) {
-                agents.forEach { agent ->
-                    val isActive = agent.isSelected
-                    val defBg by animateColorAsState(if (isActive) Ac.withAlpha(0.12f) else Color.Transparent, Motion.colorDefault, label = "defAgentBg")
-                    val defFg by animateColorAsState(if (isActive) Ac else Tx3, Motion.colorDefault, label = "defAgentFg")
-                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(defBg).clickable { onDefaultAgentChange(agent.id) }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("${agent.letter} ${agent.name}", color = defFg, style = AppType.micro)
-                    }
-                }
             }
         }
         Spacer(Modifier.height(20.dp))

@@ -10,7 +10,6 @@ import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.common.config.ConfigPaths
 import com.swarmeditor.common.model.AgentThinkingLevel
-import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
 import kotlinx.coroutines.CancellationException
@@ -28,10 +27,9 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 @androidx.compose.runtime.Immutable
-data class AgentConfigField(
+data class ModelConfigField(
     val label: String,
     val value: String,
-    val isPassword: Boolean = false,
     val isSelect: Boolean = false,
     val options: List<String> = emptyList()
 )
@@ -45,20 +43,17 @@ class SettingsViewModel(
     private val scope: CoroutineScope,
     private val modelService: ModelService? = null,
 ) {
-    private val _selectedAgentId = MutableStateFlow(com.swarmeditor.desktop.PRIMARY_AGENT_ID)
-    val selectedAgentId: StateFlow<String> = _selectedAgentId
-    private val _configFields = MutableStateFlow<List<AgentConfigField>>(emptyList())
-    val configFields: StateFlow<List<AgentConfigField>> = _configFields
+    private val _primaryModelId = MutableStateFlow("")
+    val primaryModelId: StateFlow<String> = _primaryModelId
     private val _configPath = MutableStateFlow("")
     val configPath: StateFlow<String> = _configPath
     private val eventChannel = Channel<SettingsActionEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
     private var loadAgentJob: Job? = null
-    private val agentSelectionRequests = AtomicLong()
     private val _selectedModelId = MutableStateFlow(ModelRegistry.DEFAULT_MODEL_ID)
     val selectedModelId: StateFlow<String> = _selectedModelId
-    private val _modelConfigFields = MutableStateFlow<List<AgentConfigField>>(emptyList())
-    val modelConfigFields: StateFlow<List<AgentConfigField>> = _modelConfigFields
+    private val _modelConfigFields = MutableStateFlow<List<ModelConfigField>>(emptyList())
+    val modelConfigFields: StateFlow<List<ModelConfigField>> = _modelConfigFields
     private val _modelConfigPath = MutableStateFlow(ConfigPaths.MODELS_JSON)
     val modelConfigPath: StateFlow<String> = _modelConfigPath
     private var loadModelJob: Job? = null
@@ -74,53 +69,36 @@ class SettingsViewModel(
         ?: MutableStateFlow(emptyList())
 
     init {
-        selectAgent(com.swarmeditor.desktop.PRIMARY_AGENT_ID)
+        refreshPrimaryAgentConfig()
         selectModel(ModelRegistry.DEFAULT_MODEL_ID)
     }
 
-    fun selectAgent(id: String) {
-        val requestId = agentSelectionRequests.incrementAndGet()
-        _selectedAgentId.value = id
+    fun refreshPrimaryAgentConfig() {
         _configPath.value = ""
-        _configFields.value = emptyList()
+        _primaryModelId.value = ""
         loadAgentJob?.cancel()
         loadAgentJob = scope.launch {
-            loadAgentFields(id, requestId)
+            loadPrimaryAgentFields()
         }
     }
 
-    fun saveFields(fields: Map<String, String>) {
-        val agentId = _selectedAgentId.value
+    fun setPrimaryModel(modelConfigId: String) {
+        val normalizedModelConfigId = modelConfigId.trim()
+        if (normalizedModelConfigId.isEmpty()) return
         scope.launch {
             runAction("主智能体配置已保存", "主智能体配置保存失败") {
-                val config = agentService.getConfig(agentId) ?: newAgentConfig(agentId)
-                val updated = config.updatedWith(fields)
-                agentService.upsert(updated).getOrThrow()
-                if (_selectedAgentId.value == agentId) {
-                    loadAgentFields(agentId, agentSelectionRequests.get())
-                }
+                val config = agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID) ?: AgentRegistry.defaultConfig()
+                agentService.upsert(config.copy(modelConfigId = normalizedModelConfigId)).getOrThrow()
+                loadPrimaryAgentFields()
             }
         }
     }
 
-    fun saveField(key: String, value: String) {
-        saveFields(mapOf(key to value))
-    }
-
-    private suspend fun loadAgentFields(id: String, requestId: Long) {
-        val config = agentService.getConfig(id) ?: newAgentConfig(id)
-        if (requestId != agentSelectionRequests.get() || _selectedAgentId.value != id) return
+    private suspend fun loadPrimaryAgentFields() {
+        val config = agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID) ?: AgentRegistry.defaultConfig()
         _configPath.value = ConfigPaths.AGENTS_JSON
-        _configFields.value = listOf(
-            AgentConfigField("Primary Model", config.modelConfigId)
-        )
+        _primaryModelId.value = config.modelConfigId
     }
-
-    private fun newAgentConfig(id: String) = AgentRegistry.defaultConfig().copy(
-        id = id,
-        name = "Pi 主智能体",
-        tags = listOf("pi", "builtin"),
-    )
 
     fun selectModel(id: String) {
         val requestId = modelSelectionRequests.incrementAndGet()
@@ -167,30 +145,27 @@ class SettingsViewModel(
         val config = modelService?.get(id) ?: return
         if (requestId != modelSelectionRequests.get() || _selectedModelId.value != id) return
         _modelConfigFields.value = listOf(
-            AgentConfigField("Name", config.name),
-            AgentConfigField(
+            ModelConfigField("Name", config.name),
+            ModelConfigField(
                 label = "Enabled",
                 value = config.enabled.toString(),
                 isSelect = true,
                 options = listOf("true", "false"),
             ),
-            AgentConfigField("Provider", config.provider),
-            AgentConfigField("Model", config.model),
-            AgentConfigField(
+            ModelConfigField("Provider", config.provider),
+            ModelConfigField("Model", config.model),
+            ModelConfigField(
                 label = "Thinking",
                 value = config.thinkingLevel.name.lowercase(),
                 isSelect = true,
                 options = AgentThinkingLevel.entries.map { it.name.lowercase() },
             ),
-            AgentConfigField("Environment", config.env.entries.sortedBy { it.key }.joinToString("; ") { "${it.key}=${it.value}" }),
-            AgentConfigField("Priority", config.priority.toString()),
-            AgentConfigField("Roles", config.roles.joinToString(", ") { it.name.lowercase() }),
-            AgentConfigField("Max Concurrent Agents", config.maxConcurrentAgents.toString()),
+            ModelConfigField("Environment", config.env.entries.sortedBy { it.key }.joinToString("; ") { "${it.key}=${it.value}" }),
+            ModelConfigField("Priority", config.priority.toString()),
+            ModelConfigField("Roles", config.roles.joinToString(", ") { it.name.lowercase() }),
+            ModelConfigField("Max Concurrent Agents", config.maxConcurrentAgents.toString()),
         )
     }
-
-    fun loadMcp() = Unit
-    fun loadSkills() = Unit
 
     fun scanSkills() {
         scope.launch {
@@ -294,10 +269,6 @@ internal fun Map<String, Boolean>.updatedAgentAccess(
     updated[agentId] = enabled
     return if (agentIds.isNotEmpty() && agentIds.all { updated[it] == true }) emptyMap() else updated
 }
-
-internal fun AgentConfig.updatedWith(fields: Map<String, String>): AgentConfig = copy(
-    modelConfigId = fields["Primary Model"]?.trim()?.ifBlank { modelConfigId } ?: modelConfigId,
-)
 
 internal fun ModelConfig.updatedWith(fields: Map<String, String>): ModelConfig = copy(
     name = fields["Name"]?.trim().orEmpty().ifBlank { name },

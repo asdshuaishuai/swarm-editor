@@ -140,7 +140,6 @@ fun ChatArea(
     agents: List<AgentInfo> = emptyList(),
     sessionTitle: String = selectedAgent.name,
     contextUsageText: String = "上下文：—",
-    onSelectAgent: (String) -> Unit = {},
     mcpServers: List<McpServerDto> = emptyList(),
     piCommands: List<PiCommandInfo> = emptyList(),
 ) {
@@ -154,11 +153,8 @@ fun ChatArea(
         Column(modifier = Modifier.fillMaxSize()) {
         // ── Chat TopBar ───────────────────────────────────────────────
         ChatTopBar(
-            selectedAgent = selectedAgent,
-            agents = agents,
             messages = messages,
             sessionTitle = sessionTitle,
-            onSelectAgent = onSelectAgent,
             verticalPadding = layoutDensity.topBarVerticalPadding,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -978,11 +974,8 @@ internal fun annotateInlineCode(
 
 @Composable
 private fun ChatTopBar(
-    selectedAgent: AgentInfo,
-    agents: List<AgentInfo>,
     messages: List<UiMessage>,
     sessionTitle: String,
-    onSelectAgent: (String) -> Unit = {},
     verticalPadding: Int = 8,
     modifier: Modifier = Modifier
 ) {
@@ -1026,77 +1019,6 @@ private fun ChatTopBar(
             )
         }
 
-        // Agent tabs
-        if (agents.isNotEmpty()) {
-            Spacer(Modifier.width(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                agents.take(3).forEach { agent ->
-                    AgentTab(
-                        agent = agent,
-                        isActive = agent.id == selectedAgent.id,
-                        onClick = { onSelectAgent(agent.id) },
-                    )
-                }
-                if (agents.size > 3) {
-                    Text(
-                        "+${agents.size - 3}",
-                        color = Tx3,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
-                    )
-                }
-            }
-        }
-
         Spacer(Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun AgentTab(
-    agent: AgentInfo,
-    isActive: Boolean,
-    onClick: () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val tone = agent.color
-    val background by animateColorAsState(
-        when {
-            isActive -> tone.withAlpha(0.14f)
-            hovered -> tone.withAlpha(0.08f)
-            else -> Color.Transparent
-        },
-        Motion.colorDefault,
-        label = "agentTabBackground",
-    )
-    val border by animateColorAsState(
-        if (isActive) tone.withAlpha(0.3f) else Color.Transparent,
-        Motion.colorDefault,
-        label = "agentTabBorder",
-    )
-    Row(
-        modifier = Modifier
-            .clip(AppShapes.sm)
-            .background(background)
-            .border(1.dp, border, AppShapes.sm)
-            .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(7.dp)
-                .clip(RoundedCornerShape(3.5.dp))
-                .background(if (agent.isConnected) tone else Tx3)
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            agent.name.removeSuffix(" CLI"),
-            color = if (isActive || hovered) tone else Tx3,
-            fontSize = 12.sp,
-            maxLines = 1,
-            softWrap = false,
-        )
     }
 }

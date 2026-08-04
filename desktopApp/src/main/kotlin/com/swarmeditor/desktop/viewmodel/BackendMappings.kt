@@ -20,7 +20,7 @@ import com.swarmeditor.desktop.theme.AgentGemini
 import com.swarmeditor.desktop.theme.AgentKimi
 import com.swarmeditor.desktop.theme.AgentQwen
 
-internal fun AgentRuntimeInfo.toUiAgent(isSelected: Boolean): AgentInfo {
+internal fun AgentRuntimeInfo.toUiAgent(): AgentInfo {
     val isPrimary = config.id == PRIMARY_AGENT_ID
     val palette = listOf(AgentClaude, AgentQwen, AgentGemini, AgentKimi)
     return AgentInfo(
@@ -30,7 +30,6 @@ internal fun AgentRuntimeInfo.toUiAgent(isSelected: Boolean): AgentInfo {
         color = if (isPrimary) AgentClaude else palette[(config.id.hashCode() and Int.MAX_VALUE) % palette.size],
         isConnected = config.enabled && status == AgentStatus.CONNECTED,
         version = version,
-        isSelected = isSelected,
         letter = if (isPrimary) "主" else config.name.trim().firstOrNull()?.uppercase() ?: "P",
         description = config.description.ifBlank {
             if (isPrimary) "编辑器内置的智能执行核心" else "Pi Agent Profile"

@@ -1,7 +1,6 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.model.ModelRegistry
-import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -111,7 +110,6 @@ class ModelService(
 
     suspend fun select(
         role: SwarmAgentRole,
-        strategy: AgentModelSelectionStrategy,
         affinityKey: String = "",
         demand: SwarmModelDemand? = null,
     ): ModelConfig {
@@ -119,7 +117,6 @@ class ModelService(
         check(enabled.isNotEmpty()) { "没有已启用的模型配置" }
         return selectCandidate(
             candidates = roleScoped(enabled, role, includeGenericFallback = demand != null),
-            strategy = strategy,
             affinityKey = affinityKey,
             demand = demand,
             weight = ModelConfig::maxConcurrentAgents,
@@ -128,7 +125,6 @@ class ModelService(
 
     suspend fun acquire(
         role: SwarmAgentRole,
-        strategy: AgentModelSelectionStrategy,
         affinityKey: String = "",
         demand: SwarmModelDemand? = null,
     ): ModelAllocation {
@@ -143,7 +139,6 @@ class ModelService(
                 if (available.isEmpty()) return@withLock null
                 val selected = selectCandidate(
                     candidates = available,
-                    strategy = strategy,
                     affinityKey = affinityKey,
                     demand = demand,
                     weight = { config ->
@@ -192,41 +187,28 @@ class ModelService(
 
     private fun selectCandidate(
         candidates: List<ModelConfig>,
-        strategy: AgentModelSelectionStrategy,
         affinityKey: String,
         demand: SwarmModelDemand?,
         weight: (ModelConfig) -> Int,
     ): CandidateSelection {
-        val ordered = when (strategy) {
-            AgentModelSelectionStrategy.QUALITY_FIRST -> candidates.sortedWith(
-                compareByDescending<ModelConfig> { it.thinkingLevel.qualityRank() }
-                    .thenByDescending(ModelConfig::priority)
+        val ordered = if (demand == null) {
+            candidates.sortedWith(
+                compareByDescending<ModelConfig>(ModelConfig::priority)
+                    .thenByDescending(ModelConfig::maxConcurrentAgents)
                     .thenBy(ModelConfig::id)
             )
-            AgentModelSelectionStrategy.SPEED_FIRST -> candidates.sortedWith(
-                compareBy<ModelConfig> { it.thinkingLevel.qualityRank() }
-                    .thenByDescending(ModelConfig::priority)
+        } else {
+            candidates.sortedWith(
+                compareBy<ModelConfig> {
+                    abs(it.thinkingLevel.qualityRank() - demand.targetThinkingLevel.qualityRank())
+                }.thenByDescending(ModelConfig::priority)
+                    .thenByDescending(weight)
                     .thenBy(ModelConfig::id)
             )
-            AgentModelSelectionStrategy.BALANCED -> if (demand == null) {
-                candidates.sortedWith(
-                    compareByDescending<ModelConfig>(ModelConfig::priority)
-                        .thenByDescending(ModelConfig::maxConcurrentAgents)
-                        .thenBy(ModelConfig::id)
-                )
-            } else {
-                candidates.sortedWith(
-                    compareBy<ModelConfig> {
-                        abs(it.thinkingLevel.qualityRank() - demand.targetThinkingLevel.qualityRank())
-                    }.thenByDescending(ModelConfig::priority)
-                        .thenByDescending(weight)
-                        .thenBy(ModelConfig::id)
-                )
-            }
         }
-        if (strategy != AgentModelSelectionStrategy.BALANCED || ordered.size == 1 || demand != null) {
+        if (ordered.size == 1 || demand != null) {
             val selected = ordered.first()
-            return CandidateSelection(selected, selectionReason(strategy, selected, demand))
+            return CandidateSelection(selected, selectionReason(selected, demand))
         }
         val seed = affinityKey.takeIf(String::isNotBlank)?.hashCode()?.toLong() ?: sequence.getAndIncrement()
         val totalWeight = ordered.sumOf(weight)
@@ -236,18 +218,13 @@ class ModelService(
             slot -= weight(config)
             slot < 0
         }
-        return CandidateSelection(selected, selectionReason(strategy, selected, demand))
+        return CandidateSelection(selected, selectionReason(selected, demand))
     }
 
     private fun selectionReason(
-        strategy: AgentModelSelectionStrategy,
         selected: ModelConfig,
         demand: SwarmModelDemand?,
     ): String = when {
-        strategy == AgentModelSelectionStrategy.QUALITY_FIRST ->
-            "quality-first selected ${selected.thinkingLevel.name.lowercase()} thinking"
-        strategy == AgentModelSelectionStrategy.SPEED_FIRST ->
-            "speed-first selected ${selected.thinkingLevel.name.lowercase()} thinking"
         demand == null -> "balanced capacity selection"
         else -> buildString {
             val thinkingDistance = abs(

@@ -13,8 +13,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,22 +25,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.theme.*
-import com.swarmeditor.desktop.viewmodel.AgentConfigField
 import com.swarmeditor.common.model.ModelConfig
 
-private fun descOf(id: String) = if (id.isNotBlank()) {
+private const val PRIMARY_AGENT_DESCRIPTION =
     "编辑器内置主智能体。它负责规划任务，并从独立模型池按需创建临时子智能体。"
-} else {
-    ""
-}
+
 @Composable
 fun AgentConfigModal(
     agentId: String?,
     agents: List<AgentInfo> = emptyList(),
     models: List<ModelConfig> = emptyList(),
-    configFields: List<AgentConfigField> = emptyList(),
+    primaryModelId: String = "",
     configPath: String = "",
-    onSave: (Map<String, String>) -> Unit = {},
+    onSave: (String) -> Unit = {},
     onConnect: (String) -> Unit = {},
     onDisconnect: (String) -> Unit = {},
     onDismiss: () -> Unit
@@ -46,12 +45,10 @@ fun AgentConfigModal(
     if (agentId == null) return
 
     val agent = agents.find { it.id == agentId } ?: return
-    val isInstalled = agents.any { it.version.isNotEmpty() || it.isConnected }
-    val desc = descOf(agentId)
-    val editedFields = remember(agentId) { mutableStateMapOf<String, String>() }
-    LaunchedEffect(agentId, configFields) {
-        editedFields.clear()
-        configFields.forEach { editedFields[it.label] = it.value }
+    val isInstalled = agent.version.isNotEmpty() || agent.isConnected
+    var selectedModelId by remember(agentId) { mutableStateOf(primaryModelId) }
+    LaunchedEffect(agentId, primaryModelId) {
+        selectedModelId = primaryModelId
     }
 
     Box(
@@ -103,13 +100,11 @@ fun AgentConfigModal(
                     }
                 }
 
-                if (desc.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Box(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.5f))
-                            .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(10.dp, 12.dp)
-                    ) { Text(desc, color = Tx2, fontSize = 13.sp, lineHeight = 18.sp) }
-                }
+                Spacer(Modifier.height(16.dp))
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg2.withAlpha(0.5f))
+                        .border(1.dp, Line, RoundedCornerShape(8.dp)).padding(10.dp, 12.dp)
+                ) { Text(PRIMARY_AGENT_DESCRIPTION, color = Tx2, fontSize = 13.sp, lineHeight = 18.sp) }
 
                 // 内置 runtime 状态
                 if (!isInstalled) {
@@ -142,7 +137,7 @@ fun AgentConfigModal(
                 Spacer(Modifier.height(14.dp))
                 SectionLabel("主模型")
                 Spacer(Modifier.height(8.dp))
-                if (configFields.isEmpty()) {
+                if (primaryModelId.isBlank()) {
                     InlineLoadingState(
                         text = "正在加载配置字段…",
                         modifier = Modifier.fillMaxWidth(),
@@ -158,12 +153,11 @@ fun AgentConfigModal(
                         lineHeight = 18.sp,
                     )
                     Spacer(Modifier.height(10.dp))
-                    val selectedModelId = editedFields["Primary Model"].orEmpty()
                     models.forEach { model ->
                         ModalPrimaryModelOption(
                             model = model,
                             selected = model.id == selectedModelId,
-                            onSelect = { editedFields["Primary Model"] = model.id },
+                            onSelect = { selectedModelId = model.id },
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -195,9 +189,9 @@ fun AgentConfigModal(
                         Spacer(Modifier.width(8.dp))
                         GlowButton(
                             "保存配置",
-                            active = configFields.isNotEmpty(),
+                            active = selectedModelId.isNotBlank(),
                             onClick = {
-                                onSave(editedFields.toMap())
+                                onSave(selectedModelId)
                                 onDismiss()
                             }
                         )

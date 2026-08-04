@@ -14,14 +14,6 @@ enum class AgentThinkingLevel {
     XHIGH
 }
 
-/** 运行时从模型池选择模型的内部策略。 */
-@Serializable
-enum class AgentModelSelectionStrategy {
-    BALANCED,
-    QUALITY_FIRST,
-    SPEED_FIRST
-}
-
 /**
  * Pi Agent 运行时配置。
  *
@@ -40,7 +32,6 @@ data class AgentConfig(
     val timeoutSeconds: Int = 300,
     val autoStart: Boolean = true,
     val maxDynamicSubagents: Int = 4,
-    val modelSelectionStrategy: AgentModelSelectionStrategy = AgentModelSelectionStrategy.BALANCED,
     @Transient val provider: String = "",
     @Transient val model: String = "",
     @Transient val thinkingLevel: AgentThinkingLevel = AgentThinkingLevel.MEDIUM,

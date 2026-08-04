@@ -198,31 +198,6 @@ class AgentServiceTest {
     }
 
     @Test
-    fun `rejecting default profile deletion leaves its pi session running`() = runTest {
-        val directory = Files.createTempDirectory("agent-delete-default")
-        try {
-            val session = ClosingSession()
-            val manager = PiRuntimeManager(
-                distribution = PiRuntimeDistribution(directory.toFile()),
-                defaultWorkingDirectory = directory.toFile(),
-                factory = PiSessionFactory { _, _, _ -> session },
-            )
-            val service = AgentService(AgentRegistry(directory.resolve("agents.json").toFile()), manager)
-            val config = AgentRegistry.defaultConfig()
-            service.upsert(config).getOrThrow()
-            manager.getOrCreate("session-1", config, null)
-
-            val result = service.delete(AgentRegistry.DEFAULT_AGENT_ID)
-
-            assertTrue(result.isFailure)
-            assertFalse(session.closed)
-            assertEquals(config, service.getConfig(AgentRegistry.DEFAULT_AGENT_ID))
-        } finally {
-            directory.deleteRecursively()
-        }
-    }
-
-    @Test
     fun `failed disconnect keeps the profile connected on the next scan`() = runTest {
         val directory = Files.createTempDirectory("agent-disconnect-rollback")
         try {
@@ -345,7 +320,6 @@ class AgentServiceTest {
             assertEquals("openai", dynamic.provider)
             assertEquals("gpt-review", dynamic.model)
             assertEquals(1, service.agents.value.size)
-            assertEquals(listOf(AgentRegistry.DEFAULT_AGENT_ID), service.getAllConfigs().map { it.id })
             assertTrue(service.isLaunchConfigCurrent(dynamic))
         } finally {
             directory.deleteRecursively()

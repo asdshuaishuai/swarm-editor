@@ -4,7 +4,6 @@ import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.pi.PiRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimeInfo
 import com.swarmeditor.common.model.AgentConfig
-import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentRuntimeInfo
 import com.swarmeditor.common.model.AgentStatus
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -162,13 +161,6 @@ class AgentService(
 
     suspend fun getConfig(agentId: String): AgentConfig? = registry.getConfig(agentId)
 
-    suspend fun delete(agentId: String): Result<Unit> = resultOf {
-        require(agentId != AgentRegistry.DEFAULT_AGENT_ID) { "主智能体不能删除" }
-        error("静态子智能体 Profile 已停用；子智能体由主智能体按需创建")
-    }
-
-    suspend fun getAllConfigs(): List<AgentConfig> = registry.getAllConfigs()
-
     suspend fun requireLaunchConfig(agentId: String): AgentConfig = lifecycleMutex.withLock {
         val config = requireBaseLaunchConfigLocked(agentId)
         resolvePrimaryModel(config, "session:$agentId")
@@ -189,7 +181,6 @@ class AgentService(
         try {
             modelAllocation = modelService?.acquire(
                 role = task.role,
-                strategy = AgentModelSelectionStrategy.BALANCED,
                 affinityKey = "${task.id}:${task.title}:${task.prompt}",
                 demand = demand,
             )
@@ -280,7 +271,6 @@ class AgentService(
             ?.takeIf { it.enabled }
         val model = configured ?: service.select(
             role = SwarmAgentRole.GENERAL,
-            strategy = AgentModelSelectionStrategy.BALANCED,
             affinityKey = affinityKey,
         )
         return applyResolvedModel(config, model)
@@ -291,7 +281,7 @@ class AgentService(
         role: SwarmAgentRole,
         affinityKey: String,
     ): AgentConfig {
-        val model = modelService?.select(role, AgentModelSelectionStrategy.BALANCED, affinityKey)
+        val model = modelService?.select(role, affinityKey)
         return applyResolvedModel(config, model)
     }
 
@@ -402,7 +392,6 @@ private fun AgentConfig.revision(): String = listOf(
     timeoutSeconds.toString(),
     autoStart.toString(),
     maxDynamicSubagents.toString(),
-    modelSelectionStrategy.name,
     modelConfigId,
 ).joinToString("\u0000")
 

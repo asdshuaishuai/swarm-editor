@@ -488,26 +488,6 @@ private fun SkillSidePanel(skill: SkillDto, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatBlock(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            color = Tx,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = SansFont
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = label,
-            color = Tx3,
-            fontSize = 10.sp,
-            fontFamily = SansFont
-        )
-    }
-}
-
-@Composable
 private fun SkillSectionTitle(title: String) {
     Text(
         text = title.uppercase(),

@@ -1,7 +1,6 @@
 package com.swarmeditor.backend.model
 
 import com.swarmeditor.backend.service.ModelService
-import com.swarmeditor.common.model.AgentModelSelectionStrategy
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -100,8 +99,8 @@ class ModelRegistryTest {
                 )
             ).getOrThrow()
 
-            val first = service.select(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "task-42")
-            val second = service.select(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "task-42")
+            val first = service.select(SwarmAgentRole.REVIEWER, "task-42")
+            val second = service.select(SwarmAgentRole.REVIEWER, "task-42")
 
             assertEquals(first.id, second.id)
             assertTrue(first.id in setOf("review-a", "review-b"))
@@ -131,9 +130,9 @@ class ModelRegistryTest {
                 )
             ).getOrThrow()
 
-            val first = service.acquire(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "first")
+            val first = service.acquire(SwarmAgentRole.REVIEWER, "first")
             val waiting = backgroundScope.async {
-                service.acquire(SwarmAgentRole.REVIEWER, AgentModelSelectionStrategy.BALANCED, "second")
+                service.acquire(SwarmAgentRole.REVIEWER, "second")
             }
             yield()
 
@@ -198,19 +197,16 @@ class ModelRegistryTest {
 
             val preferred = service.acquire(
                 SwarmAgentRole.REVIEWER,
-                AgentModelSelectionStrategy.BALANCED,
                 "risky-task",
                 highDemand,
             )
             val fallback = service.acquire(
                 SwarmAgentRole.REVIEWER,
-                AgentModelSelectionStrategy.BALANCED,
                 "risky-task-2",
                 highDemand,
             )
             val lowSelection = service.select(
                 SwarmAgentRole.GENERAL,
-                AgentModelSelectionStrategy.BALANCED,
                 "small-task",
                 lowDemand,
             )
@@ -252,14 +248,12 @@ class ModelRegistryTest {
 
             val active = service.acquire(
                 SwarmAgentRole.GENERAL,
-                AgentModelSelectionStrategy.BALANCED,
                 "active",
                 demand,
             )
             val waiting = backgroundScope.async {
                 service.acquire(
                     SwarmAgentRole.GENERAL,
-                    AgentModelSelectionStrategy.BALANCED,
                     "waiting",
                     demand,
                 )
