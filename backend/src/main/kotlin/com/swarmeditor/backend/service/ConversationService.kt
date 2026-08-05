@@ -8,6 +8,9 @@ import com.swarmeditor.backend.pi.PiSessionStats
 import com.swarmeditor.backend.pi.PiCompactionResult
 import com.swarmeditor.backend.pi.PiCommandInfo
 import com.swarmeditor.backend.pi.PiModelInfo
+import com.swarmeditor.backend.pi.PiQueuedMessageMode
+import com.swarmeditor.backend.pi.PiExtensionUiRequest
+import com.swarmeditor.backend.pi.PiExtensionUiResponse
 import com.swarmeditor.backend.pi.PiSessionTree
 import com.swarmeditor.backend.pi.PiSessionMutationResult
 import com.swarmeditor.backend.pi.PiSessionSnapshot
@@ -49,6 +52,16 @@ sealed interface ConversationEvent {
     data class ThinkingDelta(val text: String) : ConversationEvent
     data class ToolStarted(val id: String, val name: String, val arguments: String) : ConversationEvent
     data class ToolFinished(val id: String, val name: String, val output: String, val isError: Boolean) : ConversationEvent
+    data class ExtensionUiRequested(val request: PiExtensionUiRequest) : ConversationEvent
+    data class ExtensionNotification(val message: String, val type: String) : ConversationEvent
+    data class ExtensionStatusChanged(val key: String, val text: String?) : ConversationEvent
+    data class ExtensionWidgetChanged(
+        val key: String,
+        val lines: List<String>?,
+        val placement: String?,
+    ) : ConversationEvent
+    data class ExtensionTitleChanged(val title: String) : ConversationEvent
+    data class ExtensionEditorTextChanged(val text: String) : ConversationEvent
     data class Completed(val text: String) : ConversationEvent
     data class Failed(val message: String) : ConversationEvent
 }
@@ -61,13 +74,36 @@ interface ConversationGateway {
     fun runtimeStats(sessionId: String): StateFlow<PiSessionStats?> = emptyRuntimeStats
     suspend fun compactSession(sessionId: String, customInstructions: String? = null): Result<PiCompactionResult> =
         Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun sendQueuedMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData> = emptyList(),
+        mode: PiQueuedMessageMode,
+    ): Result<Unit> = Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ): Result<Unit> = Result.failure(IllegalStateException("pi session is not running"))
     suspend fun getCommands(sessionId: String): Result<List<PiCommandInfo>> =
         Result.failure(IllegalStateException("pi session is not running"))
     suspend fun getAvailableModels(sessionId: String): Result<List<PiModelInfo>> =
         Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun getAvailableThinkingLevels(sessionId: String): Result<List<String>> =
+        Result.failure(IllegalStateException("pi session is not running"))
     suspend fun setModel(sessionId: String, provider: String, modelId: String): Result<PiSessionState> =
         Result.failure(IllegalStateException("pi session is not running"))
     suspend fun setThinkingLevel(sessionId: String, level: String): Result<PiSessionState> =
+        Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): Result<PiSessionState> =
+        Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun setAutoRetry(sessionId: String, enabled: Boolean): Result<PiSessionState> =
+        Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun abortRetry(sessionId: String): Result<Unit> =
+        Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun setSteeringMode(sessionId: String, mode: String): Result<PiSessionState> =
+        Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun setFollowUpMode(sessionId: String, mode: String): Result<PiSessionState> =
         Result.failure(IllegalStateException("pi session is not running"))
     suspend fun getSessionTree(sessionId: String): Result<PiSessionTree> =
         Result.failure(IllegalStateException("pi session is not running"))
@@ -137,12 +173,67 @@ class ConversationService(
         }
     }
 
+    override suspend fun sendQueuedMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+        mode: PiQueuedMessageMode,
+    ): Result<Unit> = resultOf {
+        require(content.isNotBlank() || images.isNotEmpty()) { "Message cannot be blank" }
+        checkNotNull(sessionService.get(sessionId)) { "Session not found" }
+        check(runtimeManager.state(sessionId).value?.isStreaming == true) { "pi session is not streaming" }
+
+        runtimeManager.sendQueuedMessage(sessionId, content, images, mode)
+        val userContent = buildList {
+            if (content.isNotBlank()) add(ContentBlock(type = "text", text = content))
+            images.forEach { image -> add(ContentBlock(type = "image", image = image)) }
+        }
+        try {
+            sessionService.addMessage(sessionId, MessageRole.USER, userContent)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw IllegalStateException(
+                "Pi 已接收消息，但本地保存失败。请在会话控制面板点击“同步会话”恢复。",
+                error,
+            )
+        }
+        recordActivity(
+            sessionId = sessionId,
+            actor = "Pi",
+            action = when (mode) {
+                PiQueuedMessageMode.STEER -> "接收实时引导"
+                PiQueuedMessageMode.FOLLOW_UP -> "排入后续任务"
+            },
+            detail = buildString {
+                append(content.take(100))
+                if (images.isNotEmpty()) {
+                    if (isNotEmpty()) append(" · ")
+                    append("${images.size} 张图片")
+                }
+            },
+            type = ActivityType.SESSION,
+        )
+    }
+
+    override suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ): Result<Unit> = resultOf {
+        runtimeManager.respondToExtensionUi(sessionId, requestId, response)
+    }
+
     override suspend fun getCommands(sessionId: String): Result<List<PiCommandInfo>> = resultOf {
         runtimeManager.getCommands(sessionId)
     }
 
     override suspend fun getAvailableModels(sessionId: String): Result<List<PiModelInfo>> = resultOf {
         runtimeManager.getAvailableModels(sessionId)
+    }
+
+    override suspend fun getAvailableThinkingLevels(sessionId: String): Result<List<String>> = resultOf {
+        runtimeManager.getAvailableThinkingLevels(sessionId)
     }
 
     override suspend fun setModel(sessionId: String, provider: String, modelId: String): Result<PiSessionState> = resultOf {
@@ -157,6 +248,43 @@ class ConversationService(
         withSessionOperation(sessionId) {
             runtimeManager.setThinkingLevel(sessionId, level).also { state ->
                 recordActivity(sessionId, "Pi", "调整思考级别", state.thinkingLevel, ActivityType.SESSION)
+            }
+        }
+    }
+
+    override suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): Result<PiSessionState> = resultOf {
+        withSessionOperation(sessionId) {
+            runtimeManager.setAutoCompaction(sessionId, enabled).also {
+                recordActivity(sessionId, "Pi", "自动压缩", enabled.enabledLabel(), ActivityType.SESSION)
+            }
+        }
+    }
+
+    override suspend fun setAutoRetry(sessionId: String, enabled: Boolean): Result<PiSessionState> = resultOf {
+        withSessionOperation(sessionId) {
+            runtimeManager.setAutoRetry(sessionId, enabled).also {
+                recordActivity(sessionId, "Pi", "自动重试", enabled.enabledLabel(), ActivityType.SESSION)
+            }
+        }
+    }
+
+    override suspend fun abortRetry(sessionId: String): Result<Unit> = resultOf {
+        runtimeManager.abortRetry(sessionId)
+        recordActivity(sessionId, "Pi", "取消自动重试", "已终止当前退避等待", ActivityType.SESSION)
+    }
+
+    override suspend fun setSteeringMode(sessionId: String, mode: String): Result<PiSessionState> = resultOf {
+        withSessionOperation(sessionId) {
+            runtimeManager.setSteeringMode(sessionId, mode).also {
+                recordActivity(sessionId, "Pi", "实时引导策略", mode.queueModeLabel(), ActivityType.SESSION)
+            }
+        }
+    }
+
+    override suspend fun setFollowUpMode(sessionId: String, mode: String): Result<PiSessionState> = resultOf {
+        withSessionOperation(sessionId) {
+            runtimeManager.setFollowUpMode(sessionId, mode).also {
+                recordActivity(sessionId, "Pi", "后续队列策略", mode.queueModeLabel(), ActivityType.SESSION)
             }
         }
     }
@@ -460,6 +588,14 @@ private fun PiSessionStats.toTokenUsage() = TokenUsage(
     cost = cost,
 )
 
+private fun Boolean.enabledLabel(): String = if (this) "已开启" else "已关闭"
+
+private fun String.queueModeLabel(): String = when (this) {
+    "all" -> "批量处理"
+    "one-at-a-time" -> "逐条处理"
+    else -> this
+}
+
 private fun String.toActivityType(): ActivityType {
     val normalized = lowercase()
     return when {
@@ -477,6 +613,12 @@ private fun PiSessionEvent.toConversationEvent(): ConversationEvent? = when (thi
     is PiSessionEvent.ToolStarted -> ConversationEvent.ToolStarted(id, name, arguments)
     is PiSessionEvent.ToolFinished -> ConversationEvent.ToolFinished(id, name, output, isError)
     is PiSessionEvent.AgentCompleted -> null
+    is PiSessionEvent.ExtensionUiRequested -> ConversationEvent.ExtensionUiRequested(request)
+    is PiSessionEvent.ExtensionNotification -> ConversationEvent.ExtensionNotification(message, type)
+    is PiSessionEvent.ExtensionStatusChanged -> ConversationEvent.ExtensionStatusChanged(key, text)
+    is PiSessionEvent.ExtensionWidgetChanged -> ConversationEvent.ExtensionWidgetChanged(key, lines, placement)
+    is PiSessionEvent.ExtensionTitleChanged -> ConversationEvent.ExtensionTitleChanged(title)
+    is PiSessionEvent.ExtensionEditorTextChanged -> ConversationEvent.ExtensionEditorTextChanged(text)
 }
 
 private fun buildCompletionDetail(length: Int, completion: PiSessionEvent.AgentCompleted?): String = buildString {

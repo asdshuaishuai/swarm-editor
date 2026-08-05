@@ -134,6 +134,7 @@ fun RightPanel(
     piRuntimeState: PiSessionState? = null,
     piRuntimeStats: PiSessionStats? = null,
     piModels: List<PiModelInfo> = emptyList(),
+    piThinkingLevels: List<String> = emptyList(),
     piSessionTree: PiSessionTree? = null,
     sessionTreeLoading: Boolean = false,
     runtimeControlBusy: Boolean = false,
@@ -143,6 +144,11 @@ fun RightPanel(
     onRefreshModels: () -> Unit = {},
     onSetModel: (PiModelInfo) -> Boolean = { false },
     onSetThinkingLevel: (String) -> Boolean = { false },
+    onSetAutoCompaction: (Boolean) -> Boolean = { false },
+    onSetAutoRetry: (Boolean) -> Boolean = { false },
+    onAbortRetry: () -> Boolean = { false },
+    onSetSteeringMode: (String) -> Boolean = { false },
+    onSetFollowUpMode: (String) -> Boolean = { false },
     onRefreshSessionTree: () -> Unit = {},
     onForkSession: (String) -> Boolean = { false },
     onCloneSession: () -> Boolean = { false },
@@ -169,12 +175,18 @@ fun RightPanel(
                     piRuntimeState,
                     piRuntimeStats,
                     piModels,
+                    piThinkingLevels,
                     runtimeControlBusy,
                     isCompacting,
                     onCompactContext,
                     onRefreshModels,
                     onSetModel,
                     onSetThinkingLevel,
+                    onSetAutoCompaction,
+                    onSetAutoRetry,
+                    onAbortRetry,
+                    onSetSteeringMode,
+                    onSetFollowUpMode,
                 )
                 "branches" -> BranchesTab(
                     tree = piSessionTree,
@@ -578,12 +590,18 @@ private fun ColumnScope.InspectorTab(
     state: PiSessionState?,
     stats: PiSessionStats?,
     models: List<PiModelInfo>,
+    thinkingLevels: List<String>,
     runtimeControlBusy: Boolean,
     isCompacting: Boolean,
     onCompactContext: (String?) -> Boolean,
     onRefreshModels: () -> Unit,
     onSetModel: (PiModelInfo) -> Boolean,
     onSetThinkingLevel: (String) -> Boolean,
+    onSetAutoCompaction: (Boolean) -> Boolean,
+    onSetAutoRetry: (Boolean) -> Boolean,
+    onAbortRetry: () -> Boolean,
+    onSetSteeringMode: (String) -> Boolean,
+    onSetFollowUpMode: (String) -> Boolean,
 ) {
     var customInstructions by remember { mutableStateOf("") }
     if (state == null) {
@@ -659,16 +677,23 @@ private fun ColumnScope.InspectorTab(
         val runtimeStatus = when {
             !state.isAlive -> "异常退出"
             state.isCompacting -> "压缩上下文"
+            state.isRetrying -> "重试等待"
             state.isStreaming -> "生成中"
             else -> "空闲"
         }
         RuntimeControls(
             state = state,
             models = models,
-            busy = runtimeControlBusy || state.isStreaming || state.isCompacting,
+            thinkingLevels = thinkingLevels,
+            busy = runtimeControlBusy,
             onRefreshModels = onRefreshModels,
             onSetModel = onSetModel,
             onSetThinkingLevel = onSetThinkingLevel,
+            onSetAutoCompaction = onSetAutoCompaction,
+            onSetAutoRetry = onSetAutoRetry,
+            onAbortRetry = onAbortRetry,
+            onSetSteeringMode = onSetSteeringMode,
+            onSetFollowUpMode = onSetFollowUpMode,
         )
         Spacer(Modifier.height(14.dp))
         InspectorTable(
@@ -681,10 +706,25 @@ private fun ColumnScope.InspectorTab(
                 add(InspectorMetric("Thinking", state.thinkingLevel.ifBlank { "—" }))
                 add(InspectorMetric("远端会话", state.sessionId))
                 add(InspectorMetric("消息", "${state.messageCount} · 待处理 ${state.pendingMessageCount}"))
+                add(InspectorMetric("实时引导", state.steeringMode.queueModeLabel()))
+                add(InspectorMetric("后续队列", state.followUpMode.queueModeLabel()))
                 add(InspectorMetric("工具集", "${state.tools.count { it.active }} 激活 · ${state.tools.size} 可用"))
                 add(InspectorMetric("上下文", state.contextWindow?.let { formatTokenCount(it.toLong()) } ?: "—"))
                 add(InspectorMetric("最大输出", state.maxTokens?.let { formatTokenCount(it.toLong()) } ?: "—"))
                 add(InspectorMetric("自动压缩", if (state.autoCompactionEnabled) "开启" else "关闭"))
+                add(InspectorMetric("自动重试", if (state.autoRetryEnabled) "开启" else "关闭"))
+                if (state.isRetrying) {
+                    add(
+                        InspectorMetric(
+                            "重试进度",
+                            buildString {
+                                append("${state.retryAttempt}/${state.retryMaxAttempts}")
+                                state.retryDelayMillis?.let { append(" · ${it / 1000.0}s") }
+                            },
+                            WarnLight,
+                        )
+                    )
+                }
                 state.errorMessage?.let { add(InspectorMetric("错误", it, ErrLight)) }
             },
         )
@@ -801,16 +841,32 @@ private fun ColumnScope.InspectorTab(
     }
 }
 
+private fun String.queueModeLabel(): String = when (this) {
+    "all" -> "批量处理"
+    "one-at-a-time" -> "逐条处理"
+    else -> ifBlank { "—" }
+}
+
 @Composable
 private fun RuntimeControls(
     state: PiSessionState,
     models: List<PiModelInfo>,
+    thinkingLevels: List<String>,
     busy: Boolean,
     onRefreshModels: () -> Unit,
     onSetModel: (PiModelInfo) -> Boolean,
     onSetThinkingLevel: (String) -> Boolean,
+    onSetAutoCompaction: (Boolean) -> Boolean,
+    onSetAutoRetry: (Boolean) -> Boolean,
+    onAbortRetry: () -> Boolean,
+    onSetSteeringMode: (String) -> Boolean,
+    onSetFollowUpMode: (String) -> Boolean,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    val controlsLocked = busy || state.isStreaming || state.isCompacting
+    val supportedThinkingLevels = remember(thinkingLevels, state.thinkingLevel) {
+        thinkingLevels.ifEmpty { listOf(state.thinkingLevel).filter(String::isNotBlank) }.distinct()
+    }
     val currentModel = models.firstOrNull { it.provider == state.provider && it.id == state.modelId }
     val modelInteraction = remember { MutableInteractionSource() }
     val modelHovered by modelInteraction.collectIsHoveredAsState()
@@ -841,10 +897,10 @@ private fun RuntimeControls(
             Text("PI 会话控制", color = Tx, style = AppType.caption, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             ActionButton(
-                text = if (busy) "处理中" else if (models.isEmpty()) "加载" else "刷新",
+                text = if (controlsLocked) "处理中" else if (models.isEmpty()) "加载" else "刷新",
                 tone = ActionTone.NEUTRAL,
                 prominent = false,
-                enabled = !busy,
+                enabled = !controlsLocked,
                 compact = true,
                 onClick = onRefreshModels,
             )
@@ -858,7 +914,7 @@ private fun RuntimeControls(
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .fluidClickable(
-                        enabled = !busy && models.isNotEmpty(),
+                        enabled = !controlsLocked && models.isNotEmpty(),
                         interactionSource = modelInteraction,
                         onClick = { modelMenuExpanded = true },
                     )
@@ -908,7 +964,7 @@ private fun RuntimeControls(
         Spacer(Modifier.height(10.dp))
         Text("思考级别", color = Tx3, style = AppType.micro)
         Spacer(Modifier.height(5.dp))
-        THINKING_LEVELS.chunked(4).forEachIndexed { index, levels ->
+        supportedThinkingLevels.chunked(4).forEachIndexed { index, levels ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -917,19 +973,138 @@ private fun RuntimeControls(
                     ThinkingLevelChip(
                         level = level,
                         selected = state.thinkingLevel == level,
-                        enabled = !busy,
+                        enabled = !controlsLocked,
                         onClick = { onSetThinkingLevel(level) },
                         modifier = Modifier.weight(1f),
                     )
                 }
                 repeat(4 - levels.size) { Spacer(Modifier.weight(1f)) }
             }
-            if (index < 1) Spacer(Modifier.height(5.dp))
+            if (index < supportedThinkingLevels.lastIndex / 4) Spacer(Modifier.height(5.dp))
         }
+        Spacer(Modifier.height(10.dp))
+        RuntimeToggleRow(
+            title = "自动压缩",
+            detail = "上下文接近上限时自动生成摘要",
+            enabled = state.autoCompactionEnabled,
+            interactive = !controlsLocked,
+            onToggle = { onSetAutoCompaction(!state.autoCompactionEnabled) },
+        )
+        Spacer(Modifier.height(6.dp))
+        RuntimeToggleRow(
+            title = "自动重试",
+            detail = if (state.isRetrying) {
+                "第 ${state.retryAttempt}/${state.retryMaxAttempts} 次 · 等待 ${state.retryDelayMillis?.let { "${it / 1000.0}s" } ?: "—"}"
+            } else {
+                "可恢复错误使用指数退避再次执行"
+            },
+            enabled = state.autoRetryEnabled,
+            interactive = !controlsLocked,
+            onToggle = { onSetAutoRetry(!state.autoRetryEnabled) },
+            trailingAction = if (state.isRetrying) "取消等待" else null,
+            onTrailingAction = onAbortRetry,
+            trailingEnabled = state.isRetrying && !busy,
+        )
+        Spacer(Modifier.height(10.dp))
+        QueueModeRow(
+            title = "实时引导",
+            detail = "控制多条 steer 消息每轮注入数量",
+            selectedMode = state.steeringMode,
+            enabled = !controlsLocked,
+            onModeSelected = onSetSteeringMode,
+        )
+        Spacer(Modifier.height(6.dp))
+        QueueModeRow(
+            title = "后续队列",
+            detail = "控制 follow-up 任务逐条或批量进入下一轮",
+            selectedMode = state.followUpMode,
+            enabled = !controlsLocked,
+            onModeSelected = onSetFollowUpMode,
+        )
     }
 }
 
-private val THINKING_LEVELS = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
+@Composable
+private fun RuntimeToggleRow(
+    title: String,
+    detail: String,
+    enabled: Boolean,
+    interactive: Boolean,
+    onToggle: () -> Unit,
+    trailingAction: String? = null,
+    onTrailingAction: () -> Boolean = { false },
+    trailingEnabled: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(7.dp))
+            .background(Bg2.copy(alpha = 0.72f))
+            .border(1.dp, Line, RoundedCornerShape(7.dp))
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Tx, style = AppType.caption, fontWeight = FontWeight.Medium)
+            Text(detail, color = if (trailingAction != null) WarnLight else Tx3, style = AppType.micro)
+        }
+        trailingAction?.let { action ->
+            ActionButton(
+                text = action,
+                tone = ActionTone.WARNING,
+                prominent = false,
+                enabled = trailingEnabled,
+                compact = true,
+                onClick = { onTrailingAction() },
+            )
+            Spacer(Modifier.width(5.dp))
+        }
+        ActionButton(
+            text = if (enabled) "开启" else "关闭",
+            tone = if (enabled) ActionTone.POSITIVE else ActionTone.NEUTRAL,
+            prominent = enabled,
+            enabled = interactive,
+            compact = true,
+            onClick = onToggle,
+        )
+    }
+}
+
+@Composable
+private fun QueueModeRow(
+    title: String,
+    detail: String,
+    selectedMode: String,
+    enabled: Boolean,
+    onModeSelected: (String) -> Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(7.dp))
+            .background(Bg2.copy(alpha = 0.72f))
+            .border(1.dp, Line, RoundedCornerShape(7.dp))
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+    ) {
+        Text(title, color = Tx, style = AppType.caption, fontWeight = FontWeight.Medium)
+        Text(detail, color = Tx3, style = AppType.micro)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            listOf("one-at-a-time" to "逐条", "all" to "批量").forEach { (mode, label) ->
+                val selected = selectedMode == mode
+                ActionButton(
+                    text = label,
+                    tone = if (selected) ActionTone.PRIMARY else ActionTone.NEUTRAL,
+                    prominent = selected,
+                    enabled = enabled,
+                    compact = true,
+                    onClick = { if (!selected) onModeSelected(mode) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
 
 private data class BranchTreeRow(
     val node: PiSessionTreeNode,

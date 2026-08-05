@@ -464,6 +464,8 @@ export async function runRpcMode(
 					sessionId: session.sessionId,
 					sessionName: session.sessionName,
 					autoCompactionEnabled: session.autoCompactionEnabled,
+					autoRetryEnabled: session.autoRetryEnabled,
+					isRetrying: session.isRetrying,
 					messageCount: session.messages.length,
 					pendingMessageCount: session.pendingMessageCount,
 					tools: session.getAllTools().map((tool) => ({

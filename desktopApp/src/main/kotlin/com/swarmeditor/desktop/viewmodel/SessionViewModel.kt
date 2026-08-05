@@ -4,7 +4,10 @@ import com.swarmeditor.backend.service.ConversationGateway
 import com.swarmeditor.backend.service.ConversationEvent
 import com.swarmeditor.backend.service.SessionService
 import com.swarmeditor.backend.pi.PiCommandInfo
+import com.swarmeditor.backend.pi.PiExtensionUiRequest
+import com.swarmeditor.backend.pi.PiExtensionUiResponse
 import com.swarmeditor.backend.pi.PiModelInfo
+import com.swarmeditor.backend.pi.PiQueuedMessageMode
 import com.swarmeditor.backend.pi.PiSessionTree
 import com.swarmeditor.common.model.MessageRole
 import com.swarmeditor.common.model.Session
@@ -86,6 +89,13 @@ data class UiChatPresentation(
 )
 
 data class SessionActionEvent(val message: String, val type: ToastType)
+
+@androidx.compose.runtime.Immutable
+data class PiExtensionWidget(
+    val key: String,
+    val lines: List<String>,
+    val placement: String?,
+)
 
 private data class StreamingReply(
     val id: String,
@@ -177,8 +187,12 @@ class SessionViewModel(
     val piCommands: StateFlow<List<PiCommandInfo>> = _piCommands
     private val _piModels = MutableStateFlow<List<PiModelInfo>>(emptyList())
     val piModels: StateFlow<List<PiModelInfo>> = _piModels
+    private val _piThinkingLevels = MutableStateFlow<List<String>>(emptyList())
+    val piThinkingLevels: StateFlow<List<String>> = _piThinkingLevels
     private val _runtimeControlBusy = MutableStateFlow(false)
     val runtimeControlBusy: StateFlow<Boolean> = _runtimeControlBusy
+    private val _queuedMessageBusy = MutableStateFlow(false)
+    val queuedMessageBusy: StateFlow<Boolean> = _queuedMessageBusy
     private val runtimeControlMutex = Mutex()
     private val _piSessionTree = MutableStateFlow<PiSessionTree?>(null)
     val piSessionTree: StateFlow<PiSessionTree?> = _piSessionTree
@@ -186,6 +200,18 @@ class SessionViewModel(
     val sessionTreeLoading: StateFlow<Boolean> = _sessionTreeLoading
     private val composerDraftChannel = Channel<String>(Channel.BUFFERED)
     val composerDraftEvents = composerDraftChannel.receiveAsFlow()
+    private val _piExtensionUiRequest = MutableStateFlow<PiExtensionUiRequest?>(null)
+    val piExtensionUiRequest: StateFlow<PiExtensionUiRequest?> = _piExtensionUiRequest
+    private val _piExtensionUiBusy = MutableStateFlow(false)
+    val piExtensionUiBusy: StateFlow<Boolean> = _piExtensionUiBusy
+    private val _piExtensionStatuses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val piExtensionStatuses: StateFlow<Map<String, String>> = _piExtensionStatuses
+    private val _piExtensionWidgets = MutableStateFlow<Map<String, PiExtensionWidget>>(emptyMap())
+    val piExtensionWidgets: StateFlow<Map<String, PiExtensionWidget>> = _piExtensionWidgets
+    private val _piExtensionTitle = MutableStateFlow<String?>(null)
+    val piExtensionTitle: StateFlow<String?> = _piExtensionTitle
+    private var piExtensionUiSessionId: String? = null
+    private var piExtensionUiTimeoutJob: Job? = null
 
     val sessions: StateFlow<List<UiSession>> = combine(sessionService.sessions, _currentSessionId) { sessions, currentId ->
         sessions.map { session ->
@@ -247,9 +273,38 @@ class SessionViewModel(
         if (_currentSessionId.value != id && _isSending.value) cancelSending()
         if (_currentSessionId.value != id) {
             _piModels.value = emptyList()
+            _piThinkingLevels.value = emptyList()
             _piSessionTree.value = null
+            clearPiExtensionUiState()
         }
         _currentSessionId.value = id
+    }
+
+    fun respondToPiExtensionUi(response: PiExtensionUiResponse) {
+        val request = _piExtensionUiRequest.value ?: return
+        val sessionId = piExtensionUiSessionId ?: return
+        if (_piExtensionUiBusy.value) return
+        _piExtensionUiBusy.value = true
+        _piExtensionUiRequest.value = null
+        piExtensionUiTimeoutJob?.cancel()
+        piExtensionUiTimeoutJob = null
+        scope.launch {
+            conversationService.respondToExtensionUi(sessionId, request.id, response).fold(
+                onSuccess = {
+                    if (piExtensionUiSessionId == sessionId) piExtensionUiSessionId = null
+                },
+                onFailure = { error ->
+                    if (piExtensionUiSessionId == sessionId && _piExtensionUiRequest.value == null) {
+                        _piExtensionUiRequest.value = request
+                        schedulePiExtensionUiTimeout(sessionId, request)
+                    }
+                    val message = error.message ?: "Pi 扩展交互响应失败"
+                    _lastError.value = message
+                    actionChannel.send(SessionActionEvent(message, ToastType.ERROR))
+                },
+            )
+            _piExtensionUiBusy.value = false
+        }
     }
 
     fun refreshPiCommands() {
@@ -268,6 +323,7 @@ class SessionViewModel(
     fun refreshPiModels() {
         val sessionId = _currentSessionId.value ?: run {
             _piModels.value = emptyList()
+            _piThinkingLevels.value = emptyList()
             return
         }
         scope.launch {
@@ -275,12 +331,24 @@ class SessionViewModel(
                 onSuccess = { _piModels.value = it },
                 onFailure = { _piModels.value = emptyList() },
             )
+            conversationService.getAvailableThinkingLevels(sessionId).fold(
+                onSuccess = { _piThinkingLevels.value = it },
+                onFailure = {
+                    _piThinkingLevels.value = runtimeState.value
+                        ?.thinkingLevel
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(::listOf)
+                        .orEmpty()
+                },
+            )
         }
     }
 
     fun setPiModel(model: PiModelInfo): Boolean = launchRuntimeControl {
         val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
         conversationService.setModel(sessionId, model.provider, model.id).getOrThrow()
+        _piThinkingLevels.value = conversationService.getAvailableThinkingLevels(sessionId)
+            .getOrDefault(_piThinkingLevels.value)
         actionChannel.send(SessionActionEvent("已切换到 ${model.name}", ToastType.SUCCESS))
     }
 
@@ -288,6 +356,36 @@ class SessionViewModel(
         val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
         conversationService.setThinkingLevel(sessionId, level).getOrThrow()
         actionChannel.send(SessionActionEvent("思考级别已调整为 $level", ToastType.SUCCESS))
+    }
+
+    fun setPiAutoCompaction(enabled: Boolean): Boolean = launchRuntimeControl {
+        val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
+        conversationService.setAutoCompaction(sessionId, enabled).getOrThrow()
+        actionChannel.send(SessionActionEvent("自动压缩已${if (enabled) "开启" else "关闭"}", ToastType.SUCCESS))
+    }
+
+    fun setPiAutoRetry(enabled: Boolean): Boolean = launchRuntimeControl {
+        val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
+        conversationService.setAutoRetry(sessionId, enabled).getOrThrow()
+        actionChannel.send(SessionActionEvent("自动重试已${if (enabled) "开启" else "关闭"}", ToastType.SUCCESS))
+    }
+
+    fun abortPiRetry(): Boolean = launchRuntimeControl {
+        val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
+        conversationService.abortRetry(sessionId).getOrThrow()
+        actionChannel.send(SessionActionEvent("已取消当前自动重试", ToastType.INFO))
+    }
+
+    fun setPiSteeringMode(mode: String): Boolean = launchRuntimeControl {
+        val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
+        conversationService.setSteeringMode(sessionId, mode).getOrThrow()
+        actionChannel.send(SessionActionEvent("实时引导改为 ${mode.queueModeLabel()}", ToastType.SUCCESS))
+    }
+
+    fun setPiFollowUpMode(mode: String): Boolean = launchRuntimeControl {
+        val sessionId = checkNotNull(_currentSessionId.value) { "当前没有会话" }
+        conversationService.setFollowUpMode(sessionId, mode).getOrThrow()
+        actionChannel.send(SessionActionEvent("后续队列改为 ${mode.queueModeLabel()}", ToastType.SUCCESS))
     }
 
     fun refreshPiSessionTree() {
@@ -511,6 +609,29 @@ class SessionViewModel(
                                 )
                             }
                         }
+                        is ConversationEvent.ExtensionUiRequested -> {
+                            piExtensionUiSessionId = sessionId
+                            _piExtensionUiRequest.value = event.request
+                            schedulePiExtensionUiTimeout(sessionId, event.request)
+                        }
+                        is ConversationEvent.ExtensionNotification -> actionChannel.send(
+                            SessionActionEvent(
+                                event.message,
+                                if (event.type == "error") ToastType.ERROR else ToastType.INFO,
+                            )
+                        )
+                        is ConversationEvent.ExtensionStatusChanged -> _piExtensionStatuses.update { statuses ->
+                            event.text?.let { statuses + (event.key to it) } ?: (statuses - event.key)
+                        }
+                        is ConversationEvent.ExtensionWidgetChanged -> _piExtensionWidgets.update { widgets ->
+                            event.lines?.let { lines ->
+                                widgets + (event.key to PiExtensionWidget(event.key, lines, event.placement))
+                            } ?: (widgets - event.key)
+                        }
+                        is ConversationEvent.ExtensionTitleChanged -> {
+                            _piExtensionTitle.value = event.title.takeIf(String::isNotBlank)
+                        }
+                        is ConversationEvent.ExtensionEditorTextChanged -> composerDraftChannel.send(event.text)
                         is ConversationEvent.Completed -> {
                             flushNow(sessionId)
                             streamingReply.value = null
@@ -531,10 +652,72 @@ class SessionViewModel(
                 eventChannel.send(message)
             } finally {
                 flushJob?.cancel()
+                if (piExtensionUiSessionId == activeSessionId.value) {
+                    piExtensionUiTimeoutJob?.cancel()
+                    piExtensionUiTimeoutJob = null
+                    piExtensionUiSessionId = null
+                    _piExtensionUiRequest.value = null
+                    _piExtensionUiBusy.value = false
+                }
                 streamingReply.value = null
                 activeSessionId.value = null
                 _isSending.value = false
                 sendJob = null
+            }
+        }
+        return true
+    }
+
+    fun sendQueuedMessage(
+        text: String,
+        attachments: List<UiImageAttachment> = emptyList(),
+        mode: PiQueuedMessageMode,
+    ): Boolean {
+        val validatedAttachments = mergeImageAttachments(emptyList(), attachments).getOrElse { error ->
+            val message = error.message ?: "附件校验失败"
+            _lastError.value = message
+            scope.launch { eventChannel.send(message) }
+            return false
+        }
+        val sessionId = _currentSessionId.value ?: return false
+        val state = conversationService.runtimeState(sessionId).value
+        if (
+            (text.isBlank() && validatedAttachments.isEmpty()) || !_isSending.value ||
+            state?.isStreaming != true || state.isCompacting || _queuedMessageBusy.value
+        ) return false
+
+        _queuedMessageBusy.value = true
+        scope.launch {
+            try {
+                val images = loadImages(validatedAttachments)
+                conversationService.sendQueuedMessage(sessionId, text, images, mode).fold(
+                    onSuccess = {
+                        actionChannel.send(
+                            SessionActionEvent(
+                                message = when (mode) {
+                                    PiQueuedMessageMode.STEER -> "实时引导已送达 Pi"
+                                    PiQueuedMessageMode.FOLLOW_UP -> "后续任务已加入 Pi 队列"
+                                },
+                                type = ToastType.SUCCESS,
+                            )
+                        )
+                    },
+                    onFailure = { error ->
+                        val message = error.message ?: "Pi 消息投递失败"
+                        _lastError.value = message
+                        if (text.isNotBlank()) composerDraftChannel.send(text)
+                        eventChannel.send(message)
+                    },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                val message = error.message ?: "图片读取失败"
+                _lastError.value = message
+                if (text.isNotBlank()) composerDraftChannel.send(text)
+                eventChannel.send(message)
+            } finally {
+                _queuedMessageBusy.value = false
             }
         }
         return true
@@ -629,6 +812,31 @@ class SessionViewModel(
         }
     }
 
+    private fun schedulePiExtensionUiTimeout(sessionId: String, request: PiExtensionUiRequest) {
+        piExtensionUiTimeoutJob?.cancel()
+        val timeoutMillis = request.timeoutMillis?.takeIf { it > 0 } ?: return
+        piExtensionUiTimeoutJob = scope.launch {
+            delay(timeoutMillis)
+            if (piExtensionUiSessionId == sessionId && _piExtensionUiRequest.value?.id == request.id) {
+                piExtensionUiSessionId = null
+                _piExtensionUiRequest.value = null
+                _piExtensionUiBusy.value = false
+                actionChannel.send(SessionActionEvent("Pi 扩展交互已超时", ToastType.INFO))
+            }
+        }
+    }
+
+    private fun clearPiExtensionUiState() {
+        piExtensionUiTimeoutJob?.cancel()
+        piExtensionUiTimeoutJob = null
+        piExtensionUiSessionId = null
+        _piExtensionUiRequest.value = null
+        _piExtensionUiBusy.value = false
+        _piExtensionStatuses.value = emptyMap()
+        _piExtensionWidgets.value = emptyMap()
+        _piExtensionTitle.value = null
+    }
+
     private suspend fun loadImages(attachments: List<UiImageAttachment>): List<ImageData> =
         withContext(Dispatchers.IO) {
             var totalDecodedBytes = 0L
@@ -678,6 +886,12 @@ private const val MAX_IMAGE_BASE64_CHARS = (((MAX_IMAGE_BYTES + 2L) / 3L) * 4L).
 private const val MAX_COMPACTION_INSTRUCTIONS_LENGTH = 2_000
 private val SUPPORTED_IMAGE_MIME_TYPES = setOf("image/png", "image/jpeg", "image/webp")
 private val TOOL_ARGUMENTS_JSON = Json { prettyPrint = true }
+
+private fun String.queueModeLabel(): String = when (this) {
+    "all" -> "批量处理"
+    "one-at-a-time" -> "逐条处理"
+    else -> this
+}
 
 internal fun ToolExecution.toToolCardData() = ToolCardData(
     title = name,

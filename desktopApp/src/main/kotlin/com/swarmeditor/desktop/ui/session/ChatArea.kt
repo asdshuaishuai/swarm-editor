@@ -133,6 +133,8 @@ fun ChatArea(
     attachments: List<UiImageAttachment>,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
+    onSteer: () -> Unit,
+    onFollowUp: () -> Unit,
     onAttach: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
     onCancel: () -> Unit,
@@ -142,6 +144,8 @@ fun ChatArea(
     contextUsageText: String = "上下文：—",
     mcpServers: List<McpServerDto> = emptyList(),
     piCommands: List<PiCommandInfo> = emptyList(),
+    canQueueMessage: Boolean = false,
+    queuedMessageBusy: Boolean = false,
 ) {
     var showMentionDropdown by remember { mutableStateOf(false) }
     var mentionFilter by remember { mutableStateOf("") }
@@ -406,8 +410,8 @@ fun ChatArea(
                             }
                         }
                         if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
-                            if (!event.isShiftPressed && canSend && !isSending) {
-                                onSend()
+                            if (!event.isShiftPressed && canSend && (!isSending || canQueueMessage)) {
+                                if (isSending) onSteer() else onSend()
                                 true
                             } else false
                         } else false
@@ -444,14 +448,43 @@ fun ChatArea(
                         },
                     )
                     Spacer(Modifier.weight(1f))
-                    ActionButton(
-                        text = if (isSending) "停止" else "发送",
-                        tone = if (isSending) ActionTone.DESTRUCTIVE else ActionTone.PRIMARY,
-                        enabled = isSending || canSend,
-                        compact = true,
-                        onClick = if (isSending) onCancel else onSend,
-                        modifier = Modifier.height(layoutDensity.actionHeight.dp),
-                    )
+                    if (isSending) {
+                        ActionButton(
+                            text = "停止",
+                            tone = ActionTone.DESTRUCTIVE,
+                            compact = true,
+                            onClick = onCancel,
+                            modifier = Modifier.height(layoutDensity.actionHeight.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        ActionButton(
+                            text = "排队",
+                            tone = ActionTone.SECONDARY,
+                            prominent = false,
+                            enabled = canSend && canQueueMessage && !queuedMessageBusy,
+                            compact = true,
+                            onClick = onFollowUp,
+                            modifier = Modifier.height(layoutDensity.actionHeight.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        ActionButton(
+                            text = if (queuedMessageBusy) "投递中" else "引导",
+                            tone = ActionTone.PRIMARY,
+                            enabled = canSend && canQueueMessage && !queuedMessageBusy,
+                            compact = true,
+                            onClick = onSteer,
+                            modifier = Modifier.height(layoutDensity.actionHeight.dp),
+                        )
+                    } else {
+                        ActionButton(
+                            text = "发送",
+                            tone = ActionTone.PRIMARY,
+                            enabled = canSend,
+                            compact = true,
+                            onClick = onSend,
+                            modifier = Modifier.height(layoutDensity.actionHeight.dp),
+                        )
+                    }
                 }
             }
             if (layoutDensity.showShortcutHints) {
@@ -464,7 +497,7 @@ fun ChatArea(
                     Spacer(Modifier.weight(1f))
                     Text("Enter", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
-                    Text(" 发送", color = Tx3, fontSize = 11.sp)
+                    Text(if (isSending) " 引导" else " 发送", color = Tx3, fontSize = 11.sp)
                     Spacer(Modifier.width(12.dp))
                     Text("Shift+Enter", color = Tx3, fontSize = 10.sp, fontFamily = SansFont,
                         modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))

@@ -180,6 +180,13 @@ class PiRpcSession(
         request("get_available_models", configTimeout())
     )
 
+    override suspend fun getAvailableThinkingLevels(): List<String> {
+        val response = request("get_available_thinking_levels", configTimeout())
+        return response["data"]?.jsonObject?.get("levels")?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+            .orEmpty()
+    }
+
     override suspend fun setModel(provider: String, modelId: String): PiSessionState = operationMutex.withLock {
         request("set_model", configTimeout()) {
             put("provider", provider)
@@ -191,6 +198,32 @@ class PiRpcSession(
     override suspend fun setThinkingLevel(level: String): PiSessionState = operationMutex.withLock {
         request("set_thinking_level", configTimeout()) { put("level", level) }
         refreshState()
+    }
+
+    override suspend fun setAutoCompaction(enabled: Boolean): PiSessionState {
+        request("set_auto_compaction", configTimeout()) { put("enabled", enabled) }
+        return refreshState()
+    }
+
+    override suspend fun setAutoRetry(enabled: Boolean): PiSessionState {
+        request("set_auto_retry", configTimeout()) { put("enabled", enabled) }
+        return refreshState()
+    }
+
+    override suspend fun abortRetry() {
+        request("abort_retry", configTimeout())
+    }
+
+    override suspend fun setSteeringMode(mode: String): PiSessionState {
+        requireQueueMode(mode)
+        request("set_steering_mode", configTimeout()) { put("mode", mode) }
+        return refreshState()
+    }
+
+    override suspend fun setFollowUpMode(mode: String): PiSessionState {
+        requireQueueMode(mode)
+        request("set_follow_up_mode", configTimeout()) { put("mode", mode) }
+        return refreshState()
     }
 
     override suspend fun getSessionTree(): PiSessionTree = parsePiSessionTree(
@@ -277,6 +310,40 @@ class PiRpcSession(
             abortedRun.compareAndSet(completed, null)
             activeRun.compareAndSet(completed, null)
         }
+    }
+
+    override suspend fun sendQueuedMessage(
+        message: String,
+        images: List<ImageData>,
+        mode: PiQueuedMessageMode,
+    ) {
+        require(message.isNotBlank() || images.isNotEmpty()) { "Queued message cannot be blank" }
+        check(process.isAlive) { "pi 进程未运行" }
+        check(activeRun.get() != null) { "pi 会话当前没有运行中的请求" }
+        request(
+            type = when (mode) {
+                PiQueuedMessageMode.STEER -> "steer"
+                PiQueuedMessageMode.FOLLOW_UP -> "follow_up"
+            },
+            timeoutSeconds = configTimeout(),
+        ) {
+            putPiPromptPayload(message, images)
+        }
+        refreshStateBestEffort()
+    }
+
+    override suspend fun respondToExtensionUi(requestId: String, response: PiExtensionUiResponse) {
+        require(requestId.isNotBlank()) { "Extension UI request id cannot be blank" }
+        check(process.isAlive) { "pi 进程未运行" }
+        sendJson(buildJsonObject {
+            put("type", "extension_ui_response")
+            put("id", requestId)
+            when (response) {
+                is PiExtensionUiResponse.Value -> put("value", response.value)
+                is PiExtensionUiResponse.Confirmation -> put("confirmed", response.confirmed)
+                PiExtensionUiResponse.Cancelled -> put("cancelled", true)
+            }
+        })
     }
 
     override suspend fun abort() {
@@ -425,9 +492,25 @@ class PiRpcSession(
                 ?.complete(payload)
             "tool_request" -> handleToolBrokerRequest(payload)
             "tool_cancel" -> handleToolBrokerCancel(payload)
+            "extension_ui_request" -> handleExtensionUiRequest(payload)
             "agent_start" -> _state.update { it?.copy(isStreaming = true) }
             "compaction_start" -> _state.update { it?.copy(isCompacting = true) }
             "compaction_end" -> _state.update { it?.copy(isCompacting = false) }
+            "auto_retry_start" -> _state.update {
+                it?.copy(
+                    isRetrying = true,
+                    retryAttempt = payload["attempt"]?.jsonPrimitive?.intOrNull ?: 0,
+                    retryMaxAttempts = payload["maxAttempts"]?.jsonPrimitive?.intOrNull ?: 0,
+                    retryDelayMillis = payload["delayMs"]?.jsonPrimitive?.longOrNull,
+                    retryErrorMessage = payload["errorMessage"]?.jsonPrimitive?.contentOrNull,
+                )
+            }
+            "auto_retry_end" -> _state.update {
+                it?.copy(
+                    isRetrying = false,
+                    retryErrorMessage = payload["finalError"]?.jsonPrimitive?.contentOrNull,
+                )
+            }
             "agent_end" -> if (payload["willRetry"]?.jsonPrimitive?.contentOrNull != "true") {
                 emitEvent(parsePiAgentCompletion(payload))
                 _state.update { it?.copy(isStreaming = false) }
@@ -449,6 +532,67 @@ class PiRpcSession(
                     isError = payload["isError"]?.jsonPrimitive?.contentOrNull == "true"
                 )
             )
+        }
+    }
+
+    private suspend fun handleExtensionUiRequest(payload: JsonObject) {
+        val id = payload["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (id.isBlank()) {
+            log.warn { "pi[$pid] ignored extension UI request without id" }
+            return
+        }
+        when (val method = payload["method"]?.jsonPrimitive?.contentOrNull) {
+            "select", "confirm", "input", "editor" -> emitEvent(
+                PiSessionEvent.ExtensionUiRequested(
+                    PiExtensionUiRequest(
+                        id = id,
+                        method = when (method) {
+                            "select" -> PiExtensionUiMethod.SELECT
+                            "confirm" -> PiExtensionUiMethod.CONFIRM
+                            "input" -> PiExtensionUiMethod.INPUT
+                            else -> PiExtensionUiMethod.EDITOR
+                        },
+                        title = payload["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        message = payload["message"]?.jsonPrimitive?.contentOrNull,
+                        options = payload["options"]?.jsonArray
+                            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                            .orEmpty(),
+                        placeholder = payload["placeholder"]?.jsonPrimitive?.contentOrNull,
+                        prefill = payload["prefill"]?.jsonPrimitive?.contentOrNull,
+                        timeoutMillis = payload["timeout"]?.jsonPrimitive?.longOrNull,
+                    )
+                )
+            )
+            "notify" -> emitEvent(
+                PiSessionEvent.ExtensionNotification(
+                    message = payload["message"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    type = payload["notifyType"]?.jsonPrimitive?.contentOrNull ?: "info",
+                )
+            )
+            "setStatus" -> emitEvent(
+                PiSessionEvent.ExtensionStatusChanged(
+                    key = payload["statusKey"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    text = payload["statusText"]?.jsonPrimitive?.contentOrNull,
+                )
+            )
+            "setWidget" -> emitEvent(
+                PiSessionEvent.ExtensionWidgetChanged(
+                    key = payload["widgetKey"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    lines = payload["widgetLines"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull },
+                    placement = payload["widgetPlacement"]?.jsonPrimitive?.contentOrNull,
+                )
+            )
+            "setTitle" -> emitEvent(
+                PiSessionEvent.ExtensionTitleChanged(
+                    payload["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                )
+            )
+            "set_editor_text" -> emitEvent(
+                PiSessionEvent.ExtensionEditorTextChanged(
+                    payload["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                )
+            )
+            else -> log.warn { "pi[$pid] ignored unsupported extension UI method: $method" }
         }
     }
 
@@ -678,7 +822,15 @@ internal fun parsePiSessionState(data: JsonObject, pid: Long?): PiSessionState {
         }.orEmpty(),
         isAlive = true,
         errorMessage = null,
+        steeringMode = data["steeringMode"]?.jsonPrimitive?.contentOrNull ?: "one-at-a-time",
+        followUpMode = data["followUpMode"]?.jsonPrimitive?.contentOrNull ?: "one-at-a-time",
+        autoRetryEnabled = data["autoRetryEnabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+        isRetrying = data["isRetrying"]?.jsonPrimitive?.booleanOrNull ?: false,
     )
+}
+
+private fun requireQueueMode(mode: String) {
+    require(mode == "all" || mode == "one-at-a-time") { "Unsupported pi queue mode: $mode" }
 }
 
 internal fun parsePiCommands(response: JsonObject): List<PiCommandInfo> {

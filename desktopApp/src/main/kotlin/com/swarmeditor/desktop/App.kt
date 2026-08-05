@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.material3.Text
@@ -50,12 +51,14 @@ import com.swarmeditor.desktop.ui.session.SessionPanel
 import com.swarmeditor.desktop.ui.settings.SettingsModal
 import com.swarmeditor.desktop.ui.dialog.AgentConfigModal
 import com.swarmeditor.desktop.ui.dialog.McpConfigModal
+import com.swarmeditor.desktop.ui.dialog.PiExtensionUiModal
 import com.swarmeditor.desktop.ui.session.RightPanel
 import com.swarmeditor.desktop.ui.session.TokenUsageSummary
 import com.swarmeditor.desktop.ui.chat.ChatArea
 import com.swarmeditor.desktop.ui.AgentSideBar
 import com.swarmeditor.desktop.ui.PluginSideBar
 import com.swarmeditor.desktop.viewmodel.ToastType
+import com.swarmeditor.backend.pi.PiQueuedMessageMode
 import com.swarmeditor.desktop.ui.agents.AgentOrchestrationView
 import com.swarmeditor.desktop.ui.plugins.PluginCenterView
 import com.swarmeditor.desktop.ui.activity.ActivityLogView
@@ -124,9 +127,16 @@ fun WindowScope.App(
     val piRuntimeStats by root.sessionVm.runtimeStats.collectAsState()
     val piCommands by root.sessionVm.piCommands.collectAsState()
     val piModels by root.sessionVm.piModels.collectAsState()
+    val piThinkingLevels by root.sessionVm.piThinkingLevels.collectAsState()
     val piSessionTree by root.sessionVm.piSessionTree.collectAsState()
     val sessionTreeLoading by root.sessionVm.sessionTreeLoading.collectAsState()
     val runtimeControlBusy by root.sessionVm.runtimeControlBusy.collectAsState()
+    val queuedMessageBusy by root.sessionVm.queuedMessageBusy.collectAsState()
+    val piExtensionUiRequest by root.sessionVm.piExtensionUiRequest.collectAsState()
+    val piExtensionUiBusy by root.sessionVm.piExtensionUiBusy.collectAsState()
+    val piExtensionStatuses by root.sessionVm.piExtensionStatuses.collectAsState()
+    val piExtensionWidgets by root.sessionVm.piExtensionWidgets.collectAsState()
+    val piExtensionTitle by root.sessionVm.piExtensionTitle.collectAsState()
     val isCompacting by root.sessionVm.isCompacting.collectAsState()
     val activitySessions by root.sessionVm.domainSessions.collectAsState()
     val isSending by root.sessionVm.isSending.collectAsState()
@@ -582,6 +592,26 @@ fun WindowScope.App(
                                         }
                                     }
                                 },
+                                onSteer = {
+                                    if (root.sessionVm.sendQueuedMessage(
+                                            inputText,
+                                            imageAttachments,
+                                            PiQueuedMessageMode.STEER,
+                                        )) {
+                                        inputText = ""
+                                        imageAttachments = emptyList()
+                                    }
+                                },
+                                onFollowUp = {
+                                    if (root.sessionVm.sendQueuedMessage(
+                                            inputText,
+                                            imageAttachments,
+                                            PiQueuedMessageMode.FOLLOW_UP,
+                                        )) {
+                                        inputText = ""
+                                        imageAttachments = emptyList()
+                                    }
+                                },
                                 onAttach = {
                                     runCatching { onPickImages() }
                                         .onFailure { root.showToast(it.message ?: "选择图片失败", ToastType.ERROR) }
@@ -599,6 +629,8 @@ fun WindowScope.App(
                                 contextUsageText = contextUsageText,
                                 mcpServers = mcpServers,
                                 piCommands = piCommands,
+                                canQueueMessage = piRuntimeState?.isStreaming == true,
+                                queuedMessageBusy = queuedMessageBusy,
                             )
                             MainConfig.Agents -> AgentOrchestrationView(
                                 agents = agentDtos,
@@ -684,6 +716,7 @@ fun WindowScope.App(
                             piRuntimeState = piRuntimeState,
                             piRuntimeStats = piRuntimeStats,
                             piModels = piModels,
+                            piThinkingLevels = piThinkingLevels,
                             piSessionTree = piSessionTree,
                             sessionTreeLoading = sessionTreeLoading,
                             runtimeControlBusy = runtimeControlBusy,
@@ -693,6 +726,11 @@ fun WindowScope.App(
                             onRefreshModels = root.sessionVm::refreshPiModels,
                             onSetModel = root.sessionVm::setPiModel,
                             onSetThinkingLevel = root.sessionVm::setPiThinkingLevel,
+                            onSetAutoCompaction = root.sessionVm::setPiAutoCompaction,
+                            onSetAutoRetry = root.sessionVm::setPiAutoRetry,
+                            onAbortRetry = root.sessionVm::abortPiRetry,
+                            onSetSteeringMode = root.sessionVm::setPiSteeringMode,
+                            onSetFollowUpMode = root.sessionVm::setPiFollowUpMode,
                             onRefreshSessionTree = root.sessionVm::refreshPiSessionTree,
                             onForkSession = root.sessionVm::forkPiSession,
                             onCloneSession = root.sessionVm::clonePiSession,
@@ -800,10 +838,57 @@ fun WindowScope.App(
         piCommands = piCommands,
     )
 
+    PiExtensionStatusOverlay(
+        title = piExtensionTitle,
+        statuses = piExtensionStatuses,
+        widgets = piExtensionWidgets.values.toList(),
+    )
+
+    piExtensionUiRequest?.let { request ->
+        PiExtensionUiModal(
+            request = request,
+            busy = piExtensionUiBusy,
+            onRespond = root.sessionVm::respondToPiExtensionUi,
+        )
+    }
+
     ToastHost(
         toasts = toastList,
         onDismiss = { toastList.removeAll { t -> t.id == it } }
     )
+    }
+}
+
+@Composable
+private fun PiExtensionStatusOverlay(
+    title: String?,
+    statuses: Map<String, String>,
+    widgets: List<com.swarmeditor.desktop.viewmodel.PiExtensionWidget>,
+) {
+    if (title == null && statuses.isEmpty() && widgets.isEmpty()) return
+    Box(Modifier.fillMaxSize().padding(top = 54.dp, end = 18.dp), contentAlignment = Alignment.TopEnd) {
+        Column(
+            modifier = Modifier
+                .width(320.dp)
+                .layeredSurface(OverlayDepth.PRIMARY, bg = Bg2, border = Line2, shape = AppShapes.lg)
+                .padding(14.dp),
+        ) {
+            Text(title ?: "Pi Extension", color = Tx, style = AppType.body, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            statuses.values.forEach { status ->
+                Text(status, color = Tx2, style = AppType.bodySm, modifier = Modifier.padding(top = 5.dp))
+            }
+            widgets.forEach { widget ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 9.dp)
+                        .surfaceCard(bg = Bg3, border = Line, shape = AppShapes.md)
+                        .padding(10.dp),
+                ) {
+                    widget.lines.forEach { line -> Text(line, color = Tx2, style = AppType.bodySm) }
+                }
+            }
+        }
     }
 }
 

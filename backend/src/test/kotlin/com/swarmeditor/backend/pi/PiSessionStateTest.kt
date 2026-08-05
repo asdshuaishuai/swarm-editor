@@ -29,7 +29,11 @@ class PiSessionStateTest {
               "isCompacting": false,
               "sessionId": "remote-1",
               "sessionName": "Refactor",
+              "steeringMode": "all",
+              "followUpMode": "one-at-a-time",
               "autoCompactionEnabled": true,
+              "autoRetryEnabled": false,
+              "isRetrying": true,
               "messageCount": 12,
               "pendingMessageCount": 1
             }
@@ -49,6 +53,10 @@ class PiSessionStateTest {
         assertFalse(state.isCompacting)
         assertEquals(12, state.messageCount)
         assertEquals(1, state.pendingMessageCount)
+        assertEquals("all", state.steeringMode)
+        assertEquals("one-at-a-time", state.followUpMode)
+        assertFalse(state.autoRetryEnabled)
+        assertTrue(state.isRetrying)
     }
 
     @Test

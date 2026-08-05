@@ -112,6 +112,8 @@ export interface RpcSessionState {
 	sessionId: string;
 	sessionName?: string;
 	autoCompactionEnabled: boolean;
+	autoRetryEnabled: boolean;
+	isRetrying: boolean;
 	messageCount: number;
 	pendingMessageCount: number;
 	tools: Array<{ name: string; description: string; active: boolean }>;

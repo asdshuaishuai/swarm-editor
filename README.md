@@ -24,6 +24,8 @@
 - `agents.json` 只保存主模型 ID；主 Agent 身份与策略由系统提供，子 Agent 按职责和模型能力即时生成且不持久化。Provider、thinking、凭据、职责标签和模型并发容量由独立模型池管理。
 - pi 配置、Skills 和会话隔离在 `~/.swarm-editor/`。
 - Pi `0.83.0` 的标准化与 provider 原始停止原因会进入 Agent 活动证据；模型目录固定在仓库内并离线构建，能力审计见 `docs/research/2026-08-02-pi-0.83-core-capabilities.md`。
+- 对话运行期间可直接向 Pi 发送实时引导，或把后续任务排入本轮完成后的队列；两类消息均沿用活动会话、图片附件、持久化与审计链路。
+- Pi 检查面板读取当前模型真实支持的 thinking levels，并可控制自动压缩、自动重试、重试取消以及 steer/follow-up 的逐条或批量处理策略。
 
 ## User-Level Discovery
 

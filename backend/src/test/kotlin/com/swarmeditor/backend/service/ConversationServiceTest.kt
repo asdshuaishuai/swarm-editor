@@ -10,6 +10,8 @@ import com.swarmeditor.backend.pi.PiConversationMessage
 import com.swarmeditor.backend.pi.PiSessionMutationResult
 import com.swarmeditor.backend.pi.PiSessionSnapshot
 import com.swarmeditor.backend.pi.PiSessionState
+import com.swarmeditor.backend.pi.PiQueuedMessageMode
+import com.swarmeditor.backend.pi.PiExtensionUiResponse
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.MessageRole
@@ -28,10 +30,12 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -87,6 +91,92 @@ class ConversationServiceTest {
 
         assertEquals("pi-existing", runtimeProvider.requestedRemoteSessionId)
         coVerify(exactly = 0) { sessionService.associateRemoteSession(any(), any()) }
+    }
+
+    @Test
+    fun `live steering is delivered before the user message is persisted`() = runTest {
+        val sessionService = mockk<SessionService>(relaxed = true)
+        val agentService = mockk<AgentService>()
+        val runtimeProvider = FakePiSessionProvider(
+            session = FakePiSession("pi-live", ""),
+            activeState = PiSessionState(
+                pid = 42,
+                sessionId = "pi-live",
+                thinkingLevel = "high",
+                isStreaming = true,
+                isCompacting = false,
+                autoCompactionEnabled = true,
+                messageCount = 2,
+                pendingMessageCount = 0,
+            ),
+        )
+        coEvery { sessionService.get("local-live") } returns Session(
+            "local-live",
+            "pi-default",
+            "Live",
+            now,
+            now,
+            remoteSessionId = "pi-live",
+        )
+
+        val result = newConversationService(sessionService, agentService, runtimeProvider)
+            .sendQueuedMessage("local-live", "focus on tests", mode = PiQueuedMessageMode.STEER)
+
+        assertTrue(result.isSuccess)
+        assertEquals("local-live", runtimeProvider.queuedSessionId)
+        assertEquals("focus on tests", runtimeProvider.queuedMessage)
+        assertEquals(PiQueuedMessageMode.STEER, runtimeProvider.queuedMode)
+        coVerify {
+            sessionService.addMessage(
+                "local-live",
+                MessageRole.USER,
+                match<List<ContentBlock>> { blocks -> blocks.single().text == "focus on tests" },
+            )
+        }
+    }
+
+    @Test
+    fun `runtime controls delegate to the active pi session`() = runTest {
+        val sessionService = mockk<SessionService>(relaxed = true)
+        val agentService = mockk<AgentService>()
+        val runtimeProvider = FakePiSessionProvider(
+            session = FakePiSession("pi-controls", ""),
+            activeState = PiSessionState(
+                pid = 42,
+                sessionId = "pi-controls",
+                thinkingLevel = "low",
+                isStreaming = false,
+                isCompacting = false,
+                autoCompactionEnabled = true,
+                messageCount = 1,
+                pendingMessageCount = 0,
+            ),
+        )
+        val service = newConversationService(sessionService, agentService, runtimeProvider)
+
+        assertEquals(listOf("off", "low", "high"), service.getAvailableThinkingLevels("local-controls").getOrThrow())
+        assertFalse(service.setAutoCompaction("local-controls", false).getOrThrow().autoCompactionEnabled)
+        assertFalse(service.setAutoRetry("local-controls", false).getOrThrow().autoRetryEnabled)
+        assertEquals("all", service.setSteeringMode("local-controls", "all").getOrThrow().steeringMode)
+        assertEquals("all", service.setFollowUpMode("local-controls", "all").getOrThrow().followUpMode)
+        assertTrue(service.abortRetry("local-controls").isSuccess)
+        assertEquals(1, runtimeProvider.abortRetryCalls)
+    }
+
+    @Test
+    fun `extension ui response delegates directly to the active pi session`() = runTest {
+        val sessionService = mockk<SessionService>(relaxed = true)
+        val agentService = mockk<AgentService>(relaxed = true)
+        val runtimeProvider = FakePiSessionProvider(FakePiSession("pi-extension", ""))
+        val response = PiExtensionUiResponse.Value("safe")
+
+        val result = newConversationService(sessionService, agentService, runtimeProvider)
+            .respondToExtensionUi("local-extension", "request-1", response)
+
+        assertTrue(result.isSuccess)
+        assertEquals("local-extension", runtimeProvider.extensionUiSessionId)
+        assertEquals("request-1", runtimeProvider.extensionUiRequestId)
+        assertEquals(response, runtimeProvider.extensionUiResponse)
     }
 
     @Test
@@ -685,13 +775,22 @@ private class FakePiSessionProvider(
     private val refreshedStats: PiSessionStats? = null,
     private val forkResult: PiSessionMutationResult? = null,
     private val snapshotResult: PiSessionSnapshot? = null,
+    activeState: PiSessionState? = null,
 ) : PiSessionProvider {
+    private val stateFlow = MutableStateFlow(activeState)
     var localSessionId: String? = null
     var requestedRemoteSessionId: String? = null
     var compactedSessionId: String? = null
     var compactedInstructions: String? = null
     var forkedEntryId: String? = null
     var configValidated: Boolean = false
+    var queuedSessionId: String? = null
+    var queuedMessage: String? = null
+    var queuedMode: PiQueuedMessageMode? = null
+    var extensionUiSessionId: String? = null
+    var extensionUiRequestId: String? = null
+    var extensionUiResponse: PiExtensionUiResponse? = null
+    var abortRetryCalls = 0
     val closedSessionIds = mutableListOf<String>()
 
     override suspend fun getOrCreate(
@@ -716,6 +815,39 @@ private class FakePiSessionProvider(
     }
 
     override suspend fun abort(sessionId: String) = Unit
+    override fun state(sessionId: String) = stateFlow
+    override suspend fun sendQueuedMessage(
+        sessionId: String,
+        message: String,
+        images: List<ImageData>,
+        mode: PiQueuedMessageMode,
+    ) {
+        queuedSessionId = sessionId
+        queuedMessage = message
+        queuedMode = mode
+    }
+    override suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ) {
+        extensionUiSessionId = sessionId
+        extensionUiRequestId = requestId
+        extensionUiResponse = response
+    }
+    override suspend fun getAvailableThinkingLevels(sessionId: String): List<String> =
+        listOf("off", "low", "high")
+    override suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): PiSessionState =
+        updateState { copy(autoCompactionEnabled = enabled) }
+    override suspend fun setAutoRetry(sessionId: String, enabled: Boolean): PiSessionState =
+        updateState { copy(autoRetryEnabled = enabled) }
+    override suspend fun abortRetry(sessionId: String) {
+        abortRetryCalls++
+    }
+    override suspend fun setSteeringMode(sessionId: String, mode: String): PiSessionState =
+        updateState { copy(steeringMode = mode) }
+    override suspend fun setFollowUpMode(sessionId: String, mode: String): PiSessionState =
+        updateState { copy(followUpMode = mode) }
     override suspend fun close(sessionId: String) {
         closedSessionIds += sessionId
     }
@@ -732,4 +864,7 @@ private class FakePiSessionProvider(
     }
     override suspend fun snapshot(sessionId: String): PiSessionSnapshot =
         snapshotResult ?: error("snapshot unavailable")
+
+    private fun updateState(transform: PiSessionState.() -> PiSessionState): PiSessionState =
+        checkNotNull(stateFlow.value).transform().also { stateFlow.value = it }
 }

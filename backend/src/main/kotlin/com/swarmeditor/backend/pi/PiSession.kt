@@ -61,7 +61,20 @@ data class PiSessionState(
     val tools: List<PiToolInfo> = emptyList(),
     val isAlive: Boolean = true,
     val errorMessage: String? = null,
+    val steeringMode: String = "one-at-a-time",
+    val followUpMode: String = "one-at-a-time",
+    val autoRetryEnabled: Boolean = true,
+    val isRetrying: Boolean = false,
+    val retryAttempt: Int = 0,
+    val retryMaxAttempts: Int = 0,
+    val retryDelayMillis: Long? = null,
+    val retryErrorMessage: String? = null,
 )
+
+enum class PiQueuedMessageMode {
+    STEER,
+    FOLLOW_UP,
+}
 
 data class PiToolInfo(
     val name: String,
@@ -121,6 +134,30 @@ data class PiSessionSnapshot(
     val messages: List<PiConversationMessage>,
 )
 
+enum class PiExtensionUiMethod {
+    SELECT,
+    CONFIRM,
+    INPUT,
+    EDITOR,
+}
+
+data class PiExtensionUiRequest(
+    val id: String,
+    val method: PiExtensionUiMethod,
+    val title: String,
+    val message: String? = null,
+    val options: List<String> = emptyList(),
+    val placeholder: String? = null,
+    val prefill: String? = null,
+    val timeoutMillis: Long? = null,
+)
+
+sealed interface PiExtensionUiResponse {
+    data class Value(val value: String) : PiExtensionUiResponse
+    data class Confirmation(val confirmed: Boolean) : PiExtensionUiResponse
+    data object Cancelled : PiExtensionUiResponse
+}
+
 sealed interface PiSessionEvent {
     data class TextDelta(val text: String) : PiSessionEvent
     data class ThinkingDelta(val text: String) : PiSessionEvent
@@ -131,6 +168,16 @@ sealed interface PiSessionEvent {
         val rawStopReason: String?,
         val errorMessage: String?,
     ) : PiSessionEvent
+    data class ExtensionUiRequested(val request: PiExtensionUiRequest) : PiSessionEvent
+    data class ExtensionNotification(val message: String, val type: String) : PiSessionEvent
+    data class ExtensionStatusChanged(val key: String, val text: String?) : PiSessionEvent
+    data class ExtensionWidgetChanged(
+        val key: String,
+        val lines: List<String>?,
+        val placement: String?,
+    ) : PiSessionEvent
+    data class ExtensionTitleChanged(val title: String) : PiSessionEvent
+    data class ExtensionEditorTextChanged(val text: String) : PiSessionEvent
 }
 
 interface PiSession {
@@ -149,16 +196,33 @@ interface PiSession {
         images: List<ImageData> = emptyList(),
         onEvent: suspend (PiSessionEvent) -> Unit = {}
     ): String
+    suspend fun sendQueuedMessage(
+        message: String,
+        images: List<ImageData> = emptyList(),
+        mode: PiQueuedMessageMode,
+    ): Unit = error("pi queued messaging is unavailable")
+    suspend fun respondToExtensionUi(requestId: String, response: PiExtensionUiResponse): Unit =
+        error("pi extension UI is unavailable")
     suspend fun refreshState(): PiSessionState = checkNotNull(state.value) { "pi state is unavailable" }
     suspend fun refreshStats(): PiSessionStats = checkNotNull(stats.value) { "pi stats are unavailable" }
     suspend fun compact(customInstructions: String? = null): PiCompactionResult =
         error("pi compaction is unavailable")
     suspend fun getCommands(): List<PiCommandInfo> = emptyList()
     suspend fun getAvailableModels(): List<PiModelInfo> = emptyList()
+    suspend fun getAvailableThinkingLevels(): List<String> = emptyList()
     suspend fun setModel(provider: String, modelId: String): PiSessionState =
         error("pi model switching is unavailable")
     suspend fun setThinkingLevel(level: String): PiSessionState =
         error("pi thinking-level switching is unavailable")
+    suspend fun setAutoCompaction(enabled: Boolean): PiSessionState =
+        error("pi auto-compaction control is unavailable")
+    suspend fun setAutoRetry(enabled: Boolean): PiSessionState =
+        error("pi auto-retry control is unavailable")
+    suspend fun abortRetry(): Unit = error("pi retry control is unavailable")
+    suspend fun setSteeringMode(mode: String): PiSessionState =
+        error("pi steering-mode control is unavailable")
+    suspend fun setFollowUpMode(mode: String): PiSessionState =
+        error("pi follow-up-mode control is unavailable")
     suspend fun getSessionTree(): PiSessionTree = PiSessionTree(emptyList())
     suspend fun fork(entryId: String): PiSessionMutationResult =
         error("pi session forking is unavailable")
@@ -190,11 +254,32 @@ interface PiSessionProvider {
         error("pi session is not running")
     suspend fun compact(sessionId: String, customInstructions: String? = null): PiCompactionResult =
         error("pi session is not running")
+    suspend fun sendQueuedMessage(
+        sessionId: String,
+        message: String,
+        images: List<ImageData> = emptyList(),
+        mode: PiQueuedMessageMode,
+    ): Unit = error("pi session is not running")
+    suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ): Unit = error("pi session is not running")
     suspend fun getCommands(sessionId: String): List<PiCommandInfo> = emptyList()
     suspend fun getAvailableModels(sessionId: String): List<PiModelInfo> = emptyList()
+    suspend fun getAvailableThinkingLevels(sessionId: String): List<String> = emptyList()
     suspend fun setModel(sessionId: String, provider: String, modelId: String): PiSessionState =
         error("pi session is not running")
     suspend fun setThinkingLevel(sessionId: String, level: String): PiSessionState =
+        error("pi session is not running")
+    suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): PiSessionState =
+        error("pi session is not running")
+    suspend fun setAutoRetry(sessionId: String, enabled: Boolean): PiSessionState =
+        error("pi session is not running")
+    suspend fun abortRetry(sessionId: String): Unit = error("pi session is not running")
+    suspend fun setSteeringMode(sessionId: String, mode: String): PiSessionState =
+        error("pi session is not running")
+    suspend fun setFollowUpMode(sessionId: String, mode: String): PiSessionState =
         error("pi session is not running")
     suspend fun getSessionTree(sessionId: String): PiSessionTree = PiSessionTree(emptyList())
     suspend fun fork(sessionId: String, entryId: String): PiSessionMutationResult =

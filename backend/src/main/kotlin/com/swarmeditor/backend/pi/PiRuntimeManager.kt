@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.pi
 
 import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.common.model.ImageData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,17 +121,55 @@ class PiRuntimeManager(
     override suspend fun compact(sessionId: String, customInstructions: String?): PiCompactionResult =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.compact(customInstructions)
 
+    override suspend fun sendQueuedMessage(
+        sessionId: String,
+        message: String,
+        images: List<ImageData>,
+        mode: PiQueuedMessageMode,
+    ) {
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }
+            .sendQueuedMessage(message, images, mode)
+    }
+
+    override suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ) {
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }
+            .respondToExtensionUi(requestId, response)
+    }
+
     override suspend fun getCommands(sessionId: String): List<PiCommandInfo> =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.getCommands()
 
     override suspend fun getAvailableModels(sessionId: String): List<PiModelInfo> =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.getAvailableModels()
 
+    override suspend fun getAvailableThinkingLevels(sessionId: String): List<String> =
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.getAvailableThinkingLevels()
+
     override suspend fun setModel(sessionId: String, provider: String, modelId: String): PiSessionState =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.setModel(provider, modelId)
 
     override suspend fun setThinkingLevel(sessionId: String, level: String): PiSessionState =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.setThinkingLevel(level)
+
+    override suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): PiSessionState =
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.setAutoCompaction(enabled)
+
+    override suspend fun setAutoRetry(sessionId: String, enabled: Boolean): PiSessionState =
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.setAutoRetry(enabled)
+
+    override suspend fun abortRetry(sessionId: String) {
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.abortRetry()
+    }
+
+    override suspend fun setSteeringMode(sessionId: String, mode: String): PiSessionState =
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.setSteeringMode(mode)
+
+    override suspend fun setFollowUpMode(sessionId: String, mode: String): PiSessionState =
+        checkNotNull(sessions[sessionId]) { "pi session is not running" }.setFollowUpMode(mode)
 
     override suspend fun getSessionTree(sessionId: String): PiSessionTree =
         checkNotNull(sessions[sessionId]) { "pi session is not running" }.getSessionTree()

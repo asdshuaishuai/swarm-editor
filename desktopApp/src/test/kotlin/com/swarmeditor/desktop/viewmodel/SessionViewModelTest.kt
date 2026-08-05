@@ -5,7 +5,11 @@ import com.swarmeditor.backend.service.ConversationEvent
 import com.swarmeditor.backend.service.SessionService
 import com.swarmeditor.backend.session.SessionStore
 import com.swarmeditor.backend.pi.PiSessionState
+import com.swarmeditor.backend.pi.PiExtensionUiMethod
+import com.swarmeditor.backend.pi.PiExtensionUiRequest
+import com.swarmeditor.backend.pi.PiExtensionUiResponse
 import com.swarmeditor.backend.pi.PiModelInfo
+import com.swarmeditor.backend.pi.PiQueuedMessageMode
 import com.swarmeditor.backend.pi.PiSessionMutationResult
 import com.swarmeditor.backend.pi.PiSessionSnapshot
 import com.swarmeditor.backend.pi.PiConversationMessage
@@ -98,6 +102,54 @@ class SessionViewModelTest {
             release.complete(Unit)
             viewModel.isSending.first { !it }
             assertFalse(viewModel.isSending.value)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `submits extension ui response and clears the active request`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-extension")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val gateway = ExtensionUiConversationGateway(Result.success(Unit))
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+
+            assertTrue(viewModel.sendMessage("hello", "pi-default"))
+            val request = viewModel.piExtensionUiRequest.first { it != null }
+            assertEquals(PiExtensionUiMethod.SELECT, request?.method)
+
+            viewModel.respondToPiExtensionUi(PiExtensionUiResponse.Value("safe"))
+            viewModel.isSending.first { !it }
+
+            assertEquals("safe", (gateway.response as PiExtensionUiResponse.Value).value)
+            assertEquals(null, viewModel.piExtensionUiRequest.value)
+            assertFalse(viewModel.piExtensionUiBusy.value)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `restores extension ui request when response delivery fails`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-extension-failure")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val gateway = ExtensionUiConversationGateway(Result.failure(IllegalStateException("writer closed")))
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+
+            assertTrue(viewModel.sendMessage("hello", "pi-default"))
+            val request = viewModel.piExtensionUiRequest.first { it != null }
+            viewModel.respondToPiExtensionUi(PiExtensionUiResponse.Value("safe"))
+            runCurrent()
+
+            assertEquals(request, viewModel.piExtensionUiRequest.value)
+            assertFalse(viewModel.piExtensionUiBusy.value)
+            assertEquals("writer closed", viewModel.lastError.value)
+            viewModel.cancelSending()
+            advanceUntilIdle()
         } finally {
             directory.deleteRecursively()
         }
@@ -241,6 +293,34 @@ class SessionViewModelTest {
 
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
+    fun `queues live steering without stopping the active response`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-live-steering")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val session = service.create("pi-default", "Live steering")
+            val gateway = QueueingConversationGateway(session.id)
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+            viewModel.selectSession(session.id)
+
+            assertTrue(viewModel.sendMessage("start", "pi-default"))
+            gateway.collectionStarted.await()
+            assertTrue(viewModel.sendQueuedMessage("focus on tests", mode = PiQueuedMessageMode.STEER))
+            gateway.queued.await()
+
+            assertEquals("focus on tests", gateway.queuedMessage)
+            assertEquals(PiQueuedMessageMode.STEER, gateway.queuedMode)
+            assertTrue(viewModel.isSending.value)
+            assertFalse(viewModel.queuedMessageBusy.value)
+
+            gateway.release.complete(Unit)
+            viewModel.isSending.first { !it }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
     fun `switching sessions cannot reroute an active response`() = runTest {
         val directory = Files.createTempDirectory("session-vm-switch")
         try {
@@ -341,6 +421,7 @@ class SessionViewModelTest {
             viewModel.refreshPiModels()
             runCurrent()
             assertEquals(listOf(model), viewModel.piModels.value)
+            assertEquals(listOf("off", "low", "high"), viewModel.piThinkingLevels.value)
 
             assertTrue(viewModel.setPiModel(model))
             runCurrent()
@@ -351,6 +432,26 @@ class SessionViewModelTest {
             runCurrent()
             assertEquals("high", gateway.thinkingLevel)
             assertFalse(viewModel.runtimeControlBusy.value)
+
+            assertTrue(viewModel.setPiAutoCompaction(false))
+            runCurrent()
+            assertFalse(gateway.autoCompactionEnabled)
+
+            assertTrue(viewModel.setPiAutoRetry(false))
+            runCurrent()
+            assertFalse(gateway.autoRetryEnabled)
+
+            assertTrue(viewModel.setPiSteeringMode("all"))
+            runCurrent()
+            assertEquals("all", gateway.steeringMode)
+
+            assertTrue(viewModel.setPiFollowUpMode("all"))
+            runCurrent()
+            assertEquals("all", gateway.followUpMode)
+
+            assertTrue(viewModel.abortPiRetry())
+            runCurrent()
+            assertEquals(1, gateway.abortRetryCalls)
         } finally {
             directory.deleteRecursively()
         }
@@ -628,6 +729,60 @@ private class StreamingConversationGateway(
     override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
 }
 
+private class QueueingConversationGateway(
+    private val sessionId: String,
+) : ConversationGateway {
+    val collectionStarted = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val queued = CompletableDeferred<Unit>()
+    private val runtime = MutableStateFlow(
+        PiSessionState(
+            pid = 404,
+            sessionId = "remote-live-steering",
+            thinkingLevel = "high",
+            isStreaming = true,
+            isCompacting = false,
+            autoCompactionEnabled = true,
+            messageCount = 1,
+            pendingMessageCount = 0,
+        )
+    )
+    var queuedMessage: String? = null
+    var queuedMode: PiQueuedMessageMode? = null
+
+    override fun runtimeState(sessionId: String): StateFlow<PiSessionState?> =
+        if (sessionId == this.sessionId) runtime else MutableStateFlow(null)
+
+    override suspend fun sendMessage(sessionId: String, content: String, images: List<ImageData>): Result<String> =
+        Result.success("done")
+
+    override fun streamMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+    ): Flow<ConversationEvent> = flow {
+        emit(ConversationEvent.Started("remote-live-steering"))
+        collectionStarted.complete(Unit)
+        release.await()
+        emit(ConversationEvent.Completed("done"))
+    }
+
+    override suspend fun sendQueuedMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+        mode: PiQueuedMessageMode,
+    ): Result<Unit> {
+        check(sessionId == this.sessionId)
+        queuedMessage = content
+        queuedMode = mode
+        queued.complete(Unit)
+        return Result.success(Unit)
+    }
+
+    override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
+}
+
 private class CancellableConversationGateway : ConversationGateway {
     val collectionStarted = CompletableDeferred<Unit>()
     val cancelCompleted = CompletableDeferred<Unit>()
@@ -717,6 +872,56 @@ private class SessionCapturingStreamingGateway(
     override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
 }
 
+private class ExtensionUiConversationGateway(
+    private val responseResult: Result<Unit>,
+) : ConversationGateway {
+    private val release = CompletableDeferred<Unit>()
+    var response: PiExtensionUiResponse? = null
+
+    override suspend fun sendMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+    ): Result<String> = Result.success("")
+
+    override fun streamMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+    ): Flow<ConversationEvent> = flow {
+        emit(ConversationEvent.Started("remote-extension"))
+        emit(
+            ConversationEvent.ExtensionUiRequested(
+                PiExtensionUiRequest(
+                    id = "request-1",
+                    method = PiExtensionUiMethod.SELECT,
+                    title = "Execution mode",
+                    options = listOf("fast", "safe"),
+                )
+            )
+        )
+        release.await()
+        emit(ConversationEvent.Completed("done"))
+    }
+
+    override suspend fun respondToExtensionUi(
+        sessionId: String,
+        requestId: String,
+        response: PiExtensionUiResponse,
+    ): Result<Unit> {
+        this.response = response
+        if (responseResult.isSuccess) release.complete(Unit)
+        return responseResult
+    }
+
+    override suspend fun cancelSession(sessionId: String): Result<Unit> {
+        release.complete(Unit)
+        return Result.success(Unit)
+    }
+
+    override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
+}
+
 private class CloseOrderingConversationGateway : ConversationGateway {
     val collectionStarted = CompletableDeferred<Unit>()
     val closeCompleted = CompletableDeferred<Unit>()
@@ -784,9 +989,17 @@ private class RuntimeControlConversationGateway(
 ) : ConversationGateway {
     var selectedModel: PiModelInfo? = null
     var thinkingLevel: String? = null
+    var autoCompactionEnabled = true
+    var autoRetryEnabled = true
+    var steeringMode = "one-at-a-time"
+    var followUpMode = "one-at-a-time"
+    var abortRetryCalls = 0
 
     override suspend fun getAvailableModels(sessionId: String): Result<List<PiModelInfo>> =
         Result.success(listOf(model))
+
+    override suspend fun getAvailableThinkingLevels(sessionId: String): Result<List<String>> =
+        Result.success(listOf("off", "low", "high"))
 
     override suspend fun setModel(sessionId: String, provider: String, modelId: String): Result<PiSessionState> {
         check(sessionId == this.sessionId)
@@ -799,6 +1012,36 @@ private class RuntimeControlConversationGateway(
         check(sessionId == this.sessionId)
         thinkingLevel = level
         return Result.success(runtimeState(model, level))
+    }
+
+    override suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): Result<PiSessionState> {
+        check(sessionId == this.sessionId)
+        autoCompactionEnabled = enabled
+        return Result.success(runtimeState(model, thinkingLevel ?: "medium"))
+    }
+
+    override suspend fun setAutoRetry(sessionId: String, enabled: Boolean): Result<PiSessionState> {
+        check(sessionId == this.sessionId)
+        autoRetryEnabled = enabled
+        return Result.success(runtimeState(model, thinkingLevel ?: "medium"))
+    }
+
+    override suspend fun abortRetry(sessionId: String): Result<Unit> {
+        check(sessionId == this.sessionId)
+        abortRetryCalls++
+        return Result.success(Unit)
+    }
+
+    override suspend fun setSteeringMode(sessionId: String, mode: String): Result<PiSessionState> {
+        check(sessionId == this.sessionId)
+        steeringMode = mode
+        return Result.success(runtimeState(model, thinkingLevel ?: "medium"))
+    }
+
+    override suspend fun setFollowUpMode(sessionId: String, mode: String): Result<PiSessionState> {
+        check(sessionId == this.sessionId)
+        followUpMode = mode
+        return Result.success(runtimeState(model, thinkingLevel ?: "medium"))
     }
 
     override suspend fun sendMessage(sessionId: String, content: String, images: List<ImageData>): Result<String> =
@@ -817,9 +1060,12 @@ private class RuntimeControlConversationGateway(
         thinkingLevel = level,
         isStreaming = false,
         isCompacting = false,
-        autoCompactionEnabled = true,
+        autoCompactionEnabled = autoCompactionEnabled,
         messageCount = 0,
         pendingMessageCount = 0,
+        autoRetryEnabled = autoRetryEnabled,
+        steeringMode = steeringMode,
+        followUpMode = followUpMode,
     )
 }
 
