@@ -52,7 +52,14 @@
 ./gradlew :desktopApp:installStagedPiRuntime # 生成含生产依赖的打包 runtime
 ```
 
-桌面安装包任务：`:desktopApp:packageDmg`、`:desktopApp:packageMsi`、`:desktopApp:packageDeb`。
+桌面安装包任务：`:desktopApp:packageDmg`、`:desktopApp:packageMsi`、`:desktopApp:packageDeb`。Linux 还提供无需 `dpkg`/`fakeroot` 的便携包：
+
+```bash
+./gradlew :desktopApp:packageLinuxPortable
+```
+
+产物位于 `desktopApp/build/compose/binaries/main/portable/`，解压后直接运行 `SwarmEditor/bin/SwarmEditor`。
+`:desktopApp:packageDeb` 需要宿主机提供 `dpkg-deb` 与 `fakeroot`；Fedora 等非 Debian 系统可直接使用便携包任务。
 
 ### Fast Local Loop
 

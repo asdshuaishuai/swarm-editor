@@ -499,10 +499,22 @@ internal fun diagnosticColor(severity: String): Color = when (severity.lowercase
 @Composable
 private fun HighlightStatusChip(preview: ProjectViewModel.FilePreviewState) {
     val server = preview.lspServer?.takeIf(String::isNotBlank)
-    val label = if (server != null) "LSP 语义 · $server" else "JVM 语法高亮"
-    val color = if (server != null) AgentGemini else Tx3
+    val label = when {
+        preview.isInspecting -> "LSP 分析中"
+        server != null -> "LSP 语义 · $server"
+        else -> "JVM 语法高亮"
+    }
+    val color = when {
+        preview.isInspecting -> ControlBlue
+        server != null -> AgentGemini
+        else -> Tx3
+    }
     val detail = preview.lspMessage?.takeIf(String::isNotBlank)
-        ?: if (server != null) "语义高亮由 $server 提供" else "当前文件使用 Compose 本地词法高亮"
+        ?: when {
+            preview.isInspecting -> "文件内容已显示，正在后台获取语义高亮、符号和诊断"
+            server != null -> "语义高亮由 $server 提供"
+            else -> "当前文件使用 Compose 本地词法高亮"
+        }
 
     Text(
         text = label,

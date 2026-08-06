@@ -1,5 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.bundling.Compression
+import org.gradle.api.tasks.bundling.Tar
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -9,14 +11,15 @@ plugins {
 
 val piRoot = rootProject.layout.projectDirectory.dir("pi-0.83.0")
 val piResourcesRoot = layout.buildDirectory.dir("piResources")
+val stagedPiRuntimeDirectory = piResourcesRoot.map { it.dir("common/pi-runtime") }
+
+val cleanStagedPiRuntime by tasks.registering(Delete::class) {
+    delete(stagedPiRuntimeDirectory)
+}
 
 val stagePiRuntime by tasks.registering(Sync::class) {
-    dependsOn(":backend:preparePiRuntime")
-    val runtimeDirectory = piResourcesRoot.map { it.dir("common/pi-runtime") }
-    into(runtimeDirectory)
-    doFirst {
-        delete(runtimeDirectory)
-    }
+    dependsOn(":backend:preparePiRuntime", cleanStagedPiRuntime)
+    into(stagedPiRuntimeDirectory)
     from(piRoot) {
         include("package.json")
         include("package-lock.json")
@@ -31,7 +34,7 @@ val stagePiRuntime by tasks.registering(Sync::class) {
 
 val installStagedPiRuntime by tasks.registering(Exec::class) {
     dependsOn(stagePiRuntime)
-    workingDir(piResourcesRoot.map { it.dir("common/pi-runtime") })
+    workingDir(stagedPiRuntimeDirectory)
     commandLine("npm", "ci", "--omit=dev", "--ignore-scripts")
     inputs.files(piRoot.file("package.json"), piRoot.file("package-lock.json"))
     outputs.file(piResourcesRoot.map { it.file("common/pi-runtime/node_modules/.package-lock.json") })
@@ -83,6 +86,10 @@ compose.desktop {
     application {
         mainClass = "com.swarmeditor.desktop.MainKt"
 
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
+
         nativeDistributions {
             modules("java.naming")
             appResourcesRootDir.set(piResourcesRoot)
@@ -111,24 +118,60 @@ tasks.matching { task ->
     dependsOn(installStagedPiRuntime)
 }
 
+val compactLauncherScript = rootProject.layout.projectDirectory.file("scripts/compact-jpackage-classpath.mjs")
+
+fun registerLauncherClasspathTask(name: String, sourceTask: String, outputVariant: String) = tasks.register<Exec>(name) {
+    dependsOn(sourceTask)
+    val launcherConfig = layout.buildDirectory.file(
+        "compose/binaries/$outputVariant/app/SwarmEditor/lib/app/SwarmEditor.cfg",
+    )
+    inputs.file(compactLauncherScript)
+    inputs.file(launcherConfig)
+    outputs.file(launcherConfig)
+    commandLine("node", compactLauncherScript.asFile.absolutePath, launcherConfig.get().asFile.absolutePath)
+}
+
+val compactDistributableClasspath = registerLauncherClasspathTask(
+    name = "compactDistributableClasspath",
+    sourceTask = "createDistributable",
+    outputVariant = "main",
+)
+val compactReleaseDistributableClasspath = registerLauncherClasspathTask(
+    name = "compactReleaseDistributableClasspath",
+    sourceTask = "createReleaseDistributable",
+    outputVariant = "main-release",
+)
+
 tasks.matching { it.name == "createDistributable" }.configureEach {
-    doLast {
-        val launcherConfig =
-            layout.buildDirectory.file("compose/binaries/main/app/SwarmEditor/lib/app/SwarmEditor.cfg").get().asFile
-        val compactedLines = buildList {
-            var classpathWritten = false
-            launcherConfig.readLines().forEach { line ->
-                if (line.startsWith("app.classpath=")) {
-                    if (!classpathWritten) {
-                        add("app.classpath=\$APPDIR/*")
-                        classpathWritten = true
-                    }
-                } else {
-                    add(line)
-                }
-            }
-            check(classpathWritten) { "Launcher classpath was not generated: $launcherConfig" }
+    finalizedBy(compactDistributableClasspath)
+}
+tasks.matching { it.name == "createReleaseDistributable" }.configureEach {
+    finalizedBy(compactReleaseDistributableClasspath)
+}
+
+tasks.register<Tar>("packageLinuxPortable") {
+    dependsOn(compactReleaseDistributableClasspath)
+    group = "distribution"
+    description = "Builds a self-contained Linux tar.gz without native package-manager dependencies"
+    compression = Compression.GZIP
+    archiveFileName.set("SwarmEditor-${compose.desktop.application.nativeDistributions.packageVersion}-linux-${System.getProperty("os.arch")}.tar.gz")
+    destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/portable"))
+    from(layout.buildDirectory.dir("compose/binaries/main-release/app")) {
+        include("SwarmEditor/**")
+        filesMatching(
+            listOf(
+                "SwarmEditor/bin/SwarmEditor",
+                "SwarmEditor/lib/libapplauncher.so",
+                "SwarmEditor/lib/runtime/lib/jexec",
+                "SwarmEditor/lib/runtime/lib/jspawnhelper",
+            ),
+        ) {
+            permissions { unix("rwxr-xr-x") }
         }
-        launcherConfig.writeText(compactedLines.joinToString(separator = "\n", postfix = "\n"))
+    }
+    doFirst {
+        check(System.getProperty("os.name").startsWith("Linux", ignoreCase = true)) {
+            "packageLinuxPortable can only run on Linux"
+        }
     }
 }

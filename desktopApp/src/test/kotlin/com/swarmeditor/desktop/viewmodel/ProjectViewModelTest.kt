@@ -210,74 +210,73 @@ class ProjectViewModelTest {
     }
 
     @Test
-    fun `saving a source file persists content and refreshes semantic highlighting`() = runTest {
-        val directory = Files.createTempDirectory("project-save-preview")
+    fun `source content renders before code intelligence completes`() = runTest {
+        val directory = Files.createTempDirectory("project-progressive-preview")
         try {
-            directory.resolve("Main.kt").writeText("class Old")
-            val highlightedContents = mutableListOf<String>()
+            directory.resolve("Main.kt").writeText("class Main")
+            val inspectionStarted = CompletableDeferred<Unit>()
+            val releaseInspection = CompletableDeferred<Unit>()
             val highlighter = object : SourceSemanticHighlighter {
                 override suspend fun highlight(file: File, content: String): LspHighlightResult {
-                    highlightedContents += content
+                    inspectionStarted.complete(Unit)
+                    releaseInspection.await()
                     return LspHighlightResult(languageId = "kotlin", serverName = "fake-kotlin-lsp")
                 }
             }
             val dispatcher = StandardTestDispatcher(testScheduler)
-            var savedCount = 0
             val viewModel = ProjectViewModel(
                 ProjectService(directory.toFile(), highlighter),
                 backgroundScope,
                 dispatcher,
-                onFileSaved = { savedCount++ },
             )
 
             runCurrent()
             viewModel.selectFile("Main.kt")
             runCurrent()
-            viewModel.saveFile("class Updated")
+            inspectionStarted.await()
+
+            val contentPreview = viewModel.filePreview.value
+            assertEquals("class Main", contentPreview.content)
+            assertFalse(contentPreview.isLoading)
+            assertTrue(contentPreview.isInspecting)
+
+            releaseInspection.complete(Unit)
             runCurrent()
 
-            assertEquals("class Updated", directory.resolve("Main.kt").toFile().readText())
-            assertEquals("class Updated", viewModel.filePreview.value.content)
-            assertEquals("fake-kotlin-lsp", viewModel.filePreview.value.lspServer)
-            assertEquals(listOf("class Old", "class Updated"), highlightedContents)
-            assertEquals(1, savedCount)
+            val enrichedPreview = viewModel.filePreview.value
+            assertFalse(enrichedPreview.isInspecting)
+            assertEquals("fake-kotlin-lsp", enrichedPreview.lspServer)
         } finally {
             directory.deleteRecursively()
         }
     }
 
     @Test
-    fun `successful save keeps persisted content when follow-up refreshes fail`() = runTest {
-        val directory = Files.createTempDirectory("project-save-refresh-failure")
+    fun `code intelligence failure keeps readable source content`() = runTest {
+        val directory = Files.createTempDirectory("project-preview-lsp-failure")
         try {
-            directory.resolve("Main.kt").writeText("class Old")
+            directory.resolve("Main.kt").writeText("class Main")
             val highlighter = object : SourceSemanticHighlighter {
-                override suspend fun highlight(file: File, content: String): LspHighlightResult {
-                    if (content == "class Updated") error("language server unavailable")
-                    return LspHighlightResult(languageId = "kotlin", serverName = "fake-kotlin-lsp")
-                }
+                override suspend fun highlight(file: File, content: String): LspHighlightResult =
+                    error("language server unavailable")
             }
             val dispatcher = StandardTestDispatcher(testScheduler)
             val viewModel = ProjectViewModel(
                 ProjectService(directory.toFile(), highlighter),
                 backgroundScope,
                 dispatcher,
-                onFileSaved = { error("git refresh unavailable") },
             )
 
             runCurrent()
             viewModel.selectFile("Main.kt")
             runCurrent()
-            viewModel.saveFile("class Updated")
-            runCurrent()
 
             val preview = viewModel.filePreview.value
-            assertEquals("class Updated", directory.resolve("Main.kt").toFile().readText())
-            assertEquals("class Updated", preview.content)
-            assertFalse(preview.isSaving)
-            assertContains(preview.error.orEmpty(), "文件已保存")
-            assertContains(preview.error.orEmpty(), "git refresh unavailable")
-            assertContains(preview.error.orEmpty(), "language server unavailable")
+            assertEquals("class Main", preview.content)
+            assertFalse(preview.isLoading)
+            assertFalse(preview.isInspecting)
+            assertEquals(null, preview.error)
+            assertContains(preview.lspMessage.orEmpty(), "language server unavailable")
         } finally {
             directory.deleteRecursively()
         }

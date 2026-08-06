@@ -25,7 +25,6 @@ class ProjectViewModel(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     gitStatus: StateFlow<GitStatusDto> = MutableStateFlow(GitStatusDto()),
-    private val onFileSaved: () -> Unit = {},
     private val loadTree: suspend () -> ProjectService.FileNode = { service.getTree() },
 ) {
     val projectPath: String = service.projectPath
@@ -43,7 +42,7 @@ class ProjectViewModel(
         val diagnostics: List<SourceDiagnostic> = emptyList(),
         val lspMessage: String? = null,
         val isLoading: Boolean = false,
-        val isSaving: Boolean = false,
+        val isInspecting: Boolean = false,
         val error: String? = null,
     )
 
@@ -90,25 +89,48 @@ class ProjectViewModel(
         previewJob = scope.launch(ioDispatcher) {
             try {
                 val preview = service.readFile(path)
-                val insight = if (!preview.binary && preview.content.isNotEmpty()) {
-                    service.inspectFile(path, preview.content)
-                } else {
-                    null
-                }
-                val state = FilePreviewState(
+                val shouldInspect = !preview.binary && preview.content.isNotEmpty()
+                val contentState = FilePreviewState(
                     path = preview.path,
                     content = preview.content,
                     sizeBytes = preview.sizeBytes,
                     truncated = preview.truncated,
                     binary = preview.binary,
-                    languageId = insight?.languageId ?: path.substringAfterLast('.', "").lowercase(),
-                    lspServer = insight?.serverName,
-                    semanticHighlights = insight?.highlights.orEmpty(),
-                    symbols = insight?.symbols.orEmpty(),
-                    diagnostics = insight?.diagnostics.orEmpty(),
-                    lspMessage = insight?.message,
+                    languageId = path.substringAfterLast('.', "").lowercase(),
+                    isInspecting = shouldInspect,
                 )
-                if (requestId == previewRequestIds.get()) _filePreview.value = state
+                if (requestId != previewRequestIds.get()) return@launch
+                _filePreview.value = contentState
+                if (!shouldInspect) return@launch
+
+                val insight = try {
+                    service.inspectFile(path, preview.content)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    if (requestId == previewRequestIds.get()) {
+                        _filePreview.value = contentState.copy(
+                            isInspecting = false,
+                            lspMessage = "代码智能不可用：${error.message ?: error::class.simpleName}",
+                        )
+                    }
+                    return@launch
+                }
+                if (requestId == previewRequestIds.get()) {
+                    _filePreview.value = if (insight == null) {
+                        contentState.copy(isInspecting = false)
+                    } else {
+                        contentState.copy(
+                            languageId = insight.languageId,
+                            lspServer = insight.serverName,
+                            semanticHighlights = insight.highlights,
+                            symbols = insight.symbols,
+                            diagnostics = insight.diagnostics,
+                            lspMessage = insight.message,
+                            isInspecting = false,
+                        )
+                    }
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -117,62 +139,6 @@ class ProjectViewModel(
                         path = path,
                         error = error.message ?: "无法读取文件",
                     )
-                }
-            }
-        }
-    }
-
-    fun saveFile(content: String) {
-        val current = _filePreview.value
-        val path = current.path ?: return
-        if (current.binary || current.truncated || current.isLoading || current.isSaving) return
-
-        val requestId = previewRequestIds.incrementAndGet()
-        previewJob?.cancel()
-        _filePreview.value = current.copy(isSaving = true, error = null)
-        previewJob = scope.launch(ioDispatcher) {
-            try {
-                val preview = service.writeFile(path, content)
-                val persistedState = FilePreviewState(
-                    path = preview.path,
-                    content = preview.content,
-                    sizeBytes = preview.sizeBytes,
-                    truncated = preview.truncated,
-                    binary = preview.binary,
-                    languageId = path.substringAfterLast('.', "").lowercase(),
-                )
-                if (requestId == previewRequestIds.get()) _filePreview.value = persistedState
-
-                val refreshFailures = mutableListOf<String>()
-                try {
-                    onFileSaved()
-                } catch (error: Throwable) {
-                    refreshFailures += "变更刷新失败: ${error.message ?: error::class.simpleName}"
-                }
-                val insight = try {
-                    service.inspectFile(path, preview.content)
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    refreshFailures += "代码智能刷新失败: ${error.message ?: error::class.simpleName}"
-                    null
-                }
-                val state = persistedState.copy(
-                    languageId = insight?.languageId ?: persistedState.languageId,
-                    lspServer = insight?.serverName,
-                    semanticHighlights = insight?.highlights.orEmpty(),
-                    symbols = insight?.symbols.orEmpty(),
-                    diagnostics = insight?.diagnostics.orEmpty(),
-                    lspMessage = insight?.message,
-                    error = refreshFailures.takeIf(List<String>::isNotEmpty)
-                        ?.joinToString(prefix = "文件已保存，但", separator = "；"),
-                )
-                if (requestId == previewRequestIds.get()) _filePreview.value = state
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                if (requestId == previewRequestIds.get()) {
-                    _filePreview.value = current.copy(error = error.message ?: "无法保存文件")
                 }
             }
         }

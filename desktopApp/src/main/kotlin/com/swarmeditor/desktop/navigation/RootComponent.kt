@@ -65,7 +65,7 @@ class RootComponent(
     val wasmPluginVm = WasmPluginViewModel(wasmPluginService, scope)
     val kotlinLspRuntimeVm = KotlinLspRuntimeViewModel(kotlinLspRuntimeService, lspService, scope)
     val gitVm = GitViewModel(gitService, scope)
-    val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status, onFileSaved = gitVm::refresh)
+    val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status)
     val swarmVm = SwarmViewModel(swarmService, scope)
     private val _themeMode = MutableStateFlow(ThemePreferences.load())
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()

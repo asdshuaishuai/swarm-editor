@@ -53,6 +53,12 @@ private const val DEFAULT_WINDOW_WIDTH = 1280
 private const val DEFAULT_WINDOW_HEIGHT = 960
 private const val MIN_WINDOW_WIDTH = 760
 private const val MIN_WINDOW_HEIGHT = 600
+private const val DESKTOP_MAIN_CLASS = "com.swarmeditor.desktop.MainKt"
+private val WorkspaceRelaunchProperties = listOf(
+    "compose.application.resources.dir",
+    "compose.application.configure.swing.globals",
+    "skiko.library.path",
+)
 
 internal fun initialWindowSize(width: String?, height: String?): DpSize = DpSize(
     width = width?.toIntOrNull()?.coerceIn(MIN_WINDOW_WIDTH, 2560)?.dp ?: DEFAULT_WINDOW_WIDTH.dp,
@@ -192,11 +198,15 @@ internal fun startupProjectDirectory(args: Array<String>): File? {
 internal fun workspaceLaunchCommand(
     directory: File,
     candidates: List<File> = defaultWorkspaceLauncherCandidates(),
+    javaLaunchPrefix: List<String>? = defaultJavaWorkspaceLaunchPrefix(),
 ): List<String> {
     require(directory.isDirectory) { "工作区目录不存在：${directory.absolutePath}" }
-    val launcher = candidates.firstOrNull { it.isFile && it.canExecute() }
-        ?: error("找不到可用的 Swarm Editor 启动器，请先重新安装本地版本")
-    return listOf(launcher.absolutePath, directory.absolutePath)
+    candidates.firstOrNull { it.isFile && it.canExecute() }
+        ?.let { launcher -> return listOf(launcher.absolutePath, directory.absolutePath) }
+    require(!javaLaunchPrefix.isNullOrEmpty()) {
+        "找不到可用的 Swarm Editor 启动器，也无法复用当前 JVM 启动新工作区"
+    }
+    return javaLaunchPrefix + directory.absolutePath
 }
 
 internal fun defaultWorkspaceLauncherCandidates(
@@ -212,6 +222,28 @@ internal fun defaultWorkspaceLauncherCandidates(
         add(File(home, ".local/bin/swarm-editor"))
     }
 }.distinctBy { it.absolutePath }
+
+internal fun defaultJavaWorkspaceLaunchPrefix(
+    javaHome: String? = System.getProperty("java.home"),
+    classPath: String? = System.getProperty("java.class.path"),
+    osName: String = System.getProperty("os.name"),
+    propertyValue: (String) -> String? = System::getProperty,
+): List<String>? {
+    val executableName = if (osName.startsWith("Windows", ignoreCase = true)) "java.exe" else "java"
+    val javaExecutable = javaHome?.takeIf(String::isNotBlank)?.let { File(it, "bin/$executableName") }
+        ?.takeIf { it.isFile && it.canExecute() }
+        ?: return null
+    val activeClassPath = classPath?.takeIf(String::isNotBlank) ?: return null
+    return buildList {
+        add(javaExecutable.absolutePath)
+        WorkspaceRelaunchProperties.forEach { name ->
+            propertyValue(name)?.takeIf(String::isNotBlank)?.let { value -> add("-D$name=$value") }
+        }
+        add("-cp")
+        add(activeClassPath)
+        add(DESKTOP_MAIN_CLASS)
+    }
+}
 
 internal fun launchWorkspace(directory: File): Result<Process> = runCatching {
     ProcessBuilder(workspaceLaunchCommand(directory))
