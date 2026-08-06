@@ -95,6 +95,12 @@ class ModelRegistry(
         configs[normalized.id] = normalized
     }
 
+    suspend fun replaceAll(models: List<ModelConfig>) = mutateAndSave {
+        val normalized = normalize(models)
+        configs.clear()
+        normalized.forEach { configs[it.id] = it }
+    }
+
     suspend fun delete(id: String) = mutateAndSave {
         require(configs.size > 1) { "至少保留一个模型配置" }
         checkNotNull(configs.remove(id)) { "Model config not found: $id" }
@@ -137,7 +143,10 @@ class ModelRegistry(
             name = config.name.trim().ifBlank { "Pi Model" },
             provider = config.provider.trim(),
             model = config.model.trim(),
-            env = config.env.mapKeys { it.key.trim() }.filterKeys(String::isNotBlank),
+            api = config.api.trim(),
+            contextWindow = config.contextWindow.coerceAtLeast(0),
+            maxTokens = config.maxTokens.coerceAtLeast(0),
+            inputModes = config.inputModes.map(String::trim).filter(String::isNotBlank).distinct(),
             priority = config.priority.coerceIn(0, 1000),
             roles = config.roles.distinct(),
         )
@@ -154,21 +163,17 @@ class ModelRegistry(
             ?.uppercase()
             ?.let { value -> AgentThinkingLevel.entries.firstOrNull { it.name == value } }
             ?: AgentThinkingLevel.MEDIUM
-        val environment = agent["env"]?.jsonObject.orEmpty().mapNotNull { (key, value) ->
-            value.jsonPrimitive.contentOrNull?.let { key to it }
-        }.toMap()
         return defaultConfig().copy(
             provider = agent["provider"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             model = agent["model"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             thinkingLevel = thinking,
-            env = environment,
             priority = agent["priority"]?.jsonPrimitive?.intOrNull ?: 100,
         )
     }
 
     companion object {
         const val DEFAULT_MODEL_ID = "pi-default-model"
-        private const val CURRENT_SCHEMA = 1
+        private const val CURRENT_SCHEMA = 2
         private val SUPPORTED_SCHEMAS = 1..CURRENT_SCHEMA
         private val CONFIG_ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
@@ -182,6 +187,6 @@ class ModelRegistry(
 
 @Serializable
 private data class ModelsFile(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val models: List<ModelConfig> = emptyList(),
 )

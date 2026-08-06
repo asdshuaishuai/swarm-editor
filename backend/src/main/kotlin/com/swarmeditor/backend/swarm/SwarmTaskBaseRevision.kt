@@ -41,11 +41,8 @@ class GitDependencyAwareSwarmTaskBaseRevisionResolver(
     private val mutex = Mutex()
     private val normalizedRepositoryRoot = repositoryRoot.canonicalFile
 
-    init {
-        require(File(normalizedRepositoryRoot, ".git").exists()) { "Dependency artifact repository must be a Git worktree" }
-    }
-
     override suspend fun resolve(run: SwarmRun, task: SwarmTask): String = mutex.withLock {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm dependency resolution")
         val baseline = requireNotNull(run.repositoryBaseline) { "Swarm run has no repository baseline" }
         val resolvedRevision = if (task.dependsOn.isEmpty()) {
             baseline.revision

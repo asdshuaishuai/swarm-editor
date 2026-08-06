@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.model
 
 import com.swarmeditor.backend.service.ModelService
+import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -21,7 +22,7 @@ import kotlinx.coroutines.yield
 @OptIn(ExperimentalPathApi::class)
 class ModelRegistryTest {
     @Test
-    fun `migrates legacy primary agent model fields into the independent model pool`() = runTest {
+    fun `migrates legacy model identity without importing credentials`() = runTest {
         val directory = Files.createTempDirectory("model-migration")
         try {
             val agents = directory.resolve("agents.json")
@@ -51,8 +52,51 @@ class ModelRegistryTest {
             assertEquals("openai", migrated.provider)
             assertEquals("gpt-5", migrated.model)
             assertEquals(AgentThinkingLevel.HIGH, migrated.thinkingLevel)
-            assertEquals("secret", migrated.env["OPENAI_API_KEY"])
             assertTrue(Files.readString(modelsPath).contains("gpt-5"))
+            assertFalse(Files.readString(modelsPath).contains("secret"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `Pi catalog replaces custom identities and preserves scheduling overlays`() = runTest {
+        val directory = Files.createTempDirectory("pi-model-catalog")
+        try {
+            val service = ModelService(
+                ModelRegistry(
+                    configPath = directory.resolve("models.json").toFile(),
+                    legacyAgentsPath = directory.resolve("agents.json").toFile(),
+                )
+            )
+            service.init()
+            service.upsert(ModelConfig("custom", "Custom", provider = "custom", model = "unknown")).getOrThrow()
+            val firstCatalog = listOf(
+                PiModelInfo("openai", "gpt-5", "GPT-5", "responses", true, 200_000, 32_000, listOf("text", "image")),
+                PiModelInfo("anthropic", "claude-sonnet", "Claude Sonnet", "messages", true, 200_000, 16_000),
+            )
+
+            service.synchronizeCatalog(firstCatalog).getOrThrow()
+            val openAi = service.models.value.single { it.provider == "openai" && it.model == "gpt-5" }
+            service.upsert(
+                openAi.copy(
+                    priority = 700,
+                    roles = listOf(SwarmAgentRole.REVIEWER),
+                    maxConcurrentAgents = 5,
+                )
+            ).getOrThrow()
+            service.synchronizeCatalog(
+                listOf(PiModelInfo("openai", "gpt-5", "GPT-5 Updated", "responses", true, 256_000, 64_000))
+            ).getOrThrow()
+
+            val synchronized = service.models.value
+            assertTrue(synchronized.none { it.id == "custom" || it.provider == "anthropic" })
+            val updated = synchronized.single { it.provider == "openai" }
+            assertEquals("GPT-5 Updated", updated.name)
+            assertEquals(256_000, updated.contextWindow)
+            assertEquals(700, updated.priority)
+            assertEquals(listOf(SwarmAgentRole.REVIEWER), updated.roles)
+            assertEquals(5, updated.maxConcurrentAgents)
         } finally {
             directory.deleteRecursively()
         }

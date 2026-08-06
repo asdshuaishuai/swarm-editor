@@ -109,6 +109,8 @@ fun WindowScope.App(
     onMinimize: () -> Unit = {},
     onMaximizeToggle: () -> Unit = {},
     onPickImages: () -> List<File> = { emptyList() },
+    onOpenWorkspace: () -> Unit = {},
+    onCreateWorkspace: () -> Unit = {},
     droppedImageFiles: Flow<List<File>> = emptyFlow(),
     clipboardHasImages: () -> Boolean = { false },
     onReadClipboardImages: suspend () -> List<UiImageAttachment> = { emptyList() },
@@ -222,6 +224,9 @@ fun WindowScope.App(
     }
     LaunchedEffect(currentSessionId, piRuntimeState?.sessionId) {
         if (piRuntimeState != null) root.sessionVm.refreshPiModels()
+    }
+    LaunchedEffect(piModels) {
+        if (piModels.isNotEmpty()) root.settingsVm.synchronizePiModelCatalog(piModels)
     }
     val hazeState = rememberHazeState()
 
@@ -402,6 +407,8 @@ fun WindowScope.App(
     val handleCommand: (Command) -> Unit = { cmd ->
         when (cmd.id) {
             "new-session" -> createSession()
+            "open-workspace" -> onOpenWorkspace()
+            "create-workspace" -> onCreateWorkspace()
             "open-settings" -> { root.showSettingsDialog() }
             "view-chat" -> root.switchView("chat")
             "view-agents" -> root.switchView("agents")
@@ -694,8 +701,9 @@ fun WindowScope.App(
                                 gitStatus = gitStatus,
                                 filePreview = projectFilePreview,
                                 onSelectFile = root.projectVm::selectFile,
-                                onSaveFile = root.projectVm::saveFile,
                                 onOpenDiff = { diffChange = it },
+                                onOpenWorkspace = onOpenWorkspace,
+                                onCreateWorkspace = onCreateWorkspace,
                                 projectPath = root.projectVm.projectPath,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -788,6 +796,8 @@ fun WindowScope.App(
             onInstallKotlinLsp = root.kotlinLspRuntimeVm::install,
             onProbeKotlinLsp = root.kotlinLspRuntimeVm::probe,
             onOpenKotlinLspDirectory = root.kotlinLspRuntimeVm::openRuntimeDirectory,
+            piModels = piModels,
+            onRefreshPiModels = root.sessionVm::refreshPiModels,
             onRefreshMcp = root.mcpVm::reload,
             onAddMcp = { root.showMcpConfigDialog(UUID.randomUUID().toString()) },
             onEditMcp = root::showMcpConfigDialog

@@ -5,6 +5,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class DesktopImageFileChooserTest {
@@ -28,5 +29,28 @@ class DesktopImageFileChooserTest {
         assertEquals("512 B", formatFileSize(512))
         assertEquals("2.0 KB", formatFileSize(2048))
         assertEquals("2.0 MB", formatFileSize(2L * 1024 * 1024))
+    }
+
+    @Test
+    fun `workspace creation creates a new directory but never reuses an existing one`() {
+        val parent = createTempDirectory("swarm-workspace-parent").toFile()
+        val project = File(parent, "new-project")
+
+        assertEquals(project.absoluteFile.normalize(), prepareWorkspaceDirectory(project, createNew = true).getOrThrow())
+        assertTrue(project.isDirectory)
+        assertFailsWith<IllegalArgumentException> {
+            prepareWorkspaceDirectory(project, createNew = true).getOrThrow()
+        }
+    }
+
+    @Test
+    fun `workspace opening accepts directories and rejects files`() {
+        val project = createTempDirectory("swarm-open-project").toFile()
+        val file = File(project, "README.md").apply { writeText("hello") }
+
+        assertEquals(project.absoluteFile.normalize(), prepareWorkspaceDirectory(project, createNew = false).getOrThrow())
+        assertFailsWith<IllegalArgumentException> {
+            prepareWorkspaceDirectory(file, createNew = false).getOrThrow()
+        }
     }
 }

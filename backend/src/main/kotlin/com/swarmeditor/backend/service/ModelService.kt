@@ -1,11 +1,12 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.model.ModelRegistry
+import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.common.model.AgentThinkingLevel
 import com.swarmeditor.common.model.ModelConfig
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmModelDemand
-import java.util.UUID
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -72,17 +73,23 @@ class ModelService(
         }
     }
 
-    suspend fun create(templateId: String? = null): Result<ModelConfig> = resultOfValue {
+    suspend fun synchronizeCatalog(catalog: List<PiModelInfo>): Result<Unit> = resultOf {
+        require(catalog.isNotEmpty()) { "Pi 模型目录为空，请先启动主智能体并刷新模型" }
         mutex.withLock {
-            val template = templateId?.let { registry.get(it) } ?: ModelRegistry.defaultConfig()
-            val created = template.copy(
-                id = "model-${UUID.randomUUID().toString().take(8)}",
-                name = "${template.name} 副本",
-                enabled = true,
-            )
-            registry.upsert(created)
+            val current = registry.getAll()
+            val currentByIdentity = current
+                .filter { it.id != ModelRegistry.DEFAULT_MODEL_ID && it.provider.isNotBlank() && it.model.isNotBlank() }
+                .associateBy { it.provider to it.model }
+            val defaultConfig = current.firstOrNull { it.id == ModelRegistry.DEFAULT_MODEL_ID }
+                ?: ModelRegistry.defaultConfig()
+            val synchronized = buildList {
+                add(defaultConfig.copy(name = "Pi 自动选择", provider = "", model = ""))
+                catalog.distinctBy { it.provider to it.id }.forEach { model ->
+                    add(model.toModelConfig(currentByIdentity[model.provider to model.id]))
+                }
+            }
+            registry.replaceAll(synchronized)
             refresh()
-            created
         }
     }
 
@@ -275,25 +282,46 @@ internal fun ModelConfig.revision(): String = listOf(
     name,
     provider,
     model,
+    api,
+    reasoning.toString(),
+    contextWindow.toString(),
+    maxTokens.toString(),
+    inputModes.joinToString(","),
     enabled.toString(),
     thinkingLevel.name,
-    env.entries.sortedBy(Map.Entry<String, String>::key).joinToString(";") { "${it.key}=${it.value}" },
     priority.toString(),
     roles.joinToString(",") { it.name },
     maxConcurrentAgents.toString(),
 ).joinToString("\u0000")
 
+private fun PiModelInfo.toModelConfig(existing: ModelConfig?): ModelConfig = ModelConfig(
+    id = existing?.id ?: stablePiModelConfigId(provider, id),
+    name = name.ifBlank { id },
+    provider = provider,
+    model = id,
+    api = api,
+    reasoning = reasoning,
+    contextWindow = contextWindow,
+    maxTokens = maxTokens,
+    inputModes = inputModes,
+    enabled = existing?.enabled ?: true,
+    thinkingLevel = if (reasoning) existing?.thinkingLevel ?: AgentThinkingLevel.MEDIUM else AgentThinkingLevel.OFF,
+    priority = existing?.priority ?: 100,
+    roles = existing?.roles.orEmpty(),
+    maxConcurrentAgents = existing?.maxConcurrentAgents ?: 2,
+)
+
+internal fun stablePiModelConfigId(provider: String, modelId: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest("$provider\u0000$modelId".toByteArray())
+        .take(12)
+        .joinToString("") { byte -> "%02x".format(byte) }
+    return "pi-$digest"
+}
+
 private suspend fun resultOf(action: suspend () -> Unit): Result<Unit> = try {
     action()
     Result.success(Unit)
-} catch (error: CancellationException) {
-    throw error
-} catch (error: Throwable) {
-    Result.failure(error)
-}
-
-private suspend fun <T> resultOfValue(action: suspend () -> T): Result<T> = try {
-    Result.success(action())
 } catch (error: CancellationException) {
     throw error
 } catch (error: Throwable) {

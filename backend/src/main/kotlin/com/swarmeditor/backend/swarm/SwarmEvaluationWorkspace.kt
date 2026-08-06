@@ -28,7 +28,6 @@ class GitWorktreeEvaluationWorkspaceManager(
     private val gitMutex = Mutex()
 
     init {
-        require(File(repositoryRoot, ".git").exists()) { "Evaluation repository must be a Git worktree" }
         require(maxPatchBytes > 0) { "maxPatchBytes must be positive" }
         worktreeRoot.mkdirs()
     }
@@ -38,6 +37,7 @@ class GitWorktreeEvaluationWorkspaceManager(
         patch: String,
         action: suspend (File) -> T,
     ): T {
+        requireGitWorktree(repositoryRoot, "Swarm evaluation")
         require(revision.matches(commitPattern)) { "Evaluation revision must be a commit hash" }
         require(patch.toByteArray(Charsets.UTF_8).size <= maxPatchBytes) { "Evaluation patch is too large" }
         val workspace = File(worktreeRoot, "eval-${UUID.randomUUID()}").absoluteFile.normalize()

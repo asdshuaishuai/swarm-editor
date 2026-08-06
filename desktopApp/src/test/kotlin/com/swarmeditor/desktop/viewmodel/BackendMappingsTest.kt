@@ -104,13 +104,19 @@ class BackendMappingsTest {
     }
 
     @Test
-    fun `model pool field updates preserve typed values`() {
-        val model = ModelConfig("review-model", "Reviewer Model").updatedWith(
-            mapOf("Environment" to "MODE=strict; API_BASE=https://example.test/v1")
+    fun `model pool field updates only change scheduling metadata`() {
+        val model = ModelConfig(
+            id = "review-model",
+            name = "Reviewer Model",
+            provider = "openai",
+            model = "gpt-5",
+        ).updatedWith(
+            mapOf("Provider" to "custom", "Model" to "other", "Priority" to "700")
         )
 
-        assertEquals("strict", model.env["MODE"])
-        assertEquals("https://example.test/v1", model.env["API_BASE"])
+        assertEquals("openai", model.provider)
+        assertEquals("gpt-5", model.model)
+        assertEquals(700, model.priority)
     }
 
     @Test

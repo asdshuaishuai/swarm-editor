@@ -57,7 +57,6 @@ class GitSwarmTaskWorkspaceManager(
     private val normalizedWorktreeRoot = worktreeRoot.canonicalFile
 
     init {
-        require(File(normalizedRepositoryRoot, ".git").exists()) { "Task repository must be a Git worktree" }
         require(!normalizedWorktreeRoot.toPath().startsWith(normalizedRepositoryRoot.toPath())) {
             "Task worktree root must be outside the repository"
         }
@@ -71,6 +70,7 @@ class GitSwarmTaskWorkspaceManager(
         attempt: Int,
         baseRevision: String,
     ): SwarmTaskWorkspace {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm task execution")
         requireLabel(runId, "runId")
         requireLabel(taskId, "taskId")
         require(attempt > 0) { "Task workspace attempt must be positive" }
@@ -115,6 +115,7 @@ class GitSwarmTaskWorkspaceManager(
     }
 
     override suspend fun release(workspace: SwarmTaskWorkspace) {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm task cleanup")
         validateWorkspace(workspace)
         gitMutex.withLock {
             runGit(

@@ -75,6 +75,7 @@ import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeUiState
 import com.swarmeditor.backend.lsp.KotlinLspRuntimeHealth
 import com.swarmeditor.backend.lsp.LspConnectionPhase
+import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.common.model.ModelConfig
 
 private const val DEFAULT_SETTINGS_TAB = "agent"
@@ -111,6 +112,8 @@ fun SettingsModal(
     onInstallKotlinLsp: () -> Unit = {},
     onProbeKotlinLsp: () -> Unit = {},
     onOpenKotlinLspDirectory: () -> Unit = {},
+    piModels: List<PiModelInfo> = emptyList(),
+    onRefreshPiModels: () -> Unit = {},
 ) {
     var activeTab by remember { mutableStateOf(normalizeSettingsTab(System.getProperty("swarm.settingsTab"))) }
     val primaryModelId by settingsVm.primaryModelId.collectAsState()
@@ -122,7 +125,7 @@ fun SettingsModal(
 
     val tabs = listOf(
         SettingsTile("agent", "PI", "主智能体", "默认主模型与动态子智能体", ControlBlue, if (agents.any { it.isConnected }) "在线" else "离线"),
-        SettingsTile("models", "M", "模型池", "Provider、模型、凭据与能力", ControlPurple, models.count { it.enabled }.toString()),
+        SettingsTile("models", "M", "模型池", "Pi 模型目录与调度策略", ControlPurple, models.count { it.enabled }.toString()),
         SettingsTile("mcp", "M", "MCP 服务", "工具桥接与授权", ControlOrange, mcpServers.size.toString()),
         SettingsTile("skills", "S", "Skills 能力", "本地能力与同步", ControlGreen, skills.size.toString()),
         SettingsTile(
@@ -195,6 +198,8 @@ fun SettingsModal(
                             fields = modelFields,
                             configPath = modelConfigPath,
                             settingsVm = settingsVm,
+                            piModels = piModels,
+                            onRefreshPiModels = onRefreshPiModels,
                         )
                     "mcp" -> McpManagementTab(
                         servers = mcpServers,
@@ -495,6 +500,8 @@ private fun ModelConfigTab(
     fields: List<com.swarmeditor.desktop.viewmodel.ModelConfigField>,
     configPath: String,
     settingsVm: SettingsViewModel,
+    piModels: List<PiModelInfo>,
+    onRefreshPiModels: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val selectorScrollState = rememberScrollState()
@@ -503,18 +510,18 @@ private fun ModelConfigTab(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("模型池", color = Tx, style = AppType.body, fontWeight = FontWeight.SemiBold)
-                Text("模型、Provider、推理强度和凭据独立于智能体策略", color = Tx3, style = AppType.micro)
+                Text("模型身份、Provider 与能力完全来自 Pi Agent；这里只维护调度策略", color = Tx3, style = AppType.micro)
                 Spacer(Modifier.height(7.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     MicroPill("${models.count { it.enabled }} ENABLED", OkLight)
-                    MicroPill("${models.size} CONFIGURED", AcLight)
+                    MicroPill("${piModels.size} FROM PI", AcLight)
                 }
             }
-            if (models.size > 1 && selected != null) {
-                GhostButton("删除", onClick = settingsVm::deleteSelectedModelConfig, danger = true)
-                Spacer(Modifier.width(8.dp))
-            }
-            GlowButton("添加模型", onClick = settingsVm::createModelConfig)
+            GlowButton("刷新 Pi 目录", onClick = onRefreshPiModels)
+        }
+        if (piModels.isEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("启动主智能体会话后刷新，Swarm 会从 Pi 的 get_available_models 同步模型与能力。", color = WarnLight, style = AppType.caption)
         }
         Spacer(Modifier.height(12.dp))
         Row(
@@ -545,8 +552,21 @@ private fun ModelConfigTab(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Section("模型配置") {
+        Section("Pi 模型身份") {
             InfoRow("配置文件", configPath, Tx3, AppType.caption)
+            if (selected != null) {
+                InfoRow("Provider", selected.provider.ifBlank { "Pi 自动选择" })
+                InfoRow("模型 ID", selected.model.ifBlank { "由 Pi 决定" }, Tx3, AppType.caption.copy(fontFamily = CodeFont))
+                if (selected.api.isNotBlank()) InfoRow("API", selected.api)
+                InfoRow("推理", if (selected.reasoning) "支持" else "不支持")
+                if (selected.contextWindow > 0) InfoRow("上下文窗口", selected.contextWindow.toString())
+                if (selected.maxTokens > 0) InfoRow("最大输出", selected.maxTokens.toString())
+                if (selected.inputModes.isNotEmpty()) InfoRow("输入模式", selected.inputModes.joinToString(" · "))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Section("Swarm 调度覆盖") {
+            Text("凭据、Base URL、自定义 Provider 与模型发现均由 Pi 自己的配置体系管理。", color = Tx3, style = AppType.caption)
             Spacer(Modifier.height(6.dp))
             ConfigFieldGrid(fields, settingsVm::saveModelField)
         }
@@ -776,7 +796,7 @@ private fun EditableField(field: com.swarmeditor.desktop.viewmodel.ModelConfigFi
                 }
             }
         } else {
-            val multiline = field.label == "Environment"
+            val multiline = field.label == "Roles"
             BasicTextField(
                 value = editValue,
                 onValueChange = { editValue = it },
@@ -813,7 +833,7 @@ private fun ConfigFieldGrid(
     onSave: (String, String) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val fullWidthLabels = setOf("Environment", "Roles")
+        val fullWidthLabels = setOf("Roles")
         val compact = fields.filterNot { it.label in fullWidthLabels }
         val fullWidth = fields.filter { it.label in fullWidthLabels }
         val useColumns = maxWidth >= 700.dp
@@ -841,7 +861,6 @@ private fun String.localizedConfigLabel(): String = when (this) {
     "Provider" -> "Provider"
     "Model" -> "模型标识"
     "Thinking" -> "推理强度"
-    "Environment" -> "环境变量"
     "Priority" -> "调度优先级"
     "Roles" -> "适用角色"
     "Max Concurrent Agents" -> "模型并发上限"

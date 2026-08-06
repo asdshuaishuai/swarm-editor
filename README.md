@@ -12,6 +12,7 @@
 - 主 Agent 是系统默认协调者，只配置主模型；它按任务角色、重试、写入/验证范围、任务图位置与仓库 SCC 风险动态创建子 Agent，再从独立模型池租用最匹配且有容量的模型，并把需求评分、选择原因与实际 provider/model 写入任务尝试证据。
 - Pi 规划与执行使用有预算的图上下文协议：任务只接收匹配其所有权的仓库证据、持久化调度依据、修订契约和截断后的上游交付；返回结果会解析并持久化为 Outcome/Evidence/Changes/Verification/Residual Risk/Downstream Handoff 六段交付对象，原始输出仍保留用于审计。
 - Kotlin 源码智能可按需安装 JetBrains Kotlin LSP `262.9593.0`；安装器验证官方归档 SHA-256，安全提取并固定使用 JSON-RPC stdio，设置中心显示运行时完整性与真实连接状态。
+- 在 JetBrains Runtime 可用时，桌面端优先使用 JBR 原生目录选择；代码区域优先使用 JetBrains Mono，普通 JVM 会安全回退。
 - Pi-only 沙箱、动态图调度、LSP 代码智能与可验证自进化的 GitHub/arXiv 深度研究见 `docs/research/2026-07-28-pi-agent-runtime-orchestration-deep-dive.md`。
 - Pi 图上下文与提示协议见 `docs/architecture/pi-graph-context-protocol.md`。
 - 轻量跨平台沙箱、Sandlock 准入门槛、独立 Git worktree 与可重放验证证据链见 `docs/research/2026-07-28-lightweight-sandbox-verification-deep-dive.md`。

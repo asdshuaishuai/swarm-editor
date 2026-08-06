@@ -2,6 +2,7 @@ package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.model.ModelRegistry
+import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.backend.service.AgentService
 import com.swarmeditor.backend.service.McpService
 import com.swarmeditor.backend.service.ModelService
@@ -113,30 +114,25 @@ class SettingsViewModel(
         val modelId = _selectedModelId.value
         scope.launch {
             runAction("模型配置已保存", "模型配置保存失败") {
-                val config = service.get(modelId) ?: ModelRegistry.defaultConfig().copy(id = modelId)
+                val config = service.get(modelId) ?: error("模型配置不存在: $modelId")
                 service.upsert(config.updatedWith(mapOf(key to value))).getOrThrow()
                 if (_selectedModelId.value == modelId) loadModelFields(modelId, modelSelectionRequests.get())
             }
         }
     }
 
-    fun createModelConfig() {
+    fun synchronizePiModelCatalog(models: List<PiModelInfo>) {
         val service = modelService ?: return
+        if (models.isEmpty()) return
         scope.launch {
-            runAction("模型配置已创建", "模型配置创建失败") {
-                val created = service.create(_selectedModelId.value).getOrThrow()
-                selectModel(created.id)
-            }
-        }
-    }
-
-    fun deleteSelectedModelConfig() {
-        val service = modelService ?: return
-        val modelId = _selectedModelId.value
-        scope.launch {
-            runAction("模型配置已删除", "模型配置删除失败") {
-                service.delete(modelId).getOrThrow()
-                selectModel(service.models.value.firstOrNull()?.id ?: ModelRegistry.DEFAULT_MODEL_ID)
+            try {
+                service.synchronizeCatalog(models).getOrThrow()
+                val selected = _selectedModelId.value
+                selectModel(service.models.value.firstOrNull { it.id == selected }?.id ?: ModelRegistry.DEFAULT_MODEL_ID)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                eventChannel.send(SettingsActionEvent(error.message ?: "Pi 模型目录同步失败", ToastType.ERROR))
             }
         }
     }
@@ -145,26 +141,24 @@ class SettingsViewModel(
         val config = modelService?.get(id) ?: return
         if (requestId != modelSelectionRequests.get() || _selectedModelId.value != id) return
         _modelConfigFields.value = listOf(
-            ModelConfigField("Name", config.name),
             ModelConfigField(
                 label = "Enabled",
                 value = config.enabled.toString(),
                 isSelect = true,
                 options = listOf("true", "false"),
             ),
-            ModelConfigField("Provider", config.provider),
-            ModelConfigField("Model", config.model),
-            ModelConfigField(
-                label = "Thinking",
-                value = config.thinkingLevel.name.lowercase(),
-                isSelect = true,
-                options = AgentThinkingLevel.entries.map { it.name.lowercase() },
-            ),
-            ModelConfigField("Environment", config.env.entries.sortedBy { it.key }.joinToString("; ") { "${it.key}=${it.value}" }),
+            if (config.reasoning || config.id == ModelRegistry.DEFAULT_MODEL_ID) {
+                ModelConfigField(
+                    label = "Thinking",
+                    value = config.thinkingLevel.name.lowercase(),
+                    isSelect = true,
+                    options = AgentThinkingLevel.entries.map { it.name.lowercase() },
+                )
+            } else null,
             ModelConfigField("Priority", config.priority.toString()),
             ModelConfigField("Roles", config.roles.joinToString(", ") { it.name.lowercase() }),
             ModelConfigField("Max Concurrent Agents", config.maxConcurrentAgents.toString()),
-        )
+        ).filterNotNull()
     }
 
     fun scanSkills() {
@@ -271,15 +265,11 @@ internal fun Map<String, Boolean>.updatedAgentAccess(
 }
 
 internal fun ModelConfig.updatedWith(fields: Map<String, String>): ModelConfig = copy(
-    name = fields["Name"]?.trim().orEmpty().ifBlank { name },
     enabled = fields["Enabled"]?.toBooleanStrictOrNull() ?: enabled,
-    provider = fields["Provider"]?.trim() ?: provider,
-    model = fields["Model"]?.trim() ?: model,
     thinkingLevel = fields["Thinking"]
         ?.uppercase()
         ?.let { value -> AgentThinkingLevel.entries.find { it.name == value } }
         ?: thinkingLevel,
-    env = fields["Environment"]?.let(::parseAgentEnvironment) ?: env,
     priority = fields["Priority"]?.toIntOrNull()?.coerceIn(0, 1000) ?: priority,
     roles = fields["Roles"]
         ?.split(',')
@@ -291,13 +281,3 @@ internal fun ModelConfig.updatedWith(fields: Map<String, String>): ModelConfig =
     maxConcurrentAgents = fields["Max Concurrent Agents"]?.toIntOrNull()?.coerceIn(1, 64)
         ?: maxConcurrentAgents,
 )
-
-internal fun parseAgentEnvironment(value: String): Map<String, String> = value
-    .split(';', '\n')
-    .map(String::trim)
-    .filter(String::isNotBlank)
-    .associate { entry ->
-        val separator = entry.indexOf('=')
-        require(separator > 0) { "环境变量必须使用 KEY=VALUE 格式: $entry" }
-        entry.substring(0, separator).trim() to entry.substring(separator + 1).trim()
-    }

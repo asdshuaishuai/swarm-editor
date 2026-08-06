@@ -62,37 +62,6 @@ import com.swarmeditor.backend.lsp.SourceSymbol
 private fun countFiles(node: FileNodeDto): Int =
     if (node.isDirectory) node.children.sumOf { countFiles(it) } else 1
 
-// ── Filter chip ────────────────────────────────────────────────────
-
-@Composable
-private fun FilterChip(label: String, active: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val bg by androidx.compose.animation.animateColorAsState(
-        when {
-            active -> ControlBlue.withAlpha(0.14f)
-            hovered -> ControlBlue.withAlpha(0.08f)
-            else -> Bg2
-        },
-        Motion.colorDefault,
-        label = "fileFilterBackground",
-    )
-    val fg by androidx.compose.animation.animateColorAsState(
-        if (active || hovered) ControlBlue else Tx2,
-        Motion.colorDefault,
-        label = "fileFilterForeground",
-    )
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(bg)
-            .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 5.dp)
-    ) {
-        Text(label, color = fg, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
 // ── Main composable：左 全高文件树侧栏 | 右 统计+详情 ─────────────
 
 @Composable
@@ -104,13 +73,13 @@ fun FileExplorerView(
     gitStatus: GitStatusDto = GitStatusDto(),
     filePreview: ProjectViewModel.FilePreviewState = ProjectViewModel.FilePreviewState(),
     onSelectFile: (String) -> Unit = {},
-    onSaveFile: (String) -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
+    onOpenWorkspace: () -> Unit = {},
+    onCreateWorkspace: () -> Unit = {},
     projectPath: String = "",
     modifier: Modifier = Modifier
 ) {
     val expandedDirs = remember { mutableStateMapOf<String, Boolean>() }
-    val filterChangesOnly = remember { mutableStateOf(false) }
     val treeListState = rememberLazyListState()
     LaunchedEffect(tree) {
         val root = tree ?: return@LaunchedEffect
@@ -147,13 +116,27 @@ fun FileExplorerView(
                     Text("重试", color = ErrLight, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton(
+                    text = "打开项目文件夹",
+                    prominent = true,
+                    compact = true,
+                    onClick = onOpenWorkspace,
+                )
+                ActionButton(
+                    text = "新建项目",
+                    tone = ActionTone.SECONDARY,
+                    prominent = false,
+                    compact = true,
+                    onClick = onCreateWorkspace,
+                )
+            }
         }
         return
     }
 
     val totalFiles = countFiles(rootNode)
-    val modifiedCount = gitStatus.modified
-    val newCount = gitStatus.untracked
 
     Row(modifier.fillMaxSize().background(Bg0)) {
         // ── 左：文件树侧栏（全高，对齐全局侧栏样式 260dp）──────────
@@ -233,7 +216,7 @@ fun FileExplorerView(
                     selectedPath = filePreview.path,
                     onSelectFile = { onSelectFile(it.path) },
                     onToggleDir = { path -> expandedDirs[path] = !(expandedDirs[path] ?: false) },
-                    filterChangesOnly = filterChangesOnly.value,
+                    filterChangesOnly = false,
                     modifier = Modifier.fillMaxSize(),
                     listState = treeListState,
                 )
@@ -259,18 +242,21 @@ fun FileExplorerView(
                 }
                 Spacer(Modifier.weight(1f))
                 MetaChip("$totalFiles 文件", Tx2)
+                Spacer(Modifier.width(8.dp))
+                ActionButton(
+                    text = "打开文件夹",
+                    prominent = false,
+                    compact = true,
+                    onClick = onOpenWorkspace,
+                )
                 Spacer(Modifier.width(6.dp))
-                if (modifiedCount > 0) {
-                    MetaChip("$modifiedCount 修改", WarnLight)
-                    Spacer(Modifier.width(6.dp))
-                }
-                if (newCount > 0) {
-                    MetaChip("$newCount 新增", OkLight)
-                    Spacer(Modifier.width(10.dp))
-                }
-                FilterChip("全部", !filterChangesOnly.value) { filterChangesOnly.value = false }
-                Spacer(Modifier.width(6.dp))
-                FilterChip("仅变更", filterChangesOnly.value) { filterChangesOnly.value = true }
+                ActionButton(
+                    text = "新建项目",
+                    tone = ActionTone.SECONDARY,
+                    prominent = false,
+                    compact = true,
+                    onClick = onCreateWorkspace,
+                )
             }
 
             // 详情
@@ -280,7 +266,6 @@ fun FileExplorerView(
                         preview = filePreview,
                         change = gitStatus.changes.firstOrNull { it.path == filePreview.path },
                         onOpenDiff = onOpenDiff,
-                        onSaveFile = onSaveFile,
                     )
                 } else {
                     Column(
@@ -301,7 +286,7 @@ fun FileExplorerView(
                             Icon(imageVector = Feather.Folder, contentDescription = null, tint = ControlGreen, modifier = Modifier.size(23.dp))
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("选择文件开始阅读或编辑", color = Tx, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("选择文件开始阅读", color = Tx, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(5.dp))
                         Text(
                             "源码文件支持高亮；Markdown、HTML 与 JSON 可在源码和预览之间切换。",
@@ -312,7 +297,7 @@ fun FileExplorerView(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             MetaChip("源码双视图", ControlBlue)
                             MetaChip("变更 Diff", ControlOrange)
-                            MetaChip("本地保存", ControlGreen)
+                            MetaChip("LSP 导航", ControlGreen)
                         }
                     }
                 }
@@ -326,7 +311,6 @@ private fun FilePreview(
     preview: ProjectViewModel.FilePreviewState,
     change: GitFileChangeDto?,
     onOpenDiff: (GitFileChangeDto) -> Unit,
-    onSaveFile: (String) -> Unit,
 ) {
     var navigationTarget by remember(preview.path) { mutableStateOf<SourceNavigationTarget?>(null) }
     Column(Modifier.fillMaxSize().padding(18.dp)) {
@@ -403,7 +387,6 @@ private fun FilePreview(
                     }
                     FileContentRenderer(
                         preview = preview,
-                        onSave = onSaveFile,
                         navigationTarget = navigationTarget,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
@@ -519,7 +502,7 @@ private fun HighlightStatusChip(preview: ProjectViewModel.FilePreviewState) {
     val label = if (server != null) "LSP 语义 · $server" else "JVM 语法高亮"
     val color = if (server != null) AgentGemini else Tx3
     val detail = preview.lspMessage?.takeIf(String::isNotBlank)
-        ?: if (server != null) "语义高亮由 $server 提供" else "当前文件由 RSyntaxTextArea 提供本地语法高亮"
+        ?: if (server != null) "语义高亮由 $server 提供" else "当前文件使用 Compose 本地词法高亮"
 
     Text(
         text = label,

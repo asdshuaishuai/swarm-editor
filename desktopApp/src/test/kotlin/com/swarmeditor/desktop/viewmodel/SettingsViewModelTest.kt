@@ -20,7 +20,6 @@ import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
@@ -30,7 +29,6 @@ class SettingsViewModelTest {
     fun `primary agent and model pool saves stay independent`() = runTest {
         val directory = Files.createTempDirectory("settings-save-target")
         try {
-            val dispatcher = StandardTestDispatcher(testScheduler)
             val agentService = createAgentService(directory)
             agentService.init()
             val modelService = ModelService(
@@ -57,12 +55,13 @@ class SettingsViewModelTest {
             runCurrent()
 
             viewModel.setPrimaryModel("secondary-model")
-            viewModel.saveModelField("Name", "Review Model")
+            viewModel.saveModelField("Priority", "700")
             runCurrent()
 
             assertEquals("secondary-model", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.modelConfigId)
             assertEquals("Pi 主智能体", agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.name)
-            assertEquals("Review Model", modelService.get("secondary-model")?.name)
+            assertEquals("Secondary Model", modelService.get("secondary-model")?.name)
+            assertEquals(700, modelService.get("secondary-model")?.priority)
             assertEquals("secondary-model", viewModel.selectedModelId.value)
         } finally {
             directory.deleteRecursively()

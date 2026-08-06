@@ -292,7 +292,7 @@ class AgentService(
             provider = model.provider,
             model = model.model,
             thinkingLevel = model.thinkingLevel,
-            env = model.env,
+            env = emptyMap(),
             modelConfigId = model.id,
             agentRevision = agentRevision,
             modelRevision = model.revision(),

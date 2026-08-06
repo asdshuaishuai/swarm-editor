@@ -37,6 +37,7 @@ class GitContentAddressedSnapshotter(
     }
 
     override suspend fun snapshot(): SwarmRepositorySnapshot = snapshotMutex.withLock {
+        requireGitWorktree(repositoryRoot, "Swarm repository snapshots")
         indexRoot.mkdirs()
         require(indexRoot.isDirectory) { "Snapshot index directory cannot be created" }
         val baseRevision = runGit(listOf("rev-parse", "--verify", "HEAD")).trim()

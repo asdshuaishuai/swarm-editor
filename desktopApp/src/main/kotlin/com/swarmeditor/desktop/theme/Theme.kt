@@ -7,6 +7,7 @@ import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.dp
+import java.awt.GraphicsEnvironment
 
 // Radii
 val R4 get() = themedRadius(4)
@@ -41,8 +42,18 @@ val InterFontFamily: FontFamily = FontFamily(
     Font(interFile, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
 )
 val SansFont = InterFontFamily
-val MonoFont = FontFamily.Default   // 系统等宽（CJK 回退；后续可换 JetBrains Mono）
-val CodeFont = FontFamily.Monospace // 代码块专用
+@OptIn(ExperimentalTextApi::class)
+val MonoFont = if (isSystemFontAvailable("JetBrains Mono")) {
+    FontFamily("JetBrains Mono")
+} else {
+    FontFamily.Monospace
+}
+val CodeFont = MonoFont
+
+internal fun isSystemFontAvailable(
+    familyName: String,
+    availableFamilies: Array<String> = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames,
+): Boolean = availableFamilies.any { it.equals(familyName, ignoreCase = true) }
 
 // Material3 ColorScheme override
 val GeekColorScheme get() = darkColorScheme(

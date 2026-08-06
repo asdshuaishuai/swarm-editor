@@ -49,12 +49,12 @@ dependencies {
     implementation(libs.compose.components.resources)
     implementation(compose.materialIconsExtended)
     implementation(libs.compose.uiToolingPreview)
+    implementation(libs.jbr.api)
 
     // UI libs (Hybrid redesign: haze blur, Lucide icons, markdown render)
     implementation(libs.haze)
     implementation(libs.lucide.icons)  // woowla feather icons (Lucide 前身，同款线性)
     implementation(libs.markdown.renderer)
-    implementation(libs.rsyntaxtextarea)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
@@ -109,4 +109,26 @@ tasks.matching { task ->
         task.name == "prepareAppResources"
 }.configureEach {
     dependsOn(installStagedPiRuntime)
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        val launcherConfig =
+            layout.buildDirectory.file("compose/binaries/main/app/SwarmEditor/lib/app/SwarmEditor.cfg").get().asFile
+        val compactedLines = buildList {
+            var classpathWritten = false
+            launcherConfig.readLines().forEach { line ->
+                if (line.startsWith("app.classpath=")) {
+                    if (!classpathWritten) {
+                        add("app.classpath=\$APPDIR/*")
+                        classpathWritten = true
+                    }
+                } else {
+                    add(line)
+                }
+            }
+            check(classpathWritten) { "Launcher classpath was not generated: $launcherConfig" }
+        }
+        launcherConfig.writeText(compactedLines.joinToString(separator = "\n", postfix = "\n"))
+    }
 }

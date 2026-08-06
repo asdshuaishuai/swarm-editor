@@ -1,5 +1,6 @@
 package com.swarmeditor.desktop.attachment
 
+import com.swarmeditor.desktop.platform.chooseDirectoryWithJetBrainsRuntime
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -20,6 +21,7 @@ import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTable
 import javax.swing.JTextField
+import javax.swing.JOptionPane
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -67,6 +69,51 @@ fun chooseImageFiles(owner: Window?, projectDirectory: File?): List<File> {
     return selectedFiles
 }
 
+fun chooseWorkspaceDirectory(
+    owner: Window?,
+    currentDirectory: File?,
+    createNew: Boolean,
+): File? {
+    if (!createNew) {
+        val nativeSelection = chooseDirectoryWithJetBrainsRuntime(owner, currentDirectory)
+        if (nativeSelection.handled) return nativeSelection.directory
+    }
+    var selectedDirectory: File? = null
+    val showChooser = Runnable {
+        withLocalizedFileChooserDefaults {
+            val chooser = createWorkspaceFileChooser(currentDirectory, createNew)
+            while (selectedDirectory == null) {
+                val result = if (createNew) chooser.showSaveDialog(owner) else chooser.showOpenDialog(owner)
+                if (result != JFileChooser.APPROVE_OPTION) break
+                val selected = chooser.selectedFile ?: continue
+                prepareWorkspaceDirectory(selected, createNew)
+                    .onSuccess { selectedDirectory = it }
+                    .onFailure { error ->
+                        JOptionPane.showMessageDialog(
+                            owner,
+                            error.message ?: "无法使用所选目录",
+                            if (createNew) "无法创建项目" else "无法打开项目",
+                            JOptionPane.ERROR_MESSAGE,
+                        )
+                    }
+            }
+        }
+    }
+    if (SwingUtilities.isEventDispatchThread()) showChooser.run() else SwingUtilities.invokeAndWait(showChooser)
+    return selectedDirectory
+}
+
+internal fun prepareWorkspaceDirectory(selected: File, createNew: Boolean): Result<File> = runCatching {
+    val directory = selected.absoluteFile.normalize()
+    if (createNew) {
+        require(!directory.exists()) { "项目已存在，请输入新的项目名称：${directory.name}" }
+        require(directory.mkdirs()) { "无法创建项目目录：${directory.absolutePath}" }
+    } else {
+        require(directory.isDirectory) { "请选择一个有效的项目文件夹" }
+    }
+    directory
+}
+
 private inline fun <T> withLocalizedFileChooserDefaults(block: () -> T): T {
     val localizedValues = mapOf(
         "FileChooser.lookInLabelText" to "位置",
@@ -109,6 +156,24 @@ private fun createImageFileChooser(projectDirectory: File?): JFileChooser {
         accessory = ImagePreviewPanel(this)
         border = EmptyBorder(10, 10, 10, 10)
         styleChooserTree(this, approveButtonText)
+    }
+}
+
+private fun createWorkspaceFileChooser(currentDirectory: File?, createNew: Boolean): JFileChooser {
+    val initialDirectory = imageChooserInitialDirectory(currentDirectory, System.getProperty("user.home")?.let(::File))
+    val approveText = if (createNew) "创建并打开" else "打开工作区"
+    return JFileChooser(initialDirectory).apply {
+        dialogTitle = if (createNew) "新建 Swarm Editor 项目" else "打开项目文件夹"
+        approveButtonText = approveText
+        approveButtonToolTipText = if (createNew) "创建项目目录并在新窗口打开" else "在新窗口中打开所选目录"
+        fileSelectionMode = if (createNew) JFileChooser.FILES_ONLY else JFileChooser.DIRECTORIES_ONLY
+        isMultiSelectionEnabled = false
+        isAcceptAllFileFilterUsed = false
+        if (createNew) selectedFile = File(initialDirectory, "untitled-project")
+        preferredSize = Dimension(920, 640)
+        minimumSize = Dimension(760, 520)
+        border = EmptyBorder(10, 10, 10, 10)
+        styleChooserTree(this, approveText)
     }
 }
 

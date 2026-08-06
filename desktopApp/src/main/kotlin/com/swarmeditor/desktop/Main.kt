@@ -24,9 +24,11 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import com.swarmeditor.backend.shutdownBackendServices
+import com.swarmeditor.backend.PROJECT_ROOT_PROPERTY
 import com.swarmeditor.desktop.navigation.RootComponent
 import com.swarmeditor.desktop.attachment.clipboardContainsImages
 import com.swarmeditor.desktop.attachment.chooseImageFiles
+import com.swarmeditor.desktop.attachment.chooseWorkspaceDirectory
 import com.swarmeditor.desktop.attachment.readClipboardImageAttachments
 import com.swarmeditor.desktop.resources.Res
 import com.swarmeditor.desktop.resources.swarm_editor
@@ -58,7 +60,10 @@ internal fun initialWindowSize(width: String?, height: String?): DpSize = DpSize
 )
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-fun main() {
+fun main(args: Array<String>) {
+    startupProjectDirectory(args)?.let { directory ->
+        System.setProperty(PROJECT_ROOT_PROPERTY, directory.absolutePath)
+    }
     runBlocking { initializeBackendServices() }
     application {
     val lifecycle = remember { LifecycleRegistry().apply { resume() } }
@@ -152,6 +157,20 @@ fun main() {
                     onPickImages = {
                         chooseImageFiles(awtWindow, File(root.projectVm.projectPath))
                     },
+                    onOpenWorkspace = {
+                        chooseWorkspaceDirectory(awtWindow, File(root.projectVm.projectPath), createNew = false)
+                            ?.let { directory ->
+                                launchWorkspace(directory).onSuccess { exitApplication() }
+                                    .onFailure { root.showToast(it.message ?: "无法打开工作区", com.swarmeditor.desktop.viewmodel.ToastType.ERROR) }
+                            }
+                    },
+                    onCreateWorkspace = {
+                        chooseWorkspaceDirectory(awtWindow, File(root.projectVm.projectPath), createNew = true)
+                            ?.let { directory ->
+                                launchWorkspace(directory).onSuccess { exitApplication() }
+                                    .onFailure { root.showToast(it.message ?: "无法创建工作区", com.swarmeditor.desktop.viewmodel.ToastType.ERROR) }
+                            }
+                    },
                     droppedImageFiles = droppedImageFiles,
                     clipboardHasImages = ::clipboardContainsImages,
                     onReadClipboardImages = ::readClipboardImageAttachments,
@@ -160,4 +179,42 @@ fun main() {
         }
     }
     }
+}
+
+internal fun startupProjectDirectory(args: Array<String>): File? {
+    val rawPath = args.firstOrNull { argument -> argument.isNotBlank() && !argument.startsWith("--") }
+        ?: return null
+    val directory = File(rawPath).absoluteFile.normalize()
+    require(directory.isDirectory) { "项目目录不存在：${directory.absolutePath}" }
+    return directory
+}
+
+internal fun workspaceLaunchCommand(
+    directory: File,
+    candidates: List<File> = defaultWorkspaceLauncherCandidates(),
+): List<String> {
+    require(directory.isDirectory) { "工作区目录不存在：${directory.absolutePath}" }
+    val launcher = candidates.firstOrNull { it.isFile && it.canExecute() }
+        ?: error("找不到可用的 Swarm Editor 启动器，请先重新安装本地版本")
+    return listOf(launcher.absolutePath, directory.absolutePath)
+}
+
+internal fun defaultWorkspaceLauncherCandidates(
+    currentCommand: String? = ProcessHandle.current().info().command().orElse(null),
+    userHome: String? = System.getProperty("user.home"),
+): List<File> = buildList {
+    currentCommand
+        ?.takeIf { command -> File(command).nameWithoutExtension.equals("SwarmEditor", ignoreCase = true) }
+        ?.let(::File)
+        ?.let(::add)
+    userHome?.let { home ->
+        add(File(home, ".local/opt/swarm-editor/bin/SwarmEditor"))
+        add(File(home, ".local/bin/swarm-editor"))
+    }
+}.distinctBy { it.absolutePath }
+
+internal fun launchWorkspace(directory: File): Result<Process> = runCatching {
+    ProcessBuilder(workspaceLaunchCommand(directory))
+        .directory(directory)
+        .start()
 }

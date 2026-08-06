@@ -67,11 +67,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-val projectRoot: File = File(System.getProperty("user.dir")).let { directory ->
-    generateSequence(directory) { it.parentFile }
-        .firstOrNull { File(it, ".git").exists() }
-        ?: directory
-}
+val projectRoot: File = resolveProjectRoot(
+    explicitRoot = System.getProperty(PROJECT_ROOT_PROPERTY),
+    userDirectory = System.getProperty("user.dir"),
+)
 
 val piDistribution = PiRuntimeDistribution(projectRoot)
 val agentRegistry = AgentRegistry()

@@ -74,16 +74,13 @@ class GitSwarmArtifactIntegrator(
         commandRunner = commandRunner,
     )
 
-    init {
-        require(File(normalizedRepositoryRoot, ".git").exists()) { "Artifact repository must be a Git worktree" }
-    }
-
     override suspend fun prepare(
         run: SwarmRun,
         task: SwarmTask,
         workspaceDeltaEvidenceId: String,
         verificationEvidenceId: String,
     ): SwarmArtifactIntegrationPlan = integrationMutex.withLock {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm artifact preparation")
         require(run.tasks.any { it.id == task.id }) { "Task does not belong to the Swarm run" }
         val baseline = requireNotNull(run.repositoryBaseline) { "Swarm run has no repository baseline" }
         val workspace = requireNotNull(evidenceStore.getWorkspaceDelta(workspaceDeltaEvidenceId)) {
@@ -179,6 +176,7 @@ class GitSwarmArtifactIntegrator(
         plan: SwarmArtifactIntegrationPlan,
         persist: suspend (SwarmArtifactIntegrationPlan) -> Unit,
     ): SwarmArtifactIntegrationPlan = integrationMutex.withLock {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm artifact application")
         require(plan.status == SwarmArtifactIntegrationStatus.PREPARED) {
             "Only prepared artifact integration plans can be applied"
         }
@@ -235,12 +233,16 @@ class GitSwarmArtifactIntegrator(
     suspend fun apply(plan: SwarmArtifactIntegrationPlan): SwarmArtifactIntegrationPlan = apply(plan) { }
 
     override suspend fun preview(plan: SwarmArtifactIntegrationPlan): SwarmArtifactIntegrationPreview =
-        integrationMutex.withLock { previewLocked(plan, includeHunkApplicability = true) }
+        integrationMutex.withLock {
+            requireGitWorktree(normalizedRepositoryRoot, "Swarm artifact preview")
+            previewLocked(plan, includeHunkApplicability = true)
+        }
 
     override suspend fun previewSelection(
         plan: SwarmArtifactIntegrationPlan,
         selectedHunkIds: Collection<String>,
     ): SwarmArtifactSelectionPreview = integrationMutex.withLock {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm artifact selection preview")
         val preview = previewLocked(plan, includeHunkApplicability = false)
         require(!preview.truncated) { "Cannot preview a partial selection from a truncated diff" }
         val requestedHunkIds = selectedHunkIds.distinct()
@@ -342,6 +344,7 @@ class GitSwarmArtifactIntegrator(
     }
 
     override suspend fun releasePreparedPlan(plan: SwarmArtifactIntegrationPlan) = integrationMutex.withLock {
+        requireGitWorktree(normalizedRepositoryRoot, "Swarm artifact cleanup")
         require(plan.status == SwarmArtifactIntegrationStatus.PREPARED) {
             "Only prepared artifact integration plans can be released"
         }
