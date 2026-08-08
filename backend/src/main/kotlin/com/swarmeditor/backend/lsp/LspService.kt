@@ -121,6 +121,20 @@ data class SourceFoldingRange(
     val kind: String? = null,
 )
 
+data class SourceLocation(
+    val uri: String,
+    val line: Int,
+    val character: Int = 0,
+)
+
+data class SourcePositionInsight(
+    val line: Int,
+    val character: Int,
+    val hover: String? = null,
+    val definitions: List<SourceLocation> = emptyList(),
+    val serverName: String? = null,
+)
+
 data class LspDocumentInsight(
     val languageId: String,
     val serverName: String? = null,
@@ -155,6 +169,8 @@ interface SourceSemanticHighlighter {
 
 interface SourceCodeIntelligence : SourceSemanticHighlighter {
     suspend fun inspect(file: File, content: String): LspDocumentInsight
+
+    suspend fun inspectPosition(file: File, content: String, line: Int, character: Int): SourcePositionInsight? = null
 }
 
 class LspService(
@@ -313,6 +329,18 @@ class LspService(
         }
     }
 
+    override suspend fun inspectPosition(
+        file: File,
+        content: String,
+        line: Int,
+        character: Int,
+    ): SourcePositionInsight? {
+        val spec = specs.firstOrNull { file.extension.lowercase() in it.extensions } ?: return null
+        if (sessionMutex.withLock { sessions[spec.id] } == null) highlight(file, content)
+        val session = sessionMutex.withLock { sessions[spec.id] } ?: return null
+        return session.inspectPosition(file, content, line.coerceAtLeast(0), character.coerceAtLeast(0))
+    }
+
     private fun unavailableResult(spec: LspServerSpec, failures: List<String>) = LspHighlightResult(
         languageId = spec.languageId,
         message = "${spec.displayName} 语义高亮不可用（${failures.joinToString("；")}），已使用本地语法高亮",
@@ -417,6 +445,8 @@ interface LspSession {
             message = highlighted.message,
         )
     }
+
+    suspend fun inspectPosition(file: File, content: String, line: Int, character: Int): SourcePositionInsight? = null
 
     suspend fun close()
 }
@@ -653,6 +683,38 @@ private class StdioLspSession(
                 symbols = symbols,
                 diagnostics = pullDiagnostics.ifEmpty { publishedDiagnostics[uri].orEmpty() },
                 foldingRanges = foldingRanges,
+            )
+        }
+    }
+
+    override suspend fun inspectPosition(
+        file: File,
+        content: String,
+        line: Int,
+        character: Int,
+    ): SourcePositionInsight {
+        ensureInitialized()
+        val uri = file.toURI().toString()
+        return documentOperations.computeIfAbsent(uri) { Mutex() }.withLock {
+            documentSynchronizer.sync(uri, content, ::notify)
+            val position = buildJsonObject {
+                putJsonObject("textDocument") { put("uri", uri) }
+                putJsonObject("position") {
+                    put("line", line)
+                    put("character", character)
+                }
+            }
+            val hover = optionalRequest("textDocument/hover", position, retryTransient = true)
+                ?.let(::decodeHoverContents)
+            val definitions = optionalRequest("textDocument/definition", position, retryTransient = true)
+                ?.let(::decodeDefinitionLocations)
+                .orEmpty()
+            SourcePositionInsight(
+                line = line,
+                character = character,
+                hover = hover,
+                definitions = definitions,
+                serverName = serverName,
             )
         }
     }
@@ -1028,6 +1090,37 @@ internal fun decodeFoldingRanges(response: JsonObject): List<SourceFoldingRange>
         }
         .distinctBy { range -> Triple(range.startLine, range.endLine, range.kind) }
         .sortedWith(compareBy(SourceFoldingRange::startLine, SourceFoldingRange::endLine))
+
+internal fun decodeHoverContents(response: JsonObject): String? {
+    val result = response["result"] as? JsonObject ?: return null
+    fun render(element: JsonElement): String? = when (element) {
+        is JsonPrimitive -> element.contentOrNull
+        is JsonObject -> (element["value"] as? JsonPrimitive)?.contentOrNull
+        is JsonArray -> element.mapNotNull(::render).joinToString("\n\n").ifBlank { null }
+    }
+    return result["contents"]?.let(::render)?.trim()?.ifBlank { null }
+}
+
+internal fun decodeDefinitionLocations(response: JsonObject): List<SourceLocation> {
+    val result = response["result"] ?: return emptyList()
+    val entries = if (result is JsonArray) result else JsonArray(listOf(result))
+    return entries.mapNotNull { element ->
+        val location = element as? JsonObject ?: return@mapNotNull null
+        val uri = (location["uri"] as? JsonPrimitive)?.contentOrNull
+            ?: (location["targetUri"] as? JsonPrimitive)?.contentOrNull
+            ?: return@mapNotNull null
+        val range = (location["range"] as? JsonObject)
+            ?: (location["targetSelectionRange"] as? JsonObject)
+            ?: (location["targetRange"] as? JsonObject)
+            ?: return@mapNotNull null
+        val start = range["start"] as? JsonObject ?: return@mapNotNull null
+        SourceLocation(
+            uri = uri,
+            line = (start["line"] as? JsonPrimitive)?.intOrNull ?: 0,
+            character = (start["character"] as? JsonPrimitive)?.intOrNull ?: 0,
+        )
+    }.distinct()
+}
 
 internal fun decodeDocumentDiagnostics(response: JsonObject): List<SourceDiagnostic> {
     val result = response["result"] as? JsonObject ?: return emptyList()

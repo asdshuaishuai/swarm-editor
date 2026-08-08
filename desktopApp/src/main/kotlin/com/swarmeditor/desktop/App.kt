@@ -711,6 +711,9 @@ fun WindowScope.App(
                                 onOpenDiff = { diffChange = it },
                                 onOpenWorkspace = onOpenWorkspace,
                                 onCreateWorkspace = onCreateWorkspace,
+                                onInspectPosition = root.projectVm::inspectPosition,
+                                onOpenDefinition = root.projectVm::openDefinition,
+                                onDismissPositionInsight = root.projectVm::clearPositionInsight,
                                 projectPath = root.projectVm.projectPath,
                                 modifier = Modifier.fillMaxSize()
                             )

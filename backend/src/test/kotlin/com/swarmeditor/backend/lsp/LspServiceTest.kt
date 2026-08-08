@@ -828,6 +828,37 @@ class LspServiceTest {
     }
 
     @Test
+    fun `decodes hover markdown and definition links`() {
+        val hover = buildJsonObject {
+            putJsonObject("result") {
+                putJsonObject("contents") {
+                    put("kind", "markdown")
+                    put("value", "```kotlin\nfun launch(): Job\n```")
+                }
+            }
+        }
+        val definitions = buildJsonObject {
+            putJsonArray("result") {
+                add(buildJsonObject {
+                    put("targetUri", "file:///workspace/Runtime.kt")
+                    putJsonObject("targetSelectionRange") {
+                        putJsonObject("start") {
+                            put("line", 41)
+                            put("character", 8)
+                        }
+                    }
+                })
+            }
+        }
+
+        assertEquals("```kotlin\nfun launch(): Job\n```", decodeHoverContents(hover))
+        assertEquals(
+            listOf(SourceLocation("file:///workspace/Runtime.kt", line = 41, character = 8)),
+            decodeDefinitionLocations(definitions),
+        )
+    }
+
+    @Test
     fun `decodes published diagnostics notifications`() {
         val message = buildJsonObject {
             put("method", "textDocument/publishDiagnostics")

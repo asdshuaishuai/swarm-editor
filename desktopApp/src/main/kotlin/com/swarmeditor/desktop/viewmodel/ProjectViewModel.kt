@@ -4,11 +4,14 @@ import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.backend.lsp.SemanticHighlight
 import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceFoldingRange
+import com.swarmeditor.backend.lsp.SourceLocation
+import com.swarmeditor.backend.lsp.SourcePositionInsight
 import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import java.util.concurrent.atomic.AtomicLong
+import java.net.URI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
@@ -42,6 +45,10 @@ class ProjectViewModel(
         val symbols: List<SourceSymbol> = emptyList(),
         val diagnostics: List<SourceDiagnostic> = emptyList(),
         val foldingRanges: List<SourceFoldingRange> = emptyList(),
+        val positionInsight: SourcePositionInsight? = null,
+        val isInspectingPosition: Boolean = false,
+        val navigationLine: Int? = null,
+        val navigationRequestId: Long = 0,
         val lspMessage: String? = null,
         val isLoading: Boolean = false,
         val isInspecting: Boolean = false,
@@ -63,7 +70,9 @@ class ProjectViewModel(
     private val _openFiles = MutableStateFlow<List<String>>(emptyList())
     val openFiles: StateFlow<List<String>> = _openFiles
     private var previewJob: Job? = null
+    private var positionJob: Job? = null
     private val previewRequestIds = AtomicLong()
+    private val positionRequestIds = AtomicLong()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -86,11 +95,21 @@ class ProjectViewModel(
         }
     }
 
-    fun selectFile(path: String) {
+    fun selectFile(path: String) = selectFile(path, navigationLine = null)
+
+    private fun selectFile(path: String, navigationLine: Int?) {
         _openFiles.value = (_openFiles.value + path).distinct().takeLast(MAX_OPEN_FILES)
         val requestId = previewRequestIds.incrementAndGet()
         previewJob?.cancel()
-        _filePreview.value = FilePreviewState(path = path, isLoading = true)
+        positionRequestIds.incrementAndGet()
+        positionJob?.cancel()
+        val navigationRequestId = if (navigationLine == null) 0 else System.nanoTime()
+        _filePreview.value = FilePreviewState(
+            path = path,
+            isLoading = true,
+            navigationLine = navigationLine,
+            navigationRequestId = navigationRequestId,
+        )
         previewJob = scope.launch(ioDispatcher) {
             try {
                 val preview = service.readFile(path)
@@ -106,6 +125,8 @@ class ProjectViewModel(
                     languageId = pathLanguageId,
                     symbols = localSymbols,
                     isInspecting = shouldInspect,
+                    navigationLine = navigationLine,
+                    navigationRequestId = navigationRequestId,
                 )
                 if (requestId != previewRequestIds.get()) return@launch
                 _filePreview.value = contentState
@@ -153,6 +174,45 @@ class ProjectViewModel(
                 }
             }
         }
+    }
+
+    fun inspectPosition(line: Int, character: Int) {
+        val current = _filePreview.value
+        val path = current.path ?: return
+        if (current.binary || current.content.isEmpty()) return
+        val requestId = positionRequestIds.incrementAndGet()
+        positionJob?.cancel()
+        _filePreview.value = current.copy(positionInsight = null, isInspectingPosition = true)
+        positionJob = scope.launch(ioDispatcher) {
+            try {
+                val insight = service.inspectPosition(path, current.content, line, character)
+                if (requestId == positionRequestIds.get() && _filePreview.value.path == path) {
+                    _filePreview.value = _filePreview.value.copy(
+                        positionInsight = insight,
+                        isInspectingPosition = false,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                if (requestId == positionRequestIds.get() && _filePreview.value.path == path) {
+                    _filePreview.value = _filePreview.value.copy(positionInsight = null, isInspectingPosition = false)
+                }
+            }
+        }
+    }
+
+    fun clearPositionInsight() {
+        positionRequestIds.incrementAndGet()
+        positionJob?.cancel()
+        _filePreview.value = _filePreview.value.copy(positionInsight = null, isInspectingPosition = false)
+    }
+
+    fun openDefinition(location: SourceLocation) {
+        val root = java.io.File(projectPath).toPath().toRealPath()
+        val target = runCatching { java.nio.file.Path.of(URI(location.uri)).toRealPath() }.getOrNull() ?: return
+        if (!target.startsWith(root)) return
+        selectFile(root.relativize(target).toString().replace('\\', '/'), location.line)
     }
 
     fun closeFile(path: String) {

@@ -3,6 +3,7 @@ package com.swarmeditor.backend.service
 import com.swarmeditor.backend.lsp.LspHighlightResult
 import com.swarmeditor.backend.lsp.LspDocumentInsight
 import com.swarmeditor.backend.lsp.SourceCodeIntelligence
+import com.swarmeditor.backend.lsp.SourcePositionInsight
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
 import com.swarmeditor.backend.storage.atomicWriteText
 import java.io.File
@@ -102,6 +103,17 @@ class ProjectService(
                 )
             }
         }
+    }
+
+    suspend fun inspectPosition(
+        relativePath: String,
+        content: String,
+        line: Int,
+        character: Int,
+    ): SourcePositionInsight? {
+        val intelligence = semanticHighlighter as? SourceCodeIntelligence ?: return null
+        val resolved = resolveProjectFile(relativePath)
+        return intelligence.inspectPosition(resolved.toFile(), content, line, character)
     }
 
     private fun resolveProjectFile(relativePath: String): Path {

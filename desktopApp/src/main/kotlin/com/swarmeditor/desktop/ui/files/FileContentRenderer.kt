@@ -5,6 +5,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,10 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import com.swarmeditor.backend.lsp.SemanticHighlight
 import com.swarmeditor.backend.lsp.SourceFoldingRange
+import com.swarmeditor.backend.lsp.SourceLocation
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.AcLight
 import com.swarmeditor.desktop.theme.AgentGemini
@@ -96,6 +100,9 @@ internal data class SourceNavigationTarget(
 internal fun FileContentRenderer(
     preview: ProjectViewModel.FilePreviewState,
     navigationTarget: SourceNavigationTarget? = null,
+    onInspectPosition: (Int, Int) -> Unit = { _, _ -> },
+    onOpenDefinition: (SourceLocation) -> Unit = {},
+    onDismissPositionInsight: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val extension = preview.path.orEmpty().substringAfterLast('.', "").lowercase()
@@ -126,11 +133,23 @@ internal fun FileContentRenderer(
         }
         Box(Modifier.fillMaxSize().background(Bg0)) {
             when {
-                effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(preview, navigationTarget)
+                effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(
+                    preview,
+                    navigationTarget,
+                    onInspectPosition,
+                    onOpenDefinition,
+                    onDismissPositionInsight,
+                )
                 extension in setOf("md", "markdown") -> MarkdownPreview(preview.content)
                 extension in setOf("html", "htm") -> HtmlPreview(preview.content)
                 extension == "json" -> JsonPreview(preview.content)
-                else -> SourceCodePane(preview, navigationTarget)
+                else -> SourceCodePane(
+                    preview,
+                    navigationTarget,
+                    onInspectPosition,
+                    onOpenDefinition,
+                    onDismissPositionInsight,
+                )
             }
         }
     }
@@ -158,7 +177,13 @@ private fun RenderModeTab(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigationTarget: SourceNavigationTarget?) {
+private fun SourceCodePane(
+    preview: ProjectViewModel.FilePreviewState,
+    navigationTarget: SourceNavigationTarget?,
+    onInspectPosition: (Int, Int) -> Unit,
+    onOpenDefinition: (SourceLocation) -> Unit,
+    onDismissPositionInsight: () -> Unit,
+) {
     val lines = remember(preview.content) { preview.content.lines() }
     val semanticByLine = remember(preview.semanticHighlights) { preview.semanticHighlights.groupBy(SemanticHighlight::line) }
     val foldingByStart = remember(preview.foldingRanges, lines.size) {
@@ -239,7 +264,9 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
                             modifier = Modifier.width(42.dp).padding(end = 10.dp),
                         )
                     }
-                    HighlightedSourceLine(line, preview.languageId, semantic)
+                    HighlightedSourceLine(line, preview.languageId, semantic) { character ->
+                        onInspectPosition(index, character)
+                    }
                     if (collapsed && visibleLine.hiddenLineCount > 0) {
                         Text(
                             text = "  ⋯ ${visibleLine.hiddenLineCount} 行",
@@ -264,6 +291,46 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
             adapter = rememberScrollbarAdapter(horizontalState),
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
         )
+        if (preview.isInspectingPosition) {
+            Text(
+                "JetBrains 代码洞察分析中…",
+                color = Tx2,
+                fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).surfaceInput().padding(8.dp),
+            )
+        }
+        preview.positionInsight?.let { insight ->
+            if (!insight.hover.isNullOrBlank() || insight.definitions.isNotEmpty()) {
+                Column(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(0.72f)
+                        .clip(RoundedCornerShape(R8))
+                        .background(Bg1)
+                        .border(1.dp, Line2, RoundedCornerShape(R8))
+                        .padding(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("JetBrains 代码洞察", color = AcLight, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        Text("关闭", color = Tx3, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onDismissPositionInsight))
+                    }
+                    insight.hover?.takeIf(String::isNotBlank)?.let { hover ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(hover, color = Tx2, fontSize = 11.sp, fontFamily = CodeFont, maxLines = 8)
+                    }
+                    insight.definitions.take(4).forEach { location ->
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            "跳转定义 · ${location.uri.substringAfterLast('/')} : ${location.line + 1}",
+                            color = AcLight,
+                            fontSize = 10.sp,
+                            modifier = Modifier.clickable { onOpenDefinition(location) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -320,10 +387,12 @@ private fun HighlightedSourceLine(
     line: String,
     languageId: String,
     semantic: List<SemanticHighlight>,
+    onPositionClick: (Int) -> Unit,
 ) {
     val highlighted = remember(line, languageId, semantic) {
         highlightSourceLine(line, languageId, semantic)
     }
+    var layoutResult by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text = highlighted,
         color = Tx2,
@@ -331,7 +400,15 @@ private fun HighlightedSourceLine(
         fontFamily = CodeFont,
         lineHeight = 19.sp,
         softWrap = false,
-        modifier = Modifier.padding(end = 24.dp),
+        onTextLayout = { layoutResult = it },
+        modifier = Modifier
+            .padding(end = 24.dp)
+            .pointerInput(line) {
+                detectTapGestures { position ->
+                    val character = layoutResult?.getOffsetForPosition(position) ?: 0
+                    onPositionClick(character.coerceIn(0, line.length))
+                }
+            },
     )
 }
 

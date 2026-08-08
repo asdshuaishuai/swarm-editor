@@ -63,6 +63,7 @@ import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.SourceLocation
 
 // ── Stats helpers ──────────────────────────────────────────────────
 
@@ -85,6 +86,9 @@ fun FileExplorerView(
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
     onOpenWorkspace: () -> Unit = {},
     onCreateWorkspace: () -> Unit = {},
+    onInspectPosition: (Int, Int) -> Unit = { _, _ -> },
+    onOpenDefinition: (SourceLocation) -> Unit = {},
+    onDismissPositionInsight: () -> Unit = {},
     projectPath: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -303,6 +307,9 @@ fun FileExplorerView(
                         preview = filePreview,
                         change = gitStatus.changes.firstOrNull { it.path == filePreview.path },
                         onOpenDiff = onOpenDiff,
+                        onInspectPosition = onInspectPosition,
+                        onOpenDefinition = onOpenDefinition,
+                        onDismissPositionInsight = onDismissPositionInsight,
                     )
                 } else {
                     Column(
@@ -467,8 +474,16 @@ private fun FilePreview(
     preview: ProjectViewModel.FilePreviewState,
     change: GitFileChangeDto?,
     onOpenDiff: (GitFileChangeDto) -> Unit,
+    onInspectPosition: (Int, Int) -> Unit,
+    onOpenDefinition: (SourceLocation) -> Unit,
+    onDismissPositionInsight: () -> Unit,
 ) {
     var navigationTarget by remember(preview.path) { mutableStateOf<SourceNavigationTarget?>(null) }
+    LaunchedEffect(preview.navigationRequestId) {
+        preview.navigationLine?.let { line ->
+            navigationTarget = SourceNavigationTarget(line, preview.navigationRequestId)
+        }
+    }
     Column(Modifier.fillMaxSize().padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SemanticIconBadge(
@@ -544,6 +559,9 @@ private fun FilePreview(
                     FileContentRenderer(
                         preview = preview,
                         navigationTarget = navigationTarget,
+                        onInspectPosition = onInspectPosition,
+                        onOpenDefinition = onOpenDefinition,
+                        onDismissPositionInsight = onDismissPositionInsight,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
