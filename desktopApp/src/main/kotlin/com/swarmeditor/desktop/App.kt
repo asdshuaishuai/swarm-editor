@@ -152,6 +152,7 @@ fun WindowScope.App(
     val isProjectLoading by root.projectVm.isLoading.collectAsState()
     val projectTreeError by root.projectVm.treeError.collectAsState()
     val projectFilePreview by root.projectVm.filePreview.collectAsState()
+    val projectOpenFiles by root.projectVm.openFiles.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
@@ -215,7 +216,11 @@ fun WindowScope.App(
         }
     }
     LaunchedEffect(dialog) {
-        if (dialog == DialogConfig.CommandPalette) root.sessionVm.refreshPiCommands()
+        when (dialog) {
+            DialogConfig.CommandPalette -> root.sessionVm.refreshPiCommands()
+            DialogConfig.Settings -> root.sessionVm.refreshPiModels()
+            else -> Unit
+        }
     }
     LaunchedEffect((detailDialog as? DialogConfig.AgentConfig)?.agentId) {
         if ((detailDialog as? DialogConfig.AgentConfig)?.agentId != null) {
@@ -700,7 +705,9 @@ fun WindowScope.App(
                                 onRefresh = { root.projectVm.load() },
                                 gitStatus = gitStatus,
                                 filePreview = projectFilePreview,
+                                openFiles = projectOpenFiles,
                                 onSelectFile = root.projectVm::selectFile,
+                                onCloseFile = root.projectVm::closeFile,
                                 onOpenDiff = { diffChange = it },
                                 onOpenWorkspace = onOpenWorkspace,
                                 onCreateWorkspace = onCreateWorkspace,

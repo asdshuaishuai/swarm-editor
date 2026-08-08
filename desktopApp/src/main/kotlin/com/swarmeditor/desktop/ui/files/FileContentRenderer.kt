@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import com.swarmeditor.backend.lsp.SemanticHighlight
@@ -73,8 +75,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.StringReader
+import javax.swing.text.MutableAttributeSet
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLEditorKit
+import javax.swing.text.html.parser.ParserDelegator
 
-private enum class FileRenderMode { SOURCE, PREVIEW }
+internal enum class FileRenderMode { SOURCE, PREVIEW }
+
+internal fun initialFileRenderMode(preference: String?): FileRenderMode =
+    if (preference.equals("preview", ignoreCase = true)) FileRenderMode.PREVIEW else FileRenderMode.SOURCE
 
 internal data class SourceNavigationTarget(
     val line: Int,
@@ -89,7 +99,9 @@ internal fun FileContentRenderer(
 ) {
     val extension = preview.path.orEmpty().substringAfterLast('.', "").lowercase()
     val supportsPreview = supportsRenderedPreview(preview.path, preview.binary, preview.truncated)
-    var mode by remember(preview.path) { mutableStateOf(FileRenderMode.SOURCE) }
+    var mode by remember(preview.path) {
+        mutableStateOf(initialFileRenderMode(System.getProperty("swarm.fileRenderMode")))
+    }
     val effectiveMode = if (supportsPreview) mode else FileRenderMode.SOURCE
 
     Column(modifier) {
@@ -296,24 +308,171 @@ private fun HtmlPreview(
     content: String,
     modifier: Modifier = Modifier,
 ) {
-    val rendered = remember(content) { htmlPreviewText(content) }
-    val scrollState = rememberScrollState()
+    val blocks = remember(content) { parseHtmlPreviewBlocks(content) }
+    val listState = rememberLazyListState()
     Box(modifier.fillMaxSize()) {
-        Text(
-            text = rendered,
-            color = Tx2,
-            fontSize = 13.sp,
-            lineHeight = 21.sp,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(end = 10.dp)
-                .verticalScroll(scrollState)
-                .padding(22.dp),
-        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(end = 10.dp),
+            state = listState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(22.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            items(blocks) { block -> HtmlPreviewBlockView(block) }
+        }
         VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(scrollState),
+            adapter = rememberScrollbarAdapter(listState),
             modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 4.dp),
         )
+    }
+}
+
+@Composable
+private fun HtmlPreviewBlockView(block: HtmlPreviewBlock) {
+    when (block.kind) {
+        HtmlBlockKind.HEADING_1,
+        HtmlBlockKind.HEADING_2,
+        HtmlBlockKind.HEADING_3,
+        HtmlBlockKind.HEADING_4,
+        HtmlBlockKind.HEADING_5,
+        HtmlBlockKind.HEADING_6,
+        -> Text(
+            text = block.text,
+            color = Tx,
+            fontSize = when (block.kind) {
+                HtmlBlockKind.HEADING_1 -> 30.sp
+                HtmlBlockKind.HEADING_2 -> 24.sp
+                HtmlBlockKind.HEADING_3 -> 20.sp
+                HtmlBlockKind.HEADING_4 -> 17.sp
+                HtmlBlockKind.HEADING_5 -> 15.sp
+                else -> 14.sp
+            },
+            lineHeight = 1.2.em,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        HtmlBlockKind.LIST_ITEM -> Row(
+            modifier = Modifier.padding(start = (block.depth.coerceAtMost(6) * 14).dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text("•", color = AcLight, fontSize = 13.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(block.text, color = Tx2, fontSize = 13.sp, lineHeight = 20.sp)
+        }
+
+        HtmlBlockKind.CODE -> Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(R6)).background(Bg1).border(1.dp, Line2, RoundedCornerShape(R6))
+                .padding(12.dp),
+        ) {
+            Text(block.text, color = Tx2, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = CodeFont)
+        }
+
+        HtmlBlockKind.QUOTE -> Row {
+            Box(Modifier.width(3.dp).height(22.dp).background(Ac.copy(alpha = 0.65f)))
+            Spacer(Modifier.width(10.dp))
+            Text(block.text, color = Tx3, fontSize = 13.sp, lineHeight = 20.sp, fontStyle = FontStyle.Italic)
+        }
+
+        HtmlBlockKind.PARAGRAPH -> Text(block.text, color = Tx2, fontSize = 13.sp, lineHeight = 21.sp)
+    }
+}
+
+internal enum class HtmlBlockKind {
+    HEADING_1,
+    HEADING_2,
+    HEADING_3,
+    HEADING_4,
+    HEADING_5,
+    HEADING_6,
+    PARAGRAPH,
+    LIST_ITEM,
+    CODE,
+    QUOTE,
+}
+
+internal data class HtmlPreviewBlock(
+    val kind: HtmlBlockKind,
+    val text: String,
+    val depth: Int = 0,
+)
+
+internal fun parseHtmlPreviewBlocks(content: String): List<HtmlPreviewBlock> {
+    val collector = HtmlPreviewCollector()
+    ParserDelegator().parse(StringReader(sanitizeHtmlPreviewContent(content)), collector, true)
+    return collector.finish().ifEmpty {
+        htmlPreviewText(content).takeIf(String::isNotBlank)?.let { text ->
+            listOf(HtmlPreviewBlock(HtmlBlockKind.PARAGRAPH, text))
+        }.orEmpty()
+    }
+}
+
+internal fun sanitizeHtmlPreviewContent(content: String): String = content
+        .replace(Regex("(?is)<(script|style|iframe|object|embed)\\b[^>]*>.*?</\\1\\s*>"), "")
+        .replace(Regex("(?is)<(?:link|base|meta)\\b[^>]*?/?>"), "")
+        .replace(Regex("(?is)\\s+on[a-z]+\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)"), "")
+        .replace(Regex("(?is)\\s+(?:src|srcset|background)\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)"), "")
+
+private class HtmlPreviewCollector : HTMLEditorKit.ParserCallback() {
+    private val blocks = mutableListOf<HtmlPreviewBlock>()
+    private val text = StringBuilder()
+    private var activeKind: HtmlBlockKind? = null
+    private var activeTag: HTML.Tag? = null
+    private var activeDepth = 0
+    private var listDepth = 0
+
+    override fun handleStartTag(tag: HTML.Tag, attributes: MutableAttributeSet, position: Int) {
+        when (tag) {
+            HTML.Tag.UL, HTML.Tag.OL -> listDepth++
+            HTML.Tag.H1 -> begin(HtmlBlockKind.HEADING_1, tag)
+            HTML.Tag.H2 -> begin(HtmlBlockKind.HEADING_2, tag)
+            HTML.Tag.H3 -> begin(HtmlBlockKind.HEADING_3, tag)
+            HTML.Tag.H4 -> begin(HtmlBlockKind.HEADING_4, tag)
+            HTML.Tag.H5 -> begin(HtmlBlockKind.HEADING_5, tag)
+            HTML.Tag.H6 -> begin(HtmlBlockKind.HEADING_6, tag)
+            HTML.Tag.LI -> begin(HtmlBlockKind.LIST_ITEM, tag, listDepth.coerceAtLeast(1) - 1)
+            HTML.Tag.P -> if (activeKind == null) begin(HtmlBlockKind.PARAGRAPH, tag)
+            HTML.Tag.PRE -> begin(HtmlBlockKind.CODE, tag)
+            HTML.Tag.BLOCKQUOTE -> begin(HtmlBlockKind.QUOTE, tag)
+        }
+    }
+
+    override fun handleEndTag(tag: HTML.Tag, position: Int) {
+        if (tag == activeTag) commitBlock()
+        if (tag == HTML.Tag.UL || tag == HTML.Tag.OL) listDepth = (listDepth - 1).coerceAtLeast(0)
+    }
+
+    override fun handleSimpleTag(tag: HTML.Tag, attributes: MutableAttributeSet, position: Int) {
+        if (tag == HTML.Tag.BR && text.isNotEmpty()) text.append('\n')
+    }
+
+    override fun handleText(data: CharArray, position: Int) {
+        if (activeKind == null) begin(HtmlBlockKind.PARAGRAPH, HTML.Tag.P)
+        text.append(data)
+    }
+
+    fun finish(): List<HtmlPreviewBlock> {
+        commitBlock()
+        return blocks
+    }
+
+    private fun begin(kind: HtmlBlockKind, tag: HTML.Tag, depth: Int = 0) {
+        commitBlock()
+        activeKind = kind
+        activeTag = tag
+        activeDepth = depth
+    }
+
+    private fun commitBlock() {
+        val kind = activeKind ?: return
+        val value = if (kind == HtmlBlockKind.CODE) {
+            text.toString().trim('\n', '\r')
+        } else {
+            text.toString().trim().replace(Regex("[\\t\\r\\n ]+"), " ")
+        }
+        if (value.isNotBlank()) blocks += HtmlPreviewBlock(kind, value, activeDepth)
+        text.clear()
+        activeKind = null
+        activeTag = null
+        activeDepth = 0
     }
 }
 

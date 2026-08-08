@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.haze)
     implementation(libs.lucide.icons)  // woowla feather icons (Lucide 前身，同款线性)
     implementation(libs.markdown.renderer)
+    implementation(libs.jetbrains.markdown)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)

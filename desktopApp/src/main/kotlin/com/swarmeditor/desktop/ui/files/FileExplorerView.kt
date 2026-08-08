@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,14 +21,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Folder
 import com.woowla.compose.icon.collections.feather.feather.RefreshCw
+import com.woowla.compose.icon.collections.feather.feather.Search
+import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,9 +46,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,7 +79,9 @@ fun FileExplorerView(
     onRefresh: () -> Unit,
     gitStatus: GitStatusDto = GitStatusDto(),
     filePreview: ProjectViewModel.FilePreviewState = ProjectViewModel.FilePreviewState(),
+    openFiles: List<String> = emptyList(),
     onSelectFile: (String) -> Unit = {},
+    onCloseFile: (String) -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
     onOpenWorkspace: () -> Unit = {},
     onCreateWorkspace: () -> Unit = {},
@@ -81,6 +90,7 @@ fun FileExplorerView(
 ) {
     val expandedDirs = remember { mutableStateMapOf<String, Boolean>() }
     val treeListState = rememberLazyListState()
+    var filterQuery by remember { mutableStateOf("") }
     LaunchedEffect(tree) {
         val root = tree ?: return@LaunchedEffect
         expandedDirs[root.path] = true
@@ -174,6 +184,11 @@ fun FileExplorerView(
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+            FileTreeSearchField(
+                value = filterQuery,
+                onValueChange = { filterQuery = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            )
             if (isLoading || !error.isNullOrBlank()) {
                 val noticeColor = if (!error.isNullOrBlank()) ErrLight else AcLight
                 if (isLoading) {
@@ -217,6 +232,7 @@ fun FileExplorerView(
                     onSelectFile = { onSelectFile(it.path) },
                     onToggleDir = { path -> expandedDirs[path] = !(expandedDirs[path] ?: false) },
                     filterChangesOnly = false,
+                    query = filterQuery,
                     modifier = Modifier.fillMaxSize(),
                     listState = treeListState,
                 )
@@ -257,6 +273,27 @@ fun FileExplorerView(
                     compact = true,
                     onClick = onCreateWorkspace,
                 )
+            }
+
+            if (openFiles.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .background(Bg1)
+                        .border(width = 1.dp, color = Line)
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    openFiles.forEach { path ->
+                        EditorFileTab(
+                            path = path,
+                            selected = path == filePreview.path,
+                            onSelect = { onSelectFile(path) },
+                            onClose = { onCloseFile(path) },
+                        )
+                    }
+                }
             }
 
             // 详情
@@ -302,6 +339,125 @@ fun FileExplorerView(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FileTreeSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(color = Tx, fontSize = 11.sp, fontFamily = SansFont),
+        cursorBrush = SolidColor(Ac),
+        modifier = modifier
+            .height(32.dp)
+            .clip(AppShapes.xs)
+            .background(Bg0.copy(alpha = 0.72f))
+            .border(1.dp, Line2, AppShapes.xs)
+            .padding(horizontal = 9.dp),
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Feather.Search,
+                    contentDescription = null,
+                    tint = Tx3,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(7.dp))
+                Box(Modifier.weight(1f)) {
+                    if (value.isBlank()) {
+                        Text("搜索项目文件", color = Tx3, fontSize = 11.sp)
+                    }
+                    innerTextField()
+                }
+                if (value.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(AppShapes.xs)
+                            .clickable { onValueChange("") },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Feather.X,
+                            contentDescription = "清除文件筛选",
+                            tint = Tx3,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun EditorFileTab(
+    path: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val background = if (selected) Bg2 else Bg1
+    Box(
+        modifier = Modifier
+            .height(38.dp)
+            .widthIn(min = 118.dp, max = 220.dp)
+            .background(background)
+            .border(width = 0.5.dp, color = Line)
+            .clickable(onClick = onSelect),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SemanticIconBadge(
+                spec = semanticFileIconSpec(path),
+                contentDescription = null,
+                size = 20.dp,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = path.substringAfterLast('/').substringAfterLast('\\'),
+                color = if (selected) Tx else Tx2,
+                fontSize = 11.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(AppShapes.xs)
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Feather.X,
+                    contentDescription = "关闭 ${path.substringAfterLast('/')}",
+                    tint = Tx3,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        if (selected) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(Ac),
+            )
         }
     }
 }
@@ -502,7 +658,8 @@ private fun HighlightStatusChip(preview: ProjectViewModel.FilePreviewState) {
     val label = when {
         preview.isInspecting -> "LSP 分析中"
         server != null -> "LSP 语义 · $server"
-        else -> "JVM 语法高亮"
+        preview.languageId == "markdown" -> "JetBrains Markdown · 本地高亮"
+        else -> "本地语法高亮"
     }
     val color = when {
         preview.isInspecting -> ControlBlue
@@ -513,6 +670,7 @@ private fun HighlightStatusChip(preview: ProjectViewModel.FilePreviewState) {
         ?: when {
             preview.isInspecting -> "文件内容已显示，正在后台获取语义高亮、符号和诊断"
             server != null -> "语义高亮由 $server 提供"
+            preview.languageId == "markdown" -> "标题结构由 JetBrains Markdown AST 提供，源码由 Compose 本地高亮"
             else -> "当前文件使用 Compose 本地词法高亮"
         }
 

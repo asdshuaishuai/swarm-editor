@@ -459,6 +459,47 @@ class SessionViewModelTest {
 
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
+    fun `loads pi model catalog without an active conversation session`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-model-catalog")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val model = PiModelInfo(
+                provider = "minimax",
+                id = "MiniMax-M2.1",
+                name = "MiniMax M2.1",
+                api = "anthropic-messages",
+                reasoning = true,
+                contextWindow = 200_000,
+                maxTokens = 64_000,
+            )
+            val gateway = object : ConversationGateway {
+                override suspend fun getAvailableModelsForAgent(agentId: String): Result<List<PiModelInfo>> {
+                    assertEquals("pi-default", agentId)
+                    return Result.success(listOf(model))
+                }
+
+                override suspend fun sendMessage(
+                    sessionId: String,
+                    content: String,
+                    images: List<ImageData>,
+                ): Result<String> = Result.success("")
+
+                override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
+            }
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+
+            viewModel.refreshPiModels()
+            runCurrent()
+
+            assertEquals(listOf(model), viewModel.piModels.value)
+            assertTrue(viewModel.piThinkingLevels.value.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
     fun `refreshes pi branch tree and returns forked prompt to composer`() = runTest {
         val directory = Files.createTempDirectory("session-vm-branches")
         try {

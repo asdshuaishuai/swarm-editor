@@ -58,6 +58,7 @@ internal fun flattenVisibleFileTree(
     tree: FileNodeDto,
     expanded: Map<String, Boolean>,
     filterChangesOnly: Boolean,
+    query: String = "",
 ): List<VisibleFileNode> {
     val changedPaths = if (filterChangesOnly) {
         buildSet {
@@ -74,12 +75,30 @@ internal fun flattenVisibleFileTree(
     } else {
         emptySet()
     }
+    val normalizedQuery = query.trim().lowercase()
+    val matchingPaths = if (normalizedQuery.isNotEmpty()) {
+        buildSet {
+            fun collectMatches(node: FileNodeDto): Boolean {
+                var hasMatch = node.name.lowercase().contains(normalizedQuery) ||
+                    node.path.lowercase().contains(normalizedQuery)
+                node.children.forEach { child ->
+                    if (collectMatches(child)) hasMatch = true
+                }
+                if (hasMatch) add(node.path)
+                return hasMatch
+            }
+            collectMatches(tree)
+        }
+    } else {
+        emptySet()
+    }
 
     return buildList {
         fun appendVisible(node: FileNodeDto, depth: Int) {
             if (filterChangesOnly && node.path !in changedPaths) return
+            if (normalizedQuery.isNotEmpty() && node.path !in matchingPaths) return
             add(VisibleFileNode(node, depth))
-            if (!node.isDirectory || expanded[node.path] != true) return
+            if (!node.isDirectory || (normalizedQuery.isEmpty() && expanded[node.path] != true)) return
             node.children
                 .sortedWith(compareBy({ !it.isDirectory }, { it.name }))
                 .forEach { child -> appendVisible(child, depth + 1) }
@@ -106,11 +125,12 @@ fun FileTreeView(
     onSelectFile: (FileNodeDto) -> Unit,
     onToggleDir: (String) -> Unit,
     filterChangesOnly: Boolean = false,
+    query: String = "",
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
 ) {
-    val visibleNodes by remember(tree, expanded, filterChangesOnly) {
-        derivedStateOf { flattenVisibleFileTree(tree, expanded, filterChangesOnly) }
+    val visibleNodes by remember(tree, expanded, filterChangesOnly, query) {
+        derivedStateOf { flattenVisibleFileTree(tree, expanded, filterChangesOnly, query) }
     }
 
     LazyColumn(

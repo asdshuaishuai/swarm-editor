@@ -9,6 +9,7 @@ import com.swarmeditor.backend.pi.PiExtensionUiResponse
 import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.backend.pi.PiQueuedMessageMode
 import com.swarmeditor.backend.pi.PiSessionTree
+import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.common.model.MessageRole
 import com.swarmeditor.common.model.Session
 import com.swarmeditor.common.model.ImageData
@@ -321,26 +322,22 @@ class SessionViewModel(
     }
 
     fun refreshPiModels() {
-        val sessionId = _currentSessionId.value ?: run {
-            _piModels.value = emptyList()
-            _piThinkingLevels.value = emptyList()
-            return
-        }
+        val sessionId = _currentSessionId.value
         scope.launch {
-            conversationService.getAvailableModels(sessionId).fold(
-                onSuccess = { _piModels.value = it },
-                onFailure = { _piModels.value = emptyList() },
-            )
-            conversationService.getAvailableThinkingLevels(sessionId).fold(
-                onSuccess = { _piThinkingLevels.value = it },
-                onFailure = {
-                    _piThinkingLevels.value = runtimeState.value
+            val liveModels = sessionId?.let { conversationService.getAvailableModels(it).getOrNull() }
+            _piModels.value = liveModels
+                ?: conversationService.getAvailableModelsForAgent(AgentRegistry.DEFAULT_AGENT_ID).getOrElse { emptyList() }
+            _piThinkingLevels.value = if (sessionId == null) {
+                emptyList()
+            } else {
+                conversationService.getAvailableThinkingLevels(sessionId).getOrElse {
+                    runtimeState.value
                         ?.thinkingLevel
                         ?.takeIf(String::isNotBlank)
                         ?.let(::listOf)
                         .orEmpty()
-                },
-            )
+                }
+            }
         }
     }
 

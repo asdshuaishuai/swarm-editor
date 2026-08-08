@@ -31,7 +31,11 @@ class PiRuntimeManager(
             config = config,
             workingDirectory = workingDirectory,
             remoteSessionId = remoteSessionId,
-            toolBroker = toolBrokerFactory.create(config, workingDirectory),
+            toolBroker = if (config.isModelCatalogProfile()) {
+                null
+            } else {
+                toolBrokerFactory.create(config, workingDirectory)
+            },
         )
         try {
             session.validate(config.timeoutSeconds)

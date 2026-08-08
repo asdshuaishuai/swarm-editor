@@ -58,6 +58,8 @@ class ProjectViewModel(
     private val treeRequestIds = AtomicLong()
     private val _filePreview = MutableStateFlow(FilePreviewState())
     val filePreview: StateFlow<FilePreviewState> = _filePreview
+    private val _openFiles = MutableStateFlow<List<String>>(emptyList())
+    val openFiles: StateFlow<List<String>> = _openFiles
     private var previewJob: Job? = null
     private val previewRequestIds = AtomicLong()
 
@@ -83,6 +85,7 @@ class ProjectViewModel(
     }
 
     fun selectFile(path: String) {
+        _openFiles.value = (_openFiles.value + path).distinct().takeLast(MAX_OPEN_FILES)
         val requestId = previewRequestIds.incrementAndGet()
         previewJob?.cancel()
         _filePreview.value = FilePreviewState(path = path, isLoading = true)
@@ -90,13 +93,16 @@ class ProjectViewModel(
             try {
                 val preview = service.readFile(path)
                 val shouldInspect = !preview.binary && preview.content.isNotEmpty()
+                val localSymbols = markdownOutlineSymbols(path, preview.content)
+                val pathLanguageId = sourceLanguageId(path)
                 val contentState = FilePreviewState(
                     path = preview.path,
                     content = preview.content,
                     sizeBytes = preview.sizeBytes,
                     truncated = preview.truncated,
                     binary = preview.binary,
-                    languageId = path.substringAfterLast('.', "").lowercase(),
+                    languageId = pathLanguageId,
+                    symbols = localSymbols,
                     isInspecting = shouldInspect,
                 )
                 if (requestId != previewRequestIds.get()) return@launch
@@ -121,10 +127,12 @@ class ProjectViewModel(
                         contentState.copy(isInspecting = false)
                     } else {
                         contentState.copy(
-                            languageId = insight.languageId,
+                            languageId = pathLanguageId.ifBlank { insight.languageId },
                             lspServer = insight.serverName,
                             semanticHighlights = insight.highlights,
-                            symbols = insight.symbols,
+                            symbols = (localSymbols + insight.symbols).distinctBy { symbol ->
+                                Triple(symbol.name, symbol.kind, symbol.line)
+                            },
                             diagnostics = insight.diagnostics,
                             lspMessage = insight.message,
                             isInspecting = false,
@@ -143,6 +151,43 @@ class ProjectViewModel(
             }
         }
     }
+
+    fun closeFile(path: String) {
+        val current = _openFiles.value
+        val closedIndex = current.indexOf(path)
+        if (closedIndex < 0) return
+
+        val remaining = current.filterNot { it == path }
+        _openFiles.value = remaining
+        if (_filePreview.value.path != path) return
+
+        previewRequestIds.incrementAndGet()
+        previewJob?.cancel()
+        val nextPath = remaining.getOrNull(closedIndex.coerceAtMost(remaining.lastIndex))
+        if (nextPath == null) {
+            _filePreview.value = FilePreviewState()
+        } else {
+            selectFile(nextPath)
+        }
+    }
+
+    private companion object {
+        const val MAX_OPEN_FILES = 12
+    }
+}
+
+internal fun sourceLanguageId(path: String): String = when (val extension = path.substringAfterLast('.', "").lowercase()) {
+    "kt", "kts" -> "kotlin"
+    "md", "markdown" -> "markdown"
+    "htm", "html" -> "html"
+    "js", "jsx" -> "javascript"
+    "ts", "tsx" -> "typescript"
+    "py" -> "python"
+    "rs" -> "rust"
+    "rb" -> "ruby"
+    "cs" -> "csharp"
+    "c", "h", "cc", "cpp", "cxx", "hpp" -> "cpp"
+    else -> extension
 }
 
 private fun ProjectService.FileNode.toDto(): FileNodeDto = FileNodeDto(

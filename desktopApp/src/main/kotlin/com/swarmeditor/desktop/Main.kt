@@ -75,6 +75,8 @@ fun main(args: Array<String>) {
     val lifecycle = remember { LifecycleRegistry().apply { resume() } }
     val root = remember(lifecycle) { RootComponent(DefaultComponentContext(lifecycle)) }
     LaunchedEffect(root) {
+        System.getProperty("swarm.view")?.let(root::switchView)
+        System.getProperty("swarm.file")?.takeIf(String::isNotBlank)?.let(root.projectVm::selectFile)
         when (System.getProperty("swarm.dialog")) {
             "settings" -> root.showSettingsDialog()
             "command" -> root.showCmdKDialog()

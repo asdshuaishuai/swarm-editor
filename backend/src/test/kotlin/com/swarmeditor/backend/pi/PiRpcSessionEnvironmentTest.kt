@@ -20,6 +20,7 @@ class PiRpcSessionEnvironmentTest {
                 "SWARM_PI_TOOL_BROKER" to "profile-controlled",
                 "SWARM_PI_TOOL_BROKER_NONCE" to "profile-nonce",
                 "SWARM_PI_TOOL_BROKER_CORE_TOOLS" to "profile-controlled",
+                SWARM_PI_MODEL_CATALOG_ENV to "profile-controlled",
             ),
         )
 
@@ -32,6 +33,7 @@ class PiRpcSessionEnvironmentTest {
         assertNull(environment["SWARM_PI_TOOL_BROKER"])
         assertNull(environment["SWARM_PI_TOOL_BROKER_NONCE"])
         assertNull(environment["SWARM_PI_TOOL_BROKER_CORE_TOOLS"])
+        assertNull(environment[SWARM_PI_MODEL_CATALOG_ENV])
     }
 
     @Test

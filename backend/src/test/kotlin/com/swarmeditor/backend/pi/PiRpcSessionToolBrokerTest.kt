@@ -146,6 +146,35 @@ class PiRpcSessionToolBrokerTest {
     }
 
     @Test
+    fun `runtime manager skips broker for model catalog sessions`() = runBlocking {
+        val fixture = runtimeFixture(SUCCESS_SERVER)
+        var brokerCreations = 0
+        val manager = PiRuntimeManager(
+            distribution = fixture.distribution,
+            defaultWorkingDirectory = fixture.root.toFile(),
+            toolBrokerFactory = PiToolBrokerFactory { _, _ ->
+                brokerCreations++
+                PiToolBroker { error("model catalog must not execute broker tools") }
+            },
+        )
+
+        try {
+            val config = AgentConfig(
+                id = "model-catalog",
+                name = "Model Catalog",
+                timeoutSeconds = 5,
+                env = mapOf(SWARM_PI_MODEL_CATALOG_ENV to "1"),
+            )
+            manager.getOrCreate("catalog-session", config, null)
+
+            assertEquals(0, brokerCreations)
+        } finally {
+            manager.shutdown()
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `closing rpc session closes its tool broker`() = runBlocking {
         val fixture = runtimeFixture(SUCCESS_SERVER)
         val brokerClosed = CompletableDeferred<Unit>()

@@ -6,6 +6,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
+internal const val SWARM_PI_MODEL_CATALOG_ENV = "SWARM_PI_MODEL_CATALOG"
+
+internal fun AgentConfig.isModelCatalogProfile(): Boolean =
+    env[SWARM_PI_MODEL_CATALOG_ENV] == "1"
+
 data class PiRuntimeInfo(
     val version: String,
     val nodeVersion: String,
@@ -55,6 +60,7 @@ class PiRuntimeDistribution(
     }
 
     fun command(config: AgentConfig, remoteSessionId: String?): List<String> = buildList {
+        val modelCatalog = config.isModelCatalogProfile()
         add(nodeExecutable)
         add(entrypoint.absolutePath)
         add("--session-dir")
@@ -63,8 +69,13 @@ class PiRuntimeDistribution(
         add(config.name)
         add("--approve")
         add("--no-skills")
-        add("--skill")
-        add(PiRuntimePaths.agentDirectory(config.id).resolve("skills").absolutePath)
+        if (modelCatalog) {
+            add("--no-tools")
+            add("--no-extensions")
+        } else {
+            add("--skill")
+            add(PiRuntimePaths.agentDirectory(config.id).resolve("skills").absolutePath)
+        }
         if (!remoteSessionId.isNullOrBlank()) {
             add("--session")
             add(remoteSessionId)

@@ -73,6 +73,32 @@ class FileTreeViewTest {
     }
 
     @Test
+    fun `text filter expands matching ancestors without changing expansion state`() {
+        val tree = directory(
+            "root",
+            "root",
+            directory(
+                "src",
+                "root/src",
+                directory("demo", "root/src/demo", file("Editor.kt", "root/src/demo/Editor.kt")),
+            ),
+            file("README.md", "root/README.md"),
+        )
+
+        val visible = flattenVisibleFileTree(
+            tree = tree,
+            expanded = emptyMap(),
+            filterChangesOnly = false,
+            query = "editor",
+        )
+
+        assertEquals(
+            listOf("root", "root/src", "root/src/demo", "root/src/demo/Editor.kt"),
+            visible.map { it.node.path },
+        )
+    }
+
+    @Test
     fun `tree indentation clamps invalid and extreme depths`() {
         assertEquals(8, treeStartPaddingDp(-1))
         assertEquals(50, treeStartPaddingDp(3))

@@ -10,8 +10,10 @@ import com.swarmeditor.backend.pi.PiConversationMessage
 import com.swarmeditor.backend.pi.PiSessionMutationResult
 import com.swarmeditor.backend.pi.PiSessionSnapshot
 import com.swarmeditor.backend.pi.PiSessionState
+import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.backend.pi.PiQueuedMessageMode
 import com.swarmeditor.backend.pi.PiExtensionUiResponse
+import com.swarmeditor.backend.pi.SWARM_PI_MODEL_CATALOG_ENV
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.MessageRole
@@ -41,6 +43,37 @@ import kotlin.time.Instant
 
 class ConversationServiceTest {
     private val now = Instant.parse("2026-07-18T00:00:00Z")
+
+    @Test
+    fun `model catalog uses an isolated pi runtime and closes it`() = runTest {
+        val sessionService = mockk<SessionService>(relaxed = true)
+        val agentService = mockk<AgentService>()
+        val config = AgentConfig(
+            id = "pi-default",
+            name = "Pi",
+            systemPrompt = "full agent prompt",
+            timeoutSeconds = 300,
+            env = mapOf("MINIMAX_API_KEY" to "secret"),
+        )
+        val model = PiModelInfo("minimax", "MiniMax-M2.1", "MiniMax M2.1", "anthropic-messages", true, 200_000, 64_000)
+        val runtimeProvider = FakePiSessionProvider(
+            session = FakePiSession("catalog-runtime", ""),
+            availableModels = listOf(model),
+        )
+        coEvery { agentService.getConfig(config.id) } returns config
+
+        val result = newConversationService(sessionService, agentService, runtimeProvider)
+            .getAvailableModelsForAgent(config.id)
+
+        assertEquals(listOf(model), result.getOrThrow())
+        assertTrue(runtimeProvider.localSessionId?.startsWith("model-catalog:${config.id}:") == true)
+        assertEquals(null, runtimeProvider.requestedRemoteSessionId)
+        assertEquals(listOf(runtimeProvider.localSessionId), runtimeProvider.closedSessionIds)
+        assertEquals("", runtimeProvider.requestedConfig?.systemPrompt)
+        assertEquals(30, runtimeProvider.requestedConfig?.timeoutSeconds)
+        assertEquals("secret", runtimeProvider.requestedConfig?.env?.get("MINIMAX_API_KEY"))
+        assertEquals("1", runtimeProvider.requestedConfig?.env?.get(SWARM_PI_MODEL_CATALOG_ENV))
+    }
 
     @Test
     fun `first prompt creates pi runtime and persists remote session id`() = runTest {
@@ -775,11 +808,13 @@ private class FakePiSessionProvider(
     private val refreshedStats: PiSessionStats? = null,
     private val forkResult: PiSessionMutationResult? = null,
     private val snapshotResult: PiSessionSnapshot? = null,
+    private val availableModels: List<PiModelInfo> = emptyList(),
     activeState: PiSessionState? = null,
 ) : PiSessionProvider {
     private val stateFlow = MutableStateFlow(activeState)
     var localSessionId: String? = null
     var requestedRemoteSessionId: String? = null
+    var requestedConfig: AgentConfig? = null
     var compactedSessionId: String? = null
     var compactedInstructions: String? = null
     var forkedEntryId: String? = null
@@ -799,6 +834,7 @@ private class FakePiSessionProvider(
         remoteSessionId: String?
     ): PiSession {
         localSessionId = sessionId
+        requestedConfig = config
         requestedRemoteSessionId = remoteSessionId
         return session
     }
@@ -837,6 +873,7 @@ private class FakePiSessionProvider(
     }
     override suspend fun getAvailableThinkingLevels(sessionId: String): List<String> =
         listOf("off", "low", "high")
+    override suspend fun getAvailableModels(sessionId: String): List<PiModelInfo> = availableModels
     override suspend fun setAutoCompaction(sessionId: String, enabled: Boolean): PiSessionState =
         updateState { copy(autoCompactionEnabled = enabled) }
     override suspend fun setAutoRetry(sessionId: String, enabled: Boolean): PiSessionState =

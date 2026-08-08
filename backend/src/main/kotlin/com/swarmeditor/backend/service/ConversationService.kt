@@ -15,6 +15,7 @@ import com.swarmeditor.backend.pi.PiSessionTree
 import com.swarmeditor.backend.pi.PiSessionMutationResult
 import com.swarmeditor.backend.pi.PiSessionSnapshot
 import com.swarmeditor.backend.pi.PiConversationMessage
+import com.swarmeditor.backend.pi.SWARM_PI_MODEL_CATALOG_ENV
 import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.ContentBlock
@@ -89,6 +90,8 @@ interface ConversationGateway {
         Result.failure(IllegalStateException("pi session is not running"))
     suspend fun getAvailableModels(sessionId: String): Result<List<PiModelInfo>> =
         Result.failure(IllegalStateException("pi session is not running"))
+    suspend fun getAvailableModelsForAgent(agentId: String): Result<List<PiModelInfo>> =
+        Result.failure(IllegalStateException("pi model catalog is unavailable"))
     suspend fun getAvailableThinkingLevels(sessionId: String): Result<List<String>> =
         Result.failure(IllegalStateException("pi session is not running"))
     suspend fun setModel(sessionId: String, provider: String, modelId: String): Result<PiSessionState> =
@@ -230,6 +233,26 @@ class ConversationService(
 
     override suspend fun getAvailableModels(sessionId: String): Result<List<PiModelInfo>> = resultOf {
         runtimeManager.getAvailableModels(sessionId)
+    }
+
+    override suspend fun getAvailableModelsForAgent(agentId: String): Result<List<PiModelInfo>> = resultOf {
+        val config = agentService.getConfig(agentId) ?: error("Agent profile not found: $agentId")
+        val catalogConfig = config.copy(
+            systemPrompt = "",
+            timeoutSeconds = 30,
+            env = config.env + (SWARM_PI_MODEL_CATALOG_ENV to "1"),
+        )
+        val catalogSessionId = "model-catalog:${config.id}:${UUID.randomUUID()}"
+        var created = false
+        try {
+            runtimeManager.getOrCreate(catalogSessionId, catalogConfig, remoteSessionId = null)
+            created = true
+            runtimeManager.getAvailableModels(catalogSessionId)
+        } finally {
+            if (created) {
+                withContext(NonCancellable) { runtimeManager.close(catalogSessionId) }
+            }
+        }
     }
 
     override suspend fun getAvailableThinkingLevels(sessionId: String): Result<List<String>> = resultOf {

@@ -9,6 +9,7 @@ import com.swarmeditor.backend.lsp.LspService
 import com.swarmeditor.backend.lsp.KotlinLspRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimeDistribution
 import com.swarmeditor.backend.pi.PiMcpExtensionInstaller
+import com.swarmeditor.backend.pi.PiNativeAgentBootstrap
 import com.swarmeditor.backend.pi.PiRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimePaths
 import com.swarmeditor.backend.pi.PiToolBrokerFactory
@@ -102,6 +103,7 @@ val configuredPiToolBrokerFactory: PiToolBrokerFactory? =
     )
 val wasmPiToolBrokerFactory = WasmPiToolBrokerFactory(wasmPluginExecutor, piToolAuditStore)
 val piToolBrokerFactory = FallbackPiToolBrokerFactory(configuredPiToolBrokerFactory, wasmPiToolBrokerFactory)
+private val piNativeAgentBootstrap = PiNativeAgentBootstrap()
 val skillService: SkillService by lazy {
     SkillService(
         skillStore,
@@ -118,6 +120,7 @@ val piRuntimeManager: PiRuntimeManager by lazy {
         toolBrokerFactory = piToolBrokerFactory,
         prepareAgent = { config ->
             val agentDirectory = PiRuntimePaths.agentDirectory(config.id)
+            piNativeAgentBootstrap.syncMissingConfiguration(agentDirectory)
             PiMcpExtensionInstaller.install(agentDirectory)
             skillService.syncSkillsToPi(config.id)
         }

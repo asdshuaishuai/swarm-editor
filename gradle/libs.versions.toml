@@ -15,6 +15,7 @@ decompose = "3.5.0"
 haze = "1.6.6"
 line-icons = "4.29.2"
 markdown-renderer = "0.33.0-b05"
+jetbrains-markdown = "0.7.3"
 commons-compress = "1.28.0"
 xz = "1.12"
 
@@ -54,6 +55,7 @@ jbr-api = { module = "org.jetbrains.runtime:jbr-api", version.ref = "jbr-api" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 lucide-icons = { module = "com.woowla.compose.icon.collections:feather", version.ref = "line-icons" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
+jetbrains-markdown = { module = "org.jetbrains:markdown", version.ref = "jetbrains-markdown" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commons-compress" }
 xz = { module = "org.tukaani:xz", version.ref = "xz" }
 

@@ -13,6 +13,14 @@ import kotlinx.serialization.json.JsonPrimitive
 
 class FileContentRendererTest {
     @Test
+    fun `startup render preference only opts into preview explicitly`() {
+        assertEquals(FileRenderMode.PREVIEW, initialFileRenderMode("preview"))
+        assertEquals(FileRenderMode.PREVIEW, initialFileRenderMode("PREVIEW"))
+        assertEquals(FileRenderMode.SOURCE, initialFileRenderMode(null))
+        assertEquals(FileRenderMode.SOURCE, initialFileRenderMode("source"))
+    }
+
+    @Test
     fun `rendered preview requires a complete supported text file`() {
         assertTrue(supportsRenderedPreview("README.md", binary = false, truncated = false))
         assertTrue(supportsRenderedPreview("page.HTML", binary = false, truncated = false))
@@ -70,6 +78,32 @@ class FileContentRendererTest {
         )
 
         assertEquals("Title\nHello & welcome\nNext", rendered)
+    }
+
+    @Test
+    fun `HTML preview blocks active content and produces structured blocks`() {
+        val content =
+            """
+                <html><body onclick="run()"><h1>Title</h1><img src="https://example.com/a.png">
+                <p>Hello <strong>world</strong></p><ul><li>One</li><li>Two</li></ul>
+                <script>alert(1)</script><iframe src="file:///etc/passwd"></iframe></body></html>
+            """.trimIndent()
+        val sanitized = sanitizeHtmlPreviewContent(content)
+        val blocks = parseHtmlPreviewBlocks(content)
+
+        assertFalse(sanitized.contains("onclick", ignoreCase = true))
+        assertFalse(sanitized.contains("<script", ignoreCase = true))
+        assertFalse(sanitized.contains("<iframe", ignoreCase = true))
+        assertFalse(sanitized.contains("src=", ignoreCase = true))
+        assertEquals(
+            listOf(
+                HtmlPreviewBlock(HtmlBlockKind.HEADING_1, "Title"),
+                HtmlPreviewBlock(HtmlBlockKind.PARAGRAPH, "Hello world"),
+                HtmlPreviewBlock(HtmlBlockKind.LIST_ITEM, "One"),
+                HtmlPreviewBlock(HtmlBlockKind.LIST_ITEM, "Two"),
+            ),
+            blocks,
+        )
     }
 
     @Test
