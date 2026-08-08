@@ -39,6 +39,8 @@ data class KotlinLspRuntimeUiState(
     val isRefreshing: Boolean = false,
     val isInstalling: Boolean = false,
     val isProbing: Boolean = false,
+    val downloadedBytes: Long = 0,
+    val totalDownloadBytes: Long = 0,
     val lastError: String? = null,
 )
 
@@ -145,6 +147,8 @@ private fun KotlinLspRuntimeState.toUiState(
         isRefreshing = isRefreshing,
         isInstalling = isInstalling,
         isProbing = isProbing,
+        downloadedBytes = downloadedBytes,
+        totalDownloadBytes = totalDownloadBytes,
         lastError = lastError,
     )
 }

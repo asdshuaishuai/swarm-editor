@@ -46,6 +46,7 @@
 
 ```bash
 ./gradlew :backend:preparePiRuntime  # 安装锁定依赖并构建 vendored pi
+./gradlew :backend:installKotlinLspRuntime # 断点续传并校验 JetBrains Kotlin LSP
 ./gradlew :desktopApp:run            # 启动桌面应用
 ./gradlew test                       # Kotlin 测试
 ./gradlew build                      # 完整构建

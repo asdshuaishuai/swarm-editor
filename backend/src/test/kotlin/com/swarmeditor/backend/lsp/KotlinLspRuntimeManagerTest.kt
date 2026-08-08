@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.lsp
 
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
 import kotlin.test.Test
@@ -8,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CancellationException
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 
@@ -17,14 +19,14 @@ class KotlinLspRuntimeManagerTest {
         val root = Files.createTempDirectory("kotlin-lsp-runtime")
         val archive = root.resolve("fixture.zip").toFile()
         createArchive(archive, launcherContent = "managed-launcher")
-        val artifact = fixtureArtifact(sha256(archive))
+        val artifact = fixtureArtifact(sha256(archive), archive.length())
         val manager = KotlinLspRuntimeManager(
             installRoot = root.resolve("install").toFile(),
             environmentProvider = { emptyMap() },
             osNameProvider = { "Linux" },
             architectureProvider = { "amd64" },
             artifactProvider = { _, _ -> artifact },
-            downloader = { _, destination -> archive.copyTo(destination, overwrite = true) },
+            downloader = { _, destination, _ -> archive.copyTo(destination, overwrite = true) },
         )
 
         val installed = manager.install()
@@ -52,14 +54,14 @@ class KotlinLspRuntimeManagerTest {
             zip.write("escape".toByteArray())
             zip.closeArchiveEntry()
         }
-        val artifact = fixtureArtifact(sha256(archive))
+        val artifact = fixtureArtifact(sha256(archive), archive.length())
         val manager = KotlinLspRuntimeManager(
             installRoot = root.resolve("install").toFile(),
             environmentProvider = { emptyMap() },
             osNameProvider = { "Linux" },
             architectureProvider = { "amd64" },
             artifactProvider = { _, _ -> artifact },
-            downloader = { _, destination -> archive.copyTo(destination, overwrite = true) },
+            downloader = { _, destination, _ -> archive.copyTo(destination, overwrite = true) },
         )
 
         assertFailsWith<IllegalArgumentException> { manager.install() }
@@ -90,10 +92,88 @@ class KotlinLspRuntimeManagerTest {
         root.toFile().deleteRecursively()
     }
 
-    private fun fixtureArtifact(sha256: String) = KotlinLspRuntimeArtifact(
+    @Test
+    fun `cancelled download is retained and resumed on the next install`() = runTest {
+        val root = Files.createTempDirectory("kotlin-lsp-resume")
+        val archive = root.resolve("fixture.zip").toFile()
+        createArchive(archive, launcherContent = "managed-launcher")
+        val bytes = archive.readBytes()
+        val split = bytes.size / 2
+        val artifact = fixtureArtifact(sha256(archive), archive.length())
+        val installRoot = root.resolve("install").toFile()
+        val firstManager = KotlinLspRuntimeManager(
+            installRoot = installRoot,
+            environmentProvider = { emptyMap() },
+            osNameProvider = { "Linux" },
+            architectureProvider = { "amd64" },
+            artifactProvider = { _, _ -> artifact },
+            downloader = { _, destination, progress ->
+                destination.writeBytes(bytes.copyOfRange(0, split))
+                progress(KotlinLspDownloadProgress(split.toLong(), bytes.size.toLong(), resumed = false))
+                throw CancellationException("interrupted")
+            },
+        )
+
+        assertFailsWith<CancellationException> { firstManager.install() }
+        val partial = installRoot.resolve(".${artifact.archiveName}.partial")
+        assertEquals(split.toLong(), partial.length())
+
+        var resumedFrom = 0L
+        val secondManager = KotlinLspRuntimeManager(
+            installRoot = installRoot,
+            environmentProvider = { emptyMap() },
+            osNameProvider = { "Linux" },
+            architectureProvider = { "amd64" },
+            artifactProvider = { _, _ -> artifact },
+            downloader = { _, destination, progress ->
+                resumedFrom = destination.length()
+                FileOutputStream(destination, true).use { output -> output.write(bytes, split, bytes.size - split) }
+                progress(KotlinLspDownloadProgress(bytes.size.toLong(), bytes.size.toLong(), resumed = true))
+            },
+        )
+
+        assertEquals(KotlinLspRuntimeHealth.READY, secondManager.install().health)
+        assertEquals(split.toLong(), resumedFrom)
+        assertTrue(!partial.exists())
+        root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `legacy randomized download is adopted as the resumable partial`() = runTest {
+        val root = Files.createTempDirectory("kotlin-lsp-legacy-partial")
+        val archive = root.resolve("fixture.zip").toFile()
+        createArchive(archive, launcherContent = "managed-launcher")
+        val bytes = archive.readBytes()
+        val artifact = fixtureArtifact(sha256(archive), archive.length())
+        val installRoot = root.resolve("install").toFile().apply { mkdirs() }
+        val legacy = installRoot.resolve(".${artifact.archiveName}.oldnonce.download")
+        legacy.writeBytes(bytes.copyOfRange(0, bytes.size / 3))
+        var adoptedLength = 0L
+        val manager = KotlinLspRuntimeManager(
+            installRoot = installRoot,
+            environmentProvider = { emptyMap() },
+            osNameProvider = { "Linux" },
+            architectureProvider = { "amd64" },
+            artifactProvider = { _, _ -> artifact },
+            downloader = { _, destination, _ ->
+                adoptedLength = destination.length()
+                FileOutputStream(destination, true).use { output ->
+                    output.write(bytes, adoptedLength.toInt(), bytes.size - adoptedLength.toInt())
+                }
+            },
+        )
+
+        assertEquals(KotlinLspRuntimeHealth.READY, manager.install().health)
+        assertEquals((bytes.size / 3).toLong(), adoptedLength)
+        assertTrue(!legacy.exists())
+        root.toFile().deleteRecursively()
+    }
+
+    private fun fixtureArtifact(sha256: String, sizeBytes: Long = 1) = KotlinLspRuntimeArtifact(
         platform = "test-linux",
         archiveName = "fixture.zip",
         sha256 = sha256,
+        sizeBytes = sizeBytes,
         format = KotlinLspArchiveFormat.ZIP,
         launcherRelativePath = "bin/intellij-server",
     )

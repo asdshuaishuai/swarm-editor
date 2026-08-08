@@ -21,6 +21,8 @@ data class KotlinLspRuntimeState(
     val isRefreshing: Boolean = false,
     val isInstalling: Boolean = false,
     val isProbing: Boolean = false,
+    val downloadedBytes: Long = 0,
+    val totalDownloadBytes: Long = 0,
     val lastConnectedServer: String? = null,
     val lastProbeFile: String? = null,
     val lastError: String? = null,
@@ -43,13 +45,28 @@ class KotlinLspRuntimeService(
     suspend fun refresh(): Result<Unit> = guardedOperation(
         markBusy = { current -> current.copy(isRefreshing = true, lastError = null) },
     ) {
-        _state.update { current -> current.copy(runtime = runtimeManager.inspect(), isRefreshing = false) }
+        val runtime = runtimeManager.inspect()
+        _state.update { current ->
+            current.copy(
+                runtime = runtime,
+                isRefreshing = false,
+                downloadedBytes = runtime.downloadedBytes,
+                totalDownloadBytes = runtime.archiveSizeBytes,
+            )
+        }
     }
 
     suspend fun install(): Result<Unit> = guardedOperation(
         markBusy = { current -> current.copy(isInstalling = true, lastError = null) },
     ) {
-        val runtime = runtimeManager.install()
+        val runtime = runtimeManager.install { progress ->
+            _state.update { current ->
+                current.copy(
+                    downloadedBytes = progress.downloadedBytes,
+                    totalDownloadBytes = progress.totalBytes,
+                )
+            }
+        }
         lspService.restart(KOTLIN_SERVER_ID)
         _state.update { current ->
             current.copy(
@@ -57,6 +74,8 @@ class KotlinLspRuntimeService(
                 isInstalling = false,
                 lastConnectedServer = null,
                 lastProbeFile = null,
+                downloadedBytes = 0,
+                totalDownloadBytes = runtime.archiveSizeBytes,
             )
         }
     }

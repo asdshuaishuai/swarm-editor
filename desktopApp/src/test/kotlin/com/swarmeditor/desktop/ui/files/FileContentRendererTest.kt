@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.files
 
 import com.swarmeditor.backend.lsp.SemanticHighlight
+import com.swarmeditor.backend.lsp.SourceFoldingRange
 import com.swarmeditor.desktop.theme.AgentGemini
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,6 +37,42 @@ class FileContentRendererTest {
         assertEquals(0, normalizedNavigationIndex(-3, 10))
         assertEquals(4, normalizedNavigationIndex(4, 10))
         assertEquals(9, normalizedNavigationIndex(42, 10))
+    }
+
+    @Test
+    fun `source folding hides inclusive LSP ranges and keeps the opening line`() {
+        val ranges = normalizedFoldingRanges(
+            ranges = listOf(
+                SourceFoldingRange(startLine = 1, endLine = 4, kind = "region"),
+                SourceFoldingRange(startLine = 1, endLine = 3),
+                SourceFoldingRange(startLine = 8, endLine = 20),
+            ),
+            lineCount = 10,
+        )
+
+        assertEquals(
+            listOf(
+                SourceFoldingRange(startLine = 1, endLine = 4, kind = "region"),
+                SourceFoldingRange(startLine = 8, endLine = 9),
+            ),
+            ranges,
+        )
+        assertEquals(
+            listOf(
+                VisibleSourceLine(0),
+                VisibleSourceLine(1, hiddenLineCount = 3),
+                VisibleSourceLine(5),
+                VisibleSourceLine(6),
+                VisibleSourceLine(7),
+                VisibleSourceLine(8),
+                VisibleSourceLine(9),
+            ),
+            visibleSourceLines(
+                lineCount = 10,
+                foldingByStart = ranges.associateBy(SourceFoldingRange::startLine),
+                collapsedStarts = setOf(1),
+            ),
+        )
     }
 
     @Test

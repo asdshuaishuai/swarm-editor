@@ -28,6 +28,14 @@ dependencies {
     testImplementation(libs.mockk)
 }
 
+tasks.register<JavaExec>("installKotlinLspRuntime") {
+    group = "development"
+    description = "Downloads, verifies, and installs the pinned JetBrains Kotlin LSP runtime with resume support"
+    dependsOn("classes")
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.swarmeditor.backend.lsp.KotlinLspRuntimeInstallerKt")
+}
+
 val piRoot = rootProject.layout.projectDirectory.dir("pi-0.83.0")
 
 val installPiRuntime by tasks.registering(Exec::class) {

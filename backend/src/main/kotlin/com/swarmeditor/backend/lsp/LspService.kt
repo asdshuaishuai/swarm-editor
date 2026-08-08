@@ -12,12 +12,16 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +41,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -51,6 +56,36 @@ private const val MAX_LSP_MESSAGE_BYTES = 16 * 1024 * 1024
 private const val MAX_LSP_HEADER_LINE_BYTES = 8 * 1024
 private const val LSP_CLOSE_GRACE_MILLIS = 250L
 private const val LSP_PROCESS_TERMINATION_TIMEOUT_SECONDS = 1L
+private val TRANSIENT_LSP_RETRY_DELAYS_MILLIS = listOf(250L, 500L, 1_000L, 2_000L, 4_000L, 8_000L)
+private val TRANSIENT_LSP_ERROR_CODES = setOf(-32800, -32801)
+
+internal class LspResponseException(
+    val code: Int?,
+    message: String,
+) : IllegalStateException(message)
+
+internal suspend fun <T> retryTransientLspRequest(
+    retryDelaysMillis: List<Long> = TRANSIENT_LSP_RETRY_DELAYS_MILLIS,
+    pause: suspend (Long) -> Unit = { delay(it) },
+    request: suspend () -> T,
+): T {
+    retryDelaysMillis.forEach { delayMillis ->
+        try {
+            return request()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: LspResponseException) {
+            if (!error.isTransientCancellation()) throw error
+            pause(delayMillis)
+        }
+    }
+    return request()
+}
+
+private fun LspResponseException.isTransientCancellation(): Boolean =
+    code in TRANSIENT_LSP_ERROR_CODES ||
+        message.orEmpty().contains("cancel", ignoreCase = true) ||
+        message.orEmpty().contains("timed out", ignoreCase = true)
 
 data class SemanticHighlight(
     val line: Int,
@@ -80,12 +115,19 @@ data class SourceDiagnostic(
     val message: String,
 )
 
+data class SourceFoldingRange(
+    val startLine: Int,
+    val endLine: Int,
+    val kind: String? = null,
+)
+
 data class LspDocumentInsight(
     val languageId: String,
     val serverName: String? = null,
     val highlights: List<SemanticHighlight> = emptyList(),
     val symbols: List<SourceSymbol> = emptyList(),
     val diagnostics: List<SourceDiagnostic> = emptyList(),
+    val foldingRanges: List<SourceFoldingRange> = emptyList(),
     val message: String? = null,
 )
 
@@ -515,17 +557,20 @@ private class StdioLspSession(
     private val process = ProcessBuilder(spec.command).directory(projectRoot).start()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writerMutex = Mutex()
-    private val initMutex = Mutex()
     private val requestIds = AtomicLong()
     private val documentSynchronizer = LspDocumentSynchronizer(spec.languageId)
     private val documentOperations = ConcurrentHashMap<String, Mutex>()
     private val publishedDiagnostics = ConcurrentHashMap<String, List<SourceDiagnostic>>()
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JsonObject>>()
     private val terminalError = AtomicReference<Throwable?>()
+    @Volatile
     private var initialized = false
     private var serverName = spec.displayName
     private var tokenTypes: List<String> = emptyList()
     private var tokenModifiers: List<String> = emptyList()
+    private var supportsPullDiagnostics = false
+    private var supportsFoldingRanges = false
+    private val initialization = scope.async(start = CoroutineStart.LAZY) { initializeSession() }
 
     init {
         scope.launch {
@@ -539,7 +584,15 @@ private class StdioLspSession(
             }
         }
         scope.launch {
-            readTruncatedUtf8Lines(process.errorStream) { line -> log.debug { "lsp[${spec.id}]: $line" } }
+            try {
+                readTruncatedUtf8Lines(process.errorStream) { line -> log.debug { "lsp[${spec.id}]: $line" } }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (terminalError.get() == null && process.isAlive) {
+                    log.debug(error) { "lsp[${spec.id}] stderr reader stopped" }
+                }
+            }
         }
         scope.launch {
             val exitCode = process.waitFor()
@@ -552,10 +605,12 @@ private class StdioLspSession(
         val uri = file.toURI().toString()
         return documentOperations.computeIfAbsent(uri) { Mutex() }.withLock {
             documentSynchronizer.sync(uri, content, ::notify)
-            val response = request(
-                "textDocument/semanticTokens/full",
-                buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
-            )
+            val response = retryTransientLspRequest {
+                request(
+                    "textDocument/semanticTokens/full",
+                    buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+                )
+            }
             LspHighlightResult(
                 languageId = spec.languageId,
                 serverName = serverName,
@@ -572,17 +627,32 @@ private class StdioLspSession(
             val symbols = optionalRequest(
                 method = "textDocument/documentSymbol",
                 params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+                retryTransient = true,
             )?.let(::decodeDocumentSymbols).orEmpty()
-            val pullDiagnostics = optionalRequest(
-                method = "textDocument/diagnostic",
-                params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
-                timeoutMillis = 1_500,
-            )?.let(::decodeDocumentDiagnostics).orEmpty()
+            val pullDiagnostics = if (supportsPullDiagnostics) {
+                optionalRequest(
+                    method = "textDocument/diagnostic",
+                    params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+                    timeoutMillis = 1_500,
+                )?.let(::decodeDocumentDiagnostics).orEmpty()
+            } else {
+                emptyList()
+            }
+            val foldingRanges = if (supportsFoldingRanges) {
+                optionalRequest(
+                    method = "textDocument/foldingRange",
+                    params = buildJsonObject { putJsonObject("textDocument") { put("uri", uri) } },
+                    retryTransient = true,
+                )?.let(::decodeFoldingRanges).orEmpty()
+            } else {
+                emptyList()
+            }
             LspDocumentInsight(
                 languageId = spec.languageId,
                 serverName = serverName,
                 symbols = symbols,
                 diagnostics = pullDiagnostics.ifEmpty { publishedDiagnostics[uri].orEmpty() },
+                foldingRanges = foldingRanges,
             )
         }
     }
@@ -625,18 +695,31 @@ private class StdioLspSession(
         }
     }
 
-    private suspend fun ensureInitialized() = initMutex.withLock {
-        if (initialized) return@withLock
-        val response = request(
-            "initialize",
-            lspInitializeParams(projectRoot, spec),
-        )
+    private suspend fun ensureInitialized() {
+        initialization.await()
+    }
+
+    private suspend fun initializeSession() {
+        val response = retryTransientLspRequest {
+            request(
+                "initialize",
+                lspInitializeParams(projectRoot, spec),
+                timeoutMillis = 10_000,
+            )
+        }
         val result = response["result"]?.jsonObject ?: error("${spec.displayName} did not return initialize result")
         serverName = result["serverInfo"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull ?: spec.displayName
-        val provider = result["capabilities"]?.jsonObject?.get("semanticTokensProvider")?.jsonObject
+        val capabilities = result["capabilities"]?.jsonObject
+        val provider = capabilities?.get("semanticTokensProvider")?.jsonObject
         val legend = provider?.get("legend")?.jsonObject
         tokenTypes = legend?.get("tokenTypes")?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
         tokenModifiers = legend?.get("tokenModifiers")?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+        supportsPullDiagnostics = supportsPullDiagnostics(serverName, capabilities)
+        supportsFoldingRanges = when (val provider = capabilities?.get("foldingRangeProvider")) {
+            is JsonObject -> true
+            is JsonPrimitive -> provider.booleanOrNull == true
+            else -> false
+        }
         check(provider != null && tokenTypes.isNotEmpty()) { "$serverName does not support semantic tokens" }
         notify("initialized", JsonObject(emptyMap()))
         initialized = true
@@ -661,9 +744,16 @@ private class StdioLspSession(
                     put("params", params)
                 },
             )
-            val payload = withTimeout(timeoutMillis) { response.await() }
+            val payload = try {
+                withTimeout(timeoutMillis) { response.await() }
+            } catch (error: TimeoutCancellationException) {
+                throw LspResponseException(null, "$method timed out after ${timeoutMillis}ms")
+            }
             payload["error"]?.jsonObject?.let { error ->
-                error(error["message"]?.jsonPrimitive?.contentOrNull ?: "$method failed")
+                throw LspResponseException(
+                    code = error["code"]?.jsonPrimitive?.intOrNull,
+                    message = error["message"]?.jsonPrimitive?.contentOrNull ?: "$method failed",
+                )
             }
             return payload
         } finally {
@@ -675,9 +765,14 @@ private class StdioLspSession(
         method: String,
         params: JsonObject,
         timeoutMillis: Long = 3_000,
+        retryTransient: Boolean = false,
     ): JsonObject? {
         return try {
-            request(method, params, timeoutMillis)
+            if (retryTransient) {
+                retryTransientLspRequest { request(method, params, timeoutMillis) }
+            } else {
+                request(method, params, timeoutMillis)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -729,6 +824,10 @@ private class StdioLspSession(
     }
 }
 
+internal fun supportsPullDiagnostics(serverName: String, capabilities: JsonObject?): Boolean =
+    capabilities?.get("diagnosticProvider") is JsonObject &&
+        !serverName.contains("IntelliJ Language Server", ignoreCase = true)
+
 internal fun lspInitializeParams(projectRoot: File, spec: LspServerSpec): JsonObject = buildJsonObject {
     val rootUri = projectRoot.toURI().toString()
     put("processId", ProcessHandle.current().pid())
@@ -751,6 +850,10 @@ internal fun lspInitializeParams(projectRoot: File, spec: LspServerSpec): JsonOb
             put("semanticTokens", semanticTokensClientCapabilities())
             putJsonObject("documentSymbol") { put("hierarchicalDocumentSymbolSupport", true) }
             putJsonObject("diagnostic") { put("dynamicRegistration", false) }
+            putJsonObject("foldingRange") {
+                put("dynamicRegistration", false)
+                put("lineFoldingOnly", true)
+            }
         }
     }
 }
@@ -908,6 +1011,23 @@ internal fun decodeDocumentSymbols(response: JsonObject): List<SourceSymbol> {
     result.forEach { collect(it, null) }
     return symbols
 }
+
+internal fun decodeFoldingRanges(response: JsonObject): List<SourceFoldingRange> =
+    (response["result"] as? JsonArray)
+        .orEmpty()
+        .mapNotNull { element ->
+            val range = element as? JsonObject ?: return@mapNotNull null
+            val startLine = (range["startLine"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            val endLine = (range["endLine"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            if (startLine < 0 || endLine <= startLine) return@mapNotNull null
+            SourceFoldingRange(
+                startLine = startLine,
+                endLine = endLine,
+                kind = (range["kind"] as? JsonPrimitive)?.contentOrNull,
+            )
+        }
+        .distinctBy { range -> Triple(range.startLine, range.endLine, range.kind) }
+        .sortedWith(compareBy(SourceFoldingRange::startLine, SourceFoldingRange::endLine))
 
 internal fun decodeDocumentDiagnostics(response: JsonObject): List<SourceDiagnostic> {
     val result = response["result"] as? JsonObject ?: return emptyList()

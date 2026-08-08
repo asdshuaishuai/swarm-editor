@@ -3,6 +3,7 @@ package com.swarmeditor.desktop.viewmodel
 import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.backend.lsp.SemanticHighlight
 import com.swarmeditor.backend.lsp.SourceDiagnostic
+import com.swarmeditor.backend.lsp.SourceFoldingRange
 import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
@@ -40,6 +41,7 @@ class ProjectViewModel(
         val semanticHighlights: List<SemanticHighlight> = emptyList(),
         val symbols: List<SourceSymbol> = emptyList(),
         val diagnostics: List<SourceDiagnostic> = emptyList(),
+        val foldingRanges: List<SourceFoldingRange> = emptyList(),
         val lspMessage: String? = null,
         val isLoading: Boolean = false,
         val isInspecting: Boolean = false,
@@ -134,6 +136,7 @@ class ProjectViewModel(
                                 Triple(symbol.name, symbol.kind, symbol.line)
                             },
                             diagnostics = insight.diagnostics,
+                            foldingRanges = insight.foldingRanges,
                             lspMessage = insight.message,
                             isInspecting = false,
                         )

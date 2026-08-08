@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import com.swarmeditor.backend.lsp.SemanticHighlight
+import com.swarmeditor.backend.lsp.SourceFoldingRange
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.AcLight
 import com.swarmeditor.desktop.theme.AgentGemini
@@ -160,10 +161,25 @@ private fun RenderModeTab(label: String, active: Boolean, onClick: () -> Unit) {
 private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigationTarget: SourceNavigationTarget?) {
     val lines = remember(preview.content) { preview.content.lines() }
     val semanticByLine = remember(preview.semanticHighlights) { preview.semanticHighlights.groupBy(SemanticHighlight::line) }
+    val foldingByStart = remember(preview.foldingRanges, lines.size) {
+        normalizedFoldingRanges(preview.foldingRanges, lines.size).associateBy(SourceFoldingRange::startLine)
+    }
+    var collapsedStarts by remember(preview.path, preview.content) { mutableStateOf(emptySet<Int>()) }
+    val visibleLines = remember(lines.size, foldingByStart, collapsedStarts) {
+        visibleSourceLines(lines.size, foldingByStart, collapsedStarts)
+    }
     val horizontalState = rememberScrollState()
     val verticalState = rememberLazyListState()
-    LaunchedEffect(navigationTarget?.requestId, lines.size) {
-        normalizedNavigationIndex(navigationTarget?.line, lines.size)?.let { verticalState.scrollToItem(it) }
+    LaunchedEffect(navigationTarget?.requestId, lines.size, foldingByStart) {
+        val targetLine = normalizedNavigationIndex(navigationTarget?.line, lines.size) ?: return@LaunchedEffect
+        val expanded = collapsedStarts.filterNotTo(mutableSetOf()) { startLine ->
+            val range = foldingByStart[startLine]
+            range != null && targetLine in (range.startLine + 1)..range.endLine
+        }
+        if (expanded != collapsedStarts) collapsedStarts = expanded
+        val targetIndex = visibleSourceLines(lines.size, foldingByStart, expanded)
+            .indexOfFirst { visible -> visible.lineIndex == targetLine }
+        if (targetIndex >= 0) verticalState.scrollToItem(targetIndex)
     }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -173,8 +189,12 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
                 .horizontalScroll(horizontalState),
             state = verticalState,
         ) {
-            itemsIndexed(lines, key = { index, _ -> index }) { index, line ->
+            items(visibleLines, key = VisibleSourceLine::lineIndex) { visibleLine ->
+                val index = visibleLine.lineIndex
+                val line = lines[index]
                 val semantic = semanticByLine[index].orEmpty()
+                val foldingRange = foldingByStart[index]
+                val collapsed = index in collapsedStarts
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -187,14 +207,47 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
                         )
                         .padding(vertical = 1.dp),
                 ) {
-                    Text(
-                        text = (index + 1).toString(),
-                        color = Tx3,
-                        fontSize = 10.sp,
-                        fontFamily = CodeFont,
-                        modifier = Modifier.width(50.dp).padding(end = 12.dp),
-                    )
+                    Row(
+                        modifier = Modifier.width(58.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = when {
+                                foldingRange == null -> " "
+                                collapsed -> "▸"
+                                else -> "▾"
+                            },
+                            color = if (foldingRange == null) Color.Transparent else Tx2,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .width(16.dp)
+                                .then(
+                                    if (foldingRange == null) Modifier else Modifier.clickable {
+                                        collapsedStarts = if (collapsed) {
+                                            collapsedStarts - index
+                                        } else {
+                                            collapsedStarts + index
+                                        }
+                                    },
+                                ),
+                        )
+                        Text(
+                            text = (index + 1).toString(),
+                            color = Tx3,
+                            fontSize = 10.sp,
+                            fontFamily = CodeFont,
+                            modifier = Modifier.width(42.dp).padding(end = 10.dp),
+                        )
+                    }
                     HighlightedSourceLine(line, preview.languageId, semantic)
+                    if (collapsed && visibleLine.hiddenLineCount > 0) {
+                        Text(
+                            text = "  ⋯ ${visibleLine.hiddenLineCount} 行",
+                            color = AcLight,
+                            fontSize = 10.sp,
+                            fontFamily = CodeFont,
+                        )
+                    }
                 }
             }
             if (preview.truncated) {
@@ -211,6 +264,49 @@ private fun SourceCodePane(preview: ProjectViewModel.FilePreviewState, navigatio
             adapter = rememberScrollbarAdapter(horizontalState),
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
         )
+    }
+}
+
+internal data class VisibleSourceLine(
+    val lineIndex: Int,
+    val hiddenLineCount: Int = 0,
+)
+
+internal fun normalizedFoldingRanges(
+    ranges: List<SourceFoldingRange>,
+    lineCount: Int,
+): List<SourceFoldingRange> = ranges
+    .asSequence()
+    .map { range ->
+        range.copy(
+            startLine = range.startLine.coerceIn(0, (lineCount - 1).coerceAtLeast(0)),
+            endLine = range.endLine.coerceIn(0, (lineCount - 1).coerceAtLeast(0)),
+        )
+    }
+    .filter { range -> lineCount > 0 && range.endLine > range.startLine }
+    .groupBy(SourceFoldingRange::startLine)
+    .values
+    .map { sameStart -> sameStart.maxBy(SourceFoldingRange::endLine) }
+    .sortedBy(SourceFoldingRange::startLine)
+    .toList()
+
+internal fun visibleSourceLines(
+    lineCount: Int,
+    foldingByStart: Map<Int, SourceFoldingRange>,
+    collapsedStarts: Set<Int>,
+): List<VisibleSourceLine> = buildList {
+    var lineIndex = 0
+    while (lineIndex < lineCount) {
+        val range = foldingByStart[lineIndex]
+        val collapsed = lineIndex in collapsedStarts && range != null
+        val hiddenLineCount = if (collapsed) checkNotNull(range).endLine - range.startLine else 0
+        add(
+            VisibleSourceLine(
+                lineIndex = lineIndex,
+                hiddenLineCount = hiddenLineCount,
+            ),
+        )
+        lineIndex = if (collapsed) checkNotNull(range).endLine + 1 else lineIndex + 1
     }
 }
 

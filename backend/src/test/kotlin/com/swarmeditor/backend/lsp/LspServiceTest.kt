@@ -33,6 +33,63 @@ import kotlinx.serialization.json.putJsonObject
 
 class LspServiceTest {
     @Test
+    fun `transient LSP cancellation retries without restarting the session`() = runTest {
+        var attempts = 0
+        val pauses = mutableListOf<Long>()
+
+        val result = retryTransientLspRequest(
+            retryDelaysMillis = listOf(10, 20, 40),
+            pause = pauses::add,
+        ) {
+            attempts++
+            if (attempts < 3) throw LspResponseException(-32800, "cancelled")
+            "ready"
+        }
+
+        assertEquals("ready", result)
+        assertEquals(3, attempts)
+        assertEquals(listOf(10L, 20L), pauses)
+    }
+
+    @Test
+    fun `non transient LSP errors are not retried`() = runTest {
+        var attempts = 0
+
+        assertFailsWith<LspResponseException> {
+            retryTransientLspRequest(retryDelaysMillis = listOf(1), pause = {}) {
+                attempts++
+                throw LspResponseException(-32601, "method not found")
+            }
+        }
+
+        assertEquals(1, attempts)
+    }
+
+    @Test
+    fun `LSP request timeouts are retried as transient server startup failures`() = runTest {
+        var attempts = 0
+
+        val result = retryTransientLspRequest(retryDelaysMillis = listOf(1), pause = {}) {
+            attempts++
+            if (attempts == 1) throw LspResponseException(null, "semantic tokens timed out after 6000ms")
+            "ready"
+        }
+
+        assertEquals("ready", result)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `JetBrains server relies on published diagnostics instead of blocked pull requests`() {
+        val capabilities = buildJsonObject {
+            putJsonObject("diagnosticProvider") { put("interFileDependencies", true) }
+        }
+
+        assertFalse(supportsPullDiagnostics("IntelliJ Language Server by JetBrains", capabilities))
+        assertTrue(supportsPullDiagnostics("Generic LSP", capabilities))
+    }
+
+    @Test
     fun `prefers official Kotlin LSP command`() {
         val spec = kotlinSpec()
 
@@ -642,6 +699,45 @@ class LspServiceTest {
     }
 
     @Test
+    fun `canceling the first caller does not restart session initialization`() = runBlocking {
+        val projectRoot = Files.createTempDirectory("lsp-initialize-test")
+        val script = projectRoot.resolve("single-initialize-lsp.js")
+        val initializeMarker = projectRoot.resolve("initialize.marker")
+        Files.writeString(script, SINGLE_INITIALIZE_LSP_SERVER)
+        val service = LspService(
+            projectRoot = projectRoot.toFile(),
+            specs = listOf(
+                LspServerSpec(
+                    id = "single-initialize",
+                    displayName = "Single Initialize LSP",
+                    languageId = "test",
+                    extensions = setOf("test"),
+                    commandCandidates = listOf(listOf("node", script.toString(), initializeMarker.toString())),
+                ),
+            ),
+            commandAvailability = { true },
+        )
+        val file = projectRoot.resolve("sample.test").toFile()
+
+        try {
+            val first = async { service.highlight(file, "first") }
+            withTimeout(2_000) {
+                while (!Files.exists(initializeMarker)) delay(10)
+            }
+            first.cancel()
+            assertFailsWith<CancellationException> { first.await() }
+
+            val second = withTimeout(3_000) { service.highlight(file, "second") }
+
+            assertEquals("Single Initialize LSP", second.serverName)
+            assertEquals(listOf("initialize"), Files.readAllLines(initializeMarker))
+        } finally {
+            service.close()
+            projectRoot.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `decodes relative semantic token positions and modifiers`() {
         val tokens = decodeSemanticTokens(
             data = listOf(
@@ -701,6 +797,33 @@ class LspServiceTest {
                 SourceSymbol("schedule", "method", 7, "Scheduler"),
             ),
             decodeDocumentSymbols(response),
+        )
+    }
+
+    @Test
+    fun `decodes and normalizes folding ranges`() {
+        val response = buildJsonObject {
+            putJsonArray("result") {
+                add(buildJsonObject {
+                    put("startLine", 2)
+                    put("endLine", 8)
+                    put("kind", "region")
+                })
+                add(buildJsonObject {
+                    put("startLine", 2)
+                    put("endLine", 8)
+                    put("kind", "region")
+                })
+                add(buildJsonObject {
+                    put("startLine", 9)
+                    put("endLine", 9)
+                })
+            }
+        }
+
+        assertEquals(
+            listOf(SourceFoldingRange(startLine = 2, endLine = 8, kind = "region")),
+            decodeFoldingRanges(response),
         )
     }
 
@@ -850,6 +973,62 @@ class LspServiceTest {
                   setTimeout(() => {
                     respond(message.id, { data: [0, 0, currentContent.length, 0, 0] });
                   }, 200);
+                  break;
+                case "shutdown":
+                  respond(message.id, null);
+                  break;
+                case "exit":
+                  process.exit(0);
+                  break;
+              }
+            }
+            """.trimIndent()
+
+        val SINGLE_INITIALIZE_LSP_SERVER =
+            """
+            const fs = require("node:fs");
+            const marker = process.argv[2];
+            let pending = Buffer.alloc(0);
+            let initializeCount = 0;
+            process.stdin.on("data", (chunk) => {
+              pending = Buffer.concat([pending, chunk]);
+              while (true) {
+                const headerEnd = pending.indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+                const header = pending.subarray(0, headerEnd).toString("ascii");
+                const match = /Content-Length:\s*(\d+)/i.exec(header);
+                if (!match) process.exit(2);
+                const length = Number(match[1]);
+                const bodyStart = headerEnd + 4;
+                if (pending.length < bodyStart + length) return;
+                const message = JSON.parse(pending.subarray(bodyStart, bodyStart + length).toString("utf8"));
+                pending = pending.subarray(bodyStart + length);
+                handle(message);
+              }
+            });
+            function respond(id, result) {
+              const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, result }), "utf8");
+              process.stdout.write(`Content-Length: ${'$'}{body.length}\r\n\r\n`);
+              process.stdout.write(body);
+            }
+            function handle(message) {
+              switch (message.method) {
+                case "initialize":
+                  initializeCount += 1;
+                  fs.appendFileSync(marker, "initialize\n");
+                  if (initializeCount > 1) process.exit(9);
+                  setTimeout(() => respond(message.id, {
+                    serverInfo: { name: "Single Initialize LSP" },
+                    capabilities: {
+                      semanticTokensProvider: {
+                        legend: { tokenTypes: ["type"], tokenModifiers: [] },
+                        full: true
+                      }
+                    }
+                  }), 250);
+                  break;
+                case "textDocument/semanticTokens/full":
+                  respond(message.id, { data: [] });
                   break;
                 case "shutdown":
                   respond(message.id, null);

@@ -917,7 +917,12 @@ private fun CodeIntelligenceTab(
             GhostButton("打开目录", onClick = onOpenDirectory)
             Spacer(Modifier.width(8.dp))
             GlowButton(
-                text = if (state.health == KotlinLspRuntimeHealth.INVALID) "修复运行时" else "安装运行时",
+                text = when {
+                    state.isInstalling -> "安装中…"
+                    state.health == KotlinLspRuntimeHealth.INVALID -> "修复运行时"
+                    state.downloadedBytes > 0 -> "继续安装"
+                    else -> "安装运行时"
+                },
                 active = state.installSupported && !busy,
                 onClick = onInstall,
             )
@@ -931,6 +936,28 @@ private fun CodeIntelligenceTab(
             InfoRow("命令", state.command.ifBlank { "尚未发现" }, Tx2, AppType.caption.copy(fontFamily = CodeFont))
             InfoRow("运行时目录", state.runtimeDirectory, Tx3, AppType.caption.copy(fontFamily = CodeFont))
             InfoRow("状态", state.runtimeMessage.ifBlank { "等待检查" }, runtimeColor)
+            if (state.downloadedBytes > 0 && state.health != KotlinLspRuntimeHealth.READY) {
+                val totalBytes = state.totalDownloadBytes.coerceAtLeast(state.downloadedBytes)
+                val progress = if (totalBytes > 0) {
+                    (state.downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                InfoRow(
+                    "下载进度",
+                    "${formatRuntimeBytes(state.downloadedBytes)} / ${formatRuntimeBytes(totalBytes)} · ${(progress * 100).toInt()}%",
+                    ControlBlue,
+                )
+                Box(
+                    Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Line.withAlpha(0.45f)),
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth(progress).fillMaxHeight().clip(CircleShape).background(ControlBlue),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("下载支持断点续传；关闭应用后，下次会从已有进度继续。", color = Tx3, style = AppType.caption)
+            }
             if (state.artifactSha256.isNotBlank()) {
                 InfoRow("归档 SHA", state.artifactSha256, Tx3, AppType.micro.copy(fontFamily = CodeFont))
             }
@@ -977,6 +1004,13 @@ private fun lspRuntimeBadge(state: KotlinLspRuntimeUiState): String = when (stat
     KotlinLspRuntimeHealth.MISSING -> "NOT INSTALLED"
     KotlinLspRuntimeHealth.INVALID -> "REPAIR REQUIRED"
     KotlinLspRuntimeHealth.UNSUPPORTED -> "EXTERNAL ONLY"
+}
+
+private fun formatRuntimeBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "%.1f GiB".format(bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> "%.1f MiB".format(bytes / (1024.0 * 1024))
+    bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 private fun lspConnectionBadge(phase: LspConnectionPhase): String = when (phase) {

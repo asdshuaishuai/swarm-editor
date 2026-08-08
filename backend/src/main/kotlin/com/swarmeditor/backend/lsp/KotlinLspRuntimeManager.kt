@@ -5,6 +5,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.file.AtomicMoveNotSupportedException
@@ -18,6 +20,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -52,7 +55,15 @@ data class KotlinLspRuntimeStatus(
     val installSupported: Boolean = false,
     val artifactSha256: String? = null,
     val launcherSha256: String? = null,
+    val downloadedBytes: Long = 0,
+    val archiveSizeBytes: Long = 0,
     val message: String,
+)
+
+data class KotlinLspDownloadProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long,
+    val resumed: Boolean,
 )
 
 internal enum class KotlinLspArchiveFormat {
@@ -64,6 +75,7 @@ internal data class KotlinLspRuntimeArtifact(
     val platform: String,
     val archiveName: String,
     val sha256: String,
+    val sizeBytes: Long,
     val format: KotlinLspArchiveFormat,
     val launcherRelativePath: String,
 ) {
@@ -87,7 +99,11 @@ class KotlinLspRuntimeManager internal constructor(
     private val osNameProvider: () -> String = { System.getProperty("os.name") },
     private val architectureProvider: () -> String = { System.getProperty("os.arch") },
     private val artifactProvider: (String, String) -> KotlinLspRuntimeArtifact? = ::officialKotlinLspArtifact,
-    private val downloader: suspend (KotlinLspRuntimeArtifact, File) -> Unit = ::downloadKotlinLspArchive,
+    private val downloader: suspend (
+        KotlinLspRuntimeArtifact,
+        File,
+        suspend (KotlinLspDownloadProgress) -> Unit,
+    ) -> Unit = ::downloadKotlinLspArchive,
     private val json: Json = Json { ignoreUnknownKeys = false; prettyPrint = true },
 ) {
     private val root = installRoot.absoluteFile.normalize()
@@ -100,7 +116,9 @@ class KotlinLspRuntimeManager internal constructor(
         inspectManagedRuntime(artifact)?.takeIf { it.health == KotlinLspRuntimeHealth.READY }?.command
     }
 
-    suspend fun install(): KotlinLspRuntimeStatus = mutex.withLock {
+    suspend fun install(
+        onProgress: suspend (KotlinLspDownloadProgress) -> Unit = {},
+    ): KotlinLspRuntimeStatus = mutex.withLock {
         val osName = osNameProvider()
         val architecture = architectureProvider()
         val artifact = artifactProvider(osName, architecture)
@@ -111,16 +129,21 @@ class KotlinLspRuntimeManager internal constructor(
         }
         val platformRoot = File(root, "$KOTLIN_LSP_RUNTIME_VERSION/${artifact.platform}")
         val nonce = UUID.randomUUID().toString().replace("-", "")
-        val archive = File(root, ".${artifact.archiveName}.$nonce.download")
+        val archive = withContext(Dispatchers.IO) { preparePendingArchive(root, artifact) }
         val staging = File(root, ".kotlin-lsp.$nonce.staging")
         val backup = File(root, ".kotlin-lsp.$nonce.backup")
+        var installed = false
         try {
-            downloader(artifact, archive)
+            downloader(artifact, archive, onProgress)
             require(archive.isFile && archive.length() in 1..MAX_KOTLIN_LSP_ARCHIVE_BYTES) {
                 "Downloaded Kotlin LSP archive is empty or too large"
             }
-            val archiveSha256 = sha256(archive)
-            require(archiveSha256 == artifact.sha256) { "Kotlin LSP archive SHA-256 mismatch" }
+            require(archive.length() == artifact.sizeBytes) { "Kotlin LSP archive size mismatch" }
+            val archiveSha256 = withContext(Dispatchers.IO) { sha256(archive) }
+            if (archiveSha256 != artifact.sha256) {
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(archive.toPath()) }
+                error("Kotlin LSP archive SHA-256 mismatch")
+            }
             withContext(Dispatchers.IO) {
                 Files.createDirectories(staging.toPath())
                 extractArchive(archive, staging, artifact.format)
@@ -146,11 +169,12 @@ class KotlinLspRuntimeManager internal constructor(
                 Files.createDirectories(platformRoot.parentFile.toPath())
                 installAtomically(extractedRoot, platformRoot, backup)
             }
+            installed = true
         } catch (error: CancellationException) {
             throw error
         } finally {
-            withContext(Dispatchers.IO) {
-                Files.deleteIfExists(archive.toPath())
+            withContext(NonCancellable + Dispatchers.IO) {
+                if (installed) Files.deleteIfExists(archive.toPath())
                 deleteTreeSafely(staging.toPath())
                 deleteTreeSafely(backup.toPath())
             }
@@ -208,6 +232,8 @@ class KotlinLspRuntimeManager internal constructor(
             source = KotlinLspRuntimeSource.NONE,
             platform = platform,
             installSupported = artifact != null,
+            downloadedBytes = artifact?.let { pendingDownloadBytes(root, it) } ?: 0,
+            archiveSizeBytes = artifact?.sizeBytes ?: 0,
             message = if (artifact == null) {
                 "当前平台没有受支持的 Kotlin LSP 自动安装包"
             } else {
@@ -250,6 +276,7 @@ class KotlinLspRuntimeManager internal constructor(
                 installSupported = true,
                 artifactSha256 = metadata.artifactSha256,
                 launcherSha256 = launcherSha256,
+                archiveSizeBytes = artifact.sizeBytes,
                 message = "JetBrains Kotlin LSP $KOTLIN_LSP_RUNTIME_VERSION 已就绪",
             )
         } catch (error: CancellationException) {
@@ -261,6 +288,8 @@ class KotlinLspRuntimeManager internal constructor(
                 platform = artifact.platform,
                 command = listOf(launcher.absolutePath),
                 installSupported = true,
+                downloadedBytes = pendingDownloadBytes(root, artifact),
+                archiveSizeBytes = artifact.sizeBytes,
                 message = safeRuntimeMessage(error),
             )
         }
@@ -311,33 +340,131 @@ private fun officialKotlinLspArtifact(osName: String, architecture: String): Kot
         platform = platform,
         archiveName = archiveName,
         sha256 = OFFICIAL_KOTLIN_LSP_SHA256.getValue(platform),
+        sizeBytes = OFFICIAL_KOTLIN_LSP_ARCHIVE_SIZES.getValue(platform),
         format = if (platform.endsWith("linux")) KotlinLspArchiveFormat.TAR_GZ else KotlinLspArchiveFormat.ZIP,
         launcherRelativePath = if (platform.endsWith("windows")) "bin/intellij-server.exe" else "bin/intellij-server",
     )
 }
 
-private suspend fun downloadKotlinLspArchive(artifact: KotlinLspRuntimeArtifact, destination: File) =
+private suspend fun downloadKotlinLspArchive(
+    artifact: KotlinLspRuntimeArtifact,
+    destination: File,
+    onProgress: suspend (KotlinLspDownloadProgress) -> Unit,
+) =
     withContext(Dispatchers.IO) {
-        val connection = URI(artifact.downloadUrl).toURL().openConnection() as HttpURLConnection
-        connection.instanceFollowRedirects = true
-        connection.connectTimeout = 20_000
-        connection.readTimeout = 120_000
-        connection.setRequestProperty("User-Agent", "SwarmEditor/KotlinLsp-$KOTLIN_LSP_RUNTIME_VERSION")
-        try {
-            check(connection.responseCode in 200..299) { "Kotlin LSP download failed: HTTP ${connection.responseCode}" }
-            val declaredLength = connection.contentLengthLong
-            require(declaredLength <= 0 || declaredLength <= MAX_KOTLIN_LSP_ARCHIVE_BYTES) {
-                "Kotlin LSP archive exceeds the download limit"
-            }
-            BufferedInputStream(connection.inputStream).use { input ->
-                FileOutputStream(destination).use { output ->
-                    copyBounded(input::read, output::write, MAX_KOTLIN_LSP_ARCHIVE_BYTES)
+        Files.createDirectories(destination.parentFile.toPath())
+        require(!Files.isSymbolicLink(destination.toPath())) { "Kotlin LSP partial archive cannot be a symbolic link" }
+        if (destination.length() > artifact.sizeBytes) Files.delete(destination.toPath())
+
+        repeat(2) { attempt ->
+            val offset = destination.length()
+            val connection = URI(artifact.downloadUrl).toURL().openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 120_000
+            connection.setRequestProperty("User-Agent", "SwarmEditor/KotlinLsp-$KOTLIN_LSP_RUNTIME_VERSION")
+            if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
+            try {
+                val responseCode = connection.responseCode
+                if (responseCode == HTTP_RANGE_NOT_SATISFIABLE && offset == artifact.sizeBytes) {
+                    onProgress(KotlinLspDownloadProgress(offset, artifact.sizeBytes, resumed = true))
+                    return@withContext
                 }
+                check(responseCode in 200..299) { "Kotlin LSP download failed: HTTP $responseCode" }
+                val append = offset > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
+                if (offset > 0 && !append && attempt == 0) {
+                    FileOutputStream(destination, false).use { }
+                    return@repeat
+                }
+                if (append) requireContentRangeOffset(connection.getHeaderField("Content-Range"), offset, artifact.sizeBytes)
+                val initialBytes = if (append) offset else 0L
+                val declaredLength = connection.contentLengthLong
+                require(declaredLength <= 0 || initialBytes + declaredLength <= artifact.sizeBytes) {
+                    "Kotlin LSP archive exceeds the expected size"
+                }
+                onProgress(KotlinLspDownloadProgress(initialBytes, artifact.sizeBytes, resumed = append))
+                BufferedInputStream(connection.inputStream).use { input ->
+                    FileOutputStream(destination, append).use { output ->
+                        copyDownload(input, output, initialBytes, artifact.sizeBytes, append, onProgress)
+                    }
+                }
+                require(destination.length() == artifact.sizeBytes) {
+                    "Kotlin LSP download ended at ${destination.length()} of ${artifact.sizeBytes} bytes"
+                }
+                return@withContext
+            } finally {
+                connection.disconnect()
             }
-        } finally {
-            connection.disconnect()
+        }
+        error("Kotlin LSP server did not honor restart or range download")
+    }
+
+private fun preparePendingArchive(root: File, artifact: KotlinLspRuntimeArtifact): File {
+    val pending = File(root, ".${artifact.archiveName}.partial")
+    require(!Files.isSymbolicLink(pending.toPath())) { "Kotlin LSP partial archive cannot be a symbolic link" }
+    if (pending.length() > artifact.sizeBytes) Files.deleteIfExists(pending.toPath())
+
+    val legacy = legacyPendingArchives(root, artifact)
+    val bestLegacy = legacy.maxByOrNull(File::length)
+    if (bestLegacy != null && (!pending.isFile || bestLegacy.length() > pending.length())) {
+        Files.deleteIfExists(pending.toPath())
+        movePath(bestLegacy.toPath(), pending.toPath())
+    }
+    legacy.filter { it != bestLegacy || it.exists() }.forEach { Files.deleteIfExists(it.toPath()) }
+    return pending
+}
+
+private fun pendingDownloadBytes(root: File, artifact: KotlinLspRuntimeArtifact): Long =
+    sequenceOf(File(root, ".${artifact.archiveName}.partial"))
+        .plus(legacyPendingArchives(root, artifact))
+        .filter { file -> file.isFile && !Files.isSymbolicLink(file.toPath()) }
+        .map(File::length)
+        .filter { bytes -> bytes in 1..artifact.sizeBytes }
+        .maxOrNull()
+        ?: 0L
+
+private fun legacyPendingArchives(root: File, artifact: KotlinLspRuntimeArtifact): List<File> =
+    root.listFiles { file ->
+        file.isFile &&
+            !Files.isSymbolicLink(file.toPath()) &&
+            file.name.startsWith(".${artifact.archiveName}.") &&
+            file.name.endsWith(".download")
+    }?.toList().orEmpty()
+
+private fun requireContentRangeOffset(header: String?, offset: Long, expectedSize: Long) {
+    val match = header?.let { CONTENT_RANGE_PATTERN.matchEntire(it.trim()) }
+        ?: error("Kotlin LSP range response is missing Content-Range")
+    require(match.groupValues[1].toLong() == offset) { "Kotlin LSP range response starts at the wrong offset" }
+    require(match.groupValues[3].toLong() == expectedSize) { "Kotlin LSP range response has an unexpected size" }
+}
+
+private suspend fun copyDownload(
+    input: InputStream,
+    output: OutputStream,
+    initialBytes: Long,
+    totalBytes: Long,
+    resumed: Boolean,
+    onProgress: suspend (KotlinLspDownloadProgress) -> Unit,
+) {
+    val buffer = ByteArray(DEFAULT_DOWNLOAD_BUFFER_BYTES)
+    var downloaded = initialBytes
+    var lastReported = initialBytes
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        if (read == 0) continue
+        downloaded += read
+        require(downloaded <= totalBytes && downloaded <= MAX_KOTLIN_LSP_ARCHIVE_BYTES) {
+            "Kotlin LSP archive exceeds the expected size"
+        }
+        output.write(buffer, 0, read)
+        if (downloaded - lastReported >= DOWNLOAD_PROGRESS_INTERVAL_BYTES) {
+            onProgress(KotlinLspDownloadProgress(downloaded, totalBytes, resumed))
+            lastReported = downloaded
         }
     }
+    onProgress(KotlinLspDownloadProgress(downloaded, totalBytes, resumed))
+}
 
 private fun extractArchive(archive: File, destination: File, format: KotlinLspArchiveFormat) {
     var extractedBytes = 0L
@@ -544,6 +671,10 @@ private const val MAX_KOTLIN_LSP_EXTRACTED_BYTES = 3L * 1024 * 1024 * 1024
 private const val MAX_ARCHIVE_ENTRIES = 100_000
 private const val MAX_ARCHIVE_LINK_BYTES = 4L * 1024
 private const val EXECUTABLE_MODE_MASK = 0b001001001
+private const val HTTP_RANGE_NOT_SATISFIABLE = 416
+private const val DEFAULT_DOWNLOAD_BUFFER_BYTES = 64 * 1024
+private const val DOWNLOAD_PROGRESS_INTERVAL_BYTES = 1024 * 1024L
+private val CONTENT_RANGE_PATTERN = Regex("""bytes (\d+)-(\d+)/(\d+)""")
 private val DEFAULT_KOTLIN_LSP_COMMANDS = listOf(listOf("kotlin-lsp"), listOf("kotlin-language-server"))
 private val X64_ARCHITECTURES = setOf("amd64", "x86_64")
 private val ARM64_ARCHITECTURES = setOf("aarch64", "arm64")
@@ -554,4 +685,12 @@ private val OFFICIAL_KOTLIN_LSP_SHA256 = mapOf(
     "aarch64-macos" to "6ba6021a706b21e64cef33f7e2b79f187c0910320722bb2d3ed05ad1115ec43f",
     "x86_64-windows" to "f2daaa476f26d99301b406f76de6d87c437d04dc72f06845154619d8f991c51f",
     "aarch64-windows" to "73a552a6a420158622e5ad8d96b53da8aa8ced3f88a24fded01575927a2fd8e7",
+)
+private val OFFICIAL_KOTLIN_LSP_ARCHIVE_SIZES = mapOf(
+    "x86_64-linux" to 394_243_049L,
+    "aarch64-linux" to 393_240_374L,
+    "x86_64-macos" to 389_632_790L,
+    "aarch64-macos" to 387_618_228L,
+    "x86_64-windows" to 390_673_324L,
+    "aarch64-windows" to 370_301_920L,
 )

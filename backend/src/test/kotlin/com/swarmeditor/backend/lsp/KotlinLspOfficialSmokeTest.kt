@@ -18,7 +18,7 @@ class KotlinLspOfficialSmokeTest {
             environmentProvider = { emptyMap() },
             osNameProvider = { "Linux" },
             architectureProvider = { "amd64" },
-            downloader = { _, destination -> archive.copyTo(destination, overwrite = true) },
+            downloader = { _, destination, _ -> archive.copyTo(destination, overwrite = true) },
         )
 
         val installed = manager.install()
