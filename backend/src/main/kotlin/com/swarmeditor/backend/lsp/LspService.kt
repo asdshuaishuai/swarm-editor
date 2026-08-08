@@ -21,6 +21,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -704,11 +705,18 @@ private class StdioLspSession(
                     put("character", character)
                 }
             }
-            val hover = optionalRequest("textDocument/hover", position, retryTransient = true)
-                ?.let(::decodeHoverContents)
-            val definitions = optionalRequest("textDocument/definition", position, retryTransient = true)
-                ?.let(::decodeDefinitionLocations)
-                .orEmpty()
+            val (hover, definitions) = coroutineScope {
+                val hoverRequest = async {
+                    optionalRequest("textDocument/hover", position, retryTransient = true)
+                        ?.let(::decodeHoverContents)
+                }
+                val definitionRequest = async {
+                    optionalRequest("textDocument/definition", position, retryTransient = true)
+                        ?.let(::decodeDefinitionLocations)
+                        .orEmpty()
+                }
+                hoverRequest.await() to definitionRequest.await()
+            }
             SourcePositionInsight(
                 line = line,
                 character = character,

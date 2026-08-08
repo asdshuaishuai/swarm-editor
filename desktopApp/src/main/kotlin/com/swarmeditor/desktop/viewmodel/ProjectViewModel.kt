@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -180,11 +181,14 @@ class ProjectViewModel(
         val current = _filePreview.value
         val path = current.path ?: return
         if (current.binary || current.content.isEmpty()) return
+        if (current.positionInsight?.let { it.line == line && it.character == character } == true) return
         val requestId = positionRequestIds.incrementAndGet()
         positionJob?.cancel()
-        _filePreview.value = current.copy(positionInsight = null, isInspectingPosition = true)
         positionJob = scope.launch(ioDispatcher) {
             try {
+                delay(POSITION_INSIGHT_DEBOUNCE_MILLIS)
+                if (requestId != positionRequestIds.get() || _filePreview.value.path != path) return@launch
+                _filePreview.value = _filePreview.value.copy(positionInsight = null, isInspectingPosition = true)
                 val insight = service.inspectPosition(path, current.content, line, character)
                 if (requestId == positionRequestIds.get() && _filePreview.value.path == path) {
                     _filePreview.value = _filePreview.value.copy(
@@ -236,6 +240,7 @@ class ProjectViewModel(
 
     private companion object {
         const val MAX_OPEN_FILES = 12
+        const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
     }
 }
 

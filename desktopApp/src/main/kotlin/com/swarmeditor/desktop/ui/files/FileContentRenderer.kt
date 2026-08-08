@@ -317,7 +317,7 @@ private fun SourceCodePane(
                     }
                     insight.hover?.takeIf(String::isNotBlank)?.let { hover ->
                         Spacer(Modifier.height(8.dp))
-                        Text(hover, color = Tx2, fontSize = 11.sp, fontFamily = CodeFont, maxLines = 8)
+                        Markdown(content = hover, modifier = Modifier.fillMaxWidth())
                     }
                     insight.definitions.take(4).forEach { location ->
                         Spacer(Modifier.height(7.dp))
