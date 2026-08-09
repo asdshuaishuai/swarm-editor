@@ -714,6 +714,10 @@ fun WindowScope.App(
                                 onInspectPosition = root.projectVm::inspectPosition,
                                 onOpenDefinition = root.projectVm::openDefinition,
                                 onDismissPositionInsight = root.projectVm::clearPositionInsight,
+                                onBeginEdit = root.projectVm::beginEditing,
+                                onDraftChange = root.projectVm::updateDraft,
+                                onSaveEdit = root.projectVm::saveEditing,
+                                onCancelEdit = root.projectVm::cancelEditing,
                                 projectPath = root.projectVm.projectPath,
                                 modifier = Modifier.fillMaxSize()
                             )

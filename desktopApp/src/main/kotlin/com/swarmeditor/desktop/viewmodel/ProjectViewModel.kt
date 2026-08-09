@@ -11,6 +11,7 @@ import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 import java.net.URI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -48,6 +49,8 @@ class ProjectViewModel(
         val foldingRanges: List<SourceFoldingRange> = emptyList(),
         val positionInsight: SourcePositionInsight? = null,
         val isInspectingPosition: Boolean = false,
+        val draftContent: String? = null,
+        val isSaving: Boolean = false,
         val navigationLine: Int? = null,
         val navigationRequestId: Long = 0,
         val lspMessage: String? = null,
@@ -74,6 +77,7 @@ class ProjectViewModel(
     private var positionJob: Job? = null
     private val previewRequestIds = AtomicLong()
     private val positionRequestIds = AtomicLong()
+    private val drafts = ConcurrentHashMap<String, String>()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -128,6 +132,7 @@ class ProjectViewModel(
                     isInspecting = shouldInspect,
                     navigationLine = navigationLine,
                     navigationRequestId = navigationRequestId,
+                    draftContent = drafts[path],
                 )
                 if (requestId != previewRequestIds.get()) return@launch
                 _filePreview.value = contentState
@@ -210,6 +215,54 @@ class ProjectViewModel(
         positionRequestIds.incrementAndGet()
         positionJob?.cancel()
         _filePreview.value = _filePreview.value.copy(positionInsight = null, isInspectingPosition = false)
+    }
+
+    fun beginEditing() {
+        val current = _filePreview.value
+        val path = current.path ?: return
+        if (current.binary || current.truncated || current.error != null) return
+        val draft = drafts[path] ?: current.content
+        drafts[path] = draft
+        _filePreview.value = current.copy(draftContent = draft)
+    }
+
+    fun updateDraft(content: String) {
+        val current = _filePreview.value
+        val path = current.path ?: return
+        if (current.draftContent == null) return
+        drafts[path] = content
+        _filePreview.value = current.copy(draftContent = content, error = null)
+    }
+
+    fun cancelEditing() {
+        val current = _filePreview.value
+        val path = current.path ?: return
+        drafts.remove(path)
+        _filePreview.value = current.copy(draftContent = null, isSaving = false)
+    }
+
+    fun saveEditing() {
+        val current = _filePreview.value
+        val path = current.path ?: return
+        val draft = current.draftContent ?: return
+        if (current.isSaving) return
+        _filePreview.value = current.copy(isSaving = true, error = null)
+        scope.launch(ioDispatcher) {
+            try {
+                service.writeFile(path, draft)
+                drafts.remove(path)
+                selectFile(path)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (_filePreview.value.path == path) {
+                    _filePreview.value = _filePreview.value.copy(
+                        isSaving = false,
+                        error = error.message ?: "保存文件失败",
+                    )
+                }
+            }
+        }
     }
 
     fun openDefinition(location: SourceLocation) {

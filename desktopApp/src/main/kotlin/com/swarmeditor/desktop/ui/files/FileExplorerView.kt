@@ -89,6 +89,10 @@ fun FileExplorerView(
     onInspectPosition: (Int, Int) -> Unit = { _, _ -> },
     onOpenDefinition: (SourceLocation) -> Unit = {},
     onDismissPositionInsight: () -> Unit = {},
+    onBeginEdit: () -> Unit = {},
+    onDraftChange: (String) -> Unit = {},
+    onSaveEdit: () -> Unit = {},
+    onCancelEdit: () -> Unit = {},
     projectPath: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -310,6 +314,10 @@ fun FileExplorerView(
                         onInspectPosition = onInspectPosition,
                         onOpenDefinition = onOpenDefinition,
                         onDismissPositionInsight = onDismissPositionInsight,
+                        onBeginEdit = onBeginEdit,
+                        onDraftChange = onDraftChange,
+                        onSaveEdit = onSaveEdit,
+                        onCancelEdit = onCancelEdit,
                     )
                 } else {
                     Column(
@@ -477,6 +485,10 @@ private fun FilePreview(
     onInspectPosition: (Int, Int) -> Unit,
     onOpenDefinition: (SourceLocation) -> Unit,
     onDismissPositionInsight: () -> Unit,
+    onBeginEdit: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onSaveEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
 ) {
     var navigationTarget by remember(preview.path) { mutableStateOf<SourceNavigationTarget?>(null) }
     LaunchedEffect(preview.navigationRequestId) {
@@ -522,6 +534,20 @@ private fun FilePreview(
             if (!preview.isLoading && preview.error == null) {
                 Text(formatFileSize(preview.sizeBytes), color = Tx3, fontSize = 10.sp, fontFamily = CodeFont)
             }
+            if (!preview.isLoading && !preview.binary && !preview.truncated && preview.path != null) {
+                Spacer(Modifier.width(8.dp))
+                if (preview.draftContent == null) {
+                    ActionButton(text = "编辑", compact = true, prominent = false, onClick = onBeginEdit)
+                } else {
+                    ActionButton(
+                        text = if (preview.isSaving) "保存中…" else "保存",
+                        compact = true,
+                        onClick = onSaveEdit,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    ActionButton(text = "取消", compact = true, prominent = false, onClick = onCancelEdit)
+                }
+            }
         }
         Spacer(Modifier.height(12.dp))
         Box(
@@ -562,6 +588,7 @@ private fun FilePreview(
                         onInspectPosition = onInspectPosition,
                         onOpenDefinition = onOpenDefinition,
                         onDismissPositionInsight = onDismissPositionInsight,
+                        onDraftChange = onDraftChange,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }

@@ -2,6 +2,7 @@ package com.swarmeditor.desktop.ui.files
 
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -103,6 +104,7 @@ internal fun FileContentRenderer(
     onInspectPosition: (Int, Int) -> Unit = { _, _ -> },
     onOpenDefinition: (SourceLocation) -> Unit = {},
     onDismissPositionInsight: () -> Unit = {},
+    onDraftChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val extension = preview.path.orEmpty().substringAfterLast('.', "").lowercase()
@@ -133,6 +135,7 @@ internal fun FileContentRenderer(
         }
         Box(Modifier.fillMaxSize().background(Bg0)) {
             when {
+                preview.draftContent != null -> SourceEditorPane(preview.draftContent, onDraftChange)
                 effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(
                     preview,
                     navigationTarget,
@@ -152,6 +155,37 @@ internal fun FileContentRenderer(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SourceEditorPane(content: String, onContentChange: (String) -> Unit) {
+    val verticalState = rememberScrollState()
+    val horizontalState = rememberScrollState()
+    Box(Modifier.fillMaxSize()) {
+        BasicTextField(
+            value = content,
+            onValueChange = onContentChange,
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = Tx2,
+                fontSize = 12.sp,
+                fontFamily = CodeFont,
+                lineHeight = 19.sp,
+            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(end = 10.dp, bottom = 10.dp)
+                .verticalScroll(verticalState)
+                .horizontalScroll(horizontalState),
+        )
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(verticalState),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(vertical = 4.dp),
+        )
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(horizontalState),
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
+        )
     }
 }
 

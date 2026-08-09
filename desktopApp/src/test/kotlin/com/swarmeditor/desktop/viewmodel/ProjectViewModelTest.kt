@@ -210,6 +210,30 @@ class ProjectViewModelTest {
     }
 
     @Test
+    fun `editing saves atomically and reloads the source preview`() = runTest {
+        val directory = Files.createTempDirectory("project-edit")
+        try {
+            val file = directory.resolve("Main.kt")
+            file.writeText("class Before")
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(ProjectService(directory.toFile()), backgroundScope, dispatcher)
+
+            viewModel.selectFile("Main.kt")
+            runCurrent()
+            viewModel.beginEditing()
+            viewModel.updateDraft("class After")
+            viewModel.saveEditing()
+            runCurrent()
+
+            assertEquals("class After", file.toFile().readText())
+            assertEquals("class After", viewModel.filePreview.value.content)
+            assertEquals(null, viewModel.filePreview.value.draftContent)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `source content renders before code intelligence completes`() = runTest {
         val directory = Files.createTempDirectory("project-progressive-preview")
         try {
