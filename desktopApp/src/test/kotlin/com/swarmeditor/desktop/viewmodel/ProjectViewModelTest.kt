@@ -221,13 +221,38 @@ class ProjectViewModelTest {
             viewModel.selectFile("Main.kt")
             runCurrent()
             viewModel.beginEditing()
+            assertTrue(viewModel.dirtyPaths.value.isEmpty())
             viewModel.updateDraft("class After")
+            assertEquals(setOf("Main.kt"), viewModel.dirtyPaths.value)
             viewModel.saveEditing()
             runCurrent()
 
             assertEquals("class After", file.toFile().readText())
             assertEquals("class After", viewModel.filePreview.value.content)
             assertEquals(null, viewModel.filePreview.value.draftContent)
+            assertTrue(viewModel.dirtyPaths.value.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `dirty marker clears when draft returns to persisted content`() = runTest {
+        val directory = Files.createTempDirectory("project-dirty-state")
+        try {
+            directory.resolve("Main.kt").writeText("class Main")
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(ProjectService(directory.toFile()), backgroundScope, dispatcher)
+
+            viewModel.selectFile("Main.kt")
+            runCurrent()
+            viewModel.beginEditing()
+            viewModel.updateDraft("class Changed")
+            assertEquals(setOf("Main.kt"), viewModel.dirtyPaths.value)
+
+            viewModel.updateDraft("class Main")
+
+            assertTrue(viewModel.dirtyPaths.value.isEmpty())
         } finally {
             directory.deleteRecursively()
         }

@@ -153,6 +153,7 @@ fun WindowScope.App(
     val projectTreeError by root.projectVm.treeError.collectAsState()
     val projectFilePreview by root.projectVm.filePreview.collectAsState()
     val projectOpenFiles by root.projectVm.openFiles.collectAsState()
+    val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
@@ -706,6 +707,7 @@ fun WindowScope.App(
                                 gitStatus = gitStatus,
                                 filePreview = projectFilePreview,
                                 openFiles = projectOpenFiles,
+                                dirtyPaths = projectDirtyPaths,
                                 onSelectFile = root.projectVm::selectFile,
                                 onCloseFile = root.projectVm::closeFile,
                                 onOpenDiff = { diffChange = it },

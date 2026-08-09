@@ -37,6 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -105,6 +112,8 @@ internal fun FileContentRenderer(
     onOpenDefinition: (SourceLocation) -> Unit = {},
     onDismissPositionInsight: () -> Unit = {},
     onDraftChange: (String) -> Unit = {},
+    onSaveEditing: () -> Unit = {},
+    onCancelEditing: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val extension = preview.path.orEmpty().substringAfterLast('.', "").lowercase()
@@ -135,7 +144,12 @@ internal fun FileContentRenderer(
         }
         Box(Modifier.fillMaxSize().background(Bg0)) {
             when {
-                preview.draftContent != null -> SourceEditorPane(preview.draftContent, onDraftChange)
+                preview.draftContent != null -> SourceEditorPane(
+                    preview.draftContent,
+                    onDraftChange,
+                    onSaveEditing,
+                    onCancelEditing,
+                )
                 effectiveMode == FileRenderMode.SOURCE -> SourceCodePane(
                     preview,
                     navigationTarget,
@@ -159,7 +173,12 @@ internal fun FileContentRenderer(
 }
 
 @Composable
-private fun SourceEditorPane(content: String, onContentChange: (String) -> Unit) {
+private fun SourceEditorPane(
+    content: String,
+    onContentChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
     val verticalState = rememberScrollState()
     val horizontalState = rememberScrollState()
     Box(Modifier.fillMaxSize()) {
@@ -176,7 +195,21 @@ private fun SourceEditorPane(content: String, onContentChange: (String) -> Unit)
                 .fillMaxSize()
                 .padding(end = 10.dp, bottom = 10.dp)
                 .verticalScroll(verticalState)
-                .horizontalScroll(horizontalState),
+                .horizontalScroll(horizontalState)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when {
+                        event.key == Key.S && (event.isCtrlPressed || event.isMetaPressed) -> {
+                            onSave()
+                            true
+                        }
+                        event.key == Key.Escape -> {
+                            onCancel()
+                            true
+                        }
+                        else -> false
+                    }
+                },
         )
         VerticalScrollbar(
             adapter = rememberScrollbarAdapter(verticalState),

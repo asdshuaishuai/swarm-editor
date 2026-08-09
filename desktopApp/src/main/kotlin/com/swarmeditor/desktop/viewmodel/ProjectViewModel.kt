@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -78,6 +79,9 @@ class ProjectViewModel(
     private val previewRequestIds = AtomicLong()
     private val positionRequestIds = AtomicLong()
     private val drafts = ConcurrentHashMap<String, String>()
+    private val draftBaselines = ConcurrentHashMap<String, String>()
+    private val _dirtyPaths = MutableStateFlow<Set<String>>(emptySet())
+    val dirtyPaths: StateFlow<Set<String>> = _dirtyPaths.asStateFlow()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -223,6 +227,8 @@ class ProjectViewModel(
         if (current.binary || current.truncated || current.error != null) return
         val draft = drafts[path] ?: current.content
         drafts[path] = draft
+        draftBaselines.putIfAbsent(path, current.content)
+        updateDirtyPaths()
         _filePreview.value = current.copy(draftContent = draft)
     }
 
@@ -231,6 +237,7 @@ class ProjectViewModel(
         val path = current.path ?: return
         if (current.draftContent == null) return
         drafts[path] = content
+        updateDirtyPaths()
         _filePreview.value = current.copy(draftContent = content, error = null)
     }
 
@@ -238,6 +245,8 @@ class ProjectViewModel(
         val current = _filePreview.value
         val path = current.path ?: return
         drafts.remove(path)
+        draftBaselines.remove(path)
+        updateDirtyPaths()
         _filePreview.value = current.copy(draftContent = null, isSaving = false)
     }
 
@@ -251,6 +260,8 @@ class ProjectViewModel(
             try {
                 service.writeFile(path, draft)
                 drafts.remove(path)
+                draftBaselines.remove(path)
+                updateDirtyPaths()
                 selectFile(path)
             } catch (error: CancellationException) {
                 throw error
@@ -263,6 +274,13 @@ class ProjectViewModel(
                 }
             }
         }
+    }
+
+    private fun updateDirtyPaths() {
+        _dirtyPaths.value = drafts.entries
+            .asSequence()
+            .filter { (path, content) -> draftBaselines[path] != content }
+            .mapTo(linkedSetOf()) { it.key }
     }
 
     fun openDefinition(location: SourceLocation) {

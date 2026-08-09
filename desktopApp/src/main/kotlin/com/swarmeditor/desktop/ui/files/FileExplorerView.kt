@@ -81,6 +81,7 @@ fun FileExplorerView(
     gitStatus: GitStatusDto = GitStatusDto(),
     filePreview: ProjectViewModel.FilePreviewState = ProjectViewModel.FilePreviewState(),
     openFiles: List<String> = emptyList(),
+    dirtyPaths: Set<String> = emptySet(),
     onSelectFile: (String) -> Unit = {},
     onCloseFile: (String) -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
@@ -297,6 +298,7 @@ fun FileExplorerView(
                         EditorFileTab(
                             path = path,
                             selected = path == filePreview.path,
+                            dirty = path in dirtyPaths,
                             onSelect = { onSelectFile(path) },
                             onClose = { onCloseFile(path) },
                         )
@@ -419,6 +421,7 @@ private fun FileTreeSearchField(
 private fun EditorFileTab(
     path: String,
     selected: Boolean,
+    dirty: Boolean,
     onSelect: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -450,6 +453,10 @@ private fun EditorFileTab(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (dirty) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(AcLight))
+                Spacer(Modifier.width(4.dp))
+            }
             Box(
                 modifier = Modifier
                     .size(24.dp)
@@ -491,6 +498,7 @@ private fun FilePreview(
     onCancelEdit: () -> Unit,
 ) {
     var navigationTarget by remember(preview.path) { mutableStateOf<SourceNavigationTarget?>(null) }
+    var showIntelligence by remember(preview.path) { mutableStateOf(true) }
     LaunchedEffect(preview.navigationRequestId) {
         preview.navigationLine?.let { line ->
             navigationTarget = SourceNavigationTarget(line, preview.navigationRequestId)
@@ -568,7 +576,7 @@ private fun FilePreview(
                 Text(message, color = Tx3, fontSize = 12.sp)
             } else {
                 Row(Modifier.fillMaxSize()) {
-                    if (preview.symbols.isNotEmpty() || preview.diagnostics.isNotEmpty()) {
+                    if (showIntelligence && (preview.symbols.isNotEmpty() || preview.diagnostics.isNotEmpty())) {
                         CodeIntelligencePanel(
                             symbols = preview.symbols,
                             diagnostics = preview.diagnostics,
@@ -578,9 +586,25 @@ private fun FilePreview(
                                     requestId = (navigationTarget?.requestId ?: 0L) + 1L,
                                 )
                             },
+                            onToggle = { showIntelligence = false },
                             modifier = Modifier.width(188.dp).fillMaxHeight(),
                         )
                         Spacer(Modifier.width(10.dp))
+                    }
+                    if (!showIntelligence && (preview.symbols.isNotEmpty() || preview.diagnostics.isNotEmpty())) {
+                        Box(
+                            Modifier
+                                .width(28.dp)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(R8))
+                                .background(Bg1)
+                                .border(1.dp, Line, RoundedCornerShape(R8))
+                                .clickable { showIntelligence = true },
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Text("›", color = AcLight, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
                     }
                     FileContentRenderer(
                         preview = preview,
@@ -589,6 +613,8 @@ private fun FilePreview(
                         onOpenDefinition = onOpenDefinition,
                         onDismissPositionInsight = onDismissPositionInsight,
                         onDraftChange = onDraftChange,
+                        onSaveEditing = onSaveEdit,
+                        onCancelEditing = onCancelEdit,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
@@ -602,6 +628,7 @@ private fun CodeIntelligencePanel(
     symbols: List<SourceSymbol>,
     diagnostics: List<SourceDiagnostic>,
     onNavigate: (Int) -> Unit,
+    onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -610,13 +637,14 @@ private fun CodeIntelligencePanel(
             .background(Bg1)
             .border(1.dp, Line, RoundedCornerShape(R8)),
     ) {
-        Text(
-            "代码智能",
-            color = Tx,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("代码智能", color = Tx, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text("‹", color = Tx3, fontSize = 16.sp, modifier = Modifier.clickable(onClick = onToggle))
+        }
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
             if (diagnostics.isNotEmpty()) {
                 item("diagnostic-title") {
