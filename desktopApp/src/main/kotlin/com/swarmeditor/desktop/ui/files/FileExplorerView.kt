@@ -255,14 +255,14 @@ fun FileExplorerView(
         Column(Modifier.weight(1f).fillMaxHeight().background(Bg2)) {
             // topbar
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(imageVector = Feather.Folder, contentDescription = "项目", tint = Warn, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(rootNode.name, color = Tx, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${projectPath.ifBlank { rootNode.name }} · $totalFiles 文件", color = Tx3, fontSize = 11.sp)
+                    Text(projectPath.ifBlank { rootNode.name }, color = Tx3, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.weight(1f))
                 MetaChip("$totalFiles 文件", Tx2)
@@ -496,7 +496,7 @@ private fun FilePreview(
             navigationTarget = SourceNavigationTarget(line, preview.navigationRequestId)
         }
     }
-    Column(Modifier.fillMaxSize().padding(18.dp)) {
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SemanticIconBadge(
                 spec = semanticFileIconSpec(preview.path.orEmpty()),
@@ -578,7 +578,7 @@ private fun FilePreview(
                                     requestId = (navigationTarget?.requestId ?: 0L) + 1L,
                                 )
                             },
-                            modifier = Modifier.width(220.dp).fillMaxHeight(),
+                            modifier = Modifier.width(188.dp).fillMaxHeight(),
                         )
                         Spacer(Modifier.width(10.dp))
                     }
