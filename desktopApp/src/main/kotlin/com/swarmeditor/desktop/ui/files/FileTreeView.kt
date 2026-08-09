@@ -1,6 +1,8 @@
 package com.swarmeditor.desktop.ui.files
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,14 +22,26 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +50,7 @@ import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
+import kotlinx.coroutines.launch
 
 /** Color for a file name based on its extension. */
 private fun fileColor(name: String) = when {
@@ -53,6 +68,47 @@ internal data class VisibleFileNode(
 )
 
 internal fun treeStartPaddingDp(depth: Int): Int = depth.coerceIn(0, 10) * 14 + 8
+
+internal fun ancestorDirectoryPaths(tree: FileNodeDto, targetPath: String): List<String> {
+    fun find(node: FileNodeDto): List<String>? {
+        if (node.path == targetPath) return emptyList()
+        if (!node.isDirectory) return null
+        node.children.forEach { child ->
+            val descendants = find(child) ?: return@forEach
+            return listOf(node.path) + descendants
+        }
+        return null
+    }
+    return find(tree).orEmpty()
+}
+
+internal fun adjacentVisibleFilePath(
+    nodes: List<VisibleFileNode>,
+    activePath: String?,
+    offset: Int,
+): String? {
+    if (nodes.isEmpty()) return null
+    val currentIndex = nodes.indexOfFirst { it.node.path == activePath }
+        .takeIf { it >= 0 }
+        ?: if (offset >= 0) -1 else nodes.size
+    return nodes[(currentIndex + offset).coerceIn(nodes.indices)].node.path
+}
+
+internal fun parentVisibleDirectoryPath(nodes: List<VisibleFileNode>, activePath: String?): String? {
+    val currentIndex = nodes.indexOfFirst { it.node.path == activePath }
+    if (currentIndex <= 0) return null
+    val currentDepth = nodes[currentIndex].depth
+    return (currentIndex - 1 downTo 0)
+        .firstOrNull { nodes[it].depth < currentDepth }
+        ?.let { nodes[it].node.path }
+}
+
+internal fun firstVisibleChildPath(nodes: List<VisibleFileNode>, activePath: String?): String? {
+    val currentIndex = nodes.indexOfFirst { it.node.path == activePath }
+    if (currentIndex !in 0 until nodes.lastIndex) return null
+    val next = nodes[currentIndex + 1]
+    return next.node.path.takeIf { next.depth > nodes[currentIndex].depth }
+}
 
 internal fun flattenVisibleFileTree(
     tree: FileNodeDto,
@@ -132,9 +188,83 @@ fun FileTreeView(
     val visibleNodes by remember(tree, expanded, filterChangesOnly, query) {
         derivedStateOf { flattenVisibleFileTree(tree, expanded, filterChangesOnly, query) }
     }
+    val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    var activePath: String? by remember(tree.path) { mutableStateOf(selectedPath ?: tree.path) }
+    var pendingRevealPath: String? by remember(tree.path) { mutableStateOf(selectedPath) }
+    var hasTreeFocus by remember { mutableStateOf(false) }
+
+    fun activate(path: String?) {
+        val targetPath = path ?: return
+        activePath = targetPath
+        val index = visibleNodes.indexOfFirst { it.node.path == targetPath }
+        if (index >= 0) coroutineScope.launch { listState.animateScrollToItem(index) }
+    }
+
+    LaunchedEffect(selectedPath) {
+        if (selectedPath != null) {
+            activePath = selectedPath
+            pendingRevealPath = selectedPath
+        }
+    }
+    LaunchedEffect(visibleNodes, pendingRevealPath) {
+        val pendingPath = pendingRevealPath
+        val pendingIndex = visibleNodes.indexOfFirst { it.node.path == pendingPath }
+        when {
+            pendingPath != null && pendingIndex >= 0 -> {
+                activePath = visibleNodes[pendingIndex].node.path
+                listState.animateScrollToItem(pendingIndex)
+                pendingRevealPath = null
+            }
+            pendingPath == null && visibleNodes.none { it.node.path == activePath } -> {
+                activePath = visibleNodes.firstOrNull()?.node?.path
+            }
+        }
+    }
 
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { hasTreeFocus = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val activeNode = visibleNodes.firstOrNull { it.node.path == activePath }?.node
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        activate(adjacentVisibleFilePath(visibleNodes, activePath, 1))
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        activate(adjacentVisibleFilePath(visibleNodes, activePath, -1))
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        when {
+                            activeNode?.isDirectory == true && activeNode.children.isNotEmpty() && expanded[activeNode.path] != true ->
+                                onToggleDir(activeNode.path)
+                            activeNode?.isDirectory == true -> activate(firstVisibleChildPath(visibleNodes, activeNode.path))
+                        }
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (activeNode?.isDirectory == true && expanded[activeNode.path] == true) {
+                            onToggleDir(activeNode.path)
+                        } else {
+                            activate(parentVisibleDirectoryPath(visibleNodes, activePath))
+                        }
+                        true
+                    }
+                    Key.Enter -> {
+                        when {
+                            activeNode?.isDirectory == true && activeNode.children.isNotEmpty() -> onToggleDir(activeNode.path)
+                            activeNode != null && !activeNode.isDirectory -> onSelectFile(activeNode)
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable(),
         state = listState,
         contentPadding = PaddingValues(start = 6.dp, top = 6.dp, end = 14.dp, bottom = 8.dp),
     ) {
@@ -143,8 +273,17 @@ fun FileTreeView(
                 visibleNode = visibleNode,
                 isExpanded = expanded[visibleNode.node.path] == true,
                 isSelected = visibleNode.node.path == selectedPath,
-                onSelectFile = onSelectFile,
-                onToggleDir = onToggleDir,
+                isKeyboardActive = hasTreeFocus && visibleNode.node.path == activePath,
+                onSelectFile = { node ->
+                    activePath = node.path
+                    focusRequester.requestFocus()
+                    onSelectFile(node)
+                },
+                onToggleDir = { path ->
+                    activePath = path
+                    focusRequester.requestFocus()
+                    onToggleDir(path)
+                },
                 modifier = Modifier.animateItem(),
             )
         }
@@ -156,6 +295,7 @@ private fun FileTreeRow(
     visibleNode: VisibleFileNode,
     isExpanded: Boolean,
     isSelected: Boolean,
+    isKeyboardActive: Boolean,
     onSelectFile: (FileNodeDto) -> Unit,
     onToggleDir: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -167,6 +307,7 @@ private fun FileTreeRow(
     val rowBackground by animateColorAsState(
         targetValue = when {
             isSelected -> Ac.withAlpha(0.10f)
+            isKeyboardActive -> Bg3.copy(alpha = 0.78f)
             isHovered -> Bg3.copy(alpha = 0.55f)
             else -> Color.Transparent
         },
@@ -190,6 +331,11 @@ private fun FileTreeRow(
             }
             .clip(AppShapes.xs)
             .background(rowBackground)
+            .border(
+                width = 1.dp,
+                color = if (isKeyboardActive) Ac.withAlpha(0.42f) else Color.Transparent,
+                shape = AppShapes.xs,
+            )
             .padding(
                 start = treeStartPaddingDp(visibleNode.depth).dp,
                 end = 8.dp,

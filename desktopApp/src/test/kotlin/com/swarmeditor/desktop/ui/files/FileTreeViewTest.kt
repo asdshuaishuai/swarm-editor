@@ -106,6 +106,41 @@ class FileTreeViewTest {
         assertEquals(148, treeStartPaddingDp(100))
     }
 
+    @Test
+    fun `selected file resolves every ancestor directory`() {
+        val tree = directory(
+            "root",
+            "root",
+            directory(
+                "src",
+                "root/src",
+                directory("main", "root/src/main", file("Editor.kt", "root/src/main/Editor.kt")),
+            ),
+        )
+
+        assertEquals(
+            listOf("root", "root/src", "root/src/main"),
+            ancestorDirectoryPaths(tree, "root/src/main/Editor.kt"),
+        )
+        assertTrue(ancestorDirectoryPaths(tree, "root/missing.kt").isEmpty())
+    }
+
+    @Test
+    fun `keyboard navigation follows visible hierarchy`() {
+        val nodes = listOf(
+            VisibleFileNode(directory("root", "root"), 0),
+            VisibleFileNode(directory("src", "root/src"), 1),
+            VisibleFileNode(file("Editor.kt", "root/src/Editor.kt"), 2),
+            VisibleFileNode(file("README.md", "root/README.md"), 1),
+        )
+
+        assertEquals("root/src", adjacentVisibleFilePath(nodes, "root", 1))
+        assertEquals("root/src/Editor.kt", firstVisibleChildPath(nodes, "root/src"))
+        assertEquals("root/src", parentVisibleDirectoryPath(nodes, "root/src/Editor.kt"))
+        assertEquals("root", parentVisibleDirectoryPath(nodes, "root/README.md"))
+        assertEquals("root/README.md", adjacentVisibleFilePath(nodes, "root/README.md", 1))
+    }
+
     private fun directory(name: String, path: String, vararg children: FileNodeDto): FileNodeDto = FileNodeDto(
         name = name,
         path = path,
