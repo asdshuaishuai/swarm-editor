@@ -39,6 +39,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Box
+import com.woowla.compose.icon.collections.feather.feather.Code
+import com.woowla.compose.icon.collections.feather.feather.Command
+import com.woowla.compose.icon.collections.feather.feather.Database
+import com.woowla.compose.icon.collections.feather.feather.Folder
+import com.woowla.compose.icon.collections.feather.feather.Info
+import com.woowla.compose.icon.collections.feather.feather.Monitor
+import com.woowla.compose.icon.collections.feather.feather.Search
+import com.woowla.compose.icon.collections.feather.feather.Users
+import com.woowla.compose.icon.collections.feather.feather.Zap
 import com.woowla.compose.icon.collections.feather.feather.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -59,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -71,6 +82,7 @@ import com.swarmeditor.desktop.PRIMARY_AGENT_ID
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.IdeActionButton
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeUiState
 import com.swarmeditor.backend.lsp.KotlinLspRuntimeHealth
@@ -122,25 +134,30 @@ fun SettingsModal(
     val selectedModelId by settingsVm.selectedModelId.collectAsState()
     val modelFields by settingsVm.modelConfigFields.collectAsState()
     val modelConfigPath by settingsVm.modelConfigPath.collectAsState()
+    var categoryQuery by remember { mutableStateOf("") }
 
     val tabs = listOf(
-        SettingsTile("agent", "PI", "主智能体", "默认主模型与动态子智能体", ControlBlue, if (agents.any { it.isConnected }) "在线" else "离线"),
-        SettingsTile("models", "M", "模型池", "Pi 模型目录与调度策略", ControlPurple, models.count { it.enabled }.toString()),
-        SettingsTile("mcp", "M", "MCP 服务", "工具桥接与授权", ControlOrange, mcpServers.size.toString()),
-        SettingsTile("skills", "S", "Skills 能力", "本地能力与同步", ControlGreen, skills.size.toString()),
+        SettingsTile("agent", Feather.Users, "主智能体", "默认主模型与动态子智能体", "智能体", if (agents.any { it.isConnected }) "在线" else "离线"),
+        SettingsTile("models", Feather.Database, "模型池", "Pi 模型目录与调度策略", "智能体", models.count { it.enabled }.toString()),
+        SettingsTile("mcp", Feather.Box, "MCP 服务", "工具桥接与授权", "扩展", mcpServers.size.toString()),
+        SettingsTile("skills", Feather.Zap, "Skills 能力", "本地能力与同步", "扩展", skills.size.toString()),
         SettingsTile(
             "code-intelligence",
-            "LSP",
+            Feather.Code,
             "代码智能",
             "语言服务器、语义高亮与诊断",
-            ControlBlue,
+            "IDE",
             if (kotlinLspState.connectionPhase == LspConnectionPhase.CONNECTED) "在线" else lspRuntimeBadge(kotlinLspState),
         ),
-        SettingsTile("general", "W", "工作区", "目录、默认行为与持久化", AgentKimi),
-        SettingsTile("appearance", "A", "外观", "统一 Fusion 语言与字体", AgentClaude),
-        SettingsTile("shortcuts", "⌘", "快捷键", "导航与编辑效率", ControlPurple),
-        SettingsTile("about", "i", "关于", "版本与运行环境", Tx2),
+        SettingsTile("general", Feather.Folder, "工作区", "目录、默认行为与持久化", "IDE"),
+        SettingsTile("appearance", Feather.Monitor, "外观", "IDE 密度、字体与视觉层级", "IDE"),
+        SettingsTile("shortcuts", Feather.Command, "快捷键", "导航与编辑效率", "IDE"),
+        SettingsTile("about", Feather.Info, "关于", "版本与运行环境", "系统"),
     )
+    val visibleTabs = tabs.filter { tile ->
+        categoryQuery.isBlank() || tile.label.contains(categoryQuery, ignoreCase = true) ||
+            tile.description.contains(categoryQuery, ignoreCase = true) || tile.group.contains(categoryQuery, ignoreCase = true)
+    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -160,35 +177,56 @@ fun SettingsModal(
                     depth = OverlayDepth.PRIMARY,
                     bg = Bg1.copy(alpha = 0.975f),
                     border = Line2,
-                    shape = AppShapes.xl,
+                    shape = AppShapes.lg,
                 ),
         ) {
-            // Header
-            Row(modifier = Modifier.fillMaxWidth().height(56.dp).background(Bg0.copy(alpha = 0.88f)).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("设置中心", color = Tx, style = AppType.headline)
-                    Text("工作区、Pi Runtime、扩展能力与界面行为", color = Tx3, style = AppType.bodySm)
-                }
+            Row(modifier = Modifier.fillMaxWidth().height(44.dp).background(Bg2).border(1.dp, Line).padding(start = 14.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("设置", color = Tx, style = AppType.body, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(9.dp))
+                Text("Swarm Editor", color = Tx3, style = AppType.caption)
                 Spacer(Modifier.weight(1f))
-                Box(modifier = Modifier.size(30.dp).fluidClickable(onClick = onClose).clip(AppShapes.sm).background(Bg2).border(1.dp, Line, AppShapes.sm), contentAlignment = Alignment.Center) {
-                    Icon(imageVector = Feather.X, contentDescription = "关闭设置", tint = Tx2, modifier = Modifier.size(16.dp))
-                }
+                IdeActionButton(Feather.X, "关闭设置", onClose)
             }
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Column(modifier = Modifier.width(224.dp).fillMaxHeight().background(Bg0.copy(alpha = 0.72f)).padding(horizontal = 9.dp, vertical = 10.dp)) {
-                    Text("设置分类", color = Tx3, style = AppType.micro, letterSpacing = 1.sp)
-                    Spacer(Modifier.height(8.dp))
-                    tabs.forEach { tile ->
-                        MetroSettingsTile(
-                            tile = tile,
-                            active = activeTab == tile.id,
-                            onClick = { activeTab = tile.id },
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Column(modifier = Modifier.width(236.dp).fillMaxHeight().background(Bg0).border(1.dp, Line).padding(horizontal = 7.dp, vertical = 7.dp)) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(30.dp).clip(AppShapes.xs).background(Bg2)
+                            .border(1.dp, Line2, AppShapes.xs).padding(horizontal = 7.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Feather.Search, null, tint = Tx3, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Box(Modifier.weight(1f)) {
+                                if (categoryQuery.isEmpty()) Text("搜索设置", color = Tx3, style = AppType.caption)
+                                BasicTextField(
+                                    value = categoryQuery,
+                                    onValueChange = { categoryQuery = it },
+                                    textStyle = TextStyle(color = Tx, fontSize = 12.sp, fontFamily = SansFont),
+                                    cursorBrush = SolidColor(Ac),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    if (visibleTabs.isEmpty()) {
+                        Text("没有匹配的设置", color = Tx3, style = AppType.caption, modifier = Modifier.padding(8.dp))
+                    } else {
+                        visibleTabs.groupBy(SettingsTile::group).forEach { (group, groupTabs) ->
+                            Text(group.uppercase(), color = Tx3, style = AppType.micro, letterSpacing = 0.8.sp, modifier = Modifier.padding(start = 7.dp, top = 7.dp, bottom = 3.dp))
+                            groupTabs.forEach { tile ->
+                                MetroSettingsTile(
+                                    tile = tile,
+                                    active = activeTab == tile.id,
+                                    onClick = { activeTab = tile.id },
+                                )
+                            }
+                        }
                     }
                 }
-                // Body
-                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(10.dp).surfaceCard(bg = Bg2.copy(alpha = 0.82f), border = Line2, elevation = Elevation.medium, shape = AppShapes.lg)) {
+                Box(modifier = Modifier.weight(1f).fillMaxHeight().background(Bg1)) {
                     when (activeTab) {
                         "agent" -> AgentConfigTab(agents, models, primaryModelId, configPath, settingsVm)
                         "models" -> ModelConfigTab(
@@ -224,8 +262,7 @@ fun SettingsModal(
                     }
                 }
             }
-            // Footer
-            Row(modifier = Modifier.fillMaxWidth().background(Bg0.copy(alpha = 0.88f)).border(1.dp, Line).padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().height(38.dp).background(Bg2).border(1.dp, Line).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(6.dp).clip(CircleShape).background(Ok))
                 Spacer(Modifier.width(7.dp))
                 Text("选项即时保存；文本字段在失焦后写入本地配置", color = Tx3, style = AppType.caption)
@@ -238,10 +275,10 @@ fun SettingsModal(
 
 private data class SettingsTile(
     val id: String,
-    val symbol: String,
+    val icon: ImageVector,
     val label: String,
     val description: String,
-    val tone: Color,
+    val group: String,
     val badge: String? = null,
 )
 
@@ -256,8 +293,8 @@ private fun MetroSettingsTile(
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
         targetValue = when {
-            active -> tile.tone.copy(alpha = 0.16f)
-            hovered -> Bg3.copy(alpha = 0.9f)
+            active -> Ac.withAlpha(0.2f)
+            hovered -> Bg3.withAlpha(0.58f)
             else -> Color.Transparent
         },
         animationSpec = Motion.colorDefault,
@@ -266,11 +303,10 @@ private fun MetroSettingsTile(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(34.dp)
             .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .clip(AppShapes.sm)
+            .clip(AppShapes.xs)
             .background(background)
-            .border(1.dp, if (active) tile.tone.copy(alpha = 0.38f) else if (hovered) Line2 else Color.Transparent, AppShapes.sm)
             .semantics {
                 selected = active
                 contentDescription = buildString {
@@ -280,29 +316,16 @@ private fun MetroSettingsTile(
                     tile.badge?.let { append("，$it") }
                 }
             }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.size(28.dp).clip(AppShapes.sm).background(if (active) tile.tone else tile.tone.withAlpha(0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(tile.symbol, color = if (active) OnAccent else tile.tone, style = AppType.micro, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            Text(tile.label, color = if (active) Tx else Tx2, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
-            Text(tile.description, color = Tx3, style = AppType.micro, maxLines = 1)
-        }
+        Icon(tile.icon, null, tint = if (active) Tx else Tx3, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(tile.label, color = if (active) Tx else Tx2, style = AppType.bodySm, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
         tile.badge?.let {
             val isStatus = it == "在线" || it == "离线"
-            val badgeColor = if (isStatus && it == "在线") Ok else if (isStatus) Tx3 else tile.tone
-            Box(
-                Modifier.clip(AppShapes.pill).background(badgeColor.withAlpha(0.12f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(it, color = badgeColor, style = AppType.micro, fontWeight = FontWeight.Bold)
-            }
+            val badgeColor = if (isStatus && it == "在线") Ok else Tx3
+            Text(it, color = badgeColor, style = AppType.micro)
         }
     }
 }
@@ -1046,41 +1069,47 @@ private fun GeneralTab(
 @Composable
 private fun AppearanceTab(selectedTheme: AppThemeMode, onThemeChange: (AppThemeMode) -> Unit) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Section("统一设计语言") {
-            Row(
+        Section("IDE 外观") {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.linearGradient(listOf(Bg2, Bg3, Ac2.withAlpha(0.42f))))
-                    .border(1.dp, Ac.withAlpha(0.35f), RoundedCornerShape(14.dp))
+                    .clip(AppShapes.sm)
+                    .background(Bg2)
+                    .border(1.dp, if (selectedTheme == AppThemeMode.FUSION) Ac.withAlpha(0.55f) else Line2, AppShapes.sm)
                     .clickable { onThemeChange(AppThemeMode.FUSION) }
-                    .padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(12.dp),
             ) {
-                Box(
-                    Modifier
-                        .size(58.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Bg2.copy(alpha = 0.74f))
-                        .border(1.dp, OnAccent.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("S", color = AcLight, style = AppType.display)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("IntelliJ New UI", color = Tx, style = AppType.body, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(2.dp))
+                        Text("紧凑工具窗口、低噪声层级、清晰选中态与一致控件密度", color = Tx3, style = AppType.caption)
+                    }
+                    Text(if (selectedTheme == AppThemeMode.FUSION) "当前" else "启用", color = if (selectedTheme == AppThemeMode.FUSION) AcLight else Tx3, style = AppType.caption)
                 }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Swarm Fusion", color = OnAccent, style = AppType.title, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "玻璃层次承载浮层，黏土体积用于主控件，Hybrid 保持编辑器克制，动态磁贴负责状态与导航。",
-                        color = OnAccent.copy(alpha = 0.8f),
-                        style = AppType.caption,
-                    )
-                }
-                Box(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(Ac).padding(horizontal = 10.dp, vertical = 5.dp),
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth().height(104.dp).clip(AppShapes.xs).background(Bg0).border(1.dp, Line, AppShapes.xs),
                 ) {
-                    Text(if (selectedTheme == AppThemeMode.FUSION) "已启用" else "启用", color = Bg0, style = AppType.micro)
+                    Column(Modifier.width(112.dp).fillMaxHeight().background(Bg2).padding(5.dp)) {
+                        repeat(4) { index ->
+                            Box(
+                                Modifier.fillMaxWidth().height(20.dp).clip(AppShapes.xs)
+                                    .background(if (index == 1) Ac.withAlpha(0.2f) else Color.Transparent)
+                                    .padding(horizontal = 6.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Text(listOf("项目", "编辑器", "Git", "终端")[index], color = if (index == 1) Tx else Tx3, style = AppType.micro)
+                            }
+                        }
+                    }
+                    Column(Modifier.weight(1f).fillMaxHeight().padding(8.dp)) {
+                        Text("Main.kt", color = Tx2, style = AppType.caption.copy(fontFamily = CodeFont))
+                        Spacer(Modifier.height(8.dp))
+                        Text("fun main() {", color = ControlPurple, style = AppType.caption.copy(fontFamily = CodeFont))
+                        Text("    launchSwarm()", color = Tx2, style = AppType.caption.copy(fontFamily = CodeFont))
+                        Text("}", color = ControlPurple, style = AppType.caption.copy(fontFamily = CodeFont))
+                    }
                 }
             }
         }

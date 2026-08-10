@@ -14,19 +14,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import com.woowla.compose.icon.collections.feather.Feather
+import com.woowla.compose.icon.collections.feather.feather.Activity
+import com.woowla.compose.icon.collections.feather.feather.BookOpen
+import com.woowla.compose.icon.collections.feather.feather.Box
+import com.woowla.compose.icon.collections.feather.feather.Code
+import com.woowla.compose.icon.collections.feather.feather.Command
 import com.woowla.compose.icon.collections.feather.feather.Folder
+import com.woowla.compose.icon.collections.feather.feather.Grid
+import com.woowla.compose.icon.collections.feather.feather.Plus
+import com.woowla.compose.icon.collections.feather.feather.Search
+import com.woowla.compose.icon.collections.feather.feather.Settings
+import com.woowla.compose.icon.collections.feather.feather.Users
+import com.woowla.compose.icon.collections.feather.feather.Zap
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +52,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -170,7 +183,7 @@ private fun CommandPaletteModal(
         focusRequester.requestFocus()
     }
 
-    val modalShape = AppShapes.lg
+    val modalShape = AppShapes.sm
 
     Column(
         modifier = modifier
@@ -183,7 +196,7 @@ private fun CommandPaletteModal(
             )
             .clip(modalShape)
             .hazeEffect(hazeState)
-            .background(Bg1.copy(alpha = 0.94f))
+            .background(Bg1.copy(alpha = 0.98f))
             .border(1.dp, Line2, modalShape)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -219,49 +232,44 @@ private fun CommandPaletteModal(
                 }
             }
     ) {
-        // Search input row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .height(42.dp)
+                .padding(horizontal = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("🔍", fontSize = 14.sp)
-            Spacer(Modifier.size(10.dp))
-            TextField(
+            Icon(Feather.Search, null, tint = Tx3, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.size(8.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (searchQuery.text.isEmpty()) {
+                    Text("搜索操作、文件或 Pi 命令", color = Tx3, fontSize = 13.sp)
+                }
+                BasicTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .focusRequester(focusRequester),
-                placeholder = {
-                    Text("输入命令或搜索…", color = Tx3, fontSize = 14.sp)
-                },
                 singleLine = true,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    cursorColor = Ac,
-                    focusedTextColor = Tx,
-                    unfocusedTextColor = Tx
-                ),
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     color = Tx
+                ),
+                cursorBrush = SolidColor(Ac),
                 )
-            )
+            }
             Spacer(Modifier.size(8.dp))
-            // ESC label
             Box(
                 modifier = Modifier
-                    .background(Bg3, RoundedCornerShape(4.dp))
+                    .background(Bg2, AppShapes.xs)
+                    .border(1.dp, Line, AppShapes.xs)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text("ESC", color = Tx3, fontSize = 10.sp, fontWeight = FontWeight.Medium)
             }
         }
 
-        // Divider
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -269,7 +277,6 @@ private fun CommandPaletteModal(
                 .background(Line)
         )
 
-        // Command list
         val listState = rememberLazyListState()
 
         // Scroll to selected item
@@ -287,18 +294,18 @@ private fun CommandPaletteModal(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 360.dp)
-                .padding(vertical = 4.dp)
+                .heightIn(max = 380.dp)
+                .padding(horizontal = 3.dp, vertical = 3.dp)
         ) {
             groupedCommands.forEach { (group, cmds) ->
-                // Group header
                 item(key = "header_$group") {
                     Text(
-                        text = group,
+                        text = group.uppercase(Locale.ROOT),
                         color = Tx3,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
+                        letterSpacing = 0.6.sp,
+                        modifier = Modifier.padding(start = 9.dp, top = 7.dp, bottom = 3.dp)
                     )
                 }
 
@@ -320,14 +327,13 @@ private fun CommandPaletteModal(
                 }
             }
 
-            // Empty state
             if (filteredCommands.isEmpty()) {
                 item(key = "empty") {
                     Box(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No matching commands", color = Tx3, fontSize = 13.sp)
+                        Text("没有匹配的操作", color = Tx3, fontSize = 12.sp)
                     }
                 }
             }
@@ -341,74 +347,40 @@ private fun CommandItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val tone = commandTone(command)
-    val bgColor = if (isSelected) tone.withAlpha(0.14f) else Color.Transparent
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(bgColor, RoundedCornerShape(6.dp))
-            .fluidClickable(pressScale = 0.995f, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Icon / letter circle
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (isSelected) tone.withAlpha(0.18f) else Bg3),
-            contentAlignment = Alignment.Center
-        ) {
-            if (command.icon.isNotBlank()) {
-                if (command.icon == "📁") {
-                    Icon(imageVector = Feather.Folder, contentDescription = "Files", modifier = Modifier.size(14.dp), tint = Tx2)
-                } else {
-                    Text(command.icon, fontSize = 13.sp)
-                }
-            } else {
-                Text(
-                    command.name.first().uppercase(),
-                    color = if (isSelected) tone else Tx2,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
-        Spacer(Modifier.size(10.dp))
-
-        Text(
-            text = command.name,
-            color = if (isSelected) Tx else Tx2,
-            fontSize = 13.sp,
-            modifier = Modifier.weight(1f)
-        )
-
-        // Shortcut badge
-        if (command.shortcut.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .background(Bg3, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
+    IdeListRow(
+        onClick = onClick,
+        selected = isSelected,
+        rowHeight = 30.dp,
+        leading = {
+            Icon(commandVector(command), null, tint = if (isSelected) Tx2 else Tx3, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+        },
+        content = {
+            Text(command.name, color = if (isSelected) Tx else Tx2, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1)
+        },
+        trailing = {
+            if (command.shortcut.isNotBlank()) {
                 Text(command.shortcut, color = Tx3, fontSize = 10.sp)
             }
-        }
-    }
+        },
+    )
 }
 
-private fun commandTone(command: Command): Color = when {
-    command.group == "命令" -> ControlBlue
-    command.group == "主智能体配置" -> ControlPurple
-    command.group == "Pi Skills" -> ControlGreen
-    command.group == "Pi Prompt Templates" -> ControlOrange
-    command.group == "Pi Extensions" -> ControlPurple
-    command.group == "视图" && command.id.contains("activity") -> ControlRed
-    command.group == "视图" && command.id.contains("plugins") -> ControlOrange
-    command.group == "视图" && command.id.contains("files") -> ControlGreen
-    command.group == "视图" && command.id.contains("agents") -> ControlPurple
-    else -> ControlBlue
+private fun commandVector(command: Command): ImageVector = when {
+    command.id == "new-session" -> Feather.Plus
+    command.id.contains("workspace") -> Feather.Folder
+    command.id == "open-settings" -> Feather.Settings
+    command.group == "主智能体配置" -> Feather.Users
+    command.group == "Pi Skills" -> Feather.Zap
+    command.group == "Pi Prompt Templates" -> Feather.BookOpen
+    command.group == "Pi Extensions" -> Feather.Box
+    command.id.contains("activity") -> Feather.Activity
+    command.id.contains("plugins") -> Feather.Box
+    command.id.contains("files") -> Feather.Folder
+    command.id.contains("agents") -> Feather.Users
+    command.id.contains("chat") -> Feather.Code
+    command.group == "视图" -> Feather.Grid
+    else -> Feather.Command
 }
 
 internal fun buildCommands(agents: List<AgentInfo>, piCommands: List<PiCommandInfo> = emptyList()): List<Command> {

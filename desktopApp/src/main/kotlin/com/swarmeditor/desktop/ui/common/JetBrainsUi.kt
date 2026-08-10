@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.AppType
 import com.swarmeditor.desktop.theme.Bg0
@@ -246,6 +247,7 @@ fun IdeListRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    rowHeight: Dp = IdeUiMetrics.rowHeight,
     leading: @Composable RowScope.() -> Unit = {},
     content: @Composable RowScope.() -> Unit,
     trailing: @Composable RowScope.() -> Unit = {},
@@ -264,7 +266,7 @@ fun IdeListRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(IdeUiMetrics.rowHeight)
+            .height(rowHeight)
             .padding(horizontal = 3.dp, vertical = 1.dp)
             .clip(IdeUiMetrics.selectionShape)
             .background(background)
