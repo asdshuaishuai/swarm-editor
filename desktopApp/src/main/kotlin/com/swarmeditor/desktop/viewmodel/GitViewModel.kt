@@ -26,8 +26,12 @@ class GitViewModel(
     val status: StateFlow<GitStatusDto> = _status.asStateFlow()
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    private val _commitMessage = MutableStateFlow("")
+    val commitMessage: StateFlow<String> = _commitMessage.asStateFlow()
     private val eventChannel = Channel<String>(Channel.BUFFERED)
     val errorEvents = eventChannel.receiveAsFlow()
+    private val successChannel = Channel<String>(Channel.BUFFERED)
+    val successEvents = successChannel.receiveAsFlow()
 
     fun refresh() {
         scope.launch(ioDispatcher) { refreshLocked() }
@@ -38,38 +42,45 @@ class GitViewModel(
     }
 
     fun stageAll(paths: Collection<String>) {
-        scope.launch(ioDispatcher) {
-            operationMutex.withLock {
-                _isLoading.value = true
-                try {
-                    service.stage(paths)
-                    _status.value = service.getStatus().toDto()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    eventChannel.send(error.message ?: "Git 暂存失败")
-                } finally {
-                    _isLoading.value = false
-                }
-            }
-        }
+        runOperation("Git 暂存失败") { service.stage(paths) }
     }
 
     fun unstage(path: String) {
         mutate(path) { service.unstage(it) }
     }
 
+    fun unstageAll(paths: Collection<String>) {
+        runOperation("Git 取消暂存失败") { service.unstage(paths) }
+    }
+
+    fun setCommitMessage(message: String) {
+        _commitMessage.value = message
+    }
+
+    fun commit() {
+        val message = _commitMessage.value
+        runOperation("Git 提交失败") {
+            val commitHash = service.commit(message)
+            _commitMessage.value = ""
+            successChannel.trySend("已提交 ${commitHash.ifBlank { "HEAD" }}")
+        }
+    }
+
     private fun mutate(path: String, action: (String) -> Unit) {
+        runOperation("Git 操作失败") { action(path) }
+    }
+
+    private fun runOperation(fallbackMessage: String, action: () -> Unit) {
         scope.launch(ioDispatcher) {
             operationMutex.withLock {
                 _isLoading.value = true
                 try {
-                    action(path)
+                    action()
                     _status.value = service.getStatus().toDto()
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    eventChannel.send(error.message ?: "Git 操作失败")
+                    eventChannel.send(error.message ?: fallbackMessage)
                 } finally {
                     _isLoading.value = false
                 }
@@ -94,6 +105,7 @@ class GitViewModel(
 }
 
 private fun GitService.GitStatus.toDto() = GitStatusDto(
+    isRepository = isRepository,
     branch = branch,
     ahead = ahead,
     behind = behind,
@@ -109,7 +121,13 @@ private fun GitService.GitStatus.toDto() = GitStatusDto(
             isUntracked = change.isUntracked,
             added = change.added,
             removed = change.removed,
-            diffLines = change.diffLines
+            stagedAdded = change.stagedAdded,
+            stagedRemoved = change.stagedRemoved,
+            unstagedAdded = change.unstagedAdded,
+            unstagedRemoved = change.unstagedRemoved,
+            diffLines = change.diffLines,
+            stagedDiffLines = change.stagedDiffLines,
+            unstagedDiffLines = change.unstagedDiffLines,
         )
     }
 )

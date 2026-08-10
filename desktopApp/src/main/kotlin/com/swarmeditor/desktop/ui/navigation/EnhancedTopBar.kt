@@ -45,8 +45,8 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.resources.Res
 import com.swarmeditor.desktop.resources.swarm_editor
 import com.swarmeditor.desktop.theme.*
-import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.semanticAgentIconSpec
+import com.swarmeditor.desktop.ui.common.IdeActionButton
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Activity
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
@@ -133,8 +133,8 @@ fun EnhancedTopBar(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
-            .background(Bg1.copy(alpha = 0.94f))
+            .height(44.dp)
+            .background(Bg1)
             .border(1.dp, Line),
     ) {
         val presentation = topBarPresentation(maxWidth.value.toInt())
@@ -148,9 +148,9 @@ fun EnhancedTopBar(
             Image(
                 painter = painterResource(Res.drawable.swarm_editor),
                 contentDescription = "Swarm Editor",
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(9.dp))
+            Spacer(Modifier.width(7.dp))
             ProjectContextChip(
                 projectName = projectName,
                 branchName = branchName,
@@ -188,7 +188,11 @@ fun EnhancedTopBar(
                 onClick = onAgent,
             )
             Spacer(Modifier.width(4.dp))
-            SettingsButton(onSettings)
+            IdeActionButton(
+                icon = Feather.Settings,
+                contentDescription = "设置",
+                onClick = onSettings,
+            )
             Spacer(Modifier.width(8.dp))
             WindowControlButton("最小化", onMinimize) {
                 Box(Modifier.width(10.dp).height(1.5.dp).background(Tx3))
@@ -216,18 +220,18 @@ private fun ProjectContextChip(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        if (hovered) ControlBlue.withAlpha(0.15f) else ControlBlue.withAlpha(0.08f),
+        if (hovered) Bg3.withAlpha(0.8f) else Color.Transparent,
         Motion.colorDefault,
         label = "projectContextBackground",
     )
     val border by animateColorAsState(
-        if (hovered) ControlBlue.withAlpha(0.42f) else ControlBlue.withAlpha(0.22f),
+        if (hovered) Line2 else Color.Transparent,
         Motion.colorDefault,
         label = "projectContextBorder",
     )
     Row(
         modifier = Modifier
-            .height(32.dp)
+            .height(30.dp)
             .clip(AppShapes.sm)
             .background(background)
             .border(1.dp, border, AppShapes.sm)
@@ -235,13 +239,13 @@ private fun ProjectContextChip(
             .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Feather.Folder, "切换项目", tint = ControlBlue, modifier = Modifier.size(14.dp))
+        Icon(Feather.Folder, "切换项目", tint = Tx2, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(6.dp))
         Text(
             projectName,
             color = Tx,
             fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = projectMaxWidth.dp),
@@ -250,11 +254,11 @@ private fun ProjectContextChip(
             Spacer(Modifier.width(8.dp))
             Box(Modifier.width(1.dp).height(14.dp).background(Line2))
             Spacer(Modifier.width(7.dp))
-            Icon(Feather.GitBranch, null, tint = ControlGreen, modifier = Modifier.size(12.dp))
+            Icon(Feather.GitBranch, null, tint = Tx3, modifier = Modifier.size(12.dp))
             Spacer(Modifier.width(4.dp))
             Text(
                 branchName,
-                color = ControlGreen,
+                color = Tx2,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -295,19 +299,19 @@ private fun SearchLauncher(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        if (hovered) ControlPurple.withAlpha(0.13f) else ControlPurple.withAlpha(0.07f),
+        if (hovered) Bg3.withAlpha(0.86f) else Bg0.withAlpha(0.78f),
         Motion.colorDefault,
         label = "topBarSearchBackground",
     )
     val border by animateColorAsState(
-        if (hovered) ControlPurple.withAlpha(0.42f) else ControlPurple.withAlpha(0.22f),
+        if (hovered) Line2 else Line,
         Motion.colorDefault,
         label = "topBarSearchBorder",
     )
     Row(
         modifier = modifier
             .widthIn(min = minWidth.dp, max = maxWidth.dp)
-            .height(32.dp)
+            .height(30.dp)
             .clip(AppShapes.sm)
             .background(background)
             .border(1.dp, border, AppShapes.sm)
@@ -315,7 +319,7 @@ private fun SearchLauncher(
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Feather.Search, "搜索", tint = ControlPurple, modifier = Modifier.size(14.dp))
+        Icon(Feather.Search, "搜索", tint = Tx3, modifier = Modifier.size(14.dp))
         if (label.isNotEmpty()) {
             Spacer(Modifier.width(7.dp))
             Text(
@@ -357,33 +361,29 @@ private fun AgentRuntimeChip(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        if (hovered) color.withAlpha(0.13f) else Color.Transparent,
+        if (hovered) Bg3.withAlpha(0.8f) else Color.Transparent,
         Motion.colorDefault,
         label = "agentRuntimeBackground",
     )
     Row(
         modifier = Modifier
-            .height(34.dp)
+            .height(30.dp)
             .clip(AppShapes.sm)
             .background(background)
             .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = if (showLabel) 7.dp else 3.dp),
+            .padding(horizontal = if (showLabel) 7.dp else 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            SemanticIconBadge(
-                spec = semanticAgentIconSpec(name, id).copy(accent = color),
-                contentDescription = "$name 配置",
-                size = 28.dp,
-                showBadge = false,
-            )
+            val spec = semanticAgentIconSpec(name, id)
+            Icon(spec.imageVector, "$name 配置", tint = color, modifier = Modifier.size(16.dp))
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .size(8.dp)
+                    .size(6.dp)
                     .clip(CircleShape)
                     .background(if (online) ControlGreen else Tx3)
-                    .border(2.dp, Bg1, CircleShape),
+                    .border(1.dp, Bg1, CircleShape),
             )
         }
         if (showLabel) {
@@ -398,32 +398,6 @@ private fun AgentRuntimeChip(
                 modifier = Modifier.widthIn(max = 110.dp),
             )
         }
-    }
-}
-
-@Composable
-private fun SettingsButton(onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val background by animateColorAsState(
-        if (hovered) ControlOrange.withAlpha(0.14f) else Color.Transparent,
-        Motion.colorDefault,
-        label = "settingsBackground",
-    )
-    val tint by animateColorAsState(
-        if (hovered) ControlOrange else Tx3,
-        Motion.colorDefault,
-        label = "settingsTint",
-    )
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(AppShapes.sm)
-            .background(background)
-            .fluidClickable(interactionSource = interaction, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(Feather.Settings, "设置", tint = tint, modifier = Modifier.size(17.dp))
     }
 }
 
@@ -449,8 +423,8 @@ private fun WindowControlButton(
     )
     Box(
         modifier = Modifier
-            .size(30.dp)
-            .clip(CircleShape)
+            .size(28.dp)
+            .clip(RoundedCornerShape(4.dp))
             .background(background)
             .semantics {
                 role = Role.Button

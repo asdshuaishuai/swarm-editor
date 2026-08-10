@@ -21,7 +21,7 @@ val R12 get() = themedRadius(12)
 val R14 get() = themedRadius(14)
 val R16 get() = themedRadius(16)
 
-private fun themedRadius(base: Int) = (base + 2).dp
+private fun themedRadius(base: Int) = base.dp
 
 // Fonts — Inter 为主（设计稿本意 / SF Pro 合法替身），CJK 由系统回退
 // 从 JVM 资源取 Inter.ttf 到临时文件，用 platform.Font + FontVariation 取变体字重（非 @Composable）

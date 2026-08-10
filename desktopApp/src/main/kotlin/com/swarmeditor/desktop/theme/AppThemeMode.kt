@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 import java.util.prefs.Preferences
 
 enum class AppThemeMode(val id: String, val label: String, val description: String) {
-    FUSION("fusion", "Swarm Fusion", "Glass、Clay、Hybrid 与动态磁贴融合的统一设计语言"),
+    FUSION("fusion", "Swarm IntelliJ", "基于 IntelliJ New UI 的紧凑桌面设计语言"),
     ;
 
     companion object {
@@ -73,14 +73,14 @@ object ThemePreferences {
 }
 
 private val fusionPalette = SwarmPalette(
-    bg0 = Color(0xFF11151C), bg1 = Color(0xE6171C25), bg2 = Color(0xF21D2430), bg3 = Color(0xFF27303D),
-    line = Color(0xFF303A49), line2 = Color(0xFF435064), tx = Color(0xFFE8EDF5), tx2 = Color(0xFFB4BECD),
-    tx3 = Color(0xFF7F8A9B), ac = Color(0xFF8FAFD1), ac2 = Color(0xFFA89BCB), acLight = Color(0xFFC7D8EA),
-    onAccent = Color(0xFF11151C), scrim = Color(0xFF090C11),
-    controlBlue = Color(0xFF70A9EB), controlPurple = Color(0xFFAA92E3), controlGreen = Color(0xFF70BE91),
-    controlOrange = Color(0xFFDDA15E), controlRed = Color(0xFFE07D89),
-    agentClaude = Color(0xFFAB9DC8), agentQwen = Color(0xFF88A9C8), agentGemini = Color(0xFF82B5A3),
-    agentKimi = Color(0xFFC8AD7F), agentOpenCode = Color(0xFFC79A88), ok = Color(0xFF79AD91),
-    okLight = Color(0xFFA7CFB5), warn = Color(0xFFC3A16F), warnLight = Color(0xFFDCC39C),
-    err = Color(0xFFC7838D), errLight = Color(0xFFE0AAB2),
+    bg0 = Color(0xFF1E1F22), bg1 = Color(0xFF24262B), bg2 = Color(0xFF2B2D30), bg3 = Color(0xFF393B40),
+    line = Color(0xFF34363A), line2 = Color(0xFF4E5157), tx = Color(0xFFDFE1E5), tx2 = Color(0xFFB4B8BF),
+    tx3 = Color(0xFF8B8F96), ac = Color(0xFF3F5B85), ac2 = Color(0xFF4E466F), acLight = Color(0xFF7894C6),
+    onAccent = Color(0xFFFFFFFF), scrim = Color(0xFF121316),
+    controlBlue = Color(0xFF3F5B85), controlPurple = Color(0xFF4E466F), controlGreen = Color(0xFF46664F),
+    controlOrange = Color(0xFF654B32), controlRed = Color(0xFF70494F),
+    agentClaude = Color(0xFF59486E), agentQwen = Color(0xFF475F75), agentGemini = Color(0xFF46664F),
+    agentKimi = Color(0xFF715B38), agentOpenCode = Color(0xFF70494F), ok = Color(0xFF46664F),
+    okLight = Color(0xFF79A584), warn = Color(0xFF715B38), warnLight = Color(0xFFD3A957),
+    err = Color(0xFF70494F), errLight = Color(0xFFD9828D),
 )

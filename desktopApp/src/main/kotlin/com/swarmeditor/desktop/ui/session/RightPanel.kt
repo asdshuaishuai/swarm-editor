@@ -80,30 +80,29 @@ import com.swarmeditor.common.model.TokenUsage
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import com.swarmeditor.desktop.theme.*
+import com.swarmeditor.desktop.ui.common.IdeToolWindowTab
+import com.swarmeditor.desktop.ui.common.IdeToolWindowTabs
 
 // ── Tab definitions ──────────────────────────────────────────────────────
-private data class TabDef(val id: String, val label: String)
 private val TABS = listOf(
-    TabDef("changes", "变更"),
-    TabDef("inspector", "检查"),
-    TabDef("branches", "分支"),
-    TabDef("log", "日志"),
-    TabDef("tokens", "Token"),
+    IdeToolWindowTab("changes", "变更"),
+    IdeToolWindowTab("inspector", "检查"),
+    IdeToolWindowTab("branches", "会话"),
+    IdeToolWindowTab("log", "日志"),
+    IdeToolWindowTab("tokens", "Token"),
 )
+
+internal fun compactTabBadgeLabel(count: Int): String? = when {
+    count <= 0 -> null
+    count > 99 -> "99+"
+    else -> count.toString()
+}
 
 data class TokenUsageSummary(
     val total: TokenUsage = TokenUsage(),
     val sessions: TokenUsage = TokenUsage(),
     val swarm: TokenUsage = TokenUsage(),
 )
-
-// ── Extension chip color helper ──────────────────────────────────────────
-private fun extColor(ext: String): Color = when (ext) {
-    "kt", "json", "kts" -> AgentKimi
-    "md" -> Tx
-    "toml", "yaml", "yml" -> Ac
-    else -> Tx2
-}
 
 private fun logDotColor(type: ActivityType): Color = when (type) {
     ActivityType.TOOL -> AgentGemini
@@ -114,12 +113,6 @@ private fun logDotColor(type: ActivityType): Color = when (type) {
     ActivityType.ERROR -> Err
     ActivityType.SESSION, ActivityType.MESSAGE -> Tx3
 }
-
-private val GitFileChangeDto.name: String
-    get() = path.substringAfterLast('/')
-
-private val GitFileChangeDto.extension: String
-    get() = name.substringAfterLast('.', "").lowercase()
 
 // ════════════════════════════════════════════════════════════════════════
 //  Main composable
@@ -140,6 +133,8 @@ fun RightPanel(
     runtimeControlBusy: Boolean = false,
     isCompacting: Boolean = false,
     tokenUsageSummary: TokenUsageSummary = TokenUsageSummary(),
+    gitBusy: Boolean = false,
+    gitCommitMessage: String = "",
     onCompactContext: (String?) -> Boolean = { false },
     onRefreshModels: () -> Unit = {},
     onSetModel: (PiModelInfo) -> Boolean = { false },
@@ -157,20 +152,36 @@ fun RightPanel(
     onStageFile: (String) -> Unit = {},
     onStageAll: (Collection<String>) -> Unit = {},
     onUnstageFile: (String) -> Unit = {},
+    onUnstageAll: (Collection<String>) -> Unit = {},
+    onGitRefresh: () -> Unit = {},
+    onGitCommitMessageChange: (String) -> Unit = {},
+    onGitCommit: () -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         // ── Tab header row ───────────────────────────────────────────────
-        TabHeader(
-            currentTab = currentTab,
-            badgeCounts = mapOf("changes" to gitStatus.changes.size),
-            onTabChange = onTabChange,
+        IdeToolWindowTabs(
+            tabs = TABS.map { tab -> if (tab.id == "changes") tab.copy(count = gitStatus.changes.size) else tab },
+            selectedId = currentTab,
+            onSelected = onTabChange,
         )
 
         Column(Modifier.weight(1f).fillMaxWidth()) {
             when (currentTab) {
-                "changes" -> ChangesTab(gitStatus, onStageFile, onStageAll, onUnstageFile, onOpenDiff)
+                "changes" -> GitChangesToolWindow(
+                    gitStatus = gitStatus,
+                    isBusy = gitBusy,
+                    commitMessage = gitCommitMessage,
+                    onCommitMessageChange = onGitCommitMessageChange,
+                    onRefresh = onGitRefresh,
+                    onStageFile = onStageFile,
+                    onStageAll = onStageAll,
+                    onUnstageFile = onUnstageFile,
+                    onUnstageAll = onUnstageAll,
+                    onCommit = onGitCommit,
+                    onOpenDiff = onOpenDiff,
+                )
                 "inspector" -> InspectorTab(
                     piRuntimeState,
                     piRuntimeStats,
@@ -296,292 +307,6 @@ private fun formatTokenUsage(value: Long): String = when {
     value >= 1_000 -> "%.1fK".format(value / 1_000.0)
     else -> value.toString()
 }
-
-// ════════════════════════════════════════════════════════════════════════
-//  Tab Header
-// ════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun TabHeader(
-    currentTab: String,
-    badgeCounts: Map<String, Int>,
-    onTabChange: (String) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().background(Bg0.copy(alpha = 0.72f))
-            .border(1.dp, Line).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        TABS.forEach { (id, label) ->
-            val isActive = currentTab == id
-            val badgeCount = badgeCounts[id]?.takeIf { it > 0 }
-            val background by animateColorAsState(
-                if (isActive) Ac.copy(alpha = 0.16f) else Color.Transparent,
-                Motion.colorDefault,
-                label = "rightTabBackground",
-            )
-            val foreground by animateColorAsState(
-                if (isActive) AcLight else Tx3,
-                Motion.colorDefault,
-                label = "rightTabForeground",
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp)
-                    .fluidClickable(onClick = { onTabChange(id) })
-                    .clip(AppShapes.sm)
-                    .background(background)
-                    .padding(horizontal = 8.dp)
-                    .semantics {
-                        selected = isActive
-                        contentDescription = if (badgeCount == null) label else "$label，$badgeCount 项"
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    color = foreground,
-                    style = AppType.bodySm,
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                )
-                badgeCount?.let { count ->
-                    TabBadge(
-                        count = count,
-                        isActive = isActive,
-                        modifier = Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 3.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TabBadge(count: Int, isActive: Boolean, modifier: Modifier = Modifier) {
-    val label = compactTabBadgeLabel(count) ?: return
-    Text(
-        label,
-        modifier = modifier,
-        color = if (isActive) AcLight else Tx3,
-        style = AppType.micro.copy(fontFamily = CodeFont, fontSize = 7.sp, lineHeight = 8.sp),
-        fontWeight = FontWeight.Bold,
-    )
-}
-
-internal fun compactTabBadgeLabel(count: Int): String? = when {
-    count <= 0 -> null
-    count > 99 -> "99+"
-    else -> count.toString()
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  变更 Tab — Change Management
-// ════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun ColumnScope.ChangesTab(
-    gitStatus: GitStatusDto,
-    onStageFile: (String) -> Unit,
-    onStageAll: (Collection<String>) -> Unit,
-    onUnstageFile: (String) -> Unit,
-    onOpenDiff: (GitFileChangeDto) -> Unit,
-) {
-    val changes = gitStatus.changes
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f),
-    ) {
-        item(key = "changes-header") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "变更文件 (${changes.size})",
-                    color = Tx3,
-                    style = AppType.micro,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.7.sp,
-                )
-                Spacer(Modifier.weight(1f))
-                if (changes.any { it.hasUnstagedChanges }) {
-                    ActionButton(
-                        text = "全部暂存",
-                        tone = ActionTone.POSITIVE,
-                        prominent = false,
-                        compact = true,
-                        onClick = { onStageAll(changes.filter { it.hasUnstagedChanges }.map { it.path }) },
-                    )
-                }
-            }
-        }
-
-        if (changes.isEmpty()) {
-            item(key = "changes-empty") {
-                Text(
-                    "工作区没有未提交变更",
-                    color = Tx3,
-                    style = AppType.caption,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 18.dp)
-                )
-            }
-        }
-
-        items(changes, key = GitFileChangeDto::path) { change ->
-            val rowInteraction = remember(change.path) { MutableInteractionSource() }
-            val rowHovered by rowInteraction.collectIsHoveredAsState()
-            val rowBackground by animateColorAsState(
-                targetValue = if (rowHovered) Bg3.copy(alpha = 0.72f) else Bg3.copy(alpha = 0.35f),
-                animationSpec = Motion.colorDefault,
-                label = "changeRowBackground",
-            )
-            val rowBorder by animateColorAsState(
-                targetValue = if (rowHovered) Line2 else Line,
-                animationSpec = Motion.colorDefault,
-                label = "changeRowBorder",
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateItem()
-                    .padding(horizontal = 12.dp, vertical = 3.dp),
-            ) {
-                // File row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fluidClickable(interactionSource = rowInteraction) { onOpenDiff(change) }
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(rowBackground)
-                        .border(1.dp, rowBorder, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Extension chip
-                    ExtensionChip(change.extension)
-                    Spacer(Modifier.width(6.dp))
-
-                    // Filename + optional NEW badge
-                    Text(
-                        change.name,
-                        color = Tx,
-                        style = AppType.bodySm,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (change.isUntracked || change.status == "A") {
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "NEW",
-                            color = Ac,
-                            style = AppType.micro,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-
-                    // Diff stats
-                    if (change.added > 0) {
-                        Text(
-                            "+${change.added}",
-                            color = AgentGemini,
-                            style = AppType.micro.copy(fontFamily = CodeFont),
-                        )
-                    }
-                    if (change.removed > 0) {
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "-${change.removed}",
-                            color = ErrLight,
-                            style = AppType.micro.copy(fontFamily = CodeFont),
-                        )
-                    }
-
-                    Spacer(Modifier.width(8.dp))
-
-                    // Stage / unstage actions. Never discard working-tree data implicitly.
-                    if (change.hasUnstagedChanges) {
-                        ChangeIconAction(
-                            icon = Feather.Check,
-                            label = "暂存",
-                            tone = AgentGemini,
-                            onClick = { onStageFile(change.path) },
-                        )
-                    }
-                    if (change.hasStagedChanges) {
-                        Spacer(Modifier.width(4.dp))
-                        ChangeIconAction(
-                            icon = Feather.X,
-                            label = "取消暂存",
-                            tone = ErrLight,
-                            onClick = { onUnstageFile(change.path) },
-                        )
-                    }
-                    if (change.hasStagedChanges && !change.hasUnstagedChanges) {
-                        Icon(imageVector = Feather.Check, contentDescription = "已暂存", tint = AgentGemini, modifier = Modifier.size(14.dp))
-                    }
-                }
-
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChangeIconAction(
-    icon: ImageVector,
-    label: String,
-    tone: Color,
-    onClick: () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val background by animateColorAsState(
-        targetValue = tone.withAlpha(if (hovered) 0.18f else 0.09f),
-        animationSpec = Motion.colorDefault,
-        label = "changeActionBackground",
-    )
-    val border by animateColorAsState(
-        targetValue = tone.withAlpha(if (hovered) 0.52f else 0.28f),
-        animationSpec = Motion.colorDefault,
-        label = "changeActionBorder",
-    )
-    HoverTipBox(label) {
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .fluidClickable(interactionSource = interaction, pressScale = 0.96f, onClick = onClick)
-                .clip(RoundedCornerShape(7.dp))
-                .background(background)
-                .border(1.dp, border, RoundedCornerShape(7.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = label, tint = tone, modifier = Modifier.size(13.dp))
-        }
-    }
-}
-
-// ── Extension chip ───────────────────────────────────────────────────────
-
-@Composable
-private fun ExtensionChip(ext: String) {
-    val color = extColor(ext)
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(3.dp))
-            .background(color.withAlpha(0.15f))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-    ) {
-        Text(ext, color = color, style = AppType.micro, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════
 //  检查 Tab — Inspector
 // ════════════════════════════════════════════════════════════════════════
 

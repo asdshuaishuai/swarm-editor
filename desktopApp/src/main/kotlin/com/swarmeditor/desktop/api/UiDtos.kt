@@ -139,11 +139,18 @@ data class GitFileChangeDto(
     val isUntracked: Boolean,
     val added: Int,
     val removed: Int,
-    val diffLines: List<String> = emptyList()
+    val stagedAdded: Int = 0,
+    val stagedRemoved: Int = 0,
+    val unstagedAdded: Int = 0,
+    val unstagedRemoved: Int = 0,
+    val diffLines: List<String> = emptyList(),
+    val stagedDiffLines: List<String> = emptyList(),
+    val unstagedDiffLines: List<String> = emptyList(),
 )
 
 @Serializable
 data class GitStatusDto(
+    val isRepository: Boolean = false,
     val branch: String = "",
     val ahead: Int = 0,
     val behind: Int = 0,

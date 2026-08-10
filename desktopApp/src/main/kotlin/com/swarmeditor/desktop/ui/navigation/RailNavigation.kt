@@ -72,11 +72,11 @@ fun RailNavigation(
 
     Column(
         modifier = modifier
-            .width(60.dp)
+            .width(46.dp)
             .fillMaxHeight()
             .background(Bg0)
             .border(1.dp, Line)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Navigation items
@@ -102,9 +102,8 @@ fun RailNavigation(
         )
 
         // Git button
-        RailButton(
-            icon = Feather.GitBranch,
-            label = "Git",
+        RailNavItem(
+            item = RailItem("git", Feather.GitBranch, "Git", "版本控制"),
             isActive = false,
             onClick = onOpenGit
         )
@@ -120,7 +119,6 @@ private fun RailNavItem(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val tone = railTone(item.key)
     var showTip by remember { mutableStateOf(false) }
     var hasShownTip by remember { mutableStateOf(false) }
     LaunchedEffect(isHovered) {
@@ -133,9 +131,9 @@ private fun RailNavItem(
         }
     }
     val bgColor = when {
-        isActive -> tone.withAlpha(0.14f)
-        isFocused -> tone.withAlpha(0.1f)
-        isHovered -> Bg3.copy(alpha = 0.6f)
+        isActive -> Bg3
+        isFocused -> Bg3.withAlpha(0.86f)
+        isHovered -> Bg3.withAlpha(0.62f)
         else -> Color.Transparent
     }
     val animatedBg by androidx.compose.animation.animateColorAsState(
@@ -143,7 +141,7 @@ private fun RailNavItem(
         animationSpec = Motion.colorDefault,
         label = "railBg"
     )
-    val targetIconColor = if (isActive || isFocused) tone else if (isHovered) Tx2 else Tx3
+    val targetIconColor = if (isActive || isFocused) Tx else if (isHovered) Tx2 else Tx3
     val animatedIconColor by androidx.compose.animation.animateColorAsState(
         targetValue = targetIconColor,
         animationSpec = Motion.colorDefault,
@@ -151,11 +149,11 @@ private fun RailNavItem(
     )
     Box(
         modifier = Modifier
-            .width(38.dp)
-            .height(38.dp)
-            .clip(AppShapes.sm)
+            .width(36.dp)
+            .height(34.dp)
+            .clip(RoundedCornerShape(5.dp))
             .background(animatedBg)
-            .border(if (isFocused) 1.dp else 0.dp, if (isFocused) tone.withAlpha(0.7f) else Color.Transparent, AppShapes.sm)
+            .border(if (isFocused) 1.dp else 0.dp, if (isFocused) Ac.withAlpha(0.8f) else Color.Transparent, RoundedCornerShape(5.dp))
             .semantics {
                 role = Role.Tab
                 selected = isActive
@@ -168,11 +166,11 @@ private fun RailNavItem(
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = (-7).dp)
-                    .width(2.dp)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
-                    .background(tone)
+                    .offset(x = (-4).dp)
+                    .width(3.dp)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp))
+                    .background(Ac)
             )
         }
 
@@ -180,7 +178,7 @@ private fun RailNavItem(
             imageVector = item.icon,
             contentDescription = item.label,
             tint = animatedIconColor,
-            modifier = Modifier.size(17.dp)
+            modifier = Modifier.size(16.dp)
         )
 
         // Badge
@@ -218,79 +216,9 @@ private fun RailTip(text: String) {
     Text(
         text, color = Tx, fontSize = 11.sp, fontFamily = SansFont,
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(Bg2)
-            .border(1.dp, Line2, RoundedCornerShape(6.dp))
+            .border(1.dp, Line2, RoundedCornerShape(4.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp)
     )
-}
-
-@Composable
-private fun RailButton(
-    icon: ImageVector,
-    label: String,
-    isActive: Boolean,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-    var showTip by remember { mutableStateOf(false) }
-    var hasShownTip by remember { mutableStateOf(false) }
-    LaunchedEffect(isHovered) {
-        if (isHovered) {
-            if (!hasShownTip) kotlinx.coroutines.delay(300)
-            showTip = true
-            hasShownTip = true
-        } else {
-            showTip = false
-        }
-    }
-    val bgColor = when {
-        isActive -> ControlOrange.withAlpha(0.14f)
-        isHovered -> ControlOrange.withAlpha(0.1f)
-        else -> Color.Transparent
-    }
-    val animatedBg by androidx.compose.animation.animateColorAsState(
-        targetValue = bgColor,
-        animationSpec = Motion.colorDefault,
-        label = "railBtnBg"
-    )
-    val targetIconColor = if (isActive || isHovered) ControlOrange else Tx3
-    val animatedIconColor by androidx.compose.animation.animateColorAsState(
-        targetValue = targetIconColor,
-        animationSpec = Motion.colorDefault,
-        label = "railBtnIcon"
-    )
-
-    Box(
-        modifier = Modifier
-            .width(38.dp)
-            .height(38.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(animatedBg)
-            .fluidClickable(interactionSource = interactionSource, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = animatedIconColor,
-            modifier = Modifier.size(17.dp)
-        )
-
-        if (showTip) {
-            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(60, 0)) {
-                RailTip(label)
-            }
-        }
-    }
-}
-
-private fun railTone(key: String): Color = when (key) {
-    "chat" -> ControlBlue
-    "agents" -> ControlPurple
-    "plugins" -> ControlOrange
-    "files" -> ControlGreen
-    "activity" -> ControlRed
-    else -> Ac
 }

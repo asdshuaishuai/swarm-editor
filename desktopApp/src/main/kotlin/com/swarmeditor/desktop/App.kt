@@ -156,6 +156,8 @@ fun WindowScope.App(
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
+    val gitBusy by root.gitVm.isLoading.collectAsState()
+    val gitCommitMessage by root.gitVm.commitMessage.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
     val modelConfigs by root.settingsVm.models.collectAsState()
@@ -376,6 +378,9 @@ fun WindowScope.App(
     }
     LaunchedEffect(Unit) {
         root.gitVm.errorEvents.collect { message -> root.showToast(message, ToastType.ERROR) }
+    }
+    LaunchedEffect(Unit) {
+        root.gitVm.successEvents.collect { message -> root.showToast(message, ToastType.SUCCESS) }
     }
 
     val selectedAgent = root.agentVm.selectedAgent.collectAsState().value
@@ -736,6 +741,8 @@ fun WindowScope.App(
                             currentTab = rightTab,
                             onTabChange = { rightTab = it },
                             gitStatus = gitStatus,
+                            gitBusy = gitBusy,
+                            gitCommitMessage = gitCommitMessage,
                             activities = conversationActivities,
                             piRuntimeState = piRuntimeState,
                             piRuntimeStats = piRuntimeStats,
@@ -763,6 +770,10 @@ fun WindowScope.App(
                             onStageFile = root.gitVm::stage,
                             onStageAll = root.gitVm::stageAll,
                             onUnstageFile = root.gitVm::unstage,
+                            onUnstageAll = root.gitVm::unstageAll,
+                            onGitRefresh = root.gitVm::refresh,
+                            onGitCommitMessageChange = root.gitVm::setCommitMessage,
+                            onGitCommit = root.gitVm::commit,
                             onOpenDiff = { diffChange = it },
                             modifier = Modifier.width(shellLayout.rightPanelWidth.dp).fillMaxHeight()
                         )

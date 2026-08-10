@@ -18,10 +18,17 @@ class GitService(private val projectDir: File) {
         val isUntracked: Boolean,
         val added: Int,
         val removed: Int,
+        val stagedAdded: Int,
+        val stagedRemoved: Int,
+        val unstagedAdded: Int,
+        val unstagedRemoved: Int,
         val diffLines: List<String>,
+        val stagedDiffLines: List<String>,
+        val unstagedDiffLines: List<String>,
     )
 
     data class GitStatus(
+        val isRepository: Boolean,
         val branch: String,
         val ahead: Int,
         val behind: Int,
@@ -32,7 +39,7 @@ class GitService(private val projectDir: File) {
     )
 
     fun getStatus(): GitStatus {
-        if (!isGitRepo()) return GitStatus("", 0, 0, 0, 0, 0)
+        if (!isGitRepo()) return GitStatus(false, "", 0, 0, 0, 0, 0)
 
         val changes = parseStatus(runGitRaw("status", "--porcelain=v1", "-z", "--untracked-files=all").bytes)
             .map { it.withDiff() }
@@ -50,6 +57,7 @@ class GitService(private val projectDir: File) {
         val branch = runGit("branch", "--show-current").lines.firstOrNull().orEmpty()
             .ifBlank { runGit("rev-parse", "--short", "HEAD").lines.firstOrNull().orEmpty() }
         return GitStatus(
+            isRepository = true,
             branch = branch,
             ahead = aheadBehind.second,
             behind = aheadBehind.first,
@@ -79,6 +87,23 @@ class GitService(private val projectDir: File) {
         if (result.exitCode != 0) {
             runGitChecked("rm", "--cached", "--", safePath)
         }
+    }
+
+    fun unstage(paths: Collection<String>) {
+        paths.forEach(::unstage)
+    }
+
+    fun commit(message: String): String {
+        val normalizedMessage = message.trim()
+        require(normalizedMessage.isNotEmpty()) { "提交信息不能为空" }
+
+        val stagedCheck = runGit("diff", "--cached", "--quiet", "--exit-code")
+        check(stagedCheck.exitCode == 1) {
+            if (stagedCheck.exitCode == 0) "没有已暂存的变更" else "无法检查已暂存的变更"
+        }
+
+        runGitChecked("commit", "--message", normalizedMessage)
+        return runGitCheckedWithOutput("rev-parse", "--short", "HEAD").firstOrNull().orEmpty()
     }
 
     private data class ParsedStatus(
@@ -127,19 +152,17 @@ class GitService(private val projectDir: File) {
     }
 
     private fun ParsedStatus.withDiff(): GitFileChange {
-        val stats = when {
-            isUntracked -> listOf(untrackedStat(path))
-            else -> buildList {
-                if (hasStagedChanges) add(numStat(path, cached = true))
-                if (hasUnstagedChanges) add(numStat(path, cached = false))
-            }
+        val stagedStats = if (hasStagedChanges) numStat(path, cached = true) else 0 to 0
+        val unstagedStats = when {
+            isUntracked -> untrackedStat(path)
+            hasUnstagedChanges -> numStat(path, cached = false)
+            else -> 0 to 0
         }
-        val lines = when {
+        val stagedLines = if (hasStagedChanges) diffLines(path, cached = true) else emptyList()
+        val unstagedLines = when {
             isUntracked -> untrackedDiff(path)
-            else -> buildList {
-                if (hasStagedChanges) addAll(diffLines(path, cached = true))
-                if (hasUnstagedChanges) addAll(diffLines(path, cached = false))
-            }.take(MAX_DIFF_LINES)
+            hasUnstagedChanges -> diffLines(path, cached = false)
+            else -> emptyList()
         }
         return GitFileChange(
             path = path,
@@ -147,9 +170,15 @@ class GitService(private val projectDir: File) {
             hasStagedChanges = hasStagedChanges,
             hasUnstagedChanges = hasUnstagedChanges,
             isUntracked = isUntracked,
-            added = stats.sumOf { it.first },
-            removed = stats.sumOf { it.second },
-            diffLines = lines
+            added = stagedStats.first + unstagedStats.first,
+            removed = stagedStats.second + unstagedStats.second,
+            stagedAdded = stagedStats.first,
+            stagedRemoved = stagedStats.second,
+            unstagedAdded = unstagedStats.first,
+            unstagedRemoved = unstagedStats.second,
+            diffLines = (stagedLines + unstagedLines).take(MAX_DIFF_LINES),
+            stagedDiffLines = stagedLines,
+            unstagedDiffLines = unstagedLines,
         )
     }
 
@@ -234,6 +263,14 @@ class GitService(private val projectDir: File) {
         check(result.exitCode == 0) {
             result.lines.joinToString(" ").ifBlank { "git ${args.joinToString(" ")} failed" }
         }
+    }
+
+    private fun runGitCheckedWithOutput(vararg args: String): List<String> {
+        val result = runGit(*args)
+        check(result.exitCode == 0) {
+            result.lines.joinToString(" ").ifBlank { "git ${args.joinToString(" ")} failed" }
+        }
+        return result.lines
     }
 
     private data class GitResult(val exitCode: Int, val lines: List<String>)

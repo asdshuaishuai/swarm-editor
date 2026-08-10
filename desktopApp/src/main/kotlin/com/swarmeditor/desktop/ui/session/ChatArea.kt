@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.isShiftPressed
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.GitBranch
+import com.woowla.compose.icon.collections.feather.feather.ChevronRight
 import com.woowla.compose.icon.collections.feather.feather.Grid
 import com.woowla.compose.icon.collections.feather.feather.Paperclip
 import com.woowla.compose.icon.collections.feather.feather.Settings
@@ -517,28 +518,26 @@ private fun EmptyConversationLanding(
 ) {
     Column(
         modifier = modifier
-            .clip(AppShapes.lg)
-            .background(Brush.linearGradient(listOf(Bg2.copy(alpha = 0.9f), Bg1.copy(alpha = 0.72f))))
-            .border(1.dp, Line2, AppShapes.lg)
-            .padding(Spacing.section)
+            .padding(horizontal = 24.dp, vertical = 18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(AppShapes.md)
-                    .background(Brush.linearGradient(listOf(Ac, Ac2))),
+                    .size(32.dp)
+                    .clip(AppShapes.sm)
+                    .background(Bg3)
+                    .border(1.dp, Line2, AppShapes.sm),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     selectedAgent.letter,
                     color = OnAccent,
-                    fontSize = 15.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = SansFont
                 )
             }
-            Spacer(Modifier.width(13.dp))
+            Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "PI-NATIVE WORKSPACE",
@@ -551,8 +550,8 @@ private fun EmptyConversationLanding(
                 Text(
                     "从清晰意图开始，让 ${selectedAgent.name} 理解、执行并验证",
                     color = Tx,
-                    fontSize = 18.sp,
-                    lineHeight = 24.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 21.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = SansFont
                 )
@@ -560,7 +559,9 @@ private fun EmptyConversationLanding(
             MicroPill(label = "PI READY", color = OkLight)
         }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+        Spacer(Modifier.height(12.dp))
         Text(
             "选择一个起点，内容会写入输入框供你继续补充。",
             color = Tx2,
@@ -568,10 +569,10 @@ private fun EmptyConversationLanding(
             lineHeight = 19.sp,
             fontFamily = SansFont
         )
-        Spacer(Modifier.height(12.dp))
-        Row(
+        Spacer(Modifier.height(10.dp))
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             PromptTile(
                 index = "01",
@@ -579,7 +580,6 @@ private fun EmptyConversationLanding(
                 description = "梳理架构、数据流与风险",
                 prompt = "请先读取项目结构，分析当前架构、关键数据流和主要风险，然后给出按优先级排序的改进计划。",
                 onPromptSelected = onPromptSelected,
-                modifier = Modifier.weight(1f)
             )
             PromptTile(
                 index = "02",
@@ -587,7 +587,6 @@ private fun EmptyConversationLanding(
                 description = "验证功能、集成与数据连通性",
                 prompt = "请对当前工作区变更做一次深度代码审查，重点检查功能正确性、模块集成、并发安全和数据连通性。",
                 onPromptSelected = onPromptSelected,
-                modifier = Modifier.weight(1f)
             )
             PromptTile(
                 index = "03",
@@ -595,7 +594,6 @@ private fun EmptyConversationLanding(
                 description = "先确认边界，再编码和验证",
                 prompt = "请基于当前项目上下文，先确认目标、约束和受影响模块，再实现并验证这个需求：",
                 onPromptSelected = onPromptSelected,
-                modifier = Modifier.weight(1f)
             )
         }
     }
@@ -617,38 +615,30 @@ private fun PromptTile(
         animationSpec = Motion.colorDefault,
         label = "promptTileBackground"
     )
-    val border by animateColorAsState(
-        targetValue = if (hovered) Ac.withAlpha(0.42f) else Line,
-        animationSpec = Motion.colorDefault,
-        label = "promptTileBorder"
-    )
-    Column(
+    Row(
         modifier = modifier
-            .height(TileMetrics.featureHeight)
-            .clip(AppShapes.md)
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(AppShapes.xs)
             .background(background)
-            .border(1.dp, border, AppShapes.md)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null) { onPromptSelected(prompt) }
-            .padding(TileMetrics.contentPadding),
-        verticalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
-        ) {
-            MicroPill(label = index, color = AcLight)
+        Text(index, color = AcLight, fontSize = 10.sp, fontFamily = CodeFont, modifier = Modifier.width(28.dp))
+        Column(Modifier.weight(1f)) {
             Text(
                 title,
                 color = Tx,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
                 fontFamily = SansFont,
                 maxLines = 1
             )
+            Text(description, color = Tx3, fontSize = 10.sp, lineHeight = 13.sp, fontFamily = SansFont, maxLines = 1)
         }
-        Text(description, color = Tx3, fontSize = 11.sp, lineHeight = 16.sp, fontFamily = SansFont)
+        Icon(Feather.ChevronRight, null, tint = if (hovered) AcLight else Tx3, modifier = Modifier.size(14.dp))
     }
 }
 

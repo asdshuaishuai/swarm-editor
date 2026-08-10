@@ -489,42 +489,20 @@ fun ActionButton(
         else -> toneColor.withAlpha(if (hovered) 0.62f else 0.42f)
     }
     val border by animateColorAsState(targetBorder, Motion.colorDefault, label = "actionButtonBorder")
-    val pressOffsetY by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = if (pressed) Motion.floatPress else Motion.floatRelease,
-        label = "actionButtonPressOffset",
-    )
     val buttonShape = AppShapes.sm
-    val topFill = when {
-        prominent && enabled -> lerp(background, Tx, 0.07f)
-        else -> lerp(background, Tx, 0.025f)
-    }
-    val bottomFill = when {
-        prominent && enabled -> lerp(background, Bg0, 0.08f)
-        else -> lerp(background, Bg0, 0.035f)
-    }
     Box(
         modifier = modifier
-            .heightIn(min = if (compact) 32.dp else 36.dp)
-            .shadow(
-                elevation = when {
-                    !enabled -> 0.dp
-                    prominent -> 3.dp
-                    else -> 1.dp
-                },
-                shape = buttonShape,
-            )
-            .graphicsLayer { translationY = pressOffsetY }
+            .heightIn(min = if (compact) 28.dp else 32.dp)
             .fluidClickable(
                 enabled = enabled,
                 interactionSource = interaction,
-                pressScale = if (prominent) 0.975f else 0.985f,
+                pressScale = 0.98f,
                 onClick = onClick,
             )
             .clip(buttonShape)
-            .background(Brush.verticalGradient(listOf(topFill, bottomFill)))
+            .background(background)
             .border(1.dp, border, buttonShape)
-            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 5.dp else 7.dp),
+            .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 4.dp else 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, color = foreground, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)

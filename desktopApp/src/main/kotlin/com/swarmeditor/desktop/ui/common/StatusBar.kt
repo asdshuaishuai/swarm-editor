@@ -12,18 +12,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import com.woowla.compose.icon.collections.feather.Feather
-import com.woowla.compose.icon.collections.feather.feather.Code
+import com.woowla.compose.icon.collections.feather.feather.GitBranch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,19 +48,10 @@ fun StatusBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(30.dp)
-            .background(Bg0)
-            .drawBehind {
-                // Gradient top border (fade-in from transparent to Line)
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        listOf(Color.Transparent, Line)
-                    ),
-                    topLeft = androidx.compose.ui.geometry.Offset.Zero,
-                    size = androidx.compose.ui.geometry.Size(size.width, 1f)
-                )
-            }
-            .padding(horizontal = 14.dp),
+            .height(24.dp)
+            .background(Bg1)
+            .border(width = 1.dp, color = Line)
+            .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 就绪（在线时脉冲）
@@ -73,7 +60,7 @@ fun StatusBar(
         SbText("就绪")
 
         Spacer(Modifier.width(14.dp))
-        Icon(imageVector = Feather.Code, contentDescription = "Branch", tint = Tx3, modifier = Modifier.size(10.dp))
+        Icon(imageVector = Feather.GitBranch, contentDescription = "Branch", tint = Tx3, modifier = Modifier.size(11.dp))
         Spacer(Modifier.width(5.dp))
             SbText(branch, modifier = Modifier.weight(1f, fill = false))
 

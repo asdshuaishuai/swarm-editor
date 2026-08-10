@@ -123,6 +123,54 @@ class GitServiceTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun `keeps staged and unstaged diffs separate and commits only the index`() {
+        val directory = Files.createTempDirectory("git-service-commit")
+        try {
+            val root = directory.toFile()
+            runGit(root, "init", "-q")
+            runGit(root, "config", "user.email", "test@example.com")
+            runGit(root, "config", "user.name", "Git Service Test")
+            File(root, "notes.txt").writeText("one\n")
+            runGit(root, "add", "notes.txt")
+            runGit(root, "commit", "-qm", "initial")
+
+            val file = File(root, "notes.txt")
+            file.writeText("one\ntwo\n")
+            runGit(root, "add", "notes.txt")
+            file.writeText("one\ntwo\nthree\n")
+
+            val service = GitService(root)
+            val change = service.getStatus().changes.single()
+            assertEquals(1, change.stagedAdded)
+            assertEquals(1, change.unstagedAdded)
+            assertTrue(change.stagedDiffLines.any { it == "+two" })
+            assertTrue(change.unstagedDiffLines.any { it == "+three" })
+
+            assertTrue(service.commit("Add second line").isNotBlank())
+            val status = service.getStatus()
+            assertEquals(0, status.staged)
+            assertEquals(1, status.modified)
+            assertTrue(status.changes.single().unstagedDiffLines.any { it == "+three" })
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `reports non repository state explicitly`() {
+        val directory = Files.createTempDirectory("git-service-non-repository")
+        try {
+            val status = GitService(directory.toFile()).getStatus()
+            assertEquals(false, status.isRepository)
+            assertTrue(status.changes.isEmpty())
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
 }
 
 private fun runGit(directory: File, vararg args: String) {
