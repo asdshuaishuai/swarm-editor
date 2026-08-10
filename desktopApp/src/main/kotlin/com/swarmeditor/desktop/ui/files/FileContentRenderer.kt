@@ -6,14 +6,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,7 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -52,6 +59,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -88,16 +96,29 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.awt.Cursor
 import java.io.StringReader
 import javax.swing.text.MutableAttributeSet
 import javax.swing.text.html.HTML
 import javax.swing.text.html.HTMLEditorKit
 import javax.swing.text.html.parser.ParserDelegator
 
-internal enum class FileRenderMode { SOURCE, PREVIEW }
+internal enum class FileRenderMode { SOURCE, PREVIEW, SPLIT }
 
-internal fun initialFileRenderMode(preference: String?): FileRenderMode =
-    if (preference.equals("preview", ignoreCase = true)) FileRenderMode.PREVIEW else FileRenderMode.SOURCE
+private const val DEFAULT_SPLIT_FRACTION = 0.5f
+private const val MIN_SPLIT_FRACTION = 0.25f
+private const val MAX_SPLIT_FRACTION = 0.75f
+
+internal fun initialFileRenderMode(preference: String?): FileRenderMode = when {
+    preference.equals("preview", ignoreCase = true) -> FileRenderMode.PREVIEW
+    preference.equals("split", ignoreCase = true) -> FileRenderMode.SPLIT
+    else -> FileRenderMode.SOURCE
+}
+
+internal fun resizedSplitFraction(current: Float, dragAmountPx: Float, widthPx: Int): Float {
+    if (widthPx <= 0) return current.coerceIn(MIN_SPLIT_FRACTION, MAX_SPLIT_FRACTION)
+    return (current + dragAmountPx / widthPx).coerceIn(MIN_SPLIT_FRACTION, MAX_SPLIT_FRACTION)
+}
 
 internal data class SourceNavigationTarget(
     val line: Int,
@@ -132,6 +153,8 @@ internal fun FileContentRenderer(
             if (supportsPreview) {
                 Spacer(Modifier.width(6.dp))
                 RenderModeTab("预览", mode == FileRenderMode.PREVIEW) { mode = FileRenderMode.PREVIEW }
+                Spacer(Modifier.width(6.dp))
+                RenderModeTab("分屏", mode == FileRenderMode.SPLIT) { mode = FileRenderMode.SPLIT }
             }
             Spacer(Modifier.weight(1f))
             val status = when {
@@ -144,6 +167,17 @@ internal fun FileContentRenderer(
         }
         Box(Modifier.fillMaxSize().background(Bg0)) {
             when {
+                preview.draftContent != null && effectiveMode == FileRenderMode.SPLIT -> SplitPreviewPane(
+                    source = {
+                        SourceEditorPane(
+                            preview.draftContent,
+                            onDraftChange,
+                            onSaveEditing,
+                            onCancelEditing,
+                        )
+                    },
+                    preview = { RenderedFilePreview(extension, preview.draftContent) },
+                )
                 preview.draftContent != null -> SourceEditorPane(
                     preview.draftContent,
                     onDraftChange,
@@ -157,9 +191,19 @@ internal fun FileContentRenderer(
                     onOpenDefinition,
                     onDismissPositionInsight,
                 )
-                extension in setOf("md", "markdown") -> MarkdownPreview(preview.content)
-                extension in setOf("html", "htm") -> HtmlPreview(preview.content)
-                extension == "json" -> JsonPreview(preview.content)
+                effectiveMode == FileRenderMode.SPLIT -> SplitPreviewPane(
+                    source = {
+                        SourceCodePane(
+                            preview,
+                            navigationTarget,
+                            onInspectPosition,
+                            onOpenDefinition,
+                            onDismissPositionInsight,
+                        )
+                    },
+                    preview = { RenderedFilePreview(extension, preview.content) },
+                )
+                effectiveMode == FileRenderMode.PREVIEW -> RenderedFilePreview(extension, preview.content)
                 else -> SourceCodePane(
                     preview,
                     navigationTarget,
@@ -169,6 +213,51 @@ internal fun FileContentRenderer(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SplitPreviewPane(
+    source: @Composable () -> Unit,
+    preview: @Composable () -> Unit,
+) {
+    var splitFraction by remember { mutableStateOf(DEFAULT_SPLIT_FRACTION) }
+    var containerWidthPx by remember { mutableStateOf(0) }
+    val dividerInteraction = remember { MutableInteractionSource() }
+    val dividerHovered by dividerInteraction.collectIsHoveredAsState()
+    val resizeCursor = remember { PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)) }
+
+    Row(Modifier.fillMaxSize().onSizeChanged { containerWidthPx = it.width }) {
+        Box(Modifier.weight(splitFraction).fillMaxHeight()) { source() }
+        Box(
+            Modifier
+                .width(7.dp)
+                .fillMaxHeight()
+                .background(if (dividerHovered) Ac.copy(alpha = 0.12f) else Color.Transparent)
+                .hoverable(dividerInteraction)
+                .pointerHoverIcon(resizeCursor)
+                .pointerInput(Unit) {
+                    detectTapGestures(onDoubleTap = { splitFraction = DEFAULT_SPLIT_FRACTION })
+                }
+                .pointerInput(containerWidthPx) {
+                    detectHorizontalDragGestures { _, dragAmount ->
+                        splitFraction = resizedSplitFraction(splitFraction, dragAmount, containerWidthPx)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.width(1.dp).fillMaxHeight().background(if (dividerHovered) Ac else Line))
+        }
+        Box(Modifier.weight(1f - splitFraction).fillMaxHeight()) { preview() }
+    }
+}
+
+@Composable
+private fun RenderedFilePreview(extension: String, content: String) {
+    when (extension) {
+        "md", "markdown" -> MarkdownPreview(content)
+        "html", "htm" -> HtmlPreview(content)
+        "json" -> JsonPreview(content)
     }
 }
 

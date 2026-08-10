@@ -35,3 +35,10 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - Semantic token range requests, implementation navigation, and configurable inlay hints are suitable future additions to the existing `SourceCodeIntelligence` boundary; they should extend the current in-process service rather than create another transport layer.
 - Koog's graph and tracing concepts are useful references for run metadata and observability, but Pi remains the only agent runtime. No Koog execution engine or competing agent abstraction is introduced.
 - JetBrains Markdown remains a candidate parser for richer Markdown structure and preview fidelity, provided it can be integrated without pulling IntelliJ Platform runtime dependencies into the desktop package.
+
+## Markdown Findings
+
+- `JetBrains/markdown` is a standalone multiplatform parser, so Markdown structure can use the official AST without embedding IntelliJ Platform or Swing editor internals.
+- The editor uses the GFM flavour for tables, task lists, autolinks, and other repository-oriented syntax. Parser construction passes an explicit `CancellationToken`, matching the current `0.7.8` API rather than relying on deprecated convenience overloads.
+- Markdown, HTML, and JSON keep source and rendered modes. Markdown additionally supports a JetBrains-style split workspace with a draggable divider, bounded pane proportions, and double-click reset.
+- The parser also exposes streaming/incremental primitives. These are reserved for a later large-document pass; the current outline/folding path stays deterministic and side-effect free.

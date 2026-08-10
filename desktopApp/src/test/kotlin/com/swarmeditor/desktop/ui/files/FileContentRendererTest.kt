@@ -17,6 +17,8 @@ class FileContentRendererTest {
     fun `startup render preference only opts into preview explicitly`() {
         assertEquals(FileRenderMode.PREVIEW, initialFileRenderMode("preview"))
         assertEquals(FileRenderMode.PREVIEW, initialFileRenderMode("PREVIEW"))
+        assertEquals(FileRenderMode.SPLIT, initialFileRenderMode("split"))
+        assertEquals(FileRenderMode.SPLIT, initialFileRenderMode("SPLIT"))
         assertEquals(FileRenderMode.SOURCE, initialFileRenderMode(null))
         assertEquals(FileRenderMode.SOURCE, initialFileRenderMode("source"))
     }
@@ -28,6 +30,14 @@ class FileContentRendererTest {
         assertFalse(supportsRenderedPreview("data.json", binary = false, truncated = true))
         assertFalse(supportsRenderedPreview("README.md", binary = true, truncated = false))
         assertFalse(supportsRenderedPreview("Main.kt", binary = false, truncated = false))
+    }
+
+    @Test
+    fun `split preview resize follows drag and preserves usable panes`() {
+        assertEquals(0.6f, resizedSplitFraction(current = 0.5f, dragAmountPx = 100f, widthPx = 1_000))
+        assertEquals(0.25f, resizedSplitFraction(current = 0.5f, dragAmountPx = -800f, widthPx = 1_000))
+        assertEquals(0.75f, resizedSplitFraction(current = 0.5f, dragAmountPx = 800f, widthPx = 1_000))
+        assertEquals(0.5f, resizedSplitFraction(current = 0.5f, dragAmountPx = 100f, widthPx = 0))
     }
 
     @Test

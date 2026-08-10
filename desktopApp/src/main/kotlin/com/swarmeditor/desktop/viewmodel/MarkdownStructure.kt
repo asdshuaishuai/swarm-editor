@@ -4,7 +4,8 @@ import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.backend.lsp.SourceFoldingRange
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.flavours.commonmark.CommonMarkFlavourDescriptor
+import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.MarkdownParser
 
 private val markdownHeadingLevels = mapOf(
@@ -34,7 +35,11 @@ internal fun markdownDocumentStructure(path: String, content: String): MarkdownD
         return MarkdownDocumentStructure()
     }
 
-    val tree = MarkdownParser(CommonMarkFlavourDescriptor()).buildMarkdownTreeFromString(content)
+    val source: CharSequence = content
+    val tree = MarkdownParser(
+        flavour = GFMFlavourDescriptor(),
+        cancellationToken = CancellationToken.NonCancellable,
+    ).buildMarkdownTreeFromString(source)
     val headings = buildList {
         tree.visitDepthFirst { node ->
             val level = markdownHeadingLevels[node.type] ?: return@visitDepthFirst

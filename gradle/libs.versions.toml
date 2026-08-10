@@ -15,7 +15,7 @@ decompose = "3.5.0"
 haze = "1.6.6"
 line-icons = "4.29.2"
 markdown-renderer = "0.33.0-b05"
-jetbrains-markdown = "0.7.3"
+jetbrains-markdown = "0.7.8"
 commons-compress = "1.28.0"
 xz = "1.12"
 
