@@ -1,15 +1,15 @@
 package com.swarmeditor.desktop.theme
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class CodeFontTest {
     @Test
-    fun `JetBrains Mono is only selected when the system exposes it`() {
-        val available = arrayOf("Noto Sans", "JetBrains Mono", "DejaVu Sans Mono")
+    fun `JetBrains Mono resources are bundled with the desktop application`() {
+        val classLoader = Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()
 
-        assertTrue(isSystemFontAvailable("JetBrains Mono", available))
-        assertFalse(isSystemFontAvailable("JetBrains Mono", arrayOf("Noto Sans")))
+        assertNotNull(classLoader.getResource("fonts/JetBrainsMono.ttf"))
+        assertNotNull(classLoader.getResource("fonts/JetBrainsMono-Italic.ttf"))
+        assertNotNull(classLoader.getResource("licenses/JetBrainsMono-OFL.txt"))
     }
 }

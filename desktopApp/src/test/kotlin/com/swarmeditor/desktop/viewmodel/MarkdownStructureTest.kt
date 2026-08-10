@@ -22,7 +22,27 @@ class MarkdownStructureTest {
 
         assertEquals(listOf("Overview", "Setup", "Runtime"), symbols.map { it.name })
         assertEquals(listOf("Heading 1", "Heading 2", "Heading 1"), symbols.map { it.kind })
+        assertEquals(listOf(null, "Overview", null), symbols.map { it.containerName })
         assertEquals(listOf(0, 2, 6), symbols.map { it.line })
+    }
+
+    @Test
+    fun `JetBrains markdown parser produces section folding ranges`() {
+        val structure = markdownDocumentStructure(
+            path = "README.md",
+            content = """
+                # Overview
+
+                ## Setup
+
+                Details
+
+                # Runtime
+                Notes
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf(0 to 5, 2 to 5, 6 to 7), structure.foldingRanges.map { it.startLine to it.endLine })
     }
 
     @Test

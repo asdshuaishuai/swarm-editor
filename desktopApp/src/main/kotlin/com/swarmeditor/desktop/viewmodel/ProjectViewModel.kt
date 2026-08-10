@@ -123,7 +123,7 @@ class ProjectViewModel(
             try {
                 val preview = service.readFile(path)
                 val shouldInspect = !preview.binary && preview.content.isNotEmpty()
-                val localSymbols = markdownOutlineSymbols(path, preview.content)
+                val markdownStructure = markdownDocumentStructure(path, preview.content)
                 val pathLanguageId = sourceLanguageId(path)
                 val contentState = FilePreviewState(
                     path = preview.path,
@@ -132,7 +132,8 @@ class ProjectViewModel(
                     truncated = preview.truncated,
                     binary = preview.binary,
                     languageId = pathLanguageId,
-                    symbols = localSymbols,
+                    symbols = markdownStructure.symbols,
+                    foldingRanges = markdownStructure.foldingRanges,
                     isInspecting = shouldInspect,
                     navigationLine = navigationLine,
                     navigationRequestId = navigationRequestId,
@@ -163,11 +164,13 @@ class ProjectViewModel(
                             languageId = pathLanguageId.ifBlank { insight.languageId },
                             lspServer = insight.serverName,
                             semanticHighlights = insight.highlights,
-                            symbols = (localSymbols + insight.symbols).distinctBy { symbol ->
+                            symbols = (markdownStructure.symbols + insight.symbols).distinctBy { symbol ->
                                 Triple(symbol.name, symbol.kind, symbol.line)
                             },
                             diagnostics = insight.diagnostics,
-                            foldingRanges = insight.foldingRanges,
+                            foldingRanges = (markdownStructure.foldingRanges + insight.foldingRanges).distinctBy { range ->
+                                Triple(range.startLine, range.endLine, range.kind)
+                            },
                             lspMessage = insight.message,
                             isInspecting = false,
                         )

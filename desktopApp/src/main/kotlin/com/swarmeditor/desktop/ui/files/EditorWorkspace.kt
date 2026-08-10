@@ -458,11 +458,19 @@ private fun StripeButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SymbolRow(symbol: SourceSymbol, onNavigate: (Int) -> Unit) {
+    val headingDepth = symbol.kind
+        .takeIf { it.startsWith("Heading ") }
+        ?.substringAfter("Heading ")
+        ?.toIntOrNull()
+        ?.minus(1)
+        ?.coerceIn(0, 5)
+        ?: 0
     IntelligenceRow(
         icon = Feather.FileText,
         title = symbol.name,
         metadata = listOfNotNull(symbol.kind, symbol.containerName, "L${symbol.line + 1}").joinToString(" · "),
         accent = AgentGemini,
+        indentLevel = headingDepth,
         onClick = { onNavigate(symbol.line) },
     )
 }
@@ -485,11 +493,12 @@ private fun IntelligenceRow(
     title: String,
     metadata: String,
     accent: Color,
+    indentLevel: Int = 0,
     onClick: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().clip(AppShapes.xs).clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 7.dp),
+            .padding(start = (7 + indentLevel * 10).dp, end = 7.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Icon(icon, null, tint = accent, modifier = Modifier.size(13.dp).padding(top = 1.dp))

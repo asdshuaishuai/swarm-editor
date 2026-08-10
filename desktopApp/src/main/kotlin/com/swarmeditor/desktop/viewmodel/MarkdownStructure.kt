@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.SourceFoldingRange
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.commonmark.CommonMarkFlavourDescriptor
@@ -17,29 +18,54 @@ private val markdownHeadingLevels = mapOf(
     MarkdownElementTypes.SETEXT_2 to 2,
 )
 
-internal fun markdownOutlineSymbols(path: String, content: String): List<SourceSymbol> {
+internal data class MarkdownDocumentStructure(
+    val symbols: List<SourceSymbol> = emptyList(),
+    val foldingRanges: List<SourceFoldingRange> = emptyList(),
+)
+
+private data class MarkdownHeading(
+    val name: String,
+    val level: Int,
+    val line: Int,
+)
+
+internal fun markdownDocumentStructure(path: String, content: String): MarkdownDocumentStructure {
     if (path.substringAfterLast('.', "").lowercase() !in setOf("md", "markdown") || content.isBlank()) {
-        return emptyList()
+        return MarkdownDocumentStructure()
     }
 
     val tree = MarkdownParser(CommonMarkFlavourDescriptor()).buildMarkdownTreeFromString(content)
-    return buildList {
+    val headings = buildList {
         tree.visitDepthFirst { node ->
             val level = markdownHeadingLevels[node.type] ?: return@visitDepthFirst
             val rawHeading = content.substring(node.startOffset, node.endOffset)
             val name = headingText(rawHeading, node.type == MarkdownElementTypes.SETEXT_1 || node.type == MarkdownElementTypes.SETEXT_2)
             if (name.isNotBlank()) {
-                add(
-                    SourceSymbol(
-                        name = name,
-                        kind = "Heading $level",
-                        line = content.countNewlinesBefore(node.startOffset),
-                    ),
-                )
+                add(MarkdownHeading(name, level, content.countNewlinesBefore(node.startOffset)))
             }
         }
     }
+    val hierarchy = mutableListOf<MarkdownHeading>()
+    val symbols = headings.map { heading ->
+        while (hierarchy.lastOrNull()?.level?.let { it >= heading.level } == true) hierarchy.removeLast()
+        SourceSymbol(
+            name = heading.name,
+            kind = "Heading ${heading.level}",
+            containerName = hierarchy.lastOrNull()?.name,
+            line = heading.line,
+        ).also { hierarchy += heading }
+    }
+    val lastLine = content.lines().lastIndex
+    val foldingRanges = headings.mapIndexedNotNull { index, heading ->
+        val nextBoundary = headings.drop(index + 1).firstOrNull { it.level <= heading.level }?.line ?: (lastLine + 1)
+        val endLine = (nextBoundary - 1).coerceAtMost(lastLine)
+        SourceFoldingRange(heading.line, endLine, kind = "region").takeIf { endLine > heading.line }
+    }
+    return MarkdownDocumentStructure(symbols, foldingRanges)
 }
+
+internal fun markdownOutlineSymbols(path: String, content: String): List<SourceSymbol> =
+    markdownDocumentStructure(path, content).symbols
 
 private fun ASTNode.visitDepthFirst(visitor: (ASTNode) -> Unit) {
     visitor(this)

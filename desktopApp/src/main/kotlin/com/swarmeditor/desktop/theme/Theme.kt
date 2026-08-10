@@ -2,12 +2,12 @@ package com.swarmeditor.desktop.theme
 
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.dp
-import java.awt.GraphicsEnvironment
 
 // Radii
 val R4 get() = themedRadius(4)
@@ -25,13 +25,21 @@ private fun themedRadius(base: Int) = (base + 2).dp
 
 // Fonts — Inter 为主（设计稿本意 / SF Pro 合法替身），CJK 由系统回退
 // 从 JVM 资源取 Inter.ttf 到临时文件，用 platform.Font + FontVariation 取变体字重（非 @Composable）
-private val interFile: java.io.File by lazy {
-    val tmp = java.io.File.createTempFile("inter-", ".ttf").apply { deleteOnExit() }
+private fun bundledFontFile(resourcePath: String, prefix: String): java.io.File {
+    val tmp = java.io.File.createTempFile(prefix, ".ttf").apply { deleteOnExit() }
     val cl = Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()
-    cl.getResourceAsStream("fonts/Inter.ttf")!!.use { input ->
+    checkNotNull(cl.getResourceAsStream(resourcePath)) { "Missing bundled font resource: $resourcePath" }.use { input ->
         tmp.outputStream().use { output -> input.copyTo(output) }
     }
-    tmp
+    return tmp
+}
+
+private val interFile: java.io.File by lazy { bundledFontFile("fonts/Inter.ttf", "inter-") }
+private val jetBrainsMonoFile: java.io.File by lazy {
+    bundledFontFile("fonts/JetBrainsMono.ttf", "jetbrains-mono-")
+}
+private val jetBrainsMonoItalicFile: java.io.File by lazy {
+    bundledFontFile("fonts/JetBrainsMono-Italic.ttf", "jetbrains-mono-italic-")
 }
 
 @OptIn(ExperimentalTextApi::class)
@@ -43,17 +51,19 @@ val InterFontFamily: FontFamily = FontFamily(
 )
 val SansFont = InterFontFamily
 @OptIn(ExperimentalTextApi::class)
-val MonoFont = if (isSystemFontAvailable("JetBrains Mono")) {
-    FontFamily("JetBrains Mono")
-} else {
-    FontFamily.Monospace
-}
+val MonoFont = FontFamily(
+    Font(jetBrainsMonoFile, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(jetBrainsMonoFile, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(jetBrainsMonoFile, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(jetBrainsMonoFile, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+    Font(
+        jetBrainsMonoItalicFile,
+        FontWeight.Normal,
+        FontStyle.Italic,
+        variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+    ),
+)
 val CodeFont = MonoFont
-
-internal fun isSystemFontAvailable(
-    familyName: String,
-    availableFamilies: Array<String> = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames,
-): Boolean = availableFamilies.any { it.equals(familyName, ignoreCase = true) }
 
 // Material3 ColorScheme override
 val GeekColorScheme get() = darkColorScheme(
