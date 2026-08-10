@@ -70,6 +70,9 @@ import com.swarmeditor.desktop.theme.fluidClickable
 import com.swarmeditor.desktop.theme.withAlpha
 import com.swarmeditor.desktop.theme.InlineLoadingState
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.copyTextToClipboard
+import com.swarmeditor.desktop.ui.common.IdeContextMenuArea
+import com.swarmeditor.desktop.ui.common.IdeContextMenuItem
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import com.woowla.compose.icon.collections.feather.Feather
@@ -152,6 +155,8 @@ private fun EditorTabStrip(
                     dirty = path in dirtyPaths,
                     onSelect = { onSelectFile(path) },
                     onClose = { onCloseFile(path) },
+                    onCloseOthers = { openFiles.filterNot { it == path }.forEach(onCloseFile) },
+                    onCloseAll = { openFiles.forEach(onCloseFile) },
                 )
             }
         }
@@ -165,6 +170,8 @@ private fun EditorFileTab(
     dirty: Boolean,
     onSelect: () -> Unit,
     onClose: () -> Unit,
+    onCloseOthers: () -> Unit,
+    onCloseAll: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -177,40 +184,51 @@ private fun EditorFileTab(
         Motion.colorDefault,
         label = "ideaEditorTabBackground",
     )
-    Box(
-        Modifier.height(36.dp).widthIn(min = 112.dp, max = 210.dp).background(background)
-            .border(0.5.dp, Line).fluidClickable(interactionSource = interactionSource, onClick = onSelect),
-    ) {
-        Row(
-            Modifier.fillMaxSize().padding(start = 9.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SemanticIconBadge(semanticFileIconSpec(path), null, size = 18.dp)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                path.substringAfterLast('/').substringAfterLast('\\'),
-                color = if (selected) Tx else Tx2,
-                fontSize = 10.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+    IdeContextMenuArea(
+        items = {
+            listOf(
+                IdeContextMenuItem("关闭") { onClose() },
+                IdeContextMenuItem("关闭其他标签") { onCloseOthers() },
+                IdeContextMenuItem("关闭全部标签") { onCloseAll() },
+                IdeContextMenuItem("复制文件路径") { copyTextToClipboard(path) },
             )
-            if (dirty && !isHovered) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(AcLight))
-                Spacer(Modifier.width(5.dp))
-            }
-            if (selected || isHovered) {
-                Box(
-                    Modifier.size(22.dp).clip(AppShapes.xs).clickable(onClick = onClose),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Feather.X, "关闭 ${path.substringAfterLast('/')}", tint = Tx3, modifier = Modifier.size(12.dp))
+        },
+    ) {
+        Box(
+            Modifier.height(36.dp).widthIn(min = 112.dp, max = 210.dp).background(background)
+                .border(0.5.dp, Line).fluidClickable(interactionSource = interactionSource, onClick = onSelect),
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(start = 9.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SemanticIconBadge(semanticFileIconSpec(path), null, size = 18.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    path.substringAfterLast('/').substringAfterLast('\\'),
+                    color = if (selected) Tx else Tx2,
+                    fontSize = 10.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (dirty && !isHovered) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(AcLight))
+                    Spacer(Modifier.width(5.dp))
+                }
+                if (selected || isHovered) {
+                    Box(
+                        Modifier.size(22.dp).clip(AppShapes.xs).clickable(onClick = onClose),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Feather.X, "关闭 ${path.substringAfterLast('/')}", tint = Tx3, modifier = Modifier.size(12.dp))
+                    }
                 }
             }
-        }
-        if (selected) {
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(Ac))
+            if (selected) {
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(Ac))
+            }
         }
     }
 }

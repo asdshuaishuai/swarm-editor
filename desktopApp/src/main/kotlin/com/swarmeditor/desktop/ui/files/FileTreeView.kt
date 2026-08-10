@@ -49,6 +49,9 @@ import androidx.compose.ui.unit.sp
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.copyTextToClipboard
+import com.swarmeditor.desktop.ui.common.IdeContextMenuArea
+import com.swarmeditor.desktop.ui.common.IdeContextMenuItem
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import kotlinx.coroutines.launch
 
@@ -320,58 +323,72 @@ private fun FileTreeRow(
         label = "fileTreeChevronRotation",
     )
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .fluidClickable(
-                enabled = !node.isDirectory || hasChildren,
-                interactionSource = interactionSource,
-            ) {
-                if (node.isDirectory) onToggleDir(node.path) else onSelectFile(node)
+    IdeContextMenuArea(
+        items = {
+            buildList {
+                if (node.isDirectory && hasChildren) {
+                    add(IdeContextMenuItem(if (isExpanded) "收起目录" else "展开目录") { onToggleDir(node.path) })
+                } else if (!node.isDirectory) {
+                    add(IdeContextMenuItem("打开文件") { onSelectFile(node) })
+                }
+                add(IdeContextMenuItem("复制绝对路径") { copyTextToClipboard(node.path) })
+                add(IdeContextMenuItem("复制文件名") { copyTextToClipboard(node.name) })
             }
-            .clip(AppShapes.xs)
-            .background(rowBackground)
-            .border(
-                width = 1.dp,
-                color = if (isKeyboardActive) Ac.withAlpha(0.42f) else Color.Transparent,
-                shape = AppShapes.xs,
-            )
-            .padding(
-                start = treeStartPaddingDp(visibleNode.depth).dp,
-                end = 8.dp,
-                top = 3.dp,
-                bottom = 3.dp,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        },
     ) {
-        SemanticIconBadge(
-            spec = semanticFileIconSpec(node.name, node.isDirectory),
-            contentDescription = if (node.isDirectory) "目录" else "文件",
-            size = 20.dp,
-            showBadge = false,
-        )
-        Text(
-            text = node.name,
-            color = if (node.isDirectory) Tx else fileColor(node.name),
-            fontSize = 12.sp,
-            fontWeight = if (node.isDirectory) FontWeight.Medium else FontWeight.Normal,
-            fontFamily = SansFont,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (node.isDirectory && hasChildren) {
-            Icon(
-                imageVector = Feather.ChevronRight,
-                contentDescription = if (isExpanded) "收起目录" else "展开目录",
-                tint = Tx3,
-                modifier = Modifier.size(13.dp).rotate(chevronRotation),
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .fluidClickable(
+                    enabled = !node.isDirectory || hasChildren,
+                    interactionSource = interactionSource,
+                ) {
+                    if (node.isDirectory) onToggleDir(node.path) else onSelectFile(node)
+                }
+                .clip(AppShapes.xs)
+                .background(rowBackground)
+                .border(
+                    width = 1.dp,
+                    color = if (isKeyboardActive) Ac.withAlpha(0.42f) else Color.Transparent,
+                    shape = AppShapes.xs,
+                )
+                .padding(
+                    start = treeStartPaddingDp(visibleNode.depth).dp,
+                    end = 8.dp,
+                    top = 3.dp,
+                    bottom = 3.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SemanticIconBadge(
+                spec = semanticFileIconSpec(node.name, node.isDirectory),
+                contentDescription = if (node.isDirectory) "目录" else "文件",
+                size = 20.dp,
+                showBadge = false,
             )
-        } else {
-            when (node.changeStatus) {
-                "modified" -> FileChangeBadge("M", Warn)
-                "new" -> FileChangeBadge("N", AgentGemini)
+            Text(
+                text = node.name,
+                color = if (node.isDirectory) Tx else fileColor(node.name),
+                fontSize = 12.sp,
+                fontWeight = if (node.isDirectory) FontWeight.Medium else FontWeight.Normal,
+                fontFamily = SansFont,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (node.isDirectory && hasChildren) {
+                Icon(
+                    imageVector = Feather.ChevronRight,
+                    contentDescription = if (isExpanded) "收起目录" else "展开目录",
+                    tint = Tx3,
+                    modifier = Modifier.size(13.dp).rotate(chevronRotation),
+                )
+            } else {
+                when (node.changeStatus) {
+                    "modified" -> FileChangeBadge("M", Warn)
+                    "new" -> FileChangeBadge("N", AgentGemini)
+                }
             }
         }
     }

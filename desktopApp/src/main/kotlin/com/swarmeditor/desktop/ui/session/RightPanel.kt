@@ -1172,23 +1172,25 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
     Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
         // ── Filter chips ─────────────────────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().height(34.dp).background(Bg2).border(1.dp, Line)
+                .padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Agent 操作日志",
-                color = Tx3,
-                style = AppType.micro,
+                "操作日志",
+                color = Tx2,
+                style = AppType.caption,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.6.sp,
             )
+            Spacer(Modifier.width(6.dp))
+            Text(filtered.size.toString(), color = Tx3, style = AppType.micro)
             Spacer(Modifier.weight(1f))
             AgentLogFilter.entries.forEach { filter ->
                 LogFilterChip(
                     label = filter.label,
                     isActive = activeFilter == filter,
                     onClick = { activeFilter = filter },
-                    modifier = Modifier.padding(start = 4.dp),
+                    modifier = Modifier.padding(start = 2.dp),
                 )
             }
         }
@@ -1196,9 +1198,9 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 3.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 3.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
                 if (filtered.isEmpty()) {
                     item(key = "empty-activity") {
@@ -1206,7 +1208,7 @@ private fun ColumnScope.LogTab(activities: List<ActivityEvent>) {
                             "暂无 Agent 工具、Skill 或 MCP 操作",
                             color = Tx3,
                             style = AppType.caption,
-                            modifier = Modifier.padding(vertical = 18.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 18.dp)
                         )
                     }
                 }
@@ -1273,7 +1275,7 @@ private fun AgentLogDateHeader(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        targetValue = if (hovered) Bg3.copy(alpha = 0.7f) else Bg1.copy(alpha = 0.72f),
+        targetValue = if (hovered) Bg3.copy(alpha = 0.62f) else Bg2,
         animationSpec = Motion.colorDefault,
         label = "agentLogDateBackground",
     )
@@ -1285,10 +1287,10 @@ private fun AgentLogDateHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(AppShapes.xs)
+            .height(28.dp)
             .background(background)
             .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -1297,10 +1299,10 @@ private fun AgentLogDateHeader(
             tint = Tx3,
             modifier = Modifier.size(13.dp).rotate(chevronRotation),
         )
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(4.dp))
         Text(dateKey, color = Tx, style = AppType.caption, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        MicroPill(count.toString(), AcLight)
+        Text(count.toString(), color = Tx3, style = AppType.micro)
     }
 }
 
@@ -1321,20 +1323,15 @@ private fun LogFilterChip(
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
         targetValue = when {
-            isActive -> Ac.withAlpha(0.14f)
-            hovered -> Bg3.copy(alpha = 0.72f)
+            isActive -> Ac.withAlpha(0.2f)
+            hovered -> Bg3.copy(alpha = 0.58f)
             else -> Color.Transparent
         },
         animationSpec = Motion.colorDefault,
         label = "logFilterBackground",
     )
-    val border by animateColorAsState(
-        targetValue = if (isActive) Ac.withAlpha(0.55f) else if (hovered) Line2 else Color.Transparent,
-        animationSpec = Motion.colorDefault,
-        label = "logFilterBorder",
-    )
     val foreground by animateColorAsState(
-        targetValue = if (isActive) AcLight else if (hovered) Tx2 else Tx3,
+        targetValue = if (isActive) Tx else if (hovered) Tx2 else Tx3,
         animationSpec = Motion.colorDefault,
         label = "logFilterForeground",
     )
@@ -1342,10 +1339,9 @@ private fun LogFilterChip(
         modifier = modifier
             .height(24.dp)
             .fluidClickable(interactionSource = interaction, onClick = onClick)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(AppShapes.xs)
             .background(background)
-            .border(1.dp, border, RoundedCornerShape(6.dp))
-            .padding(horizontal = 7.dp),
+            .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = foreground, style = AppType.micro)
@@ -1357,25 +1353,20 @@ private fun TimelineEntry(entry: ActivityEvent) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(R6))
-            .background(Bg2)
-            .border(1.dp, Line, RoundedCornerShape(R6))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        // Colored dot
         Box(
             modifier = Modifier
-                .padding(top = 3.dp)
-                .size(6.dp)
-                .clip(CircleShape)
+                .width(2.dp)
+                .height(if (entry.detail.isBlank()) 18.dp else 32.dp)
                 .background(logDotColor(entry.type)),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(7.dp))
 
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(entry.actor, color = Ac, style = AppType.micro, fontWeight = FontWeight.SemiBold)
+                Text(entry.actor, color = Tx2, style = AppType.micro, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(6.dp))
                 Text(entry.action, color = if (entry.action == "验证通过") AgentGemini else Tx, style = AppType.caption)
                 Spacer(Modifier.weight(1f))
