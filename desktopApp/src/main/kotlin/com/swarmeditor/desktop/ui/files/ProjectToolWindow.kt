@@ -1,12 +1,13 @@
 package com.swarmeditor.desktop.ui.files
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,14 +25,25 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,19 +56,17 @@ import com.swarmeditor.desktop.theme.Bg0
 import com.swarmeditor.desktop.theme.Bg1
 import com.swarmeditor.desktop.theme.Bg2
 import com.swarmeditor.desktop.theme.ControlBlue
-import com.swarmeditor.desktop.theme.ControlGreen
-import com.swarmeditor.desktop.theme.ControlOrange
 import com.swarmeditor.desktop.theme.ErrLight
 import com.swarmeditor.desktop.theme.Line
 import com.swarmeditor.desktop.theme.Line2
-import com.swarmeditor.desktop.theme.Motion
 import com.swarmeditor.desktop.theme.SansFont
 import com.swarmeditor.desktop.theme.Tx
 import com.swarmeditor.desktop.theme.Tx2
 import com.swarmeditor.desktop.theme.Tx3
-import com.swarmeditor.desktop.theme.fluidClickable
 import com.swarmeditor.desktop.theme.withAlpha
 import com.swarmeditor.desktop.theme.InlineLoadingState
+import com.swarmeditor.desktop.ui.common.IdeActionButton
+import com.swarmeditor.desktop.ui.common.IdeToolWindowHeader
 import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.woowla.compose.icon.collections.feather.Feather
@@ -86,28 +96,53 @@ internal fun ProjectToolWindow(
     onCreateWorkspace: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier.fillMaxHeight().background(Bg1)) {
-        Row(
-            Modifier.fillMaxWidth().height(38.dp).padding(start = 12.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    var searchVisible by remember { mutableStateOf(filterQuery.isNotEmpty()) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val toolWindowFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        toolWindowFocusRequester.requestFocus()
+    }
+    LaunchedEffect(searchVisible) {
+        if (searchVisible) searchFocusRequester.requestFocus()
+    }
+
+    Column(
+        modifier.fillMaxHeight().background(Bg1).focusRequester(toolWindowFocusRequester).focusable().onPreviewKeyEvent { event ->
+            when {
+                event.type == KeyEventType.KeyDown && event.key == Key.F && (event.isCtrlPressed || event.isMetaPressed) -> {
+                    searchVisible = true
+                    true
+                }
+                event.type == KeyEventType.KeyDown && event.key == Key.Escape && searchVisible -> {
+                    onFilterQueryChange("")
+                    searchVisible = false
+                    true
+                }
+                else -> false
+            }
+        },
+    ) {
+        IdeToolWindowHeader(
+            title = "项目",
+            detail = root.name,
         ) {
-            Text("项目", color = Tx, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            ToolWindowIconButton(Feather.ChevronsUp, "收起目录", ControlBlue, onCollapseAll)
-            ToolWindowIconButton(Feather.RefreshCw, "刷新项目", ControlGreen, onRefresh)
+            IdeActionButton(Feather.Search, "搜索文件", { searchVisible = !searchVisible }, selected = searchVisible)
+            IdeActionButton(Feather.ChevronsUp, "收起目录", onCollapseAll)
+            IdeActionButton(Feather.RefreshCw, "刷新项目", onRefresh)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
         ProjectIdentityRow(
             root = root,
             projectPath = projectPath,
             onOpenWorkspace = onOpenWorkspace,
             onCreateWorkspace = onCreateWorkspace,
         )
-        ProjectSearchField(
-            value = filterQuery,
-            onValueChange = onFilterQueryChange,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-        )
+        AnimatedVisibility(searchVisible, enter = fadeIn(), exit = fadeOut()) {
+            ProjectSearchField(
+                value = filterQuery,
+                onValueChange = onFilterQueryChange,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 5.dp).focusRequester(searchFocusRequester),
+            )
+        }
         if (isLoading || !error.isNullOrBlank()) {
             ProjectNotice(isLoading, error, onRefresh)
         }
@@ -133,7 +168,7 @@ internal fun ProjectToolWindow(
         ) {
             Text("${countProjectFiles(root)} 个文件", color = Tx3, fontSize = 9.sp)
             Spacer(Modifier.weight(1f))
-            Text("↑↓ 导航 · Enter 打开", color = Tx3, fontSize = 9.sp)
+            Text(if (searchVisible) "Esc 关闭搜索" else "Ctrl/⌘F 搜索 · Enter 打开", color = Tx3, fontSize = 9.sp)
         }
     }
 }
@@ -165,36 +200,8 @@ private fun ProjectIdentityRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        ToolWindowIconButton(Feather.Folder, "打开项目", ControlBlue, onOpenWorkspace)
-        ToolWindowIconButton(Feather.FolderPlus, "新建项目", ControlOrange, onCreateWorkspace)
-    }
-}
-
-@Composable
-private fun ToolWindowIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-    val background by animateColorAsState(
-        if (isHovered) accent.withAlpha(0.12f) else Color.Transparent,
-        Motion.colorDefault,
-        label = "projectToolWindowButtonBackground",
-    )
-    val tint by animateColorAsState(
-        if (isHovered) accent else Tx3,
-        Motion.colorDefault,
-        label = "projectToolWindowButtonTint",
-    )
-    Box(
-        Modifier.size(26.dp).clip(AppShapes.xs).background(background)
-            .fluidClickable(interactionSource = interactionSource, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(14.dp))
+        IdeActionButton(Feather.Folder, "打开项目", onOpenWorkspace)
+        IdeActionButton(Feather.FolderPlus, "新建项目", onCreateWorkspace)
     }
 }
 
