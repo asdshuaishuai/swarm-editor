@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,11 +75,14 @@ import com.swarmeditor.desktop.ui.common.SemanticIconBadge
 import com.swarmeditor.desktop.ui.common.copyTextToClipboard
 import com.swarmeditor.desktop.ui.common.IdeContextMenuArea
 import com.swarmeditor.desktop.ui.common.IdeContextMenuItem
+import com.swarmeditor.desktop.ui.common.IdeActionButton
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.AlertCircle
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
+import com.woowla.compose.icon.collections.feather.feather.ChevronDown
+import com.woowla.compose.icon.collections.feather.feather.ChevronUp
 import com.woowla.compose.icon.collections.feather.feather.Edit3
 import com.woowla.compose.icon.collections.feather.feather.FileText
 import com.woowla.compose.icon.collections.feather.feather.GitPullRequest
@@ -86,6 +91,27 @@ import com.woowla.compose.icon.collections.feather.feather.Sidebar
 import com.woowla.compose.icon.collections.feather.feather.X
 
 private enum class IntelligenceTab { STRUCTURE, PROBLEMS }
+
+private enum class ProblemFilter(val id: String, val label: String) {
+    ALL("all", "全部"),
+    ERROR("error", "错误"),
+    WARNING("warning", "警告"),
+    INFO("info", "信息"),
+}
+
+internal fun diagnosticMatchesFilter(severity: String, filterId: String): Boolean = when (filterId) {
+    "error" -> severity.equals("error", ignoreCase = true)
+    "warning" -> severity.equals("warning", ignoreCase = true)
+    "info" -> severity.equals("information", ignoreCase = true) || severity.equals("info", ignoreCase = true)
+    else -> true
+}
+
+internal fun diagnosticLocationLabel(diagnostic: SourceDiagnostic): String =
+    if (diagnostic.line == diagnostic.endLine) {
+        "L${diagnostic.line + 1}:${diagnostic.startCharacter + 1}-${diagnostic.endCharacter + 1}"
+    } else {
+        "L${diagnostic.line + 1}:${diagnostic.startCharacter + 1}-L${diagnostic.endLine + 1}:${diagnostic.endCharacter + 1}"
+    }
 
 @Composable
 internal fun EditorWorkspace(
@@ -398,6 +424,22 @@ private fun IntelligenceToolWindow(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var problemFilter by remember { mutableStateOf(ProblemFilter.ALL) }
+    val visibleDiagnostics = remember(diagnostics, problemFilter) {
+        diagnostics.filter { diagnosticMatchesFilter(it.severity, problemFilter.id) }
+            .sortedWith(compareBy<SourceDiagnostic>({ severityRank(it.severity) }, SourceDiagnostic::line, SourceDiagnostic::startCharacter))
+    }
+    var activeProblemIndex by remember(problemFilter, diagnostics) { mutableIntStateOf(0) }
+    LaunchedEffect(visibleDiagnostics.size) {
+        activeProblemIndex = activeProblemIndex.coerceIn(0, (visibleDiagnostics.size - 1).coerceAtLeast(0))
+    }
+
+    fun navigateProblem(offset: Int) {
+        if (visibleDiagnostics.isEmpty()) return
+        activeProblemIndex = (activeProblemIndex + offset + visibleDiagnostics.size) % visibleDiagnostics.size
+        onNavigate(visibleDiagnostics[activeProblemIndex].line)
+    }
+
     Column(modifier.background(Bg1).border(1.dp, Line)) {
         Row(
             Modifier.fillMaxWidth().height(36.dp).background(Bg2).padding(start = 5.dp, end = 4.dp),
@@ -410,8 +452,24 @@ private fun IntelligenceToolWindow(
                 onTabChange(IntelligenceTab.PROBLEMS)
             }
             Spacer(Modifier.weight(1f))
-            Box(Modifier.size(24.dp).clip(AppShapes.xs).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
-                Icon(Feather.X, "关闭工具窗口", tint = Tx3, modifier = Modifier.size(12.dp))
+            IdeActionButton(Feather.X, "关闭工具窗口", onClose)
+        }
+        if (activeTab == IntelligenceTab.PROBLEMS) {
+            Row(
+                Modifier.fillMaxWidth().height(30.dp).background(Bg0).border(1.dp, Line).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProblemFilter.entries.forEach { filter ->
+                    ProblemFilterButton(
+                        filter = filter,
+                        count = diagnostics.count { diagnosticMatchesFilter(it.severity, filter.id) },
+                        selected = problemFilter == filter,
+                        onClick = { problemFilter = filter },
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IdeActionButton(Feather.ChevronUp, "上一个问题", { navigateProblem(-1) }, enabled = visibleDiagnostics.isNotEmpty())
+                IdeActionButton(Feather.ChevronDown, "下一个问题", { navigateProblem(1) }, enabled = visibleDiagnostics.isNotEmpty())
             }
         }
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp)) {
@@ -421,8 +479,17 @@ private fun IntelligenceToolWindow(
                     items(symbols) { symbol -> SymbolRow(symbol, onNavigate) }
                 }
                 IntelligenceTab.PROBLEMS -> {
-                    if (diagnostics.isEmpty()) item { ToolWindowEmpty("当前文件没有诊断问题") }
-                    items(diagnostics) { diagnostic -> DiagnosticRow(diagnostic, onNavigate) }
+                    if (visibleDiagnostics.isEmpty()) item { ToolWindowEmpty("当前筛选下没有诊断问题") }
+                    itemsIndexed(visibleDiagnostics) { index, diagnostic ->
+                        DiagnosticRow(
+                            diagnostic = diagnostic,
+                            selected = index == activeProblemIndex,
+                            onNavigate = {
+                                activeProblemIndex = index
+                                onNavigate(diagnostic.line)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -441,9 +508,9 @@ private fun IntelligenceTabButton(label: String, count: Int, selected: Boolean, 
             Spacer(Modifier.width(5.dp))
             Text(
                 count.toString(),
-                color = if (selected) AcLight else Tx3,
+                color = Tx3,
                 fontSize = 8.sp,
-                modifier = Modifier.clip(CircleShape).background(Bg3).padding(horizontal = 5.dp, vertical = 1.dp),
+                modifier = Modifier.padding(start = 1.dp),
             )
         }
     }
@@ -494,14 +561,16 @@ private fun SymbolRow(symbol: SourceSymbol, onNavigate: (Int) -> Unit) {
 }
 
 @Composable
-private fun DiagnosticRow(diagnostic: SourceDiagnostic, onNavigate: (Int) -> Unit) {
+private fun DiagnosticRow(diagnostic: SourceDiagnostic, selected: Boolean, onNavigate: () -> Unit) {
     val color = diagnosticColor(diagnostic.severity)
+    val origin = listOfNotNull(diagnostic.source, diagnostic.code).joinToString("/")
     IntelligenceRow(
         icon = Feather.AlertCircle,
         title = diagnostic.message,
-        metadata = "${diagnostic.severity} · L${diagnostic.line + 1}",
+        metadata = listOf(diagnostic.severity, diagnosticLocationLabel(diagnostic), origin).filter(String::isNotBlank).joinToString(" · "),
         accent = color,
-        onClick = { onNavigate(diagnostic.line) },
+        selected = selected,
+        onClick = onNavigate,
     )
 }
 
@@ -512,10 +581,12 @@ private fun IntelligenceRow(
     metadata: String,
     accent: Color,
     indentLevel: Int = 0,
+    selected: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(AppShapes.xs).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().clip(AppShapes.xs).background(if (selected) Ac.withAlpha(0.16f) else Color.Transparent)
+            .clickable(onClick = onClick)
             .padding(start = (7 + indentLevel * 10).dp, end = 7.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -527,6 +598,33 @@ private fun IntelligenceRow(
             Text(metadata, color = Tx3, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+@Composable
+private fun ProblemFilterButton(
+    filter: ProblemFilter,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.height(24.dp).clip(AppShapes.xs).background(if (selected) Ac.withAlpha(0.2f) else Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(filter.label, color = if (selected) Tx else Tx3, fontSize = 9.sp)
+        if (count > 0) {
+            Spacer(Modifier.width(4.dp))
+            Text(count.toString(), color = Tx3, fontSize = 8.sp)
+        }
+    }
+}
+
+private fun severityRank(severity: String): Int = when (severity.lowercase()) {
+    "error" -> 0
+    "warning" -> 1
+    "information", "info" -> 2
+    else -> 3
 }
 
 @Composable

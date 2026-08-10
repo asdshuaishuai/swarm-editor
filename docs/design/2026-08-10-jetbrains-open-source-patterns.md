@@ -27,3 +27,11 @@
 ## Deliberate Differences
 
 Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. The application remains Compose Desktop with direct in-process Kotlin services. Jewel patterns are reimplemented as a small local design layer so packaging, startup time, and backend boundaries remain predictable.
+
+## Code Intelligence Findings
+
+- JetBrains' Kotlin LSP work treats diagnostics as precise ranges with source metadata, not line-only messages. Swarm now preserves start/end line and character positions, diagnostic source, and diagnostic code end to end.
+- Problems navigation should separate severity filtering from document structure. Error, warning, and information filters remain compact toolbar state rather than changing the primary editor tabs.
+- Semantic token range requests, implementation navigation, and configurable inlay hints are suitable future additions to the existing `SourceCodeIntelligence` boundary; they should extend the current in-process service rather than create another transport layer.
+- Koog's graph and tracing concepts are useful references for run metadata and observability, but Pi remains the only agent runtime. No Koog execution engine or competing agent abstraction is introduced.
+- JetBrains Markdown remains a candidate parser for richer Markdown structure and preview fidelity, provided it can be integrated without pulling IntelliJ Platform runtime dependencies into the desktop package.

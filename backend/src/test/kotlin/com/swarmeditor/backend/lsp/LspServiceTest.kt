@@ -869,8 +869,17 @@ class LspServiceTest {
                         buildJsonObject {
                             put("severity", 2)
                             put("message", "Result is unused")
+                            put("source", "kotlin")
+                            put("code", "UNUSED_EXPRESSION")
                             putJsonObject("range") {
-                                putJsonObject("start") { put("line", 11) }
+                                putJsonObject("start") {
+                                    put("line", 11)
+                                    put("character", 8)
+                                }
+                                putJsonObject("end") {
+                                    put("line", 11)
+                                    put("character", 20)
+                                }
                             }
                         }
                     )
@@ -879,7 +888,18 @@ class LspServiceTest {
         }
 
         assertEquals(
-            "file:///Scheduler.kt" to listOf(SourceDiagnostic(11, "warning", "Result is unused")),
+            "file:///Scheduler.kt" to listOf(
+                SourceDiagnostic(
+                    line = 11,
+                    severity = "warning",
+                    message = "Result is unused",
+                    startCharacter = 8,
+                    endLine = 11,
+                    endCharacter = 20,
+                    source = "kotlin",
+                    code = "UNUSED_EXPRESSION",
+                )
+            ),
             decodePublishedDiagnostics(message),
         )
     }

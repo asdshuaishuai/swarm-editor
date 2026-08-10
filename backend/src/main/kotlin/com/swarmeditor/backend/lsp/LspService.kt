@@ -114,6 +114,11 @@ data class SourceDiagnostic(
     val line: Int,
     val severity: String,
     val message: String,
+    val startCharacter: Int = 0,
+    val endLine: Int = line,
+    val endCharacter: Int = startCharacter,
+    val source: String? = null,
+    val code: String? = null,
 )
 
 data class SourceFoldingRange(
@@ -1149,10 +1154,25 @@ private fun decodeDiagnostics(items: JsonArray): List<SourceDiagnostic> = items.
         val message = (diagnostic["message"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
         val range = diagnostic["range"] as? JsonObject
         val start = range?.get("start") as? JsonObject
+        val end = range?.get("end") as? JsonObject
         val line = (start?.get("line") as? JsonPrimitive)?.intOrNull ?: 0
+        val startCharacter = (start?.get("character") as? JsonPrimitive)?.intOrNull ?: 0
+        val endLine = (end?.get("line") as? JsonPrimitive)?.intOrNull ?: line
+        val endCharacter = (end?.get("character") as? JsonPrimitive)?.intOrNull ?: startCharacter
         val severity = (diagnostic["severity"] as? JsonPrimitive)?.intOrNull?.let(::diagnosticSeverityName)
             ?: "unknown"
-        SourceDiagnostic(line = line, severity = severity, message = message)
+        val source = (diagnostic["source"] as? JsonPrimitive)?.contentOrNull
+        val code = (diagnostic["code"] as? JsonPrimitive)?.contentOrNull
+        SourceDiagnostic(
+            line = line,
+            severity = severity,
+            message = message,
+            startCharacter = startCharacter,
+            endLine = endLine,
+            endCharacter = endCharacter,
+            source = source,
+            code = code,
+        )
     }
 
 private fun symbolKindName(kind: Int): String = when (kind) {
