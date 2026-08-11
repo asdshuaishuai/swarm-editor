@@ -177,3 +177,19 @@ data class GitHistoryDto(
     val commits: List<GitCommitDto> = emptyList(),
     val truncated: Boolean = false,
 )
+
+@Serializable
+data class GitCommitChangeDto(
+    val path: String,
+    val previousPath: String? = null,
+    val status: String,
+    val added: Int = 0,
+    val removed: Int = 0,
+)
+
+@Serializable
+data class GitCommitChangesDto(
+    val commitHash: String,
+    val changes: List<GitCommitChangeDto> = emptyList(),
+    val truncated: Boolean = false,
+)

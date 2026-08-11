@@ -6,6 +6,7 @@ import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class GitServiceTest {
@@ -201,6 +202,54 @@ class GitServiceTest {
             assertTrue(history.commits.first().authoredAtEpochSeconds > 0)
             assertTrue(history.commits.first().refs.any { it.contains("HEAD") })
             assertTrue(history.commits.last().refs.any { it == "tag: v1" })
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `reads commit file changes with rename statistics and historical diffs`() {
+        val directory = Files.createTempDirectory("git-service-commit-changes")
+        try {
+            val root = directory.toFile()
+            runGit(root, "init", "-q")
+            runGit(root, "config", "user.email", "changes@example.com")
+            runGit(root, "config", "user.name", "Changes Author")
+            File(root, "modify.txt").writeText("before\n")
+            File(root, "rename-old.txt").writeText("rename me\n")
+            File(root, "delete.txt").writeText("remove me\n")
+            runGit(root, "add", ".")
+            runGit(root, "commit", "-qm", "Initial files")
+
+            File(root, "modify.txt").writeText("before\nafter\n")
+            runGit(root, "mv", "rename-old.txt", "rename-new.txt")
+            File(root, "delete.txt").delete()
+            File(root, "added.txt").writeText("new file\n")
+            runGit(root, "add", "-A")
+            runGit(root, "commit", "-qm", "Change files")
+
+            val service = GitService(root)
+            val commitHash = service.getHistory().commits.first().hash
+            val changes = service.getCommitChanges(commitHash, maxFiles = 10)
+
+            assertEquals(commitHash, changes.commitHash)
+            assertEquals(false, changes.truncated)
+            assertEquals("A", changes.changes.single { it.path == "added.txt" }.status)
+            assertEquals("D", changes.changes.single { it.path == "delete.txt" }.status)
+            assertEquals(1, changes.changes.single { it.path == "modify.txt" }.added)
+            val renamed = changes.changes.single { it.path == "rename-new.txt" }
+            assertEquals("R", renamed.status)
+            assertEquals("rename-old.txt", renamed.previousPath)
+
+            val modifyDiff = service.getCommitFileDiff(commitHash, "modify.txt")
+            assertTrue(modifyDiff.any { it == "+after" })
+            val renameDiff = service.getCommitFileDiff(commitHash, renamed.path, renamed.previousPath)
+            assertNotNull(renameDiff.firstOrNull { it.contains("rename from rename-old.txt") })
+            assertFailsWith<IllegalArgumentException> { service.getCommitChanges("HEAD") }
+            assertFailsWith<IllegalArgumentException> {
+                service.getCommitFileDiff(commitHash, "../outside.txt")
+            }
         } finally {
             @OptIn(kotlin.io.path.ExperimentalPathApi::class)
             directory.deleteRecursively()

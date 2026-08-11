@@ -91,18 +91,30 @@ internal fun drawerMotionOffsetPx(width: Int): Int {
 @Composable
 fun DiffDrawer(
     change: GitFileChangeDto?,
+    readOnly: Boolean = false,
+    subtitle: String? = null,
+    isLoading: Boolean = false,
+    error: String? = null,
     onDismiss: () -> Unit,
     onStage: (String) -> Unit,
     onUnstage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var displayedChange by remember { mutableStateOf(change) }
+    var displayedReadOnly by remember { mutableStateOf(readOnly) }
+    var displayedSubtitle by remember { mutableStateOf(subtitle) }
+    var displayedLoading by remember { mutableStateOf(isLoading) }
+    var displayedError by remember { mutableStateOf(error) }
     val focusRequester = remember { FocusRequester() }
     val backdropInteraction = remember { MutableInteractionSource() }
 
-    LaunchedEffect(change) {
+    LaunchedEffect(change, readOnly, subtitle, isLoading, error) {
         if (change != null) {
             displayedChange = change
+            displayedReadOnly = readOnly
+            displayedSubtitle = subtitle
+            displayedLoading = isLoading
+            displayedError = error
             focusRequester.requestFocus()
         }
     }
@@ -167,6 +179,10 @@ fun DiffDrawer(
                 displayedChange?.let {
                     DiffDrawerContent(
                         change = it,
+                        readOnly = displayedReadOnly,
+                        subtitle = displayedSubtitle,
+                        isLoading = displayedLoading,
+                        error = displayedError,
                         onDismiss = onDismiss,
                         onStage = onStage,
                         onUnstage = onUnstage,
@@ -181,6 +197,10 @@ fun DiffDrawer(
 @Composable
 private fun DiffDrawerContent(
     change: GitFileChangeDto,
+    readOnly: Boolean,
+    subtitle: String?,
+    isLoading: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
     onStage: (String) -> Unit,
     onUnstage: (String) -> Unit,
@@ -213,15 +233,21 @@ private fun DiffDrawerContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                subtitle?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text(it, color = Ac, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             DiffStat("+${change.added}", AgentGemini)
             Spacer(Modifier.width(6.dp))
             DiffStat("-${change.removed}", Err)
             Spacer(Modifier.width(12.dp))
-            if (change.hasUnstagedChanges) DrawerAction("暂存", OkLight) { onStage(change.path) }
-            if (change.hasStagedChanges) {
-                Spacer(Modifier.width(6.dp))
-                DrawerAction("取消暂存", Tx2) { onUnstage(change.path) }
+            if (!readOnly) {
+                if (change.hasUnstagedChanges) DrawerAction("暂存", OkLight) { onStage(change.path) }
+                if (change.hasStagedChanges) {
+                    Spacer(Modifier.width(6.dp))
+                    DrawerAction("取消暂存", Tx2) { onUnstage(change.path) }
+                }
             }
             Spacer(Modifier.width(8.dp))
             DrawerAction("关闭", Tx2, onDismiss)
@@ -233,13 +259,25 @@ private fun DiffDrawerContent(
         ) {
             Text("DIFF", color = Ac, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(Modifier.width(10.dp))
-            Text("完整变更 · 独立审阅面板", color = Tx3, fontSize = 11.sp)
+            Text(
+                if (readOnly) "提交快照 · 只读审阅" else "完整变更 · 独立审阅面板",
+                color = Tx3,
+                fontSize = 11.sp,
+            )
         }
 
         val parsedLines = remember(change.diffLines) { parseUnifiedDiff(change.diffLines) }
         val horizontalScroll = rememberScrollState()
         val verticalScroll = rememberLazyListState()
-        if (change.diffLines.isEmpty()) {
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("正在加载历史 Diff…", color = Ac, fontSize = 12.sp)
+            }
+        } else if (error != null) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(error, color = Err, fontSize = 12.sp)
+            }
+        } else if (change.diffLines.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("该文件没有可显示的文本 Diff", color = Tx3, fontSize = 12.sp)
             }

@@ -54,6 +54,20 @@ class GitService(private val projectDir: File) {
         val truncated: Boolean = false,
     )
 
+    data class GitCommitChange(
+        val path: String,
+        val previousPath: String? = null,
+        val status: String,
+        val added: Int,
+        val removed: Int,
+    )
+
+    data class GitCommitChanges(
+        val commitHash: String,
+        val changes: List<GitCommitChange> = emptyList(),
+        val truncated: Boolean = false,
+    )
+
     fun getStatus(): GitStatus {
         if (!isGitRepo()) return GitStatus(false, "", 0, 0, 0, 0, 0)
 
@@ -105,6 +119,76 @@ class GitService(private val projectDir: File) {
         )
     }
 
+    fun getCommitChanges(commitHash: String, maxFiles: Int = DEFAULT_COMMIT_FILE_LIMIT): GitCommitChanges {
+        require(maxFiles in 1..MAX_COMMIT_FILE_LIMIT) {
+            "Git commit file limit must be between 1 and $MAX_COMMIT_FILE_LIMIT"
+        }
+        val safeCommitHash = safeCommitHash(commitHash)
+        if (!isGitRepo()) return GitCommitChanges(safeCommitHash)
+
+        val nameStatus = runGitRaw(
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "-z",
+            "--find-renames=50%",
+            safeCommitHash,
+        )
+        check(nameStatus.exitCode == 0) { "无法读取提交 $safeCommitHash 的文件变更" }
+
+        val numStat = runGitRaw(
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--numstat",
+            "-r",
+            "-z",
+            "--find-renames=50%",
+            safeCommitHash,
+        )
+        check(numStat.exitCode == 0) { "无法读取提交 $safeCommitHash 的变更统计" }
+
+        val statsByPath = parseCommitNumStats(numStat.bytes).associateBy(ParsedCommitStat::key)
+        val changes = parseCommitNameStatus(nameStatus.bytes).map { change ->
+            val stats = statsByPath[change.key]
+            GitCommitChange(
+                path = change.path,
+                previousPath = change.previousPath,
+                status = change.status,
+                added = stats?.added ?: 0,
+                removed = stats?.removed ?: 0,
+            )
+        }
+        return GitCommitChanges(
+            commitHash = safeCommitHash,
+            changes = changes.take(maxFiles),
+            truncated = changes.size > maxFiles,
+        )
+    }
+
+    fun getCommitFileDiff(commitHash: String, path: String, previousPath: String? = null): List<String> {
+        val safeCommitHash = safeCommitHash(commitHash)
+        val safePath = safeRelativePath(path)
+        val safePreviousPath = previousPath?.let(::safeRelativePath)
+        val result = runGit(
+            *buildList {
+                add("show")
+                add("--format=")
+                add("--find-renames=50%")
+                add("--unified=2")
+                add("--no-ext-diff")
+                add(safeCommitHash)
+                add("--")
+                safePreviousPath?.let(::add)
+                add(safePath)
+            }.toTypedArray(),
+        )
+        check(result.exitCode == 0) { "无法读取提交 $safeCommitHash 中 $safePath 的 Diff" }
+        return result.lines.take(MAX_HISTORICAL_DIFF_LINES)
+    }
+
     fun stage(path: String) {
         runGitChecked("add", "--", safeRelativePath(path))
     }
@@ -150,6 +234,23 @@ class GitService(private val projectDir: File) {
         val hasUnstagedChanges: Boolean,
         val isUntracked: Boolean,
     )
+
+    private data class ParsedCommitPath(
+        val path: String,
+        val previousPath: String?,
+        val status: String,
+    ) {
+        val key: String = commitPathKey(path, previousPath)
+    }
+
+    private data class ParsedCommitStat(
+        val path: String,
+        val previousPath: String?,
+        val added: Int,
+        val removed: Int,
+    ) {
+        val key: String = commitPathKey(path, previousPath)
+    }
 
     private fun parseStatus(output: ByteArray): List<ParsedStatus> {
         val records = output.toString(Charsets.UTF_8).split('\u0000')
@@ -311,6 +412,52 @@ class GitService(private val projectDir: File) {
             .toList()
     }
 
+    private fun parseCommitNameStatus(bytes: ByteArray): List<ParsedCommitPath> {
+        val fields = nullDelimitedFields(bytes)
+        return buildList {
+            var index = 0
+            while (index < fields.size) {
+                val rawStatus = fields[index++]
+                if (rawStatus.isBlank() || index >= fields.size) continue
+                val status = rawStatus.first().uppercaseChar().toString()
+                val previousPath = if (status == "R" || status == "C") fields[index++] else null
+                if (index >= fields.size) break
+                val path = fields[index++]
+                if (path.isNotBlank()) add(ParsedCommitPath(path, previousPath, status))
+            }
+        }
+    }
+
+    private fun parseCommitNumStats(bytes: ByteArray): List<ParsedCommitStat> {
+        val fields = nullDelimitedFields(bytes)
+        return buildList {
+            var index = 0
+            while (index < fields.size) {
+                val statFields = fields[index++].split('\t', limit = 3)
+                if (statFields.size != 3) continue
+                val added = statFields[0].toIntOrNull().orZero()
+                val removed = statFields[1].toIntOrNull().orZero()
+                if (statFields[2].isNotEmpty()) {
+                    add(ParsedCommitStat(statFields[2], null, added, removed))
+                } else {
+                    if (index + 1 >= fields.size) break
+                    val previousPath = fields[index++]
+                    val path = fields[index++]
+                    add(ParsedCommitStat(path, previousPath, added, removed))
+                }
+            }
+        }
+    }
+
+    private fun nullDelimitedFields(bytes: ByteArray): List<String> =
+        bytes.toString(Charsets.UTF_8).split('\u0000').dropLastWhile(String::isEmpty)
+
+    private fun safeCommitHash(commitHash: String): String {
+        val normalized = commitHash.trim()
+        require(COMMIT_HASH_PATTERN.matches(normalized)) { "Git commit hash is invalid" }
+        return normalized
+    }
+
     private fun safeRelativePath(path: String): String {
         val root = projectDir.toPath().toAbsolutePath().normalize()
         val candidate = root.resolve(path).normalize()
@@ -388,10 +535,17 @@ class GitService(private val projectDir: File) {
         private const val COMMAND_TIMEOUT_SECONDS = 10L
         private const val DEFAULT_HISTORY_LIMIT = 200
         private const val MAX_HISTORY_LIMIT = 500
+        private const val DEFAULT_COMMIT_FILE_LIMIT = 200
+        private const val MAX_COMMIT_FILE_LIMIT = 2_000
         private const val HISTORY_RECORD_SEPARATOR = '\u001e'
         private const val HISTORY_FIELD_SEPARATOR = '\u001f'
         private const val MAX_DIFF_LINES = 80
+        private const val MAX_HISTORICAL_DIFF_LINES = 20_000
         private const val MAX_CAPTURED_OUTPUT_LINES = 20_000
         private const val MAX_UNTRACKED_READ_BYTES = 1_048_576L
+        private val COMMIT_HASH_PATTERN = Regex("[0-9a-fA-F]{7,64}")
+
+        private fun commitPathKey(path: String, previousPath: String?): String =
+            "${previousPath.orEmpty()}\u0000$path"
     }
 }

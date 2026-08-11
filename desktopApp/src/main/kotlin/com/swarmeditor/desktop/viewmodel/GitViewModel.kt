@@ -1,6 +1,8 @@
 package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.service.GitService
+import com.swarmeditor.desktop.api.GitCommitChangeDto
+import com.swarmeditor.desktop.api.GitCommitChangesDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitCommitDto
 import com.swarmeditor.desktop.api.GitHistoryDto
@@ -9,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,11 +20,39 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+data class GitCommitSelectionState(
+    val commitHash: String? = null,
+    val changes: List<GitCommitChangeDto> = emptyList(),
+    val truncated: Boolean = false,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+)
+
+data class HistoricalGitDiffState(
+    val commitHash: String? = null,
+    val change: GitCommitChangeDto? = null,
+    val diffLines: List<String> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null,
+)
+
+private data class HistoricalDiffKey(
+    val commitHash: String,
+    val path: String,
+    val previousPath: String?,
+)
 
 class GitViewModel(
     private val service: GitService,
     private val scope: CoroutineScope,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val commitChangesLoader: (String) -> GitService.GitCommitChanges = { hash ->
+        service.getCommitChanges(hash)
+    },
+    private val commitDiffLoader: (String, String, String?) -> List<String> = service::getCommitFileDiff,
 ) {
     private val operationMutex = Mutex()
     private val historyMutex = Mutex()
@@ -35,6 +66,16 @@ class GitViewModel(
     val history: StateFlow<GitHistoryDto> = _history.asStateFlow()
     private val _isHistoryLoading = MutableStateFlow(false)
     val isHistoryLoading: StateFlow<Boolean> = _isHistoryLoading.asStateFlow()
+    private val _commitSelection = MutableStateFlow(GitCommitSelectionState())
+    val commitSelection: StateFlow<GitCommitSelectionState> = _commitSelection.asStateFlow()
+    private val _historicalDiff = MutableStateFlow(HistoricalGitDiffState())
+    val historicalDiff: StateFlow<HistoricalGitDiffState> = _historicalDiff.asStateFlow()
+    private val commitChangesCache = ConcurrentHashMap<String, GitCommitChangesDto>()
+    private val commitDiffCache = ConcurrentHashMap<HistoricalDiffKey, List<String>>()
+    private val commitSelectionRequestId = AtomicLong()
+    private val historicalDiffRequestId = AtomicLong()
+    private var commitSelectionJob: Job? = null
+    private var historicalDiffJob: Job? = null
     private val eventChannel = Channel<String>(Channel.BUFFERED)
     val errorEvents = eventChannel.receiveAsFlow()
     private val successChannel = Channel<String>(Channel.BUFFERED)
@@ -46,6 +87,82 @@ class GitViewModel(
 
     fun refreshHistory() {
         scope.launch(ioDispatcher) { refreshHistoryLocked() }
+    }
+
+    fun selectCommit(commitHash: String?) {
+        val normalizedHash = commitHash?.trim()?.takeIf(String::isNotEmpty)
+        val requestId = commitSelectionRequestId.incrementAndGet()
+        commitSelectionJob?.cancel()
+        if (normalizedHash == null) {
+            _commitSelection.value = GitCommitSelectionState()
+            dismissHistoricalDiff()
+            return
+        }
+        if (_historicalDiff.value.commitHash != null && _historicalDiff.value.commitHash != normalizedHash) {
+            dismissHistoricalDiff()
+        }
+        commitChangesCache[normalizedHash]?.let { cached ->
+            _commitSelection.value = cached.toSelectionState()
+            return
+        }
+
+        _commitSelection.value = GitCommitSelectionState(commitHash = normalizedHash, isLoading = true)
+        commitSelectionJob = scope.launch(ioDispatcher) {
+            try {
+                val loaded = commitChangesLoader(normalizedHash).toDto()
+                commitChangesCache[normalizedHash] = loaded
+                if (commitSelectionRequestId.get() == requestId) {
+                    _commitSelection.value = loaded.toSelectionState()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (commitSelectionRequestId.get() == requestId) {
+                    _commitSelection.value = GitCommitSelectionState(
+                        commitHash = normalizedHash,
+                        error = error.message ?: "读取提交变更失败",
+                    )
+                }
+            }
+        }
+    }
+
+    fun openHistoricalDiff(commitHash: String, change: GitCommitChangeDto) {
+        val key = HistoricalDiffKey(commitHash, change.path, change.previousPath)
+        val requestId = historicalDiffRequestId.incrementAndGet()
+        historicalDiffJob?.cancel()
+        commitDiffCache[key]?.let { cached ->
+            _historicalDiff.value = HistoricalGitDiffState(commitHash, change, cached)
+            return
+        }
+
+        _historicalDiff.value = HistoricalGitDiffState(commitHash, change, isLoading = true)
+        historicalDiffJob = scope.launch(ioDispatcher) {
+            try {
+                val diffLines = commitDiffLoader(commitHash, change.path, change.previousPath)
+                commitDiffCache[key] = diffLines
+                if (historicalDiffRequestId.get() == requestId) {
+                    _historicalDiff.value = HistoricalGitDiffState(commitHash, change, diffLines)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (historicalDiffRequestId.get() == requestId) {
+                    _historicalDiff.value = HistoricalGitDiffState(
+                        commitHash = commitHash,
+                        change = change,
+                        error = error.message ?: "读取历史 Diff 失败",
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissHistoricalDiff() {
+        historicalDiffRequestId.incrementAndGet()
+        historicalDiffJob?.cancel()
+        historicalDiffJob = null
+        _historicalDiff.value = HistoricalGitDiffState()
     }
 
     fun stage(path: String) {
@@ -178,5 +295,25 @@ private fun GitService.GitHistory.toDto() = GitHistoryDto(
             refs = commit.refs,
         )
     },
+    truncated = truncated,
+)
+
+private fun GitService.GitCommitChanges.toDto() = GitCommitChangesDto(
+    commitHash = commitHash,
+    changes = changes.map { change ->
+        GitCommitChangeDto(
+            path = change.path,
+            previousPath = change.previousPath,
+            status = change.status,
+            added = change.added,
+            removed = change.removed,
+        )
+    },
+    truncated = truncated,
+)
+
+private fun GitCommitChangesDto.toSelectionState() = GitCommitSelectionState(
+    commitHash = commitHash,
+    changes = changes,
     truncated = truncated,
 )

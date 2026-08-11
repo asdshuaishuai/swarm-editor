@@ -174,6 +174,8 @@ fun WindowScope.App(
     val gitHistory by root.gitVm.history.collectAsState()
     val gitBusy by root.gitVm.isLoading.collectAsState()
     val gitHistoryLoading by root.gitVm.isHistoryLoading.collectAsState()
+    val gitCommitSelection by root.gitVm.commitSelection.collectAsState()
+    val historicalGitDiff by root.gitVm.historicalDiff.collectAsState()
     val gitCommitMessage by root.gitVm.commitMessage.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
@@ -814,7 +816,10 @@ fun WindowScope.App(
                                 onCloseFile = root.projectVm::closeFile,
                                 onNavigateBack = root.projectVm::navigateBack,
                                 onNavigateForward = root.projectVm::navigateForward,
-                                onOpenDiff = { diffChange = it },
+                                onOpenDiff = {
+                                    root.gitVm.dismissHistoricalDiff()
+                                    diffChange = it
+                                },
                                 onOpenWorkspace = onOpenWorkspace,
                                 onCreateWorkspace = onCreateWorkspace,
                                 onInspectPosition = root.projectVm::inspectPosition,
@@ -843,6 +848,11 @@ fun WindowScope.App(
                             gitHistory = gitHistory,
                             gitBusy = gitBusy,
                             gitHistoryLoading = gitHistoryLoading,
+                            selectedCommitHash = gitCommitSelection.commitHash,
+                            selectedCommitChanges = gitCommitSelection.changes,
+                            commitChangesTruncated = gitCommitSelection.truncated,
+                            commitChangesLoading = gitCommitSelection.isLoading,
+                            commitChangesError = gitCommitSelection.error,
                             gitCommitMessage = gitCommitMessage,
                             activities = conversationActivities,
                             piRuntimeState = piRuntimeState,
@@ -874,9 +884,17 @@ fun WindowScope.App(
                             onUnstageAll = root.gitVm::unstageAll,
                             onGitRefresh = root.gitVm::refresh,
                             onGitHistoryRefresh = root.gitVm::refreshHistory,
+                            onSelectGitCommit = root.gitVm::selectCommit,
+                            onOpenCommitDiff = { commitHash, change ->
+                                diffChange = null
+                                root.gitVm.openHistoricalDiff(commitHash, change)
+                            },
                             onGitCommitMessageChange = root.gitVm::setCommitMessage,
                             onGitCommit = root.gitVm::commit,
-                            onOpenDiff = { diffChange = it },
+                            onOpenDiff = {
+                                root.gitVm.dismissHistoricalDiff()
+                                diffChange = it
+                            },
                             modifier = Modifier.width(shellLayout.rightPanelWidth.dp).fillMaxHeight()
                         )
                     }
@@ -899,9 +917,27 @@ fun WindowScope.App(
         )
     }
 
+    val historicalDrawerChange = historicalGitDiff.change?.let { change ->
+        GitFileChangeDto(
+            path = change.path,
+            status = change.status,
+            hasStagedChanges = false,
+            hasUnstagedChanges = false,
+            isUntracked = false,
+            added = change.added,
+            removed = change.removed,
+            diffLines = historicalGitDiff.diffLines,
+        )
+    }
     DiffDrawer(
-        change = diffChange,
-        onDismiss = { diffChange = null },
+        change = historicalDrawerChange ?: diffChange,
+        readOnly = historicalGitDiff.commitHash != null,
+        subtitle = historicalGitDiff.commitHash?.let { hash -> "提交 ${hash.take(8)} · 历史只读" },
+        isLoading = historicalGitDiff.isLoading,
+        error = historicalGitDiff.error,
+        onDismiss = {
+            if (historicalGitDiff.commitHash != null) root.gitVm.dismissHistoricalDiff() else diffChange = null
+        },
         onStage = root.gitVm::stage,
         onUnstage = root.gitVm::unstage,
     )

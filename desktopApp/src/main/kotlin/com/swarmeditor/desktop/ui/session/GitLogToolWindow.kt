@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.swarmeditor.desktop.api.GitCommitDto
+import com.swarmeditor.desktop.api.GitCommitChangeDto
 import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.AgentGemini
@@ -58,8 +60,11 @@ import com.swarmeditor.desktop.theme.Line2
 import com.swarmeditor.desktop.theme.Tx
 import com.swarmeditor.desktop.theme.Tx2
 import com.swarmeditor.desktop.theme.Tx3
+import com.swarmeditor.desktop.theme.Err
 import com.swarmeditor.desktop.theme.withAlpha
 import com.swarmeditor.desktop.ui.common.IdeActionButton
+import com.swarmeditor.desktop.ui.common.SemanticIconBadge
+import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.RefreshCw
 import com.woowla.compose.icon.collections.feather.feather.Search
@@ -114,11 +119,24 @@ internal fun formatGitCommitTimestamp(
         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT))
 }
 
+internal fun commitChangesForSelection(
+    selectedCommitHash: String?,
+    loadedCommitHash: String?,
+    changes: List<GitCommitChangeDto>,
+): List<GitCommitChangeDto> = if (selectedCommitHash == loadedCommitHash) changes else emptyList()
+
 @Composable
 internal fun GitLogToolWindow(
     history: GitHistoryDto,
     isLoading: Boolean,
+    selectedCommitHash: String?,
+    selectedCommitChanges: List<GitCommitChangeDto>,
+    commitChangesTruncated: Boolean,
+    commitChangesLoading: Boolean,
+    commitChangesError: String?,
     onRefresh: () -> Unit,
+    onSelectCommit: (String?) -> Unit,
+    onOpenCommitDiff: (String, GitCommitChangeDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
@@ -137,6 +155,9 @@ internal fun GitLogToolWindow(
     }
     LaunchedEffect(selectedIndex, visibleCommits) {
         if (selectedIndex in visibleCommits.indices) listState.animateScrollToItem(selectedIndex)
+    }
+    LaunchedEffect(selectedCommit?.hash) {
+        onSelectCommit(selectedCommit?.hash)
     }
 
     Column(
@@ -229,7 +250,16 @@ internal fun GitLogToolWindow(
                 }
             }
         }
-        selectedCommit?.let { commit -> GitCommitDetails(commit) }
+        selectedCommit?.let { commit ->
+            GitCommitDetails(
+                commit = commit,
+                changes = commitChangesForSelection(commit.hash, selectedCommitHash, selectedCommitChanges),
+                changesTruncated = commit.hash == selectedCommitHash && commitChangesTruncated,
+                isLoading = commit.hash == selectedCommitHash && commitChangesLoading,
+                error = commitChangesError.takeIf { commit.hash == selectedCommitHash },
+                onOpenDiff = { change -> onOpenCommitDiff(commit.hash, change) },
+            )
+        }
     }
 }
 
@@ -314,7 +344,14 @@ private fun GitGraphMarker(
 }
 
 @Composable
-private fun GitCommitDetails(commit: GitCommitDto) {
+private fun GitCommitDetails(
+    commit: GitCommitDto,
+    changes: List<GitCommitChangeDto>,
+    changesTruncated: Boolean,
+    isLoading: Boolean,
+    error: String?,
+    onOpenDiff: (GitCommitChangeDto) -> Unit,
+) {
     Column(
         Modifier.fillMaxWidth().background(Bg1).border(1.dp, Line).padding(horizontal = 9.dp, vertical = 7.dp),
     ) {
@@ -333,6 +370,77 @@ private fun GitCommitDetails(commit: GitCommitDto) {
             Spacer(Modifier.height(3.dp))
             Text(commit.refs.joinToString("  "), color = ControlGreen, style = AppType.micro, maxLines = 1)
         }
+        Spacer(Modifier.height(7.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("提交变更", color = Tx2, style = AppType.micro, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            if (changes.isNotEmpty()) {
+                Text("${changes.size}${if (changesTruncated) "+" else ""} 个文件", color = Tx3, style = AppType.micro)
+            }
+        }
+        when {
+            isLoading -> CommitChangesMessage("正在加载文件变更…", Ac)
+            error != null -> CommitChangesMessage(error, Err)
+            changes.isEmpty() -> CommitChangesMessage("该提交没有可显示的文件变更", Tx3)
+            else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 190.dp).padding(top = 4.dp)) {
+                itemsIndexed(changes, key = { _, change -> "${change.previousPath.orEmpty()}:${change.path}" }) { _, change ->
+                    GitCommitChangeRow(change, onOpenDiff)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommitChangesMessage(message: String, color: androidx.compose.ui.graphics.Color) {
+    Box(Modifier.fillMaxWidth().height(42.dp), contentAlignment = Alignment.CenterStart) {
+        Text(message, color = color, style = AppType.micro, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun GitCommitChangeRow(change: GitCommitChangeDto, onOpenDiff: (GitCommitChangeDto) -> Unit) {
+    val statusColor = when (change.status) {
+        "A" -> AgentGemini
+        "D" -> Err
+        "R", "C" -> ControlGreen
+        else -> Ac
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(34.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { onOpenDiff(change) }
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SemanticIconBadge(
+            spec = semanticFileIconSpec(change.path),
+            contentDescription = null,
+            size = 22.dp,
+            showBadge = false,
+        )
+        Spacer(Modifier.width(7.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                change.path.substringAfterLast('/'),
+                color = Tx2,
+                style = AppType.micro,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val location = change.previousPath?.let { "$it → ${change.path}" }
+                ?: change.path.substringBeforeLast('/', missingDelimiterValue = "")
+            if (location.isNotBlank()) {
+                Text(location, color = Tx3, style = AppType.micro, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Text(change.status, color = statusColor, style = AppType.micro, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(7.dp))
+        Text("+${change.added}", color = AgentGemini, style = AppType.micro)
+        Spacer(Modifier.width(5.dp))
+        Text("-${change.removed}", color = Err, style = AppType.micro)
     }
 }
 

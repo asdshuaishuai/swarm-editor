@@ -77,6 +77,7 @@ import com.swarmeditor.backend.pi.PiSessionTreeNode
 import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.TokenUsage
+import com.swarmeditor.desktop.api.GitCommitChangeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -137,6 +138,11 @@ fun RightPanel(
     tokenUsageSummary: TokenUsageSummary = TokenUsageSummary(),
     gitBusy: Boolean = false,
     gitHistoryLoading: Boolean = false,
+    selectedCommitHash: String? = null,
+    selectedCommitChanges: List<GitCommitChangeDto> = emptyList(),
+    commitChangesTruncated: Boolean = false,
+    commitChangesLoading: Boolean = false,
+    commitChangesError: String? = null,
     gitCommitMessage: String = "",
     onCompactContext: (String?) -> Boolean = { false },
     onRefreshModels: () -> Unit = {},
@@ -158,6 +164,8 @@ fun RightPanel(
     onUnstageAll: (Collection<String>) -> Unit = {},
     onGitRefresh: () -> Unit = {},
     onGitHistoryRefresh: () -> Unit = {},
+    onSelectGitCommit: (String?) -> Unit = {},
+    onOpenCommitDiff: (String, GitCommitChangeDto) -> Unit = { _, _ -> },
     onGitCommitMessageChange: (String) -> Unit = {},
     onGitCommit: () -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
@@ -178,10 +186,17 @@ fun RightPanel(
                     gitHistory = gitHistory,
                     isBusy = gitBusy,
                     isHistoryLoading = gitHistoryLoading,
+                    selectedCommitHash = selectedCommitHash,
+                    selectedCommitChanges = selectedCommitChanges,
+                    commitChangesTruncated = commitChangesTruncated,
+                    commitChangesLoading = commitChangesLoading,
+                    commitChangesError = commitChangesError,
                     commitMessage = gitCommitMessage,
                     onCommitMessageChange = onGitCommitMessageChange,
                     onRefresh = onGitRefresh,
                     onRefreshHistory = onGitHistoryRefresh,
+                    onSelectCommit = onSelectGitCommit,
+                    onOpenCommitDiff = onOpenCommitDiff,
                     onStageFile = onStageFile,
                     onStageAll = onStageAll,
                     onUnstageFile = onUnstageFile,

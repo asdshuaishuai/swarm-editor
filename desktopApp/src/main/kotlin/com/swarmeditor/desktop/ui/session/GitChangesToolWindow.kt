@@ -45,6 +45,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.swarmeditor.desktop.api.GitCommitChangeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -183,10 +184,17 @@ internal fun GitChangesToolWindow(
     gitHistory: GitHistoryDto,
     isBusy: Boolean,
     isHistoryLoading: Boolean,
+    selectedCommitHash: String?,
+    selectedCommitChanges: List<GitCommitChangeDto>,
+    commitChangesTruncated: Boolean,
+    commitChangesLoading: Boolean,
+    commitChangesError: String?,
     commitMessage: String,
     onCommitMessageChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onRefreshHistory: () -> Unit,
+    onSelectCommit: (String?) -> Unit,
+    onOpenCommitDiff: (String, GitCommitChangeDto) -> Unit,
     onStageFile: (String) -> Unit,
     onStageAll: (Collection<String>) -> Unit,
     onUnstageFile: (String) -> Unit,
@@ -318,7 +326,14 @@ internal fun GitChangesToolWindow(
             GitLogToolWindow(
                 history = gitHistory,
                 isLoading = isHistoryLoading,
+                selectedCommitHash = selectedCommitHash,
+                selectedCommitChanges = selectedCommitChanges,
+                commitChangesTruncated = commitChangesTruncated,
+                commitChangesLoading = commitChangesLoading,
+                commitChangesError = commitChangesError,
                 onRefresh = onRefreshHistory,
+                onSelectCommit = onSelectCommit,
+                onOpenCommitDiff = onOpenCommitDiff,
                 modifier = Modifier.weight(1f),
             )
             return@Column

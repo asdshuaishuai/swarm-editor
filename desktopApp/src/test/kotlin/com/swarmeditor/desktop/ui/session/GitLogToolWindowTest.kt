@@ -1,6 +1,7 @@
 package com.swarmeditor.desktop.ui.session
 
 import com.swarmeditor.desktop.api.GitCommitDto
+import com.swarmeditor.desktop.api.GitCommitChangeDto
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +31,15 @@ class GitLogToolWindowTest {
     fun `git log timestamp formatting is deterministic for a supplied zone`() {
         assertEquals("2023-11-14 22:13", formatGitCommitTimestamp(1_700_000_000L, ZoneOffset.UTC))
         assertEquals("—", formatGitCommitTimestamp(0L, ZoneOffset.UTC))
+    }
+
+    @Test
+    fun `commit changes are shown only for the active selection`() {
+        val changes = listOf(GitCommitChangeDto("src/App.kt", status = "M"))
+
+        assertEquals(changes, commitChangesForSelection("abc", "abc", changes))
+        assertEquals(emptyList(), commitChangesForSelection("abc", "def", changes))
+        assertEquals(emptyList(), commitChangesForSelection(null, "abc", changes))
     }
 
     private fun commit(shortHash: String, subject: String, author: String, refs: List<String>) = GitCommitDto(
