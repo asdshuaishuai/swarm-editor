@@ -41,4 +41,35 @@ class ProjectOpenFilesTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun `recent files follow active editor order without reordering editor tabs`() = runTest {
+        val directory = Files.createTempDirectory("project-recent-files")
+        try {
+            directory.resolve("First.kt").writeText("class First")
+            directory.resolve("Second.kt").writeText("class Second")
+            val viewModel = ProjectViewModel(
+                ProjectService(directory.toFile()),
+                backgroundScope,
+                StandardTestDispatcher(testScheduler),
+            )
+
+            viewModel.selectFile("First.kt")
+            runCurrent()
+            viewModel.selectFile("Second.kt")
+            runCurrent()
+            viewModel.selectFile("First.kt")
+            runCurrent()
+
+            assertEquals(listOf("First.kt", "Second.kt"), viewModel.openFiles.value)
+            assertEquals(listOf("First.kt", "Second.kt"), viewModel.recentFiles.value)
+
+            viewModel.closeFile("First.kt")
+            runCurrent()
+
+            assertEquals(listOf("Second.kt", "First.kt"), viewModel.recentFiles.value)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }

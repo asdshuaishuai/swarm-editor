@@ -42,3 +42,9 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - The editor uses the GFM flavour for tables, task lists, autolinks, and other repository-oriented syntax. Parser construction passes an explicit `CancellationToken`, matching the current `0.7.8` API rather than relying on deprecated convenience overloads.
 - Markdown, HTML, and JSON keep source and rendered modes. Markdown additionally supports a JetBrains-style split workspace with a draggable divider, bounded pane proportions, and double-click reset.
 - The parser also exposes streaming/incremental primitives. These are reserved for a later large-document pass; the current outline/folding path stays deterministic and side-effect free.
+
+## Navigation Findings
+
+- IntelliJ keeps editor-tab order separate from recently used file order. Swarm mirrors that behavior: selecting a tab does not move it, while an independent MRU list records active files.
+- `Ctrl/Cmd+E` opens a compact Recent Files popup from any primary workspace. Search matches both file name and path, and Up/Down/Enter/Escape provide a complete keyboard path.
+- The popup reuses semantic file icons, dirty-state markers, the current-file badge, and platform-specific shortcut labels instead of introducing a second navigation visual language.

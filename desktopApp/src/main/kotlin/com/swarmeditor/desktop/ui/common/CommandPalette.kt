@@ -390,6 +390,7 @@ internal fun buildCommands(agents: List<AgentInfo>, piCommands: List<PiCommandIn
     commands.add(Command("new-session", "新建会话", "命令", "⌘N"))
     commands.add(Command("open-workspace", "打开项目文件夹", "工作区", "⌘O"))
     commands.add(Command("create-workspace", "新建项目", "工作区"))
+    commands.add(Command("recent-files", "最近文件", "导航", "Ctrl/Cmd+E"))
     commands.add(Command("open-settings", "打开设置", "命令", "⌘,"))
 
     // Agent 配置

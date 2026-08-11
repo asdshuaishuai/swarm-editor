@@ -74,6 +74,8 @@ class ProjectViewModel(
     val filePreview: StateFlow<FilePreviewState> = _filePreview
     private val _openFiles = MutableStateFlow<List<String>>(emptyList())
     val openFiles: StateFlow<List<String>> = _openFiles
+    private val _recentFiles = MutableStateFlow<List<String>>(emptyList())
+    val recentFiles: StateFlow<List<String>> = _recentFiles.asStateFlow()
     private var previewJob: Job? = null
     private var positionJob: Job? = null
     private val previewRequestIds = AtomicLong()
@@ -108,6 +110,7 @@ class ProjectViewModel(
 
     private fun selectFile(path: String, navigationLine: Int?) {
         _openFiles.value = (_openFiles.value + path).distinct().takeLast(MAX_OPEN_FILES)
+        _recentFiles.value = (listOf(path) + _recentFiles.value.filterNot { it == path }).take(MAX_RECENT_FILES)
         val requestId = previewRequestIds.incrementAndGet()
         previewJob?.cancel()
         positionRequestIds.incrementAndGet()
@@ -314,6 +317,7 @@ class ProjectViewModel(
 
     private companion object {
         const val MAX_OPEN_FILES = 12
+        const val MAX_RECENT_FILES = 30
         const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
     }
 }

@@ -64,6 +64,7 @@ import com.swarmeditor.desktop.ui.plugins.PluginCenterView
 import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.ui.files.DiffDrawer
+import com.swarmeditor.desktop.ui.files.RecentFilesPopup
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
@@ -153,6 +154,7 @@ fun WindowScope.App(
     val projectTreeError by root.projectVm.treeError.collectAsState()
     val projectFilePreview by root.projectVm.filePreview.collectAsState()
     val projectOpenFiles by root.projectVm.openFiles.collectAsState()
+    val projectRecentFiles by root.projectVm.recentFiles.collectAsState()
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
@@ -247,6 +249,7 @@ fun WindowScope.App(
         )
     }
     var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
+    var showRecentFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-files") }
     var pluginSubTab by remember {
         mutableStateOf(
             System.getProperty("swarm.pluginTab")
@@ -420,6 +423,7 @@ fun WindowScope.App(
             "new-session" -> createSession()
             "open-workspace" -> onOpenWorkspace()
             "create-workspace" -> onCreateWorkspace()
+            "recent-files" -> { showRecentFiles = true }
             "open-settings" -> { root.showSettingsDialog() }
             "view-chat" -> root.switchView("chat")
             "view-agents" -> root.switchView("agents")
@@ -434,7 +438,7 @@ fun WindowScope.App(
             }
         }
     }
-    val overlayActive = diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
+    val overlayActive = showRecentFiles || diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
     val workspaceScale by animateFloatAsState(
         targetValue = if (overlayActive) 0.994f else 1f,
         animationSpec = Motion.floatGentle,
@@ -465,8 +469,24 @@ fun WindowScope.App(
                         }
                         true
                     }
-                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.K -> { root.showCmdKDialog(); true }
-                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.Comma -> { root.showSettingsDialog(); true }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.K -> {
+                        showRecentFiles = false
+                        root.showCmdKDialog()
+                        true
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.Comma -> {
+                        showRecentFiles = false
+                        root.showSettingsDialog()
+                        true
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.E -> {
+                        if (dialog == null && detailDialog == null && diffChange == null) {
+                            showRecentFiles = !showRecentFiles
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     keyEvent.isCtrlPressed || keyEvent.isMetaPressed -> when (keyEvent.key) {
                         Key.One -> { root.switchView("chat"); true }
                         Key.Two -> { root.switchView("agents"); true }
@@ -478,6 +498,7 @@ fun WindowScope.App(
                         else -> false
                     }
                     keyEvent.key == Key.Escape -> when {
+                        showRecentFiles -> { showRecentFiles = false; true }
                         detailDialog is DialogConfig.AgentConfig -> { root.closeDetailDialog(); true }
                         detailDialog is DialogConfig.McpConfig -> { root.closeDetailDialog(); true }
                         dialog == DialogConfig.CommandPalette -> { root.closeDialog(); true }
@@ -803,6 +824,24 @@ fun WindowScope.App(
         onStage = root.gitVm::stage,
         onUnstage = root.gitVm::unstage,
     )
+
+    AnimatedVisibility(
+        visible = showRecentFiles,
+        enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+        exit = Motion.modalExit(OverlayDepth.PRIMARY),
+    ) {
+        RecentFilesPopup(
+            recentFiles = projectRecentFiles,
+            currentPath = projectFilePreview.path,
+            dirtyPaths = projectDirtyPaths,
+            onDismiss = { showRecentFiles = false },
+            onOpenFile = { path ->
+                root.switchView("files")
+                root.projectVm.selectFile(path)
+                showRecentFiles = false
+            },
+        )
+    }
 
     AnimatedVisibility(
         visible = dialog == DialogConfig.Settings,

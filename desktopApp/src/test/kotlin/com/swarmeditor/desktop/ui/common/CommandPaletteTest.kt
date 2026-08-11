@@ -41,6 +41,15 @@ class CommandPaletteTest {
     }
 
     @Test
+    fun `command palette exposes recent files navigation`() {
+        val command = buildCommands(emptyList()).single { it.id == "recent-files" }
+
+        assertEquals("最近文件", command.name)
+        assertEquals("导航", command.group)
+        assertEquals("Ctrl/Cmd+E", command.shortcut)
+    }
+
+    @Test
     fun `command palette groups live pi commands by source`() {
         val commands = buildCommands(
             agents = emptyList(),
