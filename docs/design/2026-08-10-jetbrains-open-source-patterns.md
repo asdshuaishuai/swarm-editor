@@ -64,3 +64,11 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - Fixed editor-toolbar actions expose availability through disabled state, while `Ctrl/Cmd+Alt+Left/Right` and Search Everywhere actions provide equivalent keyboard access.
 - Reloading a saved file does not create navigation history. The current implementation records file, symbol, definition, and explicit line navigation; passive caret movement remains future editor-integration work.
 - Recent Locations derives searchable cards from the same history service, retaining up to five lines around each recorded source position and opening through `Ctrl/Cmd+Shift+E`.
+
+## Find in Files Findings
+
+- IntelliJ keeps Search Everywhere and Find in Files as different products: the former ranks navigation contributors, while the latter owns a cancellable full-text pipeline and a persistent usage-oriented result surface.
+- `FindInProjectTask` filters excluded roots, symbolic links, invalid files, and oversized files before loading text. It performs a fast literal pre-scan when regular expressions are not required, checks cancellation throughout traversal, and stops cleanly when usage limits are reached.
+- `FindPopupPanel` treats query options as explicit model state and reports matches, files, incomplete results, validation, and progress independently. Swarm mirrors the current useful subset with plain-text search, case sensitivity, scanned-file counts, bounded results, and precise line/character locations.
+- Swarm's implementation remains an in-process Kotlin service. `ProjectService` owns path-safe traversal and UTF-8 validation; `ProjectViewModel` owns debounce, cancellation, stale-result rejection, and immutable UI state.
+- `Ctrl/Cmd+Shift+F` opens a dedicated grouped result popup. Matching ranges are highlighted, file groups reuse semantic icons, and Up/Down/Enter/Escape support complete keyboard navigation without changing Search Everywhere semantics.

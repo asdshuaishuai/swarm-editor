@@ -67,6 +67,7 @@ import com.swarmeditor.desktop.ui.plugins.PluginCenterView
 import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.ui.files.DiffDrawer
+import com.swarmeditor.desktop.ui.files.FindInFilesPopup
 import com.swarmeditor.desktop.ui.files.RecentFilesPopup
 import com.swarmeditor.desktop.ui.files.RecentLocationsPopup
 import com.swarmeditor.desktop.api.AgentDto
@@ -167,6 +168,7 @@ fun WindowScope.App(
     val projectNavigationState by root.projectVm.navigationState.collectAsState()
     val projectRecentLocations by root.projectVm.recentLocations.collectAsState()
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
+    val projectSearchState by root.projectVm.searchState.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
     val gitBusy by root.gitVm.isLoading.collectAsState()
@@ -263,6 +265,7 @@ fun WindowScope.App(
     var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
     var showRecentFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-files") }
     var showRecentLocations by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-locations") }
+    var showFindInFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "find-in-files") }
     var pluginSubTab by remember {
         mutableStateOf(
             System.getProperty("swarm.pluginTab")
@@ -442,6 +445,7 @@ fun WindowScope.App(
             "create-workspace" -> onCreateWorkspace()
             "recent-files" -> { showRecentFiles = true }
             "recent-locations" -> { showRecentLocations = true }
+            "find-in-files" -> { showFindInFiles = true }
             "navigate-back" -> root.projectVm.navigateBack()
             "navigate-forward" -> root.projectVm.navigateForward()
             "open-settings" -> { root.showSettingsDialog() }
@@ -458,7 +462,8 @@ fun WindowScope.App(
             }
         }
     }
-    val overlayActive = showRecentFiles || showRecentLocations || diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
+    val overlayActive = showRecentFiles || showRecentLocations || showFindInFiles || diffChange != null ||
+        dialog == DialogConfig.Settings || detailDialog != null
     val workspaceScale by animateFloatAsState(
         targetValue = if (overlayActive) 0.994f else 1f,
         animationSpec = Motion.floatGentle,
@@ -481,7 +486,8 @@ fun WindowScope.App(
                     isShiftKey -> {
                         val now = System.nanoTime()
                         val shouldOpen = isDoubleShiftTap(lastShiftTapNanos, now) &&
-                            dialog == null && detailDialog == null && diffChange == null && !showRecentFiles && !showRecentLocations
+                            dialog == null && detailDialog == null && diffChange == null &&
+                            !showRecentFiles && !showRecentLocations && !showFindInFiles
                         lastShiftTapNanos = if (shouldOpen) 0L else now
                         if (shouldOpen) root.showCmdKDialog()
                         shouldOpen
@@ -513,17 +519,30 @@ fun WindowScope.App(
                     }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.K -> {
                         showRecentFiles = false
+                        showRecentLocations = false
+                        showFindInFiles = false
                         root.showCmdKDialog()
                         true
                     }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.Comma -> {
                         showRecentFiles = false
+                        showRecentLocations = false
+                        showFindInFiles = false
                         root.showSettingsDialog()
                         true
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isShiftPressed && keyEvent.key == Key.F -> {
+                        if (dialog == null && detailDialog == null && diffChange == null) {
+                            showRecentFiles = false
+                            showRecentLocations = false
+                            showFindInFiles = !showFindInFiles
+                            true
+                        } else false
                     }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isShiftPressed && keyEvent.key == Key.E -> {
                         if (dialog == null && detailDialog == null && diffChange == null) {
                             showRecentFiles = false
+                            showFindInFiles = false
                             showRecentLocations = !showRecentLocations
                             true
                         } else false
@@ -531,6 +550,7 @@ fun WindowScope.App(
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.E -> {
                         if (dialog == null && detailDialog == null && diffChange == null) {
                             showRecentLocations = false
+                            showFindInFiles = false
                             showRecentFiles = !showRecentFiles
                             true
                         } else {
@@ -548,6 +568,7 @@ fun WindowScope.App(
                         else -> false
                     }
                     keyEvent.key == Key.Escape -> when {
+                        showFindInFiles -> { showFindInFiles = false; true }
                         showRecentLocations -> { showRecentLocations = false; true }
                         showRecentFiles -> { showRecentFiles = false; true }
                         detailDialog is DialogConfig.AgentConfig -> { root.closeDetailDialog(); true }
@@ -911,6 +932,24 @@ fun WindowScope.App(
                 root.switchView("files")
                 root.projectVm.navigateToLocation(location)
                 showRecentLocations = false
+            },
+        )
+    }
+
+    AnimatedVisibility(
+        visible = showFindInFiles,
+        enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+        exit = Motion.modalExit(OverlayDepth.PRIMARY),
+    ) {
+        FindInFilesPopup(
+            state = projectSearchState,
+            onQueryChange = root.projectVm::updateSearchQuery,
+            onToggleCaseSensitive = root.projectVm::toggleSearchCaseSensitive,
+            onDismiss = { showFindInFiles = false },
+            onOpenMatch = { match ->
+                root.switchView("files")
+                root.projectVm.navigateToFile(match.path, match.line)
+                showFindInFiles = false
             },
         )
     }

@@ -12,7 +12,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
+import java.nio.file.LinkOption
 import kotlin.io.path.fileSize
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 internal const val MAX_PROJECT_FILE_BYTES = 256 * 1024
 
@@ -36,6 +39,21 @@ class ProjectService(
         val isDirectory: Boolean,
         val children: List<FileNode> = emptyList(),
         val changeStatus: String? = null,
+    )
+
+    data class SearchMatch(
+        val path: String,
+        val line: Int,
+        val startCharacter: Int,
+        val endCharacter: Int,
+        val lineText: String,
+    )
+
+    data class SearchResult(
+        val query: String,
+        val matches: List<SearchMatch>,
+        val filesSearched: Int,
+        val truncated: Boolean,
     )
 
     fun getTree(): FileNode {
@@ -80,6 +98,78 @@ class ProjectService(
 
         resolved.toFile().atomicWriteText(content)
         return readFile(relativePath)
+    }
+
+    suspend fun searchText(
+        query: String,
+        caseSensitive: Boolean = false,
+        maxMatches: Int = DEFAULT_MAX_SEARCH_MATCHES,
+    ): SearchResult {
+        require(query.isNotBlank()) { "Search query cannot be blank" }
+        require(maxMatches > 0) { "Search result limit must be positive" }
+
+        val root = projectDir.toPath().toRealPath()
+        val matches = mutableListOf<SearchMatch>()
+        var filesSearched = 0
+        var truncated = false
+
+        suspend fun searchDirectory(directory: Path, depth: Int) {
+            currentCoroutineContext().ensureActive()
+            if (truncated || depth > MAX_DEPTH) return
+
+            val entries = directory.toFile().listFiles()
+                ?.asSequence()
+                ?.filter { entry -> isSearchableProjectEntry(entry, root) }
+                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                ?.toList()
+                .orEmpty()
+
+            for (entry in entries) {
+                currentCoroutineContext().ensureActive()
+                if (truncated) return
+                val entryPath = entry.toPath()
+                when {
+                    entry.isDirectory -> searchDirectory(entryPath, depth + 1)
+                    !Files.isRegularFile(entryPath, LinkOption.NOFOLLOW_LINKS) -> Unit
+                    entryPath.fileSize() > MAX_PROJECT_FILE_BYTES -> Unit
+                    else -> {
+                        val content = decodeUtf8Text(Files.readAllBytes(entryPath), allowIncompleteTail = false)
+                            ?: continue
+                        filesSearched += 1
+                        val relativePath = projectRelativePath(root, entryPath)
+                        for ((lineIndex, lineText) in content.lineSequence().withIndex()) {
+                            if (truncated) break
+                            var searchFrom = 0
+                            while (searchFrom <= lineText.length - query.length) {
+                                currentCoroutineContext().ensureActive()
+                                val matchStart = lineText.indexOf(query, searchFrom, ignoreCase = !caseSensitive)
+                                if (matchStart < 0) break
+                                matches += SearchMatch(
+                                    path = relativePath,
+                                    line = lineIndex,
+                                    startCharacter = matchStart,
+                                    endCharacter = matchStart + query.length,
+                                    lineText = lineText,
+                                )
+                                if (matches.size >= maxMatches) {
+                                    truncated = true
+                                    break
+                                }
+                                searchFrom = matchStart + query.length.coerceAtLeast(1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        searchDirectory(root, depth = 0)
+        return SearchResult(
+            query = query,
+            matches = matches,
+            filesSearched = filesSearched,
+            truncated = truncated,
+        )
     }
 
     suspend fun highlightFile(relativePath: String, content: String): LspHighlightResult? {
@@ -158,9 +248,29 @@ class ProjectService(
         return runCatching { entry.toPath().toRealPath().startsWith(root) }.getOrDefault(false)
     }
 
+    private fun isSearchableProjectEntry(entry: File, root: Path): Boolean {
+        if (entry.name in EXCLUDED_DIRS || entry.name.startsWith(".")) return false
+        if (Files.isSymbolicLink(entry.toPath())) return false
+        return entry.toPath().toAbsolutePath().normalize().startsWith(root)
+    }
+
     companion object {
         private const val MAX_DEPTH = 32
-        private val EXCLUDED_DIRS = setOf(".git", "build", "node_modules", ".gradle", ".idea", ".omo")
+        private const val DEFAULT_MAX_SEARCH_MATCHES = 500
+        private val EXCLUDED_DIRS = setOf(
+            ".git",
+            ".gradle",
+            ".idea",
+            ".next",
+            ".omo",
+            ".turbo",
+            "build",
+            "coverage",
+            "dist",
+            "node_modules",
+            "out",
+            "target",
+        )
     }
 }
 

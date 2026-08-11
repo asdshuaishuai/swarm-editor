@@ -10,6 +10,15 @@ import kotlin.test.assertEquals
 
 class CommandPaletteTest {
     @Test
+    fun `find in files remains a dedicated navigation action`() {
+        val command = buildCommands(emptyList()).single { it.id == "find-in-files" }
+
+        assertEquals("在文件中查找", command.name)
+        assertEquals("导航", command.group)
+        assertEquals("Ctrl/Cmd+Shift+F", command.shortcut)
+    }
+
+    @Test
     fun `lazy list index includes group headers`() {
         val commands = listOf(
             Command("one", "One", "Workspace"),

@@ -14,6 +14,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.withContext
@@ -34,6 +35,56 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, ExperimentalPathApi::class)
 class ProjectViewModelTest {
+    @Test
+    fun `find in files debounces queries and exposes navigable source matches`() = runTest {
+        val directory = Files.createTempDirectory("project-search-vm")
+        try {
+            directory.resolve("src").createDirectories()
+            directory.resolve("src/Main.kt").writeText("fun main() = println(\"swarm\")")
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(ProjectService(directory.toFile()), backgroundScope, dispatcher)
+
+            viewModel.updateSearchQuery("swa")
+            viewModel.updateSearchQuery("swarm")
+            runCurrent()
+            assertTrue(viewModel.searchState.value.isSearching)
+
+            advanceTimeBy(180)
+            runCurrent()
+
+            val state = viewModel.searchState.value
+            assertFalse(state.isSearching)
+            assertEquals("swarm", state.query)
+            assertEquals("src/Main.kt", state.matches.single().path)
+            assertEquals(0, state.matches.single().line)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find in files reruns immediately when case sensitivity changes`() = runTest {
+        val directory = Files.createTempDirectory("project-search-case-vm")
+        try {
+            directory.resolve("README.md").writeText("Swarm swarm")
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(ProjectService(directory.toFile()), backgroundScope, dispatcher)
+
+            viewModel.updateSearchQuery("Swarm")
+            advanceTimeBy(180)
+            runCurrent()
+            assertEquals(2, viewModel.searchState.value.matches.size)
+
+            viewModel.toggleSearchCaseSensitive()
+            runCurrent()
+
+            assertTrue(viewModel.searchState.value.caseSensitive)
+            assertEquals(1, viewModel.searchState.value.matches.size)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun `loads real project tree and excludes internal directories`() = runTest {
         val directory = Files.createTempDirectory("project-vm")

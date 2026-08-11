@@ -47,12 +47,25 @@ data class RecentEditorLocation(
     val snippet: String = "",
 )
 
+data class ProjectSearchUiState(
+    val query: String = "",
+    val caseSensitive: Boolean = false,
+    val matches: List<ProjectService.SearchMatch> = emptyList(),
+    val filesSearched: Int = 0,
+    val truncated: Boolean = false,
+    val isSearching: Boolean = false,
+    val error: String? = null,
+)
+
 class ProjectViewModel(
     private val service: ProjectService,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     gitStatus: StateFlow<GitStatusDto> = MutableStateFlow(GitStatusDto()),
     private val loadTree: suspend () -> ProjectService.FileNode = { service.getTree() },
+    private val searchProject: suspend (String, Boolean) -> ProjectService.SearchResult = { query, caseSensitive ->
+        service.searchText(query, caseSensitive)
+    },
 ) {
     val projectPath: String = service.projectPath
 
@@ -117,6 +130,10 @@ class ProjectViewModel(
     private val draftBaselines = ConcurrentHashMap<String, String>()
     private val _dirtyPaths = MutableStateFlow<Set<String>>(emptySet())
     val dirtyPaths: StateFlow<Set<String>> = _dirtyPaths.asStateFlow()
+    private val _searchState = MutableStateFlow(ProjectSearchUiState())
+    val searchState: StateFlow<ProjectSearchUiState> = _searchState.asStateFlow()
+    private var searchJob: Job? = null
+    private val searchRequestIds = AtomicLong()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -156,6 +173,21 @@ class ProjectViewModel(
     fun navigateBack() = navigateHistory(backward = true)
 
     fun navigateForward() = navigateHistory(backward = false)
+
+    fun updateSearchQuery(query: String) {
+        scheduleSearch(query, _searchState.value.caseSensitive, debounce = true)
+    }
+
+    fun toggleSearchCaseSensitive() {
+        val current = _searchState.value
+        scheduleSearch(current.query, !current.caseSensitive, debounce = false)
+    }
+
+    fun clearSearch() {
+        searchRequestIds.incrementAndGet()
+        searchJob?.cancel()
+        _searchState.value = ProjectSearchUiState(caseSensitive = _searchState.value.caseSensitive)
+    }
 
     private fun selectFile(path: String, navigationLine: Int?, recordNavigation: Boolean) {
         if (recordNavigation) recordEditorLocation(EditorLocation(path, navigationLine))
@@ -237,6 +269,46 @@ class ProjectViewModel(
                     _filePreview.value = FilePreviewState(
                         path = path,
                         error = error.message ?: "无法读取文件",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun scheduleSearch(query: String, caseSensitive: Boolean, debounce: Boolean) {
+        val requestId = searchRequestIds.incrementAndGet()
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _searchState.value = ProjectSearchUiState(caseSensitive = caseSensitive)
+            return
+        }
+
+        _searchState.value = ProjectSearchUiState(
+            query = query,
+            caseSensitive = caseSensitive,
+            isSearching = true,
+        )
+        searchJob = scope.launch(ioDispatcher) {
+            try {
+                if (debounce) delay(SEARCH_DEBOUNCE_MILLIS)
+                val result = searchProject(query, caseSensitive)
+                if (requestId == searchRequestIds.get()) {
+                    _searchState.value = ProjectSearchUiState(
+                        query = query,
+                        caseSensitive = caseSensitive,
+                        matches = result.matches,
+                        filesSearched = result.filesSearched,
+                        truncated = result.truncated,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (requestId == searchRequestIds.get()) {
+                    _searchState.value = ProjectSearchUiState(
+                        query = query,
+                        caseSensitive = caseSensitive,
+                        error = error.message ?: "无法搜索项目文件",
                     )
                 }
             }
@@ -428,6 +500,7 @@ class ProjectViewModel(
         const val MAX_RECENT_LOCATIONS = 20
         const val MAX_LOCATION_SNIPPETS = 96
         const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
+        const val SEARCH_DEBOUNCE_MILLIS = 180L
     }
 }
 

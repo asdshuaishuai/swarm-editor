@@ -143,4 +143,55 @@ class ProjectServiceTest {
             directory.deleteRecursively()
         }
     }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `project text search returns precise matches across searchable source files`() = runTest {
+        val directory = Files.createTempDirectory("project-service-search")
+        try {
+            val source = directory.resolve("src/Main.kt")
+            Files.createDirectories(source.parent)
+            Files.writeString(source, "fun main() {\n    println(\"Swarm swarm\")\n}")
+            Files.writeString(directory.resolve("README.md"), "SWARM editor")
+            Files.createDirectories(directory.resolve("build"))
+            Files.writeString(directory.resolve("build/generated.kt"), "swarm")
+            Files.write(directory.resolve("binary.dat"), byteArrayOf(0, 1, 2, 3))
+            val service = ProjectService(directory.toFile())
+
+            val result = service.searchText("swarm")
+
+            assertEquals(3, result.matches.size)
+            assertEquals(2, result.filesSearched)
+            assertFalse(result.truncated)
+            assertEquals(
+                listOf(
+                    ProjectService.SearchMatch("src/Main.kt", 1, 13, 18, "    println(\"Swarm swarm\")"),
+                    ProjectService.SearchMatch("src/Main.kt", 1, 19, 24, "    println(\"Swarm swarm\")"),
+                    ProjectService.SearchMatch("README.md", 0, 0, 5, "SWARM editor"),
+                ),
+                result.matches,
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `project text search honors case and bounded result limits`() = runTest {
+        val directory = Files.createTempDirectory("project-service-search-limit")
+        try {
+            Files.writeString(directory.resolve("matches.txt"), "Swarm swarm swarm")
+            val service = ProjectService(directory.toFile())
+
+            val sensitive = service.searchText("Swarm", caseSensitive = true)
+            val limited = service.searchText("swarm", maxMatches = 2)
+
+            assertEquals(listOf(0), sensitive.matches.map { it.startCharacter })
+            assertEquals(2, limited.matches.size)
+            assertTrue(limited.truncated)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }
