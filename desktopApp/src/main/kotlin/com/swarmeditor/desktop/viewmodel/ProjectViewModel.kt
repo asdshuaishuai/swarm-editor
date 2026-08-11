@@ -108,6 +108,8 @@ class ProjectViewModel(
 
     fun selectFile(path: String) = selectFile(path, navigationLine = null)
 
+    fun navigateToFile(path: String, line: Int) = selectFile(path, navigationLine = line.coerceAtLeast(0))
+
     private fun selectFile(path: String, navigationLine: Int?) {
         _openFiles.value = (_openFiles.value + path).distinct().takeLast(MAX_OPEN_FILES)
         _recentFiles.value = (listOf(path) + _recentFiles.value.filterNot { it == path }).take(MAX_RECENT_FILES)

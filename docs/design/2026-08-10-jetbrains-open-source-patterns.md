@@ -48,3 +48,11 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - IntelliJ keeps editor-tab order separate from recently used file order. Swarm mirrors that behavior: selecting a tab does not move it, while an independent MRU list records active files.
 - `Ctrl/Cmd+E` opens a compact Recent Files popup from any primary workspace. Search matches both file name and path, and Up/Down/Enter/Escape provide a complete keyboard path.
 - The popup reuses semantic file icons, dirty-state markers, the current-file badge, and platform-specific shortcut labels instead of introducing a second navigation visual language.
+
+## Search Everywhere Findings
+
+- IntelliJ Search Everywhere is contributor-based rather than a single monolithic filter. Swarm now follows that boundary with separate file, current-document symbol, action, recent-file, and Pi command result sources.
+- Blank searches prioritize recent files and common actions. Typed searches rank exact and prefix file-name matches before general path matches, then merge symbols and actions into grouped results.
+- File contribution respects IDE-style excluded roots by omitting generated output and dependency directories such as `build`, `dist`, `node_modules`, `out`, and `target`.
+- Action matching includes both localized labels and stable action IDs. File rows carry semantic file-type icons and parent paths; symbol rows carry kind, container, source path, and line.
+- Search Everywhere remains available through `Ctrl/Cmd+K` and now also through the JetBrains-style double-Shift gesture. Workspace-wide symbols are intentionally deferred until the LSP boundary exposes a real workspace-symbol request.

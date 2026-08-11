@@ -70,6 +70,8 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.backend.pi.PiCommandInfo
+import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.desktop.api.FileNodeDto
 
 @androidx.compose.runtime.Immutable
 data class Command(
@@ -77,8 +79,108 @@ data class Command(
     val name: String,
     val group: String,
     val shortcut: String = "",
-    val icon: String = ""
+    val icon: String = "",
+    val description: String = "",
+    val filePath: String? = null,
+    val line: Int? = null,
 )
+
+internal fun projectFilePaths(root: FileNodeDto?): List<String> {
+    if (root == null) return emptyList()
+    return buildList {
+        fun visit(node: FileNodeDto) {
+            if (node.isDirectory) node.children.forEach(::visit) else add(node.path)
+        }
+        visit(root)
+    }
+}
+
+internal fun searchEverywhereCommands(
+    baseCommands: List<Command>,
+    projectFiles: List<String>,
+    recentFiles: List<String>,
+    symbols: List<SourceSymbol>,
+    currentPath: String?,
+    query: String,
+): List<Command> {
+    val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+    if (normalizedQuery.isEmpty()) {
+        val recent = recentFiles.distinct().take(8).map(::fileCommand).map { it.copy(group = "最近文件") }
+        return recent + baseCommands
+    }
+
+    val files = projectFiles.asSequence()
+        .distinct()
+        .filter(::isSearchableProjectPath)
+        .mapNotNull { path -> fileMatchScore(path, normalizedQuery)?.let { score -> score to path } }
+        .sortedWith(compareBy<Pair<Int, String>>({ it.first }, { it.second.length }, { it.second }))
+        .take(48)
+        .map { (_, path) -> fileCommand(path) }
+        .toList()
+    val symbolMatches = symbols.asSequence()
+        .filter { symbol ->
+            symbol.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                symbol.kind.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                symbol.containerName.orEmpty().lowercase(Locale.ROOT).contains(normalizedQuery)
+        }
+        .take(24)
+        .map { symbol ->
+            Command(
+                id = "symbol:${symbol.line}:${symbol.name}",
+                name = symbol.name,
+                group = "符号",
+                description = buildString {
+                    append(symbol.kind)
+                    symbol.containerName?.takeIf(String::isNotBlank)?.let { append(" · ").append(it) }
+                    currentPath?.let { append(" · ").append(it).append(':').append(symbol.line + 1) }
+                },
+                filePath = currentPath,
+                line = symbol.line,
+            )
+        }
+        .toList()
+    val actions = baseCommands.filter { command ->
+        command.id.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+            command.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+            command.group.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+            command.description.lowercase(Locale.ROOT).contains(normalizedQuery)
+    }
+    return files + symbolMatches + actions
+}
+
+internal fun movedCommandIndex(current: Int, offset: Int, size: Int): Int {
+    if (size <= 0) return 0
+    return (current + offset).mod(size)
+}
+
+internal fun isSearchableProjectPath(path: String): Boolean {
+    val excludedSegments = setOf(".git", ".gradle", ".idea", "build", "dist", "node_modules", "out", "target")
+    return path.replace('\\', '/').split('/').none { it.lowercase(Locale.ROOT) in excludedSegments }
+}
+
+private fun fileCommand(path: String): Command = Command(
+    id = "file:$path",
+    name = path.fileName(),
+    group = "文件",
+    description = path.parentPath().ifEmpty { "." },
+    filePath = path,
+)
+
+private fun fileMatchScore(path: String, query: String): Int? {
+    val normalizedPath = path.lowercase(Locale.ROOT)
+    val fileName = path.fileName().lowercase(Locale.ROOT)
+    return when {
+        fileName == query -> 0
+        fileName.startsWith(query) -> 1
+        fileName.contains(query) -> 2
+        normalizedPath.contains(query) -> 3
+        else -> null
+    }
+}
+
+private fun String.fileName(): String = substringAfterLast('/').substringAfterLast('\\')
+
+private fun String.parentPath(): String = replace('\\', '/').substringBeforeLast('/', "")
 
 internal fun commandPaletteLazyIndex(commands: List<Command>, selectedIndex: Int): Int {
     if (selectedIndex !in commands.indices) return 0
@@ -104,6 +206,10 @@ fun CommandPalette(
     onCommand: (Command) -> Unit,
     agents: List<AgentInfo> = emptyList(),
     piCommands: List<PiCommandInfo> = emptyList(),
+    projectTree: FileNodeDto? = null,
+    recentFiles: List<String> = emptyList(),
+    currentPath: String? = null,
+    symbols: List<SourceSymbol> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     if (!isVisible) return
@@ -137,6 +243,10 @@ fun CommandPalette(
                     hazeState = hazeState,
                     agents = agents,
                     piCommands = piCommands,
+                    projectTree = projectTree,
+                    recentFiles = recentFiles,
+                    currentPath = currentPath,
+                    symbols = symbols,
                     onDismiss = onDismiss,
                     onCommand = onCommand,
                     modifier = Modifier.fillMaxWidth(),
@@ -151,22 +261,38 @@ private fun CommandPaletteModal(
     hazeState: HazeState,
     agents: List<AgentInfo>,
     piCommands: List<PiCommandInfo>,
+    projectTree: FileNodeDto?,
+    recentFiles: List<String>,
+    currentPath: String?,
+    symbols: List<SourceSymbol>,
     onDismiss: () -> Unit,
     onCommand: (Command) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
-    var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
+    var searchQuery by remember {
+        mutableStateOf(TextFieldValue(System.getProperty("swarm.commandQuery").orEmpty()))
+    }
     var selectedIndex by remember { mutableIntStateOf(0) }
 
-    // Build command list
     val commands = remember(agents, piCommands) { buildCommands(agents, piCommands) }
-
-    // Filter commands by search
-    val filteredCommands = remember(commands, searchQuery.text) {
-        val q = searchQuery.text.lowercase(Locale.ROOT)
-        if (q.isBlank()) commands
-        else commands.filter { it.name.lowercase(Locale.ROOT).contains(q) }
+    val projectFiles = remember(projectTree) { projectFilePaths(projectTree) }
+    val filteredCommands = remember(
+        commands,
+        projectFiles,
+        recentFiles,
+        symbols,
+        currentPath,
+        searchQuery.text,
+    ) {
+        searchEverywhereCommands(
+            baseCommands = commands,
+            projectFiles = projectFiles,
+            recentFiles = recentFiles,
+            symbols = symbols,
+            currentPath = currentPath,
+            query = searchQuery.text,
+        )
     }
     val groupedCommands = remember(filteredCommands) { filteredCommands.groupBy { it.group } }
     val commandIndexes = remember(filteredCommands) {
@@ -208,13 +334,13 @@ private fun CommandPaletteModal(
                     }
                     Key.DirectionDown -> {
                         if (filteredCommands.isNotEmpty()) {
-                            selectedIndex = (selectedIndex + 1) % filteredCommands.size
+                            selectedIndex = movedCommandIndex(selectedIndex, 1, filteredCommands.size)
                         }
                         true
                     }
                     Key.DirectionUp -> {
                         if (filteredCommands.isNotEmpty()) {
-                            selectedIndex = (selectedIndex - 1).coerceAtLeast(0)
+                            selectedIndex = movedCommandIndex(selectedIndex, -1, filteredCommands.size)
                         }
                         true
                     }
@@ -243,7 +369,7 @@ private fun CommandPaletteModal(
             Spacer(Modifier.size(8.dp))
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (searchQuery.text.isEmpty()) {
-                    Text("搜索操作、文件或 Pi 命令", color = Tx3, fontSize = 13.sp)
+                    Text("搜索所有内容：文件、符号、操作或 Pi 命令", color = Tx3, fontSize = 13.sp)
                 }
                 BasicTextField(
                 value = searchQuery,
@@ -333,7 +459,7 @@ private fun CommandPaletteModal(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("没有匹配的操作", color = Tx3, fontSize = 12.sp)
+                        Text("没有匹配的文件、符号或操作", color = Tx3, fontSize = 12.sp)
                     }
                 }
             }
@@ -350,13 +476,18 @@ private fun CommandItem(
     IdeListRow(
         onClick = onClick,
         selected = isSelected,
-        rowHeight = 30.dp,
+        rowHeight = if (command.description.isBlank()) 30.dp else 40.dp,
         leading = {
             Icon(commandVector(command), null, tint = if (isSelected) Tx2 else Tx3, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(8.dp))
         },
         content = {
-            Text(command.name, color = if (isSelected) Tx else Tx2, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1)
+            Column(Modifier.weight(1f)) {
+                Text(command.name, color = if (isSelected) Tx else Tx2, fontSize = 12.sp, maxLines = 1)
+                if (command.description.isNotBlank()) {
+                    Text(command.description, color = Tx3, fontSize = 9.sp, maxLines = 1)
+                }
+            }
         },
         trailing = {
             if (command.shortcut.isNotBlank()) {
@@ -367,6 +498,8 @@ private fun CommandItem(
 }
 
 private fun commandVector(command: Command): ImageVector = when {
+    command.filePath != null && command.line != null -> Feather.Code
+    command.filePath != null -> semanticFileIconSpec(command.filePath.fileName()).imageVector
     command.id == "new-session" -> Feather.Plus
     command.id.contains("workspace") -> Feather.Folder
     command.id == "open-settings" -> Feather.Settings

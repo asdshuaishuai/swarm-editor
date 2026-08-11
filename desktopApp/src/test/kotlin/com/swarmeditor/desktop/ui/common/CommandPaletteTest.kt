@@ -3,6 +3,8 @@ package com.swarmeditor.desktop.ui.common
 import androidx.compose.ui.graphics.Color
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.backend.pi.PiCommandInfo
+import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.desktop.api.FileNodeDto
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -47,6 +49,91 @@ class CommandPaletteTest {
         assertEquals("最近文件", command.name)
         assertEquals("导航", command.group)
         assertEquals("Ctrl/Cmd+E", command.shortcut)
+    }
+
+    @Test
+    fun `search everywhere flattens project files and ranks file names before paths`() {
+        val tree = FileNodeDto(
+            name = "project",
+            path = "",
+            isDirectory = true,
+            children = listOf(
+                FileNodeDto("src", "src", true, listOf(FileNodeDto("Main.kt", "src/Main.kt"))),
+                FileNodeDto("docs", "docs", true, listOf(FileNodeDto("main-guide.md", "docs/main-guide.md"))),
+                FileNodeDto("README.md", "README.md"),
+            ),
+        )
+
+        val files = projectFilePaths(tree)
+        val results = searchEverywhereCommands(
+            baseCommands = emptyList(),
+            projectFiles = files,
+            recentFiles = emptyList(),
+            symbols = emptyList(),
+            currentPath = null,
+            query = "main",
+        )
+
+        assertEquals(listOf("src/Main.kt", "docs/main-guide.md"), results.mapNotNull { it.filePath })
+        assertEquals(listOf("Main.kt", "main-guide.md"), results.map { it.name })
+    }
+
+    @Test
+    fun `search everywhere mixes current symbols and actions after file results`() {
+        val results = searchEverywhereCommands(
+            baseCommands = listOf(Command("open-settings", "打开设置", "命令")),
+            projectFiles = listOf("docs/settings.md"),
+            recentFiles = emptyList(),
+            symbols = listOf(SourceSymbol("SettingsPanel", "Class", 42, "UI")),
+            currentPath = "desktopApp/Settings.kt",
+            query = "settings",
+        )
+
+        assertEquals(listOf("文件", "符号"), results.take(2).map { it.group })
+        assertEquals("desktopApp/Settings.kt", results[1].filePath)
+        assertEquals(42, results[1].line)
+        assertEquals("命令", results.last().group)
+    }
+
+    @Test
+    fun `blank search shows distinct recent files before actions`() {
+        val results = searchEverywhereCommands(
+            baseCommands = listOf(Command("open-settings", "打开设置", "命令")),
+            projectFiles = listOf("ignored.kt"),
+            recentFiles = listOf("README.md", "src/Main.kt", "README.md"),
+            symbols = emptyList(),
+            currentPath = null,
+            query = "",
+        )
+
+        assertEquals(listOf("README.md", "src/Main.kt"), results.take(2).mapNotNull { it.filePath })
+        assertEquals("命令", results.last().group)
+    }
+
+    @Test
+    fun `search everywhere keyboard selection wraps`() {
+        assertEquals(2, movedCommandIndex(0, -1, 3))
+        assertEquals(0, movedCommandIndex(2, 1, 3))
+        assertEquals(0, movedCommandIndex(0, 1, 0))
+    }
+
+    @Test
+    fun `search everywhere excludes generated and dependency roots`() {
+        val results = searchEverywhereCommands(
+            baseCommands = emptyList(),
+            projectFiles = listOf(
+                "desktopApp/src/main/Main.kt",
+                "desktopApp/build/generated/Main.kt",
+                "pi-0.83.0/packages/agent/dist/main.js",
+                "web/node_modules/pkg/main.js",
+            ),
+            recentFiles = emptyList(),
+            symbols = emptyList(),
+            currentPath = null,
+            query = "main",
+        )
+
+        assertEquals(listOf("desktopApp/src/main/Main.kt"), results.mapNotNull { it.filePath })
     }
 
     @Test

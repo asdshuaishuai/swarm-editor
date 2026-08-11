@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -102,6 +103,11 @@ data class AgentInfo(
     val model: String = "",
     val enabled: Boolean = true
 )
+
+internal fun isDoubleShiftTap(previousNanos: Long, currentNanos: Long): Boolean {
+    if (previousNanos <= 0L || currentNanos <= previousNanos) return false
+    return currentNanos - previousNanos in 50_000_000L..420_000_000L
+}
 
 @Composable
 fun WindowScope.App(
@@ -241,6 +247,7 @@ fun WindowScope.App(
     val hazeState = rememberHazeState()
 
     var showRightPanel by remember { mutableStateOf(true) }
+    var lastShiftTapNanos by remember { mutableLongStateOf(0L) }
     var rightTab by remember {
         mutableStateOf(
             System.getProperty("swarm.rightTab")
@@ -419,7 +426,11 @@ fun WindowScope.App(
     }
 
     val handleCommand: (Command) -> Unit = { cmd ->
-        when (cmd.id) {
+        if (cmd.filePath != null) {
+            root.switchView("files")
+            if (cmd.line == null) root.projectVm.selectFile(cmd.filePath)
+            else root.projectVm.navigateToFile(cmd.filePath, cmd.line)
+        } else when (cmd.id) {
             "new-session" -> createSession()
             "open-workspace" -> onOpenWorkspace()
             "create-workspace" -> onCreateWorkspace()
@@ -455,7 +466,17 @@ fun WindowScope.App(
             .fillMaxSize()
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isShiftKey = keyEvent.key == Key.ShiftLeft || keyEvent.key == Key.ShiftRight
+                if (!isShiftKey) lastShiftTapNanos = 0L
                 when {
+                    isShiftKey -> {
+                        val now = System.nanoTime()
+                        val shouldOpen = isDoubleShiftTap(lastShiftTapNanos, now) &&
+                            dialog == null && detailDialog == null && diffChange == null && !showRecentFiles
+                        lastShiftTapNanos = if (shouldOpen) 0L else now
+                        if (shouldOpen) root.showCmdKDialog()
+                        shouldOpen
+                    }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) &&
                         keyEvent.key == Key.V && currentConfig == MainConfig.Chat && clipboardHasImages() -> {
                         coroutineScope.launch {
@@ -912,6 +933,10 @@ fun WindowScope.App(
         onCommand = handleCommand,
         agents = agents,
         piCommands = piCommands,
+        projectTree = projectTree,
+        recentFiles = projectRecentFiles,
+        currentPath = projectFilePreview.path,
+        symbols = projectFilePreview.symbols,
     )
 
     PiExtensionStatusOverlay(
