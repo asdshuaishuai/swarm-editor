@@ -72,3 +72,11 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - `FindPopupPanel` treats query options as explicit model state and reports matches, files, incomplete results, validation, and progress independently. Swarm mirrors the current useful subset with plain-text search, case sensitivity, scanned-file counts, bounded results, and precise line/character locations.
 - Swarm's implementation remains an in-process Kotlin service. `ProjectService` owns path-safe traversal and UTF-8 validation; `ProjectViewModel` owns debounce, cancellation, stale-result rejection, and immutable UI state.
 - `Ctrl/Cmd+Shift+F` opens a dedicated grouped result popup. Matching ranges are highlighted, file groups reuse semantic icons, and Up/Down/Enter/Escape support complete keyboard navigation without changing Search Everywhere semantics.
+
+## Version Control Findings
+
+- IntelliJ's `ChangesTree` keeps grouping policy independent from the underlying change collection. Swarm now supports directory and flat projections over the same staged, modified, and untracked data instead of maintaining separate lists.
+- Directory grouping compacts single-child path chains such as `src/main/kotlin`, sorts directories before files, preserves per-directory expansion state, and shows recursive change counts.
+- Exact row navigation and inclusion are separate states in JetBrains' model. Swarm mirrors this distinction: opening a diff controls the lead row, while compact checkboxes build an independent multi-file batch selection.
+- Stage and unstage toolbar actions operate on the explicit selection when present and fall back to the full applicable set otherwise. Files with both staged and unstaged hunks remain distinct entries through scope-aware selection keys.
+- Tree rebuilding is derived from immutable Git status data, while expansion and inclusion remain local Compose state. Refreshes discard only selections that no longer exist instead of resetting the entire tool window.

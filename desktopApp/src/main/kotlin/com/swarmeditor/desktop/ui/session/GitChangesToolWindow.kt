@@ -2,6 +2,7 @@ package com.swarmeditor.desktop.ui.session
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +71,11 @@ import com.swarmeditor.desktop.ui.common.IdeToolWindowHeader
 import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Check
+import com.woowla.compose.icon.collections.feather.feather.ChevronDown
+import com.woowla.compose.icon.collections.feather.feather.ChevronRight
+import com.woowla.compose.icon.collections.feather.feather.Folder
 import com.woowla.compose.icon.collections.feather.feather.GitBranch
+import com.woowla.compose.icon.collections.feather.feather.List
 import com.woowla.compose.icon.collections.feather.feather.RefreshCw
 import com.woowla.compose.icon.collections.feather.feather.X
 
@@ -78,6 +84,92 @@ private enum class GitChangeGroup(val title: String) {
     MODIFIED("未暂存"),
     UNTRACKED("未跟踪"),
 }
+
+internal enum class GitChangesGrouping {
+    DIRECTORY,
+    FLAT,
+}
+
+internal sealed interface GitChangeTreeEntry {
+    val depth: Int
+
+    data class Directory(
+        val path: String,
+        val label: String,
+        val changeCount: Int,
+        override val depth: Int,
+    ) : GitChangeTreeEntry
+
+    data class File(
+        val change: GitFileChangeDto,
+        val showParentPath: Boolean,
+        override val depth: Int,
+    ) : GitChangeTreeEntry
+}
+
+internal fun gitChangeTreeEntries(
+    changes: List<GitFileChangeDto>,
+    grouping: GitChangesGrouping,
+    collapsedDirectories: Set<String> = emptySet(),
+): List<GitChangeTreeEntry> {
+    if (grouping == GitChangesGrouping.FLAT) {
+        return changes
+            .sortedWith(compareBy({ it.name.lowercase() }, { it.path.lowercase() }))
+            .map { change -> GitChangeTreeEntry.File(change, showParentPath = true, depth = 0) }
+    }
+
+    val root = MutableGitDirectory(name = "", path = "")
+    changes.forEach { change ->
+        val segments = change.path.replace('\\', '/').split('/').filter(String::isNotBlank)
+        var directory = root
+        segments.dropLast(1).forEach { segment ->
+            val childPath = listOf(directory.path, segment).filter(String::isNotBlank).joinToString("/")
+            directory = directory.directories.getOrPut(segment) { MutableGitDirectory(segment, childPath) }
+        }
+        directory.files += change
+    }
+
+    return buildList {
+        fun emitContents(directory: MutableGitDirectory, depth: Int) {
+            directory.directories.values.sortedBy { it.name.lowercase() }.forEach { initialDirectory ->
+                var compacted = initialDirectory
+                val labels = mutableListOf(initialDirectory.name)
+                while (compacted.files.isEmpty() && compacted.directories.size == 1) {
+                    compacted = compacted.directories.values.single()
+                    labels += compacted.name
+                }
+                add(
+                    GitChangeTreeEntry.Directory(
+                        path = compacted.path,
+                        label = labels.joinToString("/"),
+                        changeCount = compacted.totalChangeCount(),
+                        depth = depth,
+                    ),
+                )
+                if (compacted.path !in collapsedDirectories) emitContents(compacted, depth + 1)
+            }
+            directory.files
+                .sortedWith(compareBy({ it.name.lowercase() }, { it.path.lowercase() }))
+                .forEach { change ->
+                    add(GitChangeTreeEntry.File(change, showParentPath = false, depth = depth))
+                }
+        }
+        emitContents(root, depth = 0)
+    }
+}
+
+private class MutableGitDirectory(
+    val name: String,
+    val path: String,
+) {
+    val directories = linkedMapOf<String, MutableGitDirectory>()
+    val files = mutableListOf<GitFileChangeDto>()
+
+    fun totalChangeCount(): Int = files.size + directories.values.sumOf(MutableGitDirectory::totalChangeCount)
+}
+
+private fun gitChangeSelectionKey(staged: Boolean, path: String): String =
+    "${if (staged) "staged" else "unstaged"}:$path"
 
 @Composable
 internal fun GitChangesToolWindow(
@@ -103,12 +195,57 @@ internal fun GitChangesToolWindow(
     var modifiedExpanded by remember { mutableStateOf(true) }
     var untrackedExpanded by remember { mutableStateOf(true) }
     var selectedChangeKey by remember { mutableStateOf<String?>(null) }
+    var includedChangeKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var grouping by remember { mutableStateOf(GitChangesGrouping.DIRECTORY) }
+    var stagedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var modifiedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var untrackedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val stagedEntries = remember(staged, grouping, stagedCollapsed) {
+        gitChangeTreeEntries(staged, grouping, stagedCollapsed)
+    }
+    val modifiedEntries = remember(modified, grouping, modifiedCollapsed) {
+        gitChangeTreeEntries(modified, grouping, modifiedCollapsed)
+    }
+    val untrackedEntries = remember(untracked, grouping, untrackedCollapsed) {
+        gitChangeTreeEntries(untracked, grouping, untrackedCollapsed)
+    }
+    val selectedStaged = remember(staged, includedChangeKeys) {
+        staged.filter { gitChangeSelectionKey(staged = true, it.path) in includedChangeKeys }
+    }
+    val selectedUnstaged = remember(modified, untracked, includedChangeKeys) {
+        (modified + untracked).filter { gitChangeSelectionKey(staged = false, it.path) in includedChangeKeys }
+    }
+    val stageTargets = if (includedChangeKeys.isEmpty()) modified + untracked else selectedUnstaged
+    val unstageTargets = if (includedChangeKeys.isEmpty()) staged else selectedStaged
+
+    LaunchedEffect(gitStatus.changes) {
+        val validKeys = buildSet {
+            staged.forEach { add(gitChangeSelectionKey(staged = true, it.path)) }
+            (modified + untracked).forEach { add(gitChangeSelectionKey(staged = false, it.path)) }
+        }
+        includedChangeKeys = includedChangeKeys.intersect(validKeys)
+        if (selectedChangeKey !in validKeys) selectedChangeKey = null
+    }
 
     Column(modifier.fillMaxSize().background(Bg1)) {
         IdeToolWindowHeader(
             title = "版本控制",
-            detail = gitStatus.branch.ifBlank { "Git" },
+            detail = includedChangeKeys.takeIf { it.isNotEmpty() }
+                ?.let { "已选择 ${it.size} 项" }
+                ?: gitStatus.branch.ifBlank { "Git" },
             actions = {
+                IdeActionButton(
+                    icon = if (grouping == GitChangesGrouping.DIRECTORY) Feather.List else Feather.Folder,
+                    contentDescription = if (grouping == GitChangesGrouping.DIRECTORY) "平铺显示变更" else "按目录显示变更",
+                    tint = Ac,
+                    onClick = {
+                        grouping = if (grouping == GitChangesGrouping.DIRECTORY) {
+                            GitChangesGrouping.FLAT
+                        } else {
+                            GitChangesGrouping.DIRECTORY
+                        }
+                    },
+                )
                 IdeActionButton(
                     icon = Feather.RefreshCw,
                     contentDescription = "刷新 Git 状态",
@@ -117,17 +254,17 @@ internal fun GitChangesToolWindow(
                 )
                 IdeActionButton(
                     icon = Feather.Check,
-                    contentDescription = "全部暂存",
-                    enabled = !isBusy && (modified.isNotEmpty() || untracked.isNotEmpty()),
+                    contentDescription = if (includedChangeKeys.isEmpty()) "全部暂存" else "暂存所选变更",
+                    enabled = !isBusy && stageTargets.isNotEmpty(),
                     tint = AgentGemini,
-                    onClick = { onStageAll((modified + untracked).map(GitFileChangeDto::path).distinct()) },
+                    onClick = { onStageAll(stageTargets.map(GitFileChangeDto::path).distinct()) },
                 )
                 IdeActionButton(
                     icon = Feather.X,
-                    contentDescription = "全部取消暂存",
-                    enabled = !isBusy && staged.isNotEmpty(),
+                    contentDescription = if (includedChangeKeys.isEmpty()) "全部取消暂存" else "取消暂存所选变更",
+                    enabled = !isBusy && unstageTargets.isNotEmpty(),
                     tint = ErrLight,
-                    onClick = { onUnstageAll(staged.map(GitFileChangeDto::path)) },
+                    onClick = { onUnstageAll(unstageTargets.map(GitFileChangeDto::path)) },
                 )
             },
         )
@@ -150,16 +287,17 @@ internal fun GitChangesToolWindow(
                     )
                 }
                 if (stagedExpanded) {
-                    items(staged, key = { "staged:${it.path}" }) { change ->
-                        val key = "staged:${change.path}"
-                        GitChangeRow(
-                            change = change,
+                    items(stagedEntries, key = { entry -> "staged:${entry.entryKey}" }) { entry ->
+                        GitChangeTreeEntryRow(
+                            entry = entry,
                             staged = true,
-                            selected = selectedChangeKey == key,
-                            onOpenDiff = {
-                                selectedChangeKey = key
-                                onOpenDiff(it)
-                            },
+                            collapsedDirectories = stagedCollapsed,
+                            onToggleDirectory = { path -> stagedCollapsed = stagedCollapsed.toggle(path) },
+                            selectedChangeKey = selectedChangeKey,
+                            includedChangeKeys = includedChangeKeys,
+                            onSelectedChange = { selectedChangeKey = it },
+                            onIncludedChanges = { includedChangeKeys = it },
+                            onOpenDiff = onOpenDiff,
                             onStageFile = onStageFile,
                             onUnstageFile = onUnstageFile,
                         )
@@ -177,16 +315,17 @@ internal fun GitChangesToolWindow(
                     )
                 }
                 if (modifiedExpanded) {
-                    items(modified, key = { "modified:${it.path}" }) { change ->
-                        val key = "modified:${change.path}"
-                        GitChangeRow(
-                            change = change,
+                    items(modifiedEntries, key = { entry -> "modified:${entry.entryKey}" }) { entry ->
+                        GitChangeTreeEntryRow(
+                            entry = entry,
                             staged = false,
-                            selected = selectedChangeKey == key,
-                            onOpenDiff = {
-                                selectedChangeKey = key
-                                onOpenDiff(it)
-                            },
+                            collapsedDirectories = modifiedCollapsed,
+                            onToggleDirectory = { path -> modifiedCollapsed = modifiedCollapsed.toggle(path) },
+                            selectedChangeKey = selectedChangeKey,
+                            includedChangeKeys = includedChangeKeys,
+                            onSelectedChange = { selectedChangeKey = it },
+                            onIncludedChanges = { includedChangeKeys = it },
+                            onOpenDiff = onOpenDiff,
                             onStageFile = onStageFile,
                             onUnstageFile = onUnstageFile,
                         )
@@ -204,16 +343,17 @@ internal fun GitChangesToolWindow(
                     )
                 }
                 if (untrackedExpanded) {
-                    items(untracked, key = { "untracked:${it.path}" }) { change ->
-                        val key = "untracked:${change.path}"
-                        GitChangeRow(
-                            change = change,
+                    items(untrackedEntries, key = { entry -> "untracked:${entry.entryKey}" }) { entry ->
+                        GitChangeTreeEntryRow(
+                            entry = entry,
                             staged = false,
-                            selected = selectedChangeKey == key,
-                            onOpenDiff = {
-                                selectedChangeKey = key
-                                onOpenDiff(it)
-                            },
+                            collapsedDirectories = untrackedCollapsed,
+                            onToggleDirectory = { path -> untrackedCollapsed = untrackedCollapsed.toggle(path) },
+                            selectedChangeKey = selectedChangeKey,
+                            includedChangeKeys = includedChangeKeys,
+                            onSelectedChange = { selectedChangeKey = it },
+                            onIncludedChanges = { includedChangeKeys = it },
+                            onOpenDiff = onOpenDiff,
                             onStageFile = onStageFile,
                             onUnstageFile = onUnstageFile,
                         )
@@ -281,11 +421,100 @@ private fun GitChangeGroupHeader(
     )
 }
 
+private val GitChangeTreeEntry.entryKey: String
+    get() = when (this) {
+        is GitChangeTreeEntry.Directory -> "directory:$path"
+        is GitChangeTreeEntry.File -> "file:${change.path}"
+    }
+
+private fun Set<String>.toggle(value: String): Set<String> =
+    if (value in this) this - value else this + value
+
+@Composable
+private fun GitChangeTreeEntryRow(
+    entry: GitChangeTreeEntry,
+    staged: Boolean,
+    collapsedDirectories: Set<String>,
+    onToggleDirectory: (String) -> Unit,
+    selectedChangeKey: String?,
+    includedChangeKeys: Set<String>,
+    onSelectedChange: (String) -> Unit,
+    onIncludedChanges: (Set<String>) -> Unit,
+    onOpenDiff: (GitFileChangeDto) -> Unit,
+    onStageFile: (String) -> Unit,
+    onUnstageFile: (String) -> Unit,
+) {
+    when (entry) {
+        is GitChangeTreeEntry.Directory -> GitDirectoryRow(
+            directory = entry,
+            expanded = entry.path !in collapsedDirectories,
+            onToggle = { onToggleDirectory(entry.path) },
+        )
+        is GitChangeTreeEntry.File -> {
+            val selectionKey = gitChangeSelectionKey(staged, entry.change.path)
+            GitChangeRow(
+                change = entry.change,
+                staged = staged,
+                depth = entry.depth,
+                showParentPath = entry.showParentPath,
+                selected = selectedChangeKey == selectionKey,
+                included = selectionKey in includedChangeKeys,
+                onToggleIncluded = { onIncludedChanges(includedChangeKeys.toggle(selectionKey)) },
+                onOpenDiff = {
+                    onSelectedChange(selectionKey)
+                    onOpenDiff(it)
+                },
+                onStageFile = onStageFile,
+                onUnstageFile = onUnstageFile,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GitDirectoryRow(
+    directory: GitChangeTreeEntry.Directory,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(27.dp)
+            .clickable(onClick = onToggle)
+            .padding(start = (directory.depth * 14 + 5).dp, end = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (expanded) Feather.ChevronDown else Feather.ChevronRight,
+            null,
+            tint = Tx3,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Icon(Feather.Folder, null, tint = Ac.withAlpha(0.82f), modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            directory.label,
+            color = Tx2,
+            style = AppType.caption,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(directory.changeCount.toString(), color = Tx3, style = AppType.micro)
+    }
+}
+
 @Composable
 private fun GitChangeRow(
     change: GitFileChangeDto,
     staged: Boolean,
+    depth: Int,
+    showParentPath: Boolean,
     selected: Boolean,
+    included: Boolean,
+    onToggleIncluded: () -> Unit,
     onOpenDiff: (GitFileChangeDto) -> Unit,
     onStageFile: (String) -> Unit,
     onUnstageFile: (String) -> Unit,
@@ -309,8 +538,14 @@ private fun GitChangeRow(
     IdeListRow(
         onClick = { onOpenDiff(scopedChange) },
         selected = selected,
-        modifier = Modifier.padding(horizontal = 3.dp),
+        modifier = Modifier.padding(start = (depth * 14 + 3).dp, end = 3.dp),
         leading = {
+            GitInclusionToggle(
+                included = included,
+                contentDescription = if (included) "从批量操作中移除 ${change.name}" else "加入批量操作 ${change.name}",
+                onClick = onToggleIncluded,
+            )
+            Spacer(Modifier.width(6.dp))
             Icon(icon.imageVector, null, tint = icon.accent, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
         },
@@ -324,7 +559,7 @@ private fun GitChangeRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val parent = change.path.substringBeforeLast('/', "")
-            if (parent.isNotEmpty()) {
+            if (showParentPath && parent.isNotEmpty()) {
                 Spacer(Modifier.width(7.dp))
                 Text(
                     parent,
@@ -356,6 +591,27 @@ private fun GitChangeRow(
             )
         },
     )
+}
+
+@Composable
+private fun GitInclusionToggle(
+    included: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(14.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(if (included) Ac.withAlpha(0.2f) else Color.Transparent)
+            .border(1.dp, if (included) Ac else Line2, RoundedCornerShape(3.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (included) {
+            Icon(Feather.Check, contentDescription, tint = Ac, modifier = Modifier.size(10.dp))
+        }
+    }
 }
 
 @Composable
