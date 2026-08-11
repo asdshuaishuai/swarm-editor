@@ -80,6 +80,8 @@ import com.swarmeditor.desktop.ui.common.semanticFileIconSpec
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.AlertCircle
+import com.woowla.compose.icon.collections.feather.feather.ArrowLeft
+import com.woowla.compose.icon.collections.feather.feather.ArrowRight
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
 import com.woowla.compose.icon.collections.feather.feather.ChevronDown
 import com.woowla.compose.icon.collections.feather.feather.ChevronUp
@@ -118,9 +120,13 @@ internal fun EditorWorkspace(
     preview: ProjectViewModel.FilePreviewState,
     openFiles: List<String>,
     dirtyPaths: Set<String>,
+    canNavigateBack: Boolean,
+    canNavigateForward: Boolean,
     change: GitFileChangeDto?,
     onSelectFile: (String) -> Unit,
     onCloseFile: (String) -> Unit,
+    onNavigateBack: () -> Unit,
+    onNavigateForward: () -> Unit,
     onOpenDiff: (GitFileChangeDto) -> Unit,
     onInspectPosition: (Int, Int) -> Unit,
     onOpenDefinition: (SourceLocation) -> Unit,
@@ -132,7 +138,17 @@ internal fun EditorWorkspace(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxHeight().background(Bg0)) {
-        EditorTabStrip(openFiles, preview.path, dirtyPaths, onSelectFile, onCloseFile)
+        EditorTabStrip(
+            openFiles = openFiles,
+            selectedPath = preview.path,
+            dirtyPaths = dirtyPaths,
+            canNavigateBack = canNavigateBack,
+            canNavigateForward = canNavigateForward,
+            onSelectFile = onSelectFile,
+            onCloseFile = onCloseFile,
+            onNavigateBack = onNavigateBack,
+            onNavigateForward = onNavigateForward,
+        )
         if (preview.path == null) {
             EmptyEditorState(Modifier.weight(1f))
             return@Column
@@ -163,27 +179,54 @@ private fun EditorTabStrip(
     openFiles: List<String>,
     selectedPath: String?,
     dirtyPaths: Set<String>,
+    canNavigateBack: Boolean,
+    canNavigateForward: Boolean,
     onSelectFile: (String) -> Unit,
     onCloseFile: (String) -> Unit,
+    onNavigateBack: () -> Unit,
+    onNavigateForward: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(36.dp).background(Bg1).border(1.dp, Line)
-            .horizontalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().height(36.dp).background(Bg1).border(1.dp, Line),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (openFiles.isEmpty()) {
-            Text("无打开文件", color = Tx3, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 12.dp))
-        } else {
-            openFiles.forEach { path ->
-                EditorFileTab(
-                    path = path,
-                    selected = path == selectedPath,
-                    dirty = path in dirtyPaths,
-                    onSelect = { onSelectFile(path) },
-                    onClose = { onCloseFile(path) },
-                    onCloseOthers = { openFiles.filterNot { it == path }.forEach(onCloseFile) },
-                    onCloseAll = { openFiles.forEach(onCloseFile) },
-                )
+        Row(
+            Modifier.width(66.dp).fillMaxHeight().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            IdeActionButton(
+                Feather.ArrowLeft,
+                "后退（Ctrl+Alt+←）",
+                onNavigateBack,
+                enabled = canNavigateBack,
+            )
+            IdeActionButton(
+                Feather.ArrowRight,
+                "前进（Ctrl+Alt+→）",
+                onNavigateForward,
+                enabled = canNavigateForward,
+            )
+        }
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Line))
+        Row(
+            Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (openFiles.isEmpty()) {
+                Text("无打开文件", color = Tx3, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 12.dp))
+            } else {
+                openFiles.forEach { path ->
+                    EditorFileTab(
+                        path = path,
+                        selected = path == selectedPath,
+                        dirty = path in dirtyPaths,
+                        onSelect = { onSelectFile(path) },
+                        onClose = { onCloseFile(path) },
+                        onCloseOthers = { openFiles.filterNot { it == path }.forEach(onCloseFile) },
+                        onCloseAll = { openFiles.forEach(onCloseFile) },
+                    )
+                }
             }
         }
     }

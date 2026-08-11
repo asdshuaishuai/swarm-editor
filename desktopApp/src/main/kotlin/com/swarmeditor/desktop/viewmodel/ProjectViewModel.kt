@@ -27,6 +27,20 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class EditorLocation(
+    val path: String,
+    val line: Int? = null,
+)
+
+data class EditorNavigationState(
+    val current: EditorLocation? = null,
+    val backStack: List<EditorLocation> = emptyList(),
+    val forwardStack: List<EditorLocation> = emptyList(),
+) {
+    val canNavigateBack: Boolean get() = backStack.isNotEmpty()
+    val canNavigateForward: Boolean get() = forwardStack.isNotEmpty()
+}
+
 class ProjectViewModel(
     private val service: ProjectService,
     private val scope: CoroutineScope,
@@ -76,6 +90,8 @@ class ProjectViewModel(
     val openFiles: StateFlow<List<String>> = _openFiles
     private val _recentFiles = MutableStateFlow<List<String>>(emptyList())
     val recentFiles: StateFlow<List<String>> = _recentFiles.asStateFlow()
+    private val _navigationState = MutableStateFlow(EditorNavigationState())
+    val navigationState: StateFlow<EditorNavigationState> = _navigationState.asStateFlow()
     private var previewJob: Job? = null
     private var positionJob: Job? = null
     private val previewRequestIds = AtomicLong()
@@ -106,11 +122,20 @@ class ProjectViewModel(
         }
     }
 
-    fun selectFile(path: String) = selectFile(path, navigationLine = null)
+    fun selectFile(path: String) = selectFile(path, navigationLine = null, recordNavigation = true)
 
-    fun navigateToFile(path: String, line: Int) = selectFile(path, navigationLine = line.coerceAtLeast(0))
+    fun navigateToFile(path: String, line: Int) = selectFile(
+        path,
+        navigationLine = line.coerceAtLeast(0),
+        recordNavigation = true,
+    )
 
-    private fun selectFile(path: String, navigationLine: Int?) {
+    fun navigateBack() = navigateHistory(backward = true)
+
+    fun navigateForward() = navigateHistory(backward = false)
+
+    private fun selectFile(path: String, navigationLine: Int?, recordNavigation: Boolean) {
+        if (recordNavigation) recordEditorLocation(EditorLocation(path, navigationLine))
         _openFiles.value = (_openFiles.value + path).distinct().takeLast(MAX_OPEN_FILES)
         _recentFiles.value = (listOf(path) + _recentFiles.value.filterNot { it == path }).take(MAX_RECENT_FILES)
         val requestId = previewRequestIds.incrementAndGet()
@@ -270,7 +295,7 @@ class ProjectViewModel(
                 drafts.remove(path)
                 draftBaselines.remove(path)
                 updateDirtyPaths()
-                selectFile(path)
+                selectFile(path, current.navigationLine, recordNavigation = false)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -295,7 +320,11 @@ class ProjectViewModel(
         val root = java.io.File(projectPath).toPath().toRealPath()
         val target = runCatching { java.nio.file.Path.of(URI(location.uri)).toRealPath() }.getOrNull() ?: return
         if (!target.startsWith(root)) return
-        selectFile(root.relativize(target).toString().replace('\\', '/'), location.line)
+        selectFile(
+            root.relativize(target).toString().replace('\\', '/'),
+            navigationLine = location.line,
+            recordNavigation = true,
+        )
     }
 
     fun closeFile(path: String) {
@@ -313,13 +342,53 @@ class ProjectViewModel(
         if (nextPath == null) {
             _filePreview.value = FilePreviewState()
         } else {
-            selectFile(nextPath)
+            selectFile(nextPath, navigationLine = null, recordNavigation = true)
+        }
+    }
+
+    private fun recordEditorLocation(location: EditorLocation) {
+        while (true) {
+            val state = _navigationState.value
+            if (state.current == location) return
+            val next = state.copy(
+                current = location,
+                backStack = (state.backStack + listOfNotNull(state.current)).takeLast(MAX_NAVIGATION_PLACES),
+                forwardStack = emptyList(),
+            )
+            if (_navigationState.compareAndSet(state, next)) return
+        }
+    }
+
+    private fun navigateHistory(backward: Boolean) {
+        while (true) {
+            val state = _navigationState.value
+            val target = (if (backward) state.backStack.lastOrNull() else state.forwardStack.lastOrNull())
+                ?: return
+            val current = state.current
+            val next = if (backward) {
+                state.copy(
+                    current = target,
+                    backStack = state.backStack.dropLast(1),
+                    forwardStack = (state.forwardStack + listOfNotNull(current)).takeLast(MAX_NAVIGATION_PLACES),
+                )
+            } else {
+                state.copy(
+                    current = target,
+                    backStack = (state.backStack + listOfNotNull(current)).takeLast(MAX_NAVIGATION_PLACES),
+                    forwardStack = state.forwardStack.dropLast(1),
+                )
+            }
+            if (_navigationState.compareAndSet(state, next)) {
+                selectFile(target.path, target.line, recordNavigation = false)
+                return
+            }
         }
     }
 
     private companion object {
         const val MAX_OPEN_FILES = 12
         const val MAX_RECENT_FILES = 30
+        const val MAX_NAVIGATION_PLACES = 64
         const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
     }
 }

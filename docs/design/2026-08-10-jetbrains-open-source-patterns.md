@@ -56,3 +56,10 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - File contribution respects IDE-style excluded roots by omitting generated output and dependency directories such as `build`, `dist`, `node_modules`, `out`, and `target`.
 - Action matching includes both localized labels and stable action IDs. File rows carry semantic file-type icons and parent paths; symbol rows carry kind, container, source path, and line.
 - Search Everywhere remains available through `Ctrl/Cmd+K` and now also through the JetBrains-style double-Shift gesture. Workspace-wide symbols are intentionally deferred until the LSP boundary exposes a real workspace-symbol request.
+
+## Navigation History Findings
+
+- IntelliJ models navigation history separately from tabs and recent files. Swarm now keeps an immutable current location, back stack, and forward stack with file and optional source-line information.
+- New navigation appends the prior location and clears the forward stack. Back and forward navigation move locations between stacks without recording duplicate history entries.
+- Fixed editor-toolbar actions expose availability through disabled state, while `Ctrl/Cmd+Alt+Left/Right` and Search Everywhere actions provide equivalent keyboard access.
+- Reloading a saved file does not create navigation history. The current implementation records file, symbol, definition, and explicit line navigation; passive caret movement remains future editor-integration work.

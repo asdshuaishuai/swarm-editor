@@ -25,6 +25,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Activity
+import com.woowla.compose.icon.collections.feather.feather.ArrowLeft
+import com.woowla.compose.icon.collections.feather.feather.ArrowRight
 import com.woowla.compose.icon.collections.feather.feather.BookOpen
 import com.woowla.compose.icon.collections.feather.feather.Box
 import com.woowla.compose.icon.collections.feather.feather.Code
@@ -500,6 +502,8 @@ private fun CommandItem(
 private fun commandVector(command: Command): ImageVector = when {
     command.filePath != null && command.line != null -> Feather.Code
     command.filePath != null -> semanticFileIconSpec(command.filePath.fileName()).imageVector
+    command.id == "navigate-back" -> Feather.ArrowLeft
+    command.id == "navigate-forward" -> Feather.ArrowRight
     command.id == "new-session" -> Feather.Plus
     command.id.contains("workspace") -> Feather.Folder
     command.id == "open-settings" -> Feather.Settings
@@ -524,6 +528,8 @@ internal fun buildCommands(agents: List<AgentInfo>, piCommands: List<PiCommandIn
     commands.add(Command("open-workspace", "打开项目文件夹", "工作区", "⌘O"))
     commands.add(Command("create-workspace", "新建项目", "工作区"))
     commands.add(Command("recent-files", "最近文件", "导航", "Ctrl/Cmd+E"))
+    commands.add(Command("navigate-back", "导航后退", "导航", "Ctrl+Alt+←"))
+    commands.add(Command("navigate-forward", "导航前进", "导航", "Ctrl+Alt+→"))
     commands.add(Command("open-settings", "打开设置", "命令", "⌘,"))
 
     // Agent 配置

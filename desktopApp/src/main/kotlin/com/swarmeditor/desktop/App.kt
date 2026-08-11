@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -161,6 +162,7 @@ fun WindowScope.App(
     val projectFilePreview by root.projectVm.filePreview.collectAsState()
     val projectOpenFiles by root.projectVm.openFiles.collectAsState()
     val projectRecentFiles by root.projectVm.recentFiles.collectAsState()
+    val projectNavigationState by root.projectVm.navigationState.collectAsState()
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
@@ -435,6 +437,8 @@ fun WindowScope.App(
             "open-workspace" -> onOpenWorkspace()
             "create-workspace" -> onCreateWorkspace()
             "recent-files" -> { showRecentFiles = true }
+            "navigate-back" -> root.projectVm.navigateBack()
+            "navigate-forward" -> root.projectVm.navigateForward()
             "open-settings" -> { root.showSettingsDialog() }
             "view-chat" -> root.switchView("chat")
             "view-agents" -> root.switchView("agents")
@@ -476,6 +480,18 @@ fun WindowScope.App(
                         lastShiftTapNanos = if (shouldOpen) 0L else now
                         if (shouldOpen) root.showCmdKDialog()
                         shouldOpen
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isAltPressed &&
+                        keyEvent.key == Key.DirectionLeft && currentConfig == MainConfig.Files &&
+                        dialog == null && detailDialog == null && diffChange == null -> {
+                        root.projectVm.navigateBack()
+                        true
+                    }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isAltPressed &&
+                        keyEvent.key == Key.DirectionRight && currentConfig == MainConfig.Files &&
+                        dialog == null && detailDialog == null && diffChange == null -> {
+                        root.projectVm.navigateForward()
+                        true
                     }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) &&
                         keyEvent.key == Key.V && currentConfig == MainConfig.Chat && clipboardHasImages() -> {
@@ -755,8 +771,12 @@ fun WindowScope.App(
                                 filePreview = projectFilePreview,
                                 openFiles = projectOpenFiles,
                                 dirtyPaths = projectDirtyPaths,
+                                canNavigateBack = projectNavigationState.canNavigateBack,
+                                canNavigateForward = projectNavigationState.canNavigateForward,
                                 onSelectFile = root.projectVm::selectFile,
                                 onCloseFile = root.projectVm::closeFile,
+                                onNavigateBack = root.projectVm::navigateBack,
+                                onNavigateForward = root.projectVm::navigateForward,
                                 onOpenDiff = { diffChange = it },
                                 onOpenWorkspace = onOpenWorkspace,
                                 onCreateWorkspace = onCreateWorkspace,

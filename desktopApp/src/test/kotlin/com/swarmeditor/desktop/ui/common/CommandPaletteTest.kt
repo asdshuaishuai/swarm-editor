@@ -44,11 +44,14 @@ class CommandPaletteTest {
 
     @Test
     fun `command palette exposes recent files navigation`() {
-        val command = buildCommands(emptyList()).single { it.id == "recent-files" }
+        val commands = buildCommands(emptyList())
+        val command = commands.single { it.id == "recent-files" }
 
         assertEquals("最近文件", command.name)
         assertEquals("导航", command.group)
         assertEquals("Ctrl/Cmd+E", command.shortcut)
+        assertEquals("Ctrl+Alt+←", commands.single { it.id == "navigate-back" }.shortcut)
+        assertEquals("Ctrl+Alt+→", commands.single { it.id == "navigate-forward" }.shortcut)
     }
 
     @Test
