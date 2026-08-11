@@ -2,6 +2,8 @@ package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.service.GitService
 import com.swarmeditor.desktop.api.GitFileChangeDto
+import com.swarmeditor.desktop.api.GitCommitDto
+import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,12 +24,17 @@ class GitViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val operationMutex = Mutex()
+    private val historyMutex = Mutex()
     private val _status = MutableStateFlow(GitStatusDto())
     val status: StateFlow<GitStatusDto> = _status.asStateFlow()
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     private val _commitMessage = MutableStateFlow("")
     val commitMessage: StateFlow<String> = _commitMessage.asStateFlow()
+    private val _history = MutableStateFlow(GitHistoryDto())
+    val history: StateFlow<GitHistoryDto> = _history.asStateFlow()
+    private val _isHistoryLoading = MutableStateFlow(false)
+    val isHistoryLoading: StateFlow<Boolean> = _isHistoryLoading.asStateFlow()
     private val eventChannel = Channel<String>(Channel.BUFFERED)
     val errorEvents = eventChannel.receiveAsFlow()
     private val successChannel = Channel<String>(Channel.BUFFERED)
@@ -35,6 +42,10 @@ class GitViewModel(
 
     fun refresh() {
         scope.launch(ioDispatcher) { refreshLocked() }
+    }
+
+    fun refreshHistory() {
+        scope.launch(ioDispatcher) { refreshHistoryLocked() }
     }
 
     fun stage(path: String) {
@@ -59,7 +70,7 @@ class GitViewModel(
 
     fun commit() {
         val message = _commitMessage.value
-        runOperation("Git 提交失败") {
+        runOperation("Git 提交失败", refreshHistory = true) {
             val commitHash = service.commit(message)
             _commitMessage.value = ""
             successChannel.trySend("已提交 ${commitHash.ifBlank { "HEAD" }}")
@@ -70,13 +81,20 @@ class GitViewModel(
         runOperation("Git 操作失败") { action(path) }
     }
 
-    private fun runOperation(fallbackMessage: String, action: () -> Unit) {
+    private fun runOperation(
+        fallbackMessage: String,
+        refreshHistory: Boolean = false,
+        action: () -> Unit,
+    ) {
         scope.launch(ioDispatcher) {
             operationMutex.withLock {
                 _isLoading.value = true
                 try {
                     action()
                     _status.value = service.getStatus().toDto()
+                    if (refreshHistory) {
+                        historyMutex.withLock { _history.value = service.getHistory().toDto() }
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -99,6 +117,21 @@ class GitViewModel(
                 eventChannel.send(error.message ?: "读取 Git 状态失败")
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    private suspend fun refreshHistoryLocked() {
+        historyMutex.withLock {
+            _isHistoryLoading.value = true
+            try {
+                _history.value = service.getHistory().toDto()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                eventChannel.send(error.message ?: "读取 Git 历史失败")
+            } finally {
+                _isHistoryLoading.value = false
             }
         }
     }
@@ -130,4 +163,20 @@ private fun GitService.GitStatus.toDto() = GitStatusDto(
             unstagedDiffLines = change.unstagedDiffLines,
         )
     }
+)
+
+private fun GitService.GitHistory.toDto() = GitHistoryDto(
+    commits = commits.map { commit ->
+        GitCommitDto(
+            hash = commit.hash,
+            shortHash = commit.shortHash,
+            parentHashes = commit.parentHashes,
+            authorName = commit.authorName,
+            authorEmail = commit.authorEmail,
+            authoredAtEpochSeconds = commit.authoredAtEpochSeconds,
+            subject = commit.subject,
+            refs = commit.refs,
+        )
+    },
+    truncated = truncated,
 )

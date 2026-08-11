@@ -38,6 +38,22 @@ class GitService(private val projectDir: File) {
         val changes: List<GitFileChange> = emptyList(),
     )
 
+    data class GitCommit(
+        val hash: String,
+        val shortHash: String,
+        val parentHashes: List<String>,
+        val authorName: String,
+        val authorEmail: String,
+        val authoredAtEpochSeconds: Long,
+        val subject: String,
+        val refs: List<String>,
+    )
+
+    data class GitHistory(
+        val commits: List<GitCommit> = emptyList(),
+        val truncated: Boolean = false,
+    )
+
     fun getStatus(): GitStatus {
         if (!isGitRepo()) return GitStatus(false, "", 0, 0, 0, 0, 0)
 
@@ -65,6 +81,27 @@ class GitService(private val projectDir: File) {
             modified = modified,
             untracked = untracked,
             changes = changes,
+        )
+    }
+
+    fun getHistory(maxCommits: Int = DEFAULT_HISTORY_LIMIT): GitHistory {
+        require(maxCommits in 1..MAX_HISTORY_LIMIT) { "Git history limit must be between 1 and $MAX_HISTORY_LIMIT" }
+        if (!isGitRepo()) return GitHistory()
+
+        val result = runGitRaw(
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=short",
+            "--max-count=${maxCommits + 1}",
+            "--pretty=format:%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%D%x1f%s",
+        )
+        if (result.exitCode != 0) return GitHistory()
+
+        val commits = parseHistory(result.bytes)
+        return GitHistory(
+            commits = commits.take(maxCommits),
+            truncated = commits.size > maxCommits,
         )
     }
 
@@ -251,6 +288,29 @@ class GitService(private val projectDir: File) {
         return parts[0].toIntOrNull().orZero() to parts[1].toIntOrNull().orZero()
     }
 
+    private fun parseHistory(bytes: ByteArray): List<GitCommit> {
+        return bytes.toString(Charsets.UTF_8)
+            .split(HISTORY_RECORD_SEPARATOR)
+            .asSequence()
+            .map { it.trim('\r', '\n') }
+            .filter(String::isNotEmpty)
+            .mapNotNull { record ->
+                val fields = record.split(HISTORY_FIELD_SEPARATOR, limit = 8)
+                if (fields.size != 8) return@mapNotNull null
+                GitCommit(
+                    hash = fields[0],
+                    shortHash = fields[1],
+                    parentHashes = fields[2].split(' ').filter(String::isNotBlank),
+                    authorName = fields[3],
+                    authorEmail = fields[4],
+                    authoredAtEpochSeconds = fields[5].toLongOrNull() ?: 0L,
+                    refs = fields[6].split(',').map(String::trim).filter(String::isNotEmpty),
+                    subject = fields[7],
+                )
+            }
+            .toList()
+    }
+
     private fun safeRelativePath(path: String): String {
         val root = projectDir.toPath().toAbsolutePath().normalize()
         val candidate = root.resolve(path).normalize()
@@ -326,6 +386,10 @@ class GitService(private val projectDir: File) {
 
     companion object {
         private const val COMMAND_TIMEOUT_SECONDS = 10L
+        private const val DEFAULT_HISTORY_LIMIT = 200
+        private const val MAX_HISTORY_LIMIT = 500
+        private const val HISTORY_RECORD_SEPARATOR = '\u001e'
+        private const val HISTORY_FIELD_SEPARATOR = '\u001f'
         private const val MAX_DIFF_LINES = 80
         private const val MAX_CAPTURED_OUTPUT_LINES = 20_000
         private const val MAX_UNTRACKED_READ_BYTES = 1_048_576L

@@ -171,6 +171,41 @@ class GitServiceTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun `reads decorated commit history in topological order with bounded results`() {
+        val directory = Files.createTempDirectory("git-service-history")
+        try {
+            val root = directory.toFile()
+            runGit(root, "init", "-q")
+            runGit(root, "config", "user.email", "history@example.com")
+            runGit(root, "config", "user.name", "History Author")
+            File(root, "history.txt").writeText("one\n")
+            runGit(root, "add", "history.txt")
+            runGit(root, "commit", "-qm", "Initial history")
+            runGit(root, "tag", "v1")
+            File(root, "history.txt").appendText("two\n")
+            runGit(root, "add", "history.txt")
+            runGit(root, "commit", "-qm", "Add second line")
+
+            val service = GitService(root)
+            val limited = service.getHistory(maxCommits = 1)
+            val history = service.getHistory(maxCommits = 10)
+
+            assertTrue(limited.truncated)
+            assertEquals("Add second line", limited.commits.single().subject)
+            assertEquals(2, history.commits.size)
+            assertEquals("History Author", history.commits.first().authorName)
+            assertEquals("history@example.com", history.commits.first().authorEmail)
+            assertEquals(1, history.commits.first().parentHashes.size)
+            assertTrue(history.commits.first().authoredAtEpochSeconds > 0)
+            assertTrue(history.commits.first().refs.any { it.contains("HEAD") })
+            assertTrue(history.commits.last().refs.any { it == "tag: v1" })
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
 }
 
 private fun runGit(directory: File, vararg args: String) {

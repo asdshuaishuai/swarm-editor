@@ -171,7 +171,9 @@ fun WindowScope.App(
     val projectSearchState by root.projectVm.searchState.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
+    val gitHistory by root.gitVm.history.collectAsState()
     val gitBusy by root.gitVm.isLoading.collectAsState()
+    val gitHistoryLoading by root.gitVm.isHistoryLoading.collectAsState()
     val gitCommitMessage by root.gitVm.commitMessage.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
@@ -838,7 +840,9 @@ fun WindowScope.App(
                             currentTab = rightTab,
                             onTabChange = { rightTab = it },
                             gitStatus = gitStatus,
+                            gitHistory = gitHistory,
                             gitBusy = gitBusy,
+                            gitHistoryLoading = gitHistoryLoading,
                             gitCommitMessage = gitCommitMessage,
                             activities = conversationActivities,
                             piRuntimeState = piRuntimeState,
@@ -869,6 +873,7 @@ fun WindowScope.App(
                             onUnstageFile = root.gitVm::unstage,
                             onUnstageAll = root.gitVm::unstageAll,
                             onGitRefresh = root.gitVm::refresh,
+                            onGitHistoryRefresh = root.gitVm::refreshHistory,
                             onGitCommitMessageChange = root.gitVm::setCommitMessage,
                             onGitCommit = root.gitVm::commit,
                             onOpenDiff = { diffChange = it },

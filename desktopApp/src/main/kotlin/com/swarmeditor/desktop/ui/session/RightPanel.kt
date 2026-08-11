@@ -78,6 +78,7 @@ import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.TokenUsage
 import com.swarmeditor.desktop.api.GitFileChangeDto
+import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.IdeToolWindowTab
@@ -123,6 +124,7 @@ fun RightPanel(
     currentTab: String,
     onTabChange: (String) -> Unit,
     gitStatus: GitStatusDto = GitStatusDto(),
+    gitHistory: GitHistoryDto = GitHistoryDto(),
     activities: List<ActivityEvent> = emptyList(),
     piRuntimeState: PiSessionState? = null,
     piRuntimeStats: PiSessionStats? = null,
@@ -134,6 +136,7 @@ fun RightPanel(
     isCompacting: Boolean = false,
     tokenUsageSummary: TokenUsageSummary = TokenUsageSummary(),
     gitBusy: Boolean = false,
+    gitHistoryLoading: Boolean = false,
     gitCommitMessage: String = "",
     onCompactContext: (String?) -> Boolean = { false },
     onRefreshModels: () -> Unit = {},
@@ -154,6 +157,7 @@ fun RightPanel(
     onUnstageFile: (String) -> Unit = {},
     onUnstageAll: (Collection<String>) -> Unit = {},
     onGitRefresh: () -> Unit = {},
+    onGitHistoryRefresh: () -> Unit = {},
     onGitCommitMessageChange: (String) -> Unit = {},
     onGitCommit: () -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
@@ -171,10 +175,13 @@ fun RightPanel(
             when (currentTab) {
                 "changes" -> GitChangesToolWindow(
                     gitStatus = gitStatus,
+                    gitHistory = gitHistory,
                     isBusy = gitBusy,
+                    isHistoryLoading = gitHistoryLoading,
                     commitMessage = gitCommitMessage,
                     onCommitMessageChange = onGitCommitMessageChange,
                     onRefresh = onGitRefresh,
+                    onRefreshHistory = onGitHistoryRefresh,
                     onStageFile = onStageFile,
                     onStageAll = onStageAll,
                     onUnstageFile = onUnstageFile,

@@ -80,3 +80,11 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - Exact row navigation and inclusion are separate states in JetBrains' model. Swarm mirrors this distinction: opening a diff controls the lead row, while compact checkboxes build an independent multi-file batch selection.
 - Stage and unstage toolbar actions operate on the explicit selection when present and fall back to the full applicable set otherwise. Files with both staged and unstaged hunks remain distinct entries through scope-aware selection keys.
 - Tree rebuilding is derived from immutable Git status data, while expansion and inclusion remain local Compose state. Refreshes discard only selections that no longer exist instead of resetting the entire tool window.
+
+## VCS Log Findings
+
+- IntelliJ separates the commit-list model, current selection, metadata cache, filters, and details surface. Swarm follows the same boundary with a backend history model, an immutable `GitHistoryDto`, independent loading state, and local selection/filter UI state.
+- History is read in topological order across all refs and retains full/short hashes, parent hashes, author identity, epoch time, subject, branch pointers, and tags. A bounded result explicitly reports truncation instead of silently pretending the log is complete.
+- Git Log is an internal VCS view beside Local Changes; it does not reuse the right-side Agent operation log. This preserves the rule that Agent logs record only tools, skills, MCP, and runtime actions.
+- Text filtering covers subject, author, email, hash, branch, and tag metadata. Case-sensitive and regular-expression options are independent, and malformed expressions produce visible validation rather than failing the history load.
+- The compact commit list keeps graph markers, reference chips, subject, author, hash, timestamp, keyboard row navigation, and selected-commit details within the narrow tool-window width.

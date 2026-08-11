@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.swarmeditor.desktop.api.GitFileChangeDto
+import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
 import com.swarmeditor.desktop.theme.Ac
 import com.swarmeditor.desktop.theme.ActionButton
@@ -83,6 +84,11 @@ private enum class GitChangeGroup(val title: String) {
     STAGED("已暂存"),
     MODIFIED("未暂存"),
     UNTRACKED("未跟踪"),
+}
+
+private enum class GitVcsMode(val label: String) {
+    CHANGES("本地变更"),
+    LOG("Git 日志"),
 }
 
 internal enum class GitChangesGrouping {
@@ -174,10 +180,13 @@ private fun gitChangeSelectionKey(staged: Boolean, path: String): String =
 @Composable
 internal fun GitChangesToolWindow(
     gitStatus: GitStatusDto,
+    gitHistory: GitHistoryDto,
     isBusy: Boolean,
+    isHistoryLoading: Boolean,
     commitMessage: String,
     onCommitMessageChange: (String) -> Unit,
     onRefresh: () -> Unit,
+    onRefreshHistory: () -> Unit,
     onStageFile: (String) -> Unit,
     onStageAll: (Collection<String>) -> Unit,
     onUnstageFile: (String) -> Unit,
@@ -200,6 +209,12 @@ internal fun GitChangesToolWindow(
     var stagedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var modifiedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var untrackedCollapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var vcsMode by remember {
+        mutableStateOf(
+            if (System.getProperty("swarm.gitView") == "log") GitVcsMode.LOG else GitVcsMode.CHANGES,
+        )
+    }
+    var historyRequested by remember { mutableStateOf(false) }
     val stagedEntries = remember(staged, grouping, stagedCollapsed) {
         gitChangeTreeEntries(staged, grouping, stagedCollapsed)
     }
@@ -226,46 +241,64 @@ internal fun GitChangesToolWindow(
         includedChangeKeys = includedChangeKeys.intersect(validKeys)
         if (selectedChangeKey !in validKeys) selectedChangeKey = null
     }
+    LaunchedEffect(vcsMode) {
+        if (vcsMode == GitVcsMode.LOG && !historyRequested) {
+            historyRequested = true
+            onRefreshHistory()
+        }
+    }
 
     Column(modifier.fillMaxSize().background(Bg1)) {
         IdeToolWindowHeader(
             title = "版本控制",
-            detail = includedChangeKeys.takeIf { it.isNotEmpty() }
-                ?.let { "已选择 ${it.size} 项" }
-                ?: gitStatus.branch.ifBlank { "Git" },
+            detail = when (vcsMode) {
+                GitVcsMode.CHANGES -> includedChangeKeys.takeIf { it.isNotEmpty() }
+                    ?.let { "已选择 ${it.size} 项" }
+                    ?: gitStatus.branch.ifBlank { "Git" }
+                GitVcsMode.LOG -> "${gitHistory.commits.size}${if (gitHistory.truncated) "+" else ""} 个提交"
+            },
             actions = {
-                IdeActionButton(
-                    icon = if (grouping == GitChangesGrouping.DIRECTORY) Feather.List else Feather.Folder,
-                    contentDescription = if (grouping == GitChangesGrouping.DIRECTORY) "平铺显示变更" else "按目录显示变更",
-                    tint = Ac,
-                    onClick = {
-                        grouping = if (grouping == GitChangesGrouping.DIRECTORY) {
-                            GitChangesGrouping.FLAT
-                        } else {
-                            GitChangesGrouping.DIRECTORY
-                        }
-                    },
-                )
-                IdeActionButton(
-                    icon = Feather.RefreshCw,
-                    contentDescription = "刷新 Git 状态",
-                    enabled = !isBusy,
-                    onClick = onRefresh,
-                )
-                IdeActionButton(
-                    icon = Feather.Check,
-                    contentDescription = if (includedChangeKeys.isEmpty()) "全部暂存" else "暂存所选变更",
-                    enabled = !isBusy && stageTargets.isNotEmpty(),
-                    tint = AgentGemini,
-                    onClick = { onStageAll(stageTargets.map(GitFileChangeDto::path).distinct()) },
-                )
-                IdeActionButton(
-                    icon = Feather.X,
-                    contentDescription = if (includedChangeKeys.isEmpty()) "全部取消暂存" else "取消暂存所选变更",
-                    enabled = !isBusy && unstageTargets.isNotEmpty(),
-                    tint = ErrLight,
-                    onClick = { onUnstageAll(unstageTargets.map(GitFileChangeDto::path)) },
-                )
+                if (vcsMode == GitVcsMode.CHANGES) {
+                    IdeActionButton(
+                        icon = if (grouping == GitChangesGrouping.DIRECTORY) Feather.List else Feather.Folder,
+                        contentDescription = if (grouping == GitChangesGrouping.DIRECTORY) "平铺显示变更" else "按目录显示变更",
+                        tint = Ac,
+                        onClick = {
+                            grouping = if (grouping == GitChangesGrouping.DIRECTORY) {
+                                GitChangesGrouping.FLAT
+                            } else {
+                                GitChangesGrouping.DIRECTORY
+                            }
+                        },
+                    )
+                    IdeActionButton(
+                        icon = Feather.RefreshCw,
+                        contentDescription = "刷新 Git 状态",
+                        enabled = !isBusy,
+                        onClick = onRefresh,
+                    )
+                    IdeActionButton(
+                        icon = Feather.Check,
+                        contentDescription = if (includedChangeKeys.isEmpty()) "全部暂存" else "暂存所选变更",
+                        enabled = !isBusy && stageTargets.isNotEmpty(),
+                        tint = AgentGemini,
+                        onClick = { onStageAll(stageTargets.map(GitFileChangeDto::path).distinct()) },
+                    )
+                    IdeActionButton(
+                        icon = Feather.X,
+                        contentDescription = if (includedChangeKeys.isEmpty()) "全部取消暂存" else "取消暂存所选变更",
+                        enabled = !isBusy && unstageTargets.isNotEmpty(),
+                        tint = ErrLight,
+                        onClick = { onUnstageAll(unstageTargets.map(GitFileChangeDto::path)) },
+                    )
+                } else {
+                    IdeActionButton(
+                        icon = Feather.RefreshCw,
+                        contentDescription = "刷新 Git 日志",
+                        enabled = !isHistoryLoading,
+                        onClick = onRefreshHistory,
+                    )
+                }
             },
         )
 
@@ -274,7 +307,22 @@ internal fun GitChangesToolWindow(
             return@Column
         }
 
+        GitVcsModeTabs(
+            selected = vcsMode,
+            changeCount = gitStatus.changes.size,
+            commitCount = gitHistory.commits.size,
+            onSelected = { vcsMode = it },
+        )
         GitBranchSummary(gitStatus)
+        if (vcsMode == GitVcsMode.LOG) {
+            GitLogToolWindow(
+                history = gitHistory,
+                isLoading = isHistoryLoading,
+                onRefresh = onRefreshHistory,
+                modifier = Modifier.weight(1f),
+            )
+            return@Column
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Bg0)) {
             if (staged.isNotEmpty()) {
                 item(key = "staged-header") {
@@ -372,6 +420,45 @@ internal fun GitChangesToolWindow(
             onMessageChange = onCommitMessageChange,
             onCommit = onCommit,
         )
+    }
+}
+
+@Composable
+private fun GitVcsModeTabs(
+    selected: GitVcsMode,
+    changeCount: Int,
+    commitCount: Int,
+    onSelected: (GitVcsMode) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().height(30.dp).background(Bg1).border(1.dp, Line)) {
+        GitVcsMode.entries.forEach { mode ->
+            val active = mode == selected
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .background(if (active) Bg2 else Bg1)
+                    .clickable { onSelected(mode) }
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    mode.label,
+                    color = if (active) Tx else Tx3,
+                    style = AppType.micro,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    when (mode) {
+                        GitVcsMode.CHANGES -> changeCount
+                        GitVcsMode.LOG -> commitCount
+                    }.toString(),
+                    color = if (active) Ac else Tx3,
+                    style = AppType.micro,
+                )
+            }
+        }
     }
 }
 

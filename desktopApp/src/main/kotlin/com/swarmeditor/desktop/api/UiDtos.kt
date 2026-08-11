@@ -159,3 +159,21 @@ data class GitStatusDto(
     val untracked: Int = 0,
     val changes: List<GitFileChangeDto> = emptyList()
 )
+
+@Serializable
+data class GitCommitDto(
+    val hash: String,
+    val shortHash: String,
+    val parentHashes: List<String> = emptyList(),
+    val authorName: String,
+    val authorEmail: String,
+    val authoredAtEpochSeconds: Long,
+    val subject: String,
+    val refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class GitHistoryDto(
+    val commits: List<GitCommitDto> = emptyList(),
+    val truncated: Boolean = false,
+)
