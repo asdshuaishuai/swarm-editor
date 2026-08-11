@@ -528,6 +528,7 @@ internal fun buildCommands(agents: List<AgentInfo>, piCommands: List<PiCommandIn
     commands.add(Command("open-workspace", "打开项目文件夹", "工作区", "⌘O"))
     commands.add(Command("create-workspace", "新建项目", "工作区"))
     commands.add(Command("recent-files", "最近文件", "导航", "Ctrl/Cmd+E"))
+    commands.add(Command("recent-locations", "最近位置", "导航", "Ctrl/Cmd+Shift+E"))
     commands.add(Command("navigate-back", "导航后退", "导航", "Ctrl+Alt+←"))
     commands.add(Command("navigate-forward", "导航前进", "导航", "Ctrl+Alt+→"))
     commands.add(Command("open-settings", "打开设置", "命令", "⌘,"))

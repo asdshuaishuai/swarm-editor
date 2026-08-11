@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -67,6 +68,7 @@ import com.swarmeditor.desktop.ui.activity.ActivityLogView
 import com.swarmeditor.desktop.ui.files.FileExplorerView
 import com.swarmeditor.desktop.ui.files.DiffDrawer
 import com.swarmeditor.desktop.ui.files.RecentFilesPopup
+import com.swarmeditor.desktop.ui.files.RecentLocationsPopup
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
@@ -163,6 +165,7 @@ fun WindowScope.App(
     val projectOpenFiles by root.projectVm.openFiles.collectAsState()
     val projectRecentFiles by root.projectVm.recentFiles.collectAsState()
     val projectNavigationState by root.projectVm.navigationState.collectAsState()
+    val projectRecentLocations by root.projectVm.recentLocations.collectAsState()
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
@@ -259,6 +262,7 @@ fun WindowScope.App(
     }
     var diffChange by remember { mutableStateOf<GitFileChangeDto?>(null) }
     var showRecentFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-files") }
+    var showRecentLocations by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-locations") }
     var pluginSubTab by remember {
         mutableStateOf(
             System.getProperty("swarm.pluginTab")
@@ -437,6 +441,7 @@ fun WindowScope.App(
             "open-workspace" -> onOpenWorkspace()
             "create-workspace" -> onCreateWorkspace()
             "recent-files" -> { showRecentFiles = true }
+            "recent-locations" -> { showRecentLocations = true }
             "navigate-back" -> root.projectVm.navigateBack()
             "navigate-forward" -> root.projectVm.navigateForward()
             "open-settings" -> { root.showSettingsDialog() }
@@ -453,7 +458,7 @@ fun WindowScope.App(
             }
         }
     }
-    val overlayActive = showRecentFiles || diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
+    val overlayActive = showRecentFiles || showRecentLocations || diffChange != null || dialog == DialogConfig.Settings || detailDialog != null
     val workspaceScale by animateFloatAsState(
         targetValue = if (overlayActive) 0.994f else 1f,
         animationSpec = Motion.floatGentle,
@@ -476,7 +481,7 @@ fun WindowScope.App(
                     isShiftKey -> {
                         val now = System.nanoTime()
                         val shouldOpen = isDoubleShiftTap(lastShiftTapNanos, now) &&
-                            dialog == null && detailDialog == null && diffChange == null && !showRecentFiles
+                            dialog == null && detailDialog == null && diffChange == null && !showRecentFiles && !showRecentLocations
                         lastShiftTapNanos = if (shouldOpen) 0L else now
                         if (shouldOpen) root.showCmdKDialog()
                         shouldOpen
@@ -516,8 +521,16 @@ fun WindowScope.App(
                         root.showSettingsDialog()
                         true
                     }
+                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isShiftPressed && keyEvent.key == Key.E -> {
+                        if (dialog == null && detailDialog == null && diffChange == null) {
+                            showRecentFiles = false
+                            showRecentLocations = !showRecentLocations
+                            true
+                        } else false
+                    }
                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.E -> {
                         if (dialog == null && detailDialog == null && diffChange == null) {
+                            showRecentLocations = false
                             showRecentFiles = !showRecentFiles
                             true
                         } else {
@@ -535,6 +548,7 @@ fun WindowScope.App(
                         else -> false
                     }
                     keyEvent.key == Key.Escape -> when {
+                        showRecentLocations -> { showRecentLocations = false; true }
                         showRecentFiles -> { showRecentFiles = false; true }
                         detailDialog is DialogConfig.AgentConfig -> { root.closeDetailDialog(); true }
                         detailDialog is DialogConfig.McpConfig -> { root.closeDetailDialog(); true }
@@ -880,6 +894,23 @@ fun WindowScope.App(
                 root.switchView("files")
                 root.projectVm.selectFile(path)
                 showRecentFiles = false
+            },
+        )
+    }
+
+    AnimatedVisibility(
+        visible = showRecentLocations,
+        enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+        exit = Motion.modalExit(OverlayDepth.PRIMARY),
+    ) {
+        RecentLocationsPopup(
+            locations = projectRecentLocations,
+            currentLocation = projectNavigationState.current,
+            onDismiss = { showRecentLocations = false },
+            onOpenLocation = { location ->
+                root.switchView("files")
+                root.projectVm.navigateToLocation(location)
+                showRecentLocations = false
             },
         )
     }

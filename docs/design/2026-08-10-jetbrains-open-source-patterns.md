@@ -63,3 +63,4 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - New navigation appends the prior location and clears the forward stack. Back and forward navigation move locations between stacks without recording duplicate history entries.
 - Fixed editor-toolbar actions expose availability through disabled state, while `Ctrl/Cmd+Alt+Left/Right` and Search Everywhere actions provide equivalent keyboard access.
 - Reloading a saved file does not create navigation history. The current implementation records file, symbol, definition, and explicit line navigation; passive caret movement remains future editor-integration work.
+- Recent Locations derives searchable cards from the same history service, retaining up to five lines around each recorded source position and opening through `Ctrl/Cmd+Shift+E`.

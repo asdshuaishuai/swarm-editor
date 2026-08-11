@@ -16,6 +16,12 @@ import kotlinx.coroutines.test.runTest
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, ExperimentalPathApi::class)
 class ProjectNavigationHistoryTest {
     @Test
+    fun `location snippets keep nearby source context`() {
+        val content = (0..8).joinToString("\n") { "line $it" }
+        assertEquals("line 2\nline 3\nline 4\nline 5\nline 6", editorLocationSnippet(content, 4))
+    }
+
+    @Test
     fun `editor navigation preserves back and forward locations including source lines`() = runTest {
         val directory = Files.createTempDirectory("project-navigation-history")
         try {

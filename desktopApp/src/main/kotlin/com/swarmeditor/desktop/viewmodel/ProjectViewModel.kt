@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class EditorLocation(
@@ -40,6 +41,11 @@ data class EditorNavigationState(
     val canNavigateBack: Boolean get() = backStack.isNotEmpty()
     val canNavigateForward: Boolean get() = forwardStack.isNotEmpty()
 }
+
+data class RecentEditorLocation(
+    val location: EditorLocation,
+    val snippet: String = "",
+)
 
 class ProjectViewModel(
     private val service: ProjectService,
@@ -92,6 +98,17 @@ class ProjectViewModel(
     val recentFiles: StateFlow<List<String>> = _recentFiles.asStateFlow()
     private val _navigationState = MutableStateFlow(EditorNavigationState())
     val navigationState: StateFlow<EditorNavigationState> = _navigationState.asStateFlow()
+    private val locationSnippets = MutableStateFlow<Map<EditorLocation, String>>(emptyMap())
+    val recentLocations: StateFlow<List<RecentEditorLocation>> = combine(
+        _navigationState,
+        locationSnippets,
+    ) { navigation, snippets ->
+        (navigation.backStack + listOfNotNull(navigation.current))
+            .asReversed()
+            .distinct()
+            .take(MAX_RECENT_LOCATIONS)
+            .map { location -> RecentEditorLocation(location, snippets[location].orEmpty()) }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     private var previewJob: Job? = null
     private var positionJob: Job? = null
     private val previewRequestIds = AtomicLong()
@@ -127,6 +144,12 @@ class ProjectViewModel(
     fun navigateToFile(path: String, line: Int) = selectFile(
         path,
         navigationLine = line.coerceAtLeast(0),
+        recordNavigation = true,
+    )
+
+    fun navigateToLocation(location: EditorLocation) = selectFile(
+        location.path,
+        navigationLine = location.line,
         recordNavigation = true,
     )
 
@@ -170,6 +193,7 @@ class ProjectViewModel(
                     draftContent = drafts[path],
                 )
                 if (requestId != previewRequestIds.get()) return@launch
+                rememberLocationSnippet(EditorLocation(path, navigationLine), preview.content)
                 _filePreview.value = contentState
                 if (!shouldInspect) return@launch
 
@@ -385,12 +409,36 @@ class ProjectViewModel(
         }
     }
 
+    private fun rememberLocationSnippet(location: EditorLocation, content: String) {
+        val snippet = editorLocationSnippet(content, location.line)
+        if (snippet.isBlank()) return
+        locationSnippets.update { current ->
+            (current - location + (location to snippet))
+                .entries
+                .toList()
+                .takeLast(MAX_LOCATION_SNIPPETS)
+                .associate { it.toPair() }
+        }
+    }
+
     private companion object {
         const val MAX_OPEN_FILES = 12
         const val MAX_RECENT_FILES = 30
         const val MAX_NAVIGATION_PLACES = 64
+        const val MAX_RECENT_LOCATIONS = 20
+        const val MAX_LOCATION_SNIPPETS = 96
         const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
     }
+}
+
+internal fun editorLocationSnippet(content: String, line: Int?, contextLines: Int = 2): String {
+    if (content.isBlank()) return ""
+    val lines = content.lines()
+    val fallbackLine = lines.indexOfFirst { it.isNotBlank() }.coerceAtLeast(0)
+    val anchor = (line ?: fallbackLine).coerceIn(0, lines.lastIndex)
+    val start = (anchor - contextLines.coerceAtLeast(0)).coerceAtLeast(0)
+    val end = (anchor + contextLines.coerceAtLeast(0)).coerceAtMost(lines.lastIndex)
+    return lines.subList(start, end + 1).joinToString("\n") { it.trimEnd() }.trim()
 }
 
 internal fun sourceLanguageId(path: String): String = when (val extension = path.substringAfterLast('.', "").lowercase()) {
