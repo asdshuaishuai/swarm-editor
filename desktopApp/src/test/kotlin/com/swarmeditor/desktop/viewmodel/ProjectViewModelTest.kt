@@ -7,6 +7,7 @@ import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -35,6 +36,46 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, ExperimentalPathApi::class)
 class ProjectViewModelTest {
+    @Test
+    fun `workspace symbol search debounces and rejects stale results`() = runTest {
+        val directory = Files.createTempDirectory("project-workspace-symbol-vm")
+        try {
+            val firstStarted = CompletableDeferred<Unit>()
+            val releaseFirst = CompletableDeferred<Unit>()
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(
+                service = ProjectService(directory.toFile()),
+                scope = backgroundScope,
+                ioDispatcher = dispatcher,
+                searchWorkspaceSymbols = { query ->
+                    if (query == "Pro") {
+                        firstStarted.complete(Unit)
+                        withContext(NonCancellable) { releaseFirst.await() }
+                    }
+                    listOf(WorkspaceSourceSymbol(query, "class", "$query.kt", 0))
+                },
+            )
+
+            viewModel.updateWorkspaceSymbolQuery("P")
+            assertFalse(viewModel.workspaceSymbolSearch.value.isSearching)
+            viewModel.updateWorkspaceSymbolQuery("Pro")
+            advanceTimeBy(180)
+            runCurrent()
+            firstStarted.await()
+            viewModel.updateWorkspaceSymbolQuery("Project")
+            advanceTimeBy(180)
+            runCurrent()
+            assertEquals("Project", viewModel.workspaceSymbolSearch.value.symbols.single().name)
+
+            releaseFirst.complete(Unit)
+            runCurrent()
+            assertEquals("Project", viewModel.workspaceSymbolSearch.value.query)
+            assertEquals("Project", viewModel.workspaceSymbolSearch.value.symbols.single().name)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun `find in files debounces queries and exposes navigable source matches`() = runTest {
         val directory = Files.createTempDirectory("project-search-vm")

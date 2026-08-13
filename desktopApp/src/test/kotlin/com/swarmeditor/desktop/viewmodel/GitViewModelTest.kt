@@ -15,6 +15,7 @@ import kotlin.test.assertFalse
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -85,8 +86,10 @@ class GitViewModelTest {
             viewModel.selectCommit(firstHash)
             assertEquals(true, firstStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
             viewModel.selectCommit(secondHash)
-            withTimeout(5_000) {
-                viewModel.commitSelection.filter { it.commitHash == secondHash && !it.isLoading }.first()
+            runBlocking {
+                withTimeout(5_000) {
+                    viewModel.commitSelection.filter { it.commitHash == secondHash && !it.isLoading }.first()
+                }
             }
             releaseFirst.countDown()
             Thread.sleep(50)

@@ -73,6 +73,7 @@ import dev.chrisbanes.haze.hazeEffect
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.backend.pi.PiCommandInfo
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 
 @androidx.compose.runtime.Immutable
@@ -104,6 +105,7 @@ internal fun searchEverywhereCommands(
     symbols: List<SourceSymbol>,
     currentPath: String?,
     query: String,
+    workspaceSymbols: List<WorkspaceSourceSymbol> = emptyList(),
 ): List<Command> {
     val normalizedQuery = query.trim().lowercase(Locale.ROOT)
     if (normalizedQuery.isEmpty()) {
@@ -141,13 +143,47 @@ internal fun searchEverywhereCommands(
             )
         }
         .toList()
+    val currentSymbolKeys = symbolMatches.mapTo(mutableSetOf()) { command ->
+        Triple(command.filePath, command.line, command.name)
+    }
+    val workspaceSymbolMatches = workspaceSymbols.asSequence()
+        .filter { symbol ->
+            symbol.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                symbol.kind.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                symbol.containerName.orEmpty().lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                symbol.uri.lowercase(Locale.ROOT).contains(normalizedQuery)
+        }
+        .filterNot { symbol -> Triple(symbol.uri, symbol.line, symbol.name) in currentSymbolKeys }
+        .sortedWith(compareBy<WorkspaceSourceSymbol>(
+            { workspaceSymbolMatchScore(it, normalizedQuery) },
+            { it.name.length },
+            { it.uri },
+            { it.line },
+        ))
+        .take(48)
+        .map { symbol ->
+            Command(
+                id = "workspace-symbol:${symbol.uri}:${symbol.line}:${symbol.character}:${symbol.name}",
+                name = symbol.name,
+                group = "工作区符号",
+                description = buildString {
+                    append(symbol.kind)
+                    symbol.containerName?.takeIf(String::isNotBlank)?.let { append(" · ").append(it) }
+                    append(" · ").append(symbol.uri).append(':').append(symbol.line + 1)
+                    symbol.serverName?.takeIf(String::isNotBlank)?.let { append(" · ").append(it) }
+                },
+                filePath = symbol.uri,
+                line = symbol.line,
+            )
+        }
+        .toList()
     val actions = baseCommands.filter { command ->
         command.id.lowercase(Locale.ROOT).contains(normalizedQuery) ||
             command.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
             command.group.lowercase(Locale.ROOT).contains(normalizedQuery) ||
             command.description.lowercase(Locale.ROOT).contains(normalizedQuery)
     }
-    return files + symbolMatches + actions
+    return files + symbolMatches + workspaceSymbolMatches + actions
 }
 
 internal fun movedCommandIndex(current: Int, offset: Int, size: Int): Int {
@@ -177,6 +213,17 @@ private fun fileMatchScore(path: String, query: String): Int? {
         fileName.contains(query) -> 2
         normalizedPath.contains(query) -> 3
         else -> null
+    }
+}
+
+private fun workspaceSymbolMatchScore(symbol: WorkspaceSourceSymbol, query: String): Int {
+    val name = symbol.name.lowercase(Locale.ROOT)
+    return when {
+        name == query -> 0
+        name.startsWith(query) -> 1
+        name.contains(query) -> 2
+        symbol.containerName.orEmpty().lowercase(Locale.ROOT).contains(query) -> 3
+        else -> 4
     }
 }
 
@@ -212,6 +259,10 @@ fun CommandPalette(
     recentFiles: List<String> = emptyList(),
     currentPath: String? = null,
     symbols: List<SourceSymbol> = emptyList(),
+    workspaceSymbols: List<WorkspaceSourceSymbol> = emptyList(),
+    workspaceSymbolsLoading: Boolean = false,
+    workspaceSymbolsError: String? = null,
+    onWorkspaceSymbolQueryChange: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!isVisible) return
@@ -249,6 +300,10 @@ fun CommandPalette(
                     recentFiles = recentFiles,
                     currentPath = currentPath,
                     symbols = symbols,
+                    workspaceSymbols = workspaceSymbols,
+                    workspaceSymbolsLoading = workspaceSymbolsLoading,
+                    workspaceSymbolsError = workspaceSymbolsError,
+                    onWorkspaceSymbolQueryChange = onWorkspaceSymbolQueryChange,
                     onDismiss = onDismiss,
                     onCommand = onCommand,
                     modifier = Modifier.fillMaxWidth(),
@@ -267,6 +322,10 @@ private fun CommandPaletteModal(
     recentFiles: List<String>,
     currentPath: String?,
     symbols: List<SourceSymbol>,
+    workspaceSymbols: List<WorkspaceSourceSymbol>,
+    workspaceSymbolsLoading: Boolean,
+    workspaceSymbolsError: String?,
+    onWorkspaceSymbolQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onCommand: (Command) -> Unit,
     modifier: Modifier = Modifier,
@@ -284,6 +343,7 @@ private fun CommandPaletteModal(
         projectFiles,
         recentFiles,
         symbols,
+        workspaceSymbols,
         currentPath,
         searchQuery.text,
     ) {
@@ -294,6 +354,7 @@ private fun CommandPaletteModal(
             symbols = symbols,
             currentPath = currentPath,
             query = searchQuery.text,
+            workspaceSymbols = workspaceSymbols,
         )
     }
     val groupedCommands = remember(filteredCommands) { filteredCommands.groupBy { it.group } }
@@ -304,6 +365,10 @@ private fun CommandPaletteModal(
     // Reset selection when filter changes
     LaunchedEffect(filteredCommands.size) {
         selectedIndex = 0
+    }
+
+    LaunchedEffect(searchQuery.text) {
+        onWorkspaceSymbolQueryChange(searchQuery.text)
     }
 
     // Focus input on appear
@@ -386,6 +451,11 @@ private fun CommandPaletteModal(
                 ),
                 cursorBrush = SolidColor(Ac),
                 )
+            }
+            Spacer(Modifier.size(8.dp))
+            when {
+                workspaceSymbolsLoading -> Text("符号搜索中…", color = Ac, fontSize = 10.sp)
+                workspaceSymbolsError != null -> Text("符号服务不可用", color = Err, fontSize = 10.sp)
             }
             Spacer(Modifier.size(8.dp))
             Box(

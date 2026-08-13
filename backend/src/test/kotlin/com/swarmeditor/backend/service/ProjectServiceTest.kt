@@ -6,6 +6,7 @@ import com.swarmeditor.backend.lsp.SemanticHighlight
 import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
@@ -47,6 +48,34 @@ class ProjectServiceTest {
             assertEquals(listOf(symbol), insight.symbols)
             assertEquals(listOf(diagnostic), insight.diagnostics)
         } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `workspace symbol search keeps only navigable project files`() = runTest {
+        val directory = Files.createTempDirectory("project-service-workspace-symbol")
+        val external = Files.createTempFile("project-service-external-symbol", ".kt")
+        try {
+            val source = directory.resolve("src/Main.kt")
+            Files.createDirectories(source.parent)
+            Files.writeString(source, "class Main")
+            val intelligence = object : SourceCodeIntelligence {
+                override suspend fun highlight(file: File, content: String) = LspHighlightResult("kotlin")
+                override suspend fun inspect(file: File, content: String) = LspDocumentInsight("kotlin")
+                override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int) = listOf(
+                    WorkspaceSourceSymbol("Main", "class", source.toUri().toString(), 0),
+                    WorkspaceSourceSymbol("External", "class", external.toUri().toString(), 0),
+                    WorkspaceSourceSymbol("Malformed", "class", "https://example.com/Main.kt", 0),
+                )
+            }
+
+            val symbols = ProjectService(directory.toFile(), intelligence).searchWorkspaceSymbols("Main")
+
+            assertEquals(listOf("src/Main.kt"), symbols.map(WorkspaceSourceSymbol::uri))
+        } finally {
+            Files.deleteIfExists(external)
             directory.deleteRecursively()
         }
     }

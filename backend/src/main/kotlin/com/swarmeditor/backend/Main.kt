@@ -145,7 +145,7 @@ val kotlinLspRuntimeManager = KotlinLspRuntimeManager(File(ConfigPaths.KOTLIN_LS
 val lspService = LspService(
     projectRoot = projectRoot,
     managedCommandProvider = { spec ->
-        if (spec.id == "kotlin") kotlinLspRuntimeManager.managedCommandOrNull() else null
+        if (spec.id == "kotlin") kotlinLspRuntimeManager.managedCommandOrNull(projectRoot) else null
     },
 )
 val kotlinLspRuntimeService = KotlinLspRuntimeService(

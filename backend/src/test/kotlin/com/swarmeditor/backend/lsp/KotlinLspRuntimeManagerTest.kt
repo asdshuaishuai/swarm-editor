@@ -30,11 +30,13 @@ class KotlinLspRuntimeManagerTest {
         )
 
         val installed = manager.install()
+        val projectRoot = root.resolve("project").toFile().apply { mkdirs() }
+        val managedCommand = manager.managedCommandOrNull(projectRoot)
 
         assertEquals(KotlinLspRuntimeHealth.READY, installed.health)
         assertEquals(KotlinLspRuntimeSource.MANAGED, installed.source)
-        assertEquals(installed.command, manager.managedCommandOrNull())
         assertTrue("--stdio" in installed.command)
+        assertTrue("--system-path" in managedCommand.orEmpty())
         assertEquals(artifact.sha256, installed.artifactSha256)
 
         File(installed.command.first()).writeText("tampered")
@@ -42,6 +44,44 @@ class KotlinLspRuntimeManagerTest {
 
         assertEquals(KotlinLspRuntimeHealth.INVALID, invalid.health)
         assertTrue(invalid.message.contains("SHA-256"))
+        root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `managed system paths are stable and isolated per project`() = runTest {
+        val root = Files.createTempDirectory("kotlin-lsp-workspaces")
+        val archive = root.resolve("fixture.zip").toFile()
+        createArchive(archive, launcherContent = "managed-launcher")
+        val artifact = fixtureArtifact(sha256(archive), archive.length())
+        val installRoot = root.resolve("install").toFile()
+        val manager = KotlinLspRuntimeManager(
+            installRoot = installRoot,
+            environmentProvider = { emptyMap() },
+            osNameProvider = { "Linux" },
+            architectureProvider = { "amd64" },
+            artifactProvider = { _, _ -> artifact },
+            downloader = { _, destination, _ -> archive.copyTo(destination, overwrite = true) },
+        )
+        manager.install()
+        val firstProject = root.resolve("first-project").toFile().apply { mkdirs() }
+        val secondProject = root.resolve("second-project").toFile().apply { mkdirs() }
+
+        val firstCommand = requireNotNull(manager.managedCommandOrNull(firstProject))
+        val repeatedCommand = requireNotNull(manager.managedCommandOrNull(firstProject))
+        val secondCommand = requireNotNull(manager.managedCommandOrNull(secondProject))
+        val firstSystemPath = File(firstCommand[firstCommand.indexOf("--system-path") + 1]).canonicalFile
+        val secondSystemPath = File(secondCommand[secondCommand.indexOf("--system-path") + 1]).canonicalFile
+        val managedRoot = File(
+            installRoot,
+            "system/$KOTLIN_LSP_RUNTIME_VERSION/${artifact.platform}/workspaces",
+        ).canonicalFile
+
+        assertEquals(firstCommand, repeatedCommand)
+        assertTrue(firstSystemPath != secondSystemPath)
+        assertTrue(firstSystemPath.toPath().startsWith(managedRoot.toPath()))
+        assertTrue(secondSystemPath.toPath().startsWith(managedRoot.toPath()))
+        assertTrue(firstSystemPath.isDirectory)
+        assertTrue(secondSystemPath.isDirectory)
         root.toFile().deleteRecursively()
     }
 

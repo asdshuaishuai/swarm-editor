@@ -55,7 +55,8 @@ Swarm Editor does not embed IntelliJ Swing or copy IntelliJ Platform internals. 
 - Blank searches prioritize recent files and common actions. Typed searches rank exact and prefix file-name matches before general path matches, then merge symbols and actions into grouped results.
 - File contribution respects IDE-style excluded roots by omitting generated output and dependency directories such as `build`, `dist`, `node_modules`, `out`, and `target`.
 - Action matching includes both localized labels and stable action IDs. File rows carry semantic file-type icons and parent paths; symbol rows carry kind, container, source path, and line.
-- Search Everywhere remains available through `Ctrl/Cmd+K` and now also through the JetBrains-style double-Shift gesture. Workspace-wide symbols are intentionally deferred until the LSP boundary exposes a real workspace-symbol request.
+- Search Everywhere remains available through `Ctrl/Cmd+K` and the JetBrains-style double-Shift gesture. It now includes an independent LSP workspace-symbol contributor: queries are debounced, obsolete requests are cancelled, duplicate current-document symbols are removed, and only locations resolving to regular files inside the project are navigable.
+- Workspace symbols are ranked by exact, prefix, name, container, and path relevance, then merged after current-document symbols. Results preserve symbol kind, container, source path, line, and contributing server without coupling the palette to any one language server.
 
 ## Navigation History Findings
 

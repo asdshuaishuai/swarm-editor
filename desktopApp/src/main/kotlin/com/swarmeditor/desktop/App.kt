@@ -169,6 +169,7 @@ fun WindowScope.App(
     val projectRecentLocations by root.projectVm.recentLocations.collectAsState()
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val projectSearchState by root.projectVm.searchState.collectAsState()
+    val workspaceSymbolSearch by root.projectVm.workspaceSymbolSearch.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
     val gitHistory by root.gitVm.history.collectAsState()
@@ -1060,7 +1061,10 @@ fun WindowScope.App(
     CommandPalette(
         isVisible = dialog == DialogConfig.CommandPalette,
         hazeState = hazeState,
-        onDismiss = { root.closeDialog() },
+        onDismiss = {
+            root.projectVm.clearWorkspaceSymbolSearch()
+            root.closeDialog()
+        },
         onCommand = handleCommand,
         agents = agents,
         piCommands = piCommands,
@@ -1068,6 +1072,10 @@ fun WindowScope.App(
         recentFiles = projectRecentFiles,
         currentPath = projectFilePreview.path,
         symbols = projectFilePreview.symbols,
+        workspaceSymbols = workspaceSymbolSearch.symbols,
+        workspaceSymbolsLoading = workspaceSymbolSearch.isSearching,
+        workspaceSymbolsError = workspaceSymbolSearch.error,
+        onWorkspaceSymbolQueryChange = root.projectVm::updateWorkspaceSymbolQuery,
     )
 
     PiExtensionStatusOverlay(

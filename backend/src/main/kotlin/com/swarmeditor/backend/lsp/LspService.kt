@@ -6,6 +6,7 @@ import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -110,6 +111,16 @@ data class SourceSymbol(
     val containerName: String? = null,
 )
 
+data class WorkspaceSourceSymbol(
+    val name: String,
+    val kind: String,
+    val uri: String,
+    val line: Int,
+    val character: Int = 0,
+    val containerName: String? = null,
+    val serverName: String? = null,
+)
+
 data class SourceDiagnostic(
     val line: Int,
     val severity: String,
@@ -177,6 +188,8 @@ interface SourceCodeIntelligence : SourceSemanticHighlighter {
     suspend fun inspect(file: File, content: String): LspDocumentInsight
 
     suspend fun inspectPosition(file: File, content: String, line: Int, character: Int): SourcePositionInsight? = null
+
+    suspend fun searchWorkspaceSymbols(query: String, maxResults: Int = 100): List<WorkspaceSourceSymbol> = emptyList()
 }
 
 class LspService(
@@ -347,6 +360,72 @@ class LspService(
         return session.inspectPosition(file, content, line.coerceAtLeast(0), character.coerceAtLeast(0))
     }
 
+    override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int): List<WorkspaceSourceSymbol> {
+        check(!closed.get()) { "LSP service is closed" }
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) return emptyList()
+        require(maxResults > 0) { "Workspace symbol limit must be positive" }
+
+        ensureWorkspaceSymbolSessions()
+        val activeSessions = sessionMutex.withLock { sessions.values.toList() }
+        return coroutineScope {
+            activeSessions.map { session ->
+                async { session.searchWorkspaceSymbols(normalizedQuery, maxResults) }
+            }.flatMap { request ->
+                try {
+                    request.await()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.debug(error) { "Workspace symbol contributor failed" }
+                    emptyList()
+                }
+            }
+        }
+            .distinctBy { symbol -> listOf(symbol.uri, symbol.line, symbol.character, symbol.name) }
+            .take(maxResults)
+    }
+
+    private suspend fun ensureWorkspaceSymbolSessions() {
+        val projectExtensions = withContext(Dispatchers.IO) {
+            val root = projectRoot.toPath().toAbsolutePath().normalize()
+            Files.walk(root).use { paths ->
+                paths
+                    .filter { path ->
+                        Files.isRegularFile(path) && !Files.isSymbolicLink(path) &&
+                            root.relativize(path).none { segment -> segment.toString() in WORKSPACE_SYMBOL_EXCLUDED_DIRS }
+                    }
+                    .map { path -> path.fileName.toString().substringAfterLast('.', "").lowercase() }
+                    .filter(String::isNotBlank)
+                    .limit(MAX_WORKSPACE_SYMBOL_DISCOVERY_FILES.toLong())
+                    .toList()
+                    .toSet()
+            }
+        }
+        val relevantSpecs = specs.filter { spec -> spec.extensions.any(projectExtensions::contains) }
+        relevantSpecs.forEach { spec ->
+            if (sessionMutex.withLock { sessions[spec.id] } != null) return@forEach
+            val managedCommand = if (spec.hasExplicitCommandOverride) null else managedCommandProvider(spec)
+            val command = buildList {
+                managedCommand?.let(::add)
+                addAll(spec.commandCandidates)
+            }.distinct().firstOrNull { candidate -> commandAvailability(candidate.first()) } ?: return@forEach
+            try {
+                updateServerState(spec, phase = LspConnectionPhase.CONNECTING, command = command)
+                val resolvedSpec = spec.copy(commandCandidates = listOf(command))
+                sessionMutex.withLock {
+                    check(!closed.get()) { "LSP service is closed" }
+                    sessions[spec.id] ?: sessionFactory(resolvedSpec).also { sessions[spec.id] = it }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                updateServerState(spec, phase = LspConnectionPhase.FAILED, command = command, message = error.message)
+                log.debug(error) { "Failed to start ${spec.displayName} workspace symbol contributor" }
+            }
+        }
+    }
+
     private fun unavailableResult(spec: LspServerSpec, failures: List<String>) = LspHighlightResult(
         languageId = spec.languageId,
         message = "${spec.displayName} 语义高亮不可用（${failures.joinToString("；")}），已使用本地语法高亮",
@@ -453,6 +532,8 @@ interface LspSession {
     }
 
     suspend fun inspectPosition(file: File, content: String, line: Int, character: Int): SourcePositionInsight? = null
+
+    suspend fun searchWorkspaceSymbols(query: String, maxResults: Int): List<WorkspaceSourceSymbol> = emptyList()
 
     suspend fun close()
 }
@@ -606,6 +687,7 @@ private class StdioLspSession(
     private var tokenModifiers: List<String> = emptyList()
     private var supportsPullDiagnostics = false
     private var supportsFoldingRanges = false
+    private var supportsWorkspaceSymbols = false
     private val initialization = scope.async(start = CoroutineStart.LAZY) { initializeSession() }
 
     init {
@@ -638,6 +720,13 @@ private class StdioLspSession(
 
     override suspend fun highlight(file: File, content: String): LspHighlightResult {
         ensureInitialized()
+        if (tokenTypes.isEmpty()) {
+            return LspHighlightResult(
+                languageId = spec.languageId,
+                serverName = serverName,
+                message = "$serverName does not support semantic tokens",
+            )
+        }
         val uri = file.toURI().toString()
         return documentOperations.computeIfAbsent(uri) { Mutex() }.withLock {
             documentSynchronizer.sync(uri, content, ::notify)
@@ -691,6 +780,17 @@ private class StdioLspSession(
                 foldingRanges = foldingRanges,
             )
         }
+    }
+
+    override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int): List<WorkspaceSourceSymbol> {
+        ensureInitialized()
+        if (!supportsWorkspaceSymbols) return emptyList()
+        return optionalRequest(
+            method = "workspace/symbol",
+            params = buildJsonObject { put("query", query) },
+            timeoutMillis = 4_000,
+            retryTransient = true,
+        )?.let { response -> decodeWorkspaceSymbols(response, serverName).take(maxResults) }.orEmpty()
     }
 
     override suspend fun inspectPosition(
@@ -795,7 +895,7 @@ private class StdioLspSession(
             is JsonPrimitive -> provider.booleanOrNull == true
             else -> false
         }
-        check(provider != null && tokenTypes.isNotEmpty()) { "$serverName does not support semantic tokens" }
+        supportsWorkspaceSymbols = supportsWorkspaceSymbols(serverName, capabilities)
         notify("initialized", JsonObject(emptyMap()))
         initialized = true
     }
@@ -831,6 +931,15 @@ private class StdioLspSession(
                 )
             }
             return payload
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                runCatching {
+                    notify("$/cancelRequest", buildJsonObject { put("id", id) })
+                }.onFailure { cancelError ->
+                    log.debug(cancelError) { "Failed to cancel $method request $id" }
+                }
+            }
+            throw error
         } finally {
             pending.remove(id)
         }
@@ -903,6 +1012,15 @@ internal fun supportsPullDiagnostics(serverName: String, capabilities: JsonObjec
     capabilities?.get("diagnosticProvider") is JsonObject &&
         !serverName.contains("IntelliJ Language Server", ignoreCase = true)
 
+internal fun supportsWorkspaceSymbols(serverName: String, capabilities: JsonObject?): Boolean {
+    if (serverName.contains("IntelliJ Language Server", ignoreCase = true)) return false
+    return when (val provider = capabilities?.get("workspaceSymbolProvider")) {
+        is JsonObject -> true
+        is JsonPrimitive -> provider.booleanOrNull == true
+        else -> false
+    }
+}
+
 internal fun lspInitializeParams(projectRoot: File, spec: LspServerSpec): JsonObject = buildJsonObject {
     val rootUri = projectRoot.toURI().toString()
     put("processId", ProcessHandle.current().pid())
@@ -921,6 +1039,9 @@ internal fun lspInitializeParams(projectRoot: File, spec: LspServerSpec): JsonOb
     }
     spec.initializationOptions?.let { put("initializationOptions", it) }
     putJsonObject("capabilities") {
+        putJsonObject("workspace") {
+            putJsonObject("symbol") { put("dynamicRegistration", false) }
+        }
         putJsonObject("textDocument") {
             put("semanticTokens", semanticTokensClientCapabilities())
             putJsonObject("documentSymbol") { put("hierarchicalDocumentSymbolSupport", true) }
@@ -1087,6 +1208,28 @@ internal fun decodeDocumentSymbols(response: JsonObject): List<SourceSymbol> {
     return symbols
 }
 
+internal fun decodeWorkspaceSymbols(response: JsonObject, serverName: String? = null): List<WorkspaceSourceSymbol> {
+    val result = response["result"] as? JsonArray ?: return emptyList()
+    return result.mapNotNull { element ->
+        val symbol = element as? JsonObject ?: return@mapNotNull null
+        val name = (symbol["name"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+        val kind = (symbol["kind"] as? JsonPrimitive)?.intOrNull?.let(::symbolKindName) ?: "symbol"
+        val location = symbol["location"] as? JsonObject ?: return@mapNotNull null
+        val uri = (location["uri"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+        val range = location["range"] as? JsonObject ?: return@mapNotNull null
+        val start = range["start"] as? JsonObject ?: return@mapNotNull null
+        WorkspaceSourceSymbol(
+            name = name,
+            kind = kind,
+            uri = uri,
+            line = (start["line"] as? JsonPrimitive)?.intOrNull ?: 0,
+            character = (start["character"] as? JsonPrimitive)?.intOrNull ?: 0,
+            containerName = (symbol["containerName"] as? JsonPrimitive)?.contentOrNull,
+            serverName = serverName,
+        )
+    }.distinctBy { symbol -> listOf(symbol.uri, symbol.line, symbol.character, symbol.name) }
+}
+
 internal fun decodeFoldingRanges(response: JsonObject): List<SourceFoldingRange> =
     (response["result"] as? JsonArray)
         .orEmpty()
@@ -1240,6 +1383,19 @@ private val standardSemanticTokenModifiers = listOf(
     "modification",
     "documentation",
     "defaultLibrary",
+)
+
+private const val MAX_WORKSPACE_SYMBOL_DISCOVERY_FILES = 20_000
+private val WORKSPACE_SYMBOL_EXCLUDED_DIRS = setOf(
+    ".git",
+    ".gradle",
+    ".idea",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "out",
+    "target",
 )
 
 internal fun decodeSemanticTokens(

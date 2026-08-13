@@ -9,6 +9,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -111,9 +112,11 @@ class KotlinLspRuntimeManager internal constructor(
 
     suspend fun inspect(): KotlinLspRuntimeStatus = mutex.withLock { inspectLocked() }
 
-    suspend fun managedCommandOrNull(): List<String>? = mutex.withLock {
+    suspend fun managedCommandOrNull(projectRoot: File): List<String>? = mutex.withLock {
         val artifact = artifactProvider(osNameProvider(), architectureProvider()) ?: return@withLock null
-        inspectManagedRuntime(artifact)?.takeIf { it.health == KotlinLspRuntimeHealth.READY }?.command
+        val status = inspectManagedRuntime(artifact)?.takeIf { it.health == KotlinLspRuntimeHealth.READY }
+            ?: return@withLock null
+        managedCommand(File(status.command.first()), artifact.platform, projectRoot)
     }
 
     suspend fun install(
@@ -272,7 +275,7 @@ class KotlinLspRuntimeManager internal constructor(
                 health = KotlinLspRuntimeHealth.READY,
                 source = KotlinLspRuntimeSource.MANAGED,
                 platform = artifact.platform,
-                command = managedCommand(launcher, artifact.platform),
+                command = listOf(launcher.canonicalPath, "--stdio"),
                 installSupported = true,
                 artifactSha256 = metadata.artifactSha256,
                 launcherSha256 = launcherSha256,
@@ -301,19 +304,46 @@ class KotlinLspRuntimeManager internal constructor(
         movePath(temporary.toPath(), file.toPath())
     }
 
-    private fun managedCommand(launcher: File, platform: String): List<String> {
-        val systemPath = File(root, "system/$KOTLIN_LSP_RUNTIME_VERSION/$platform")
-        Files.createDirectories(systemPath.toPath())
+    private fun managedCommand(launcher: File, platform: String, projectRoot: File): List<String> {
+        val projectIdentity = sha256(projectRoot.canonicalFile.absolutePath)
+        val systemPath = createManagedDirectory(
+            "system/$KOTLIN_LSP_RUNTIME_VERSION/$platform/workspaces/$projectIdentity",
+        )
         return listOf(
             launcher.canonicalPath,
             "--stdio",
             "--system-path",
-            systemPath.absolutePath,
+            systemPath.toAbsolutePath().toString(),
             "--log-level",
             "WARNING",
         )
     }
+
+    private fun createManagedDirectory(relativePath: String): Path {
+        val rootPath = root.toPath().toAbsolutePath().normalize()
+        require(!Files.isSymbolicLink(rootPath)) { "Kotlin LSP runtime root cannot be a symbolic link" }
+        Files.createDirectories(rootPath)
+
+        val target = rootPath.resolve(relativePath).normalize()
+        require(target.startsWith(rootPath)) { "Kotlin LSP system path escapes the runtime root" }
+        var current = rootPath
+        rootPath.relativize(target).forEach { segment ->
+            current = current.resolve(segment)
+            if (Files.exists(current)) {
+                require(Files.isDirectory(current) && !Files.isSymbolicLink(current)) {
+                    "Kotlin LSP system path contains an invalid directory"
+                }
+            } else {
+                Files.createDirectory(current)
+            }
+        }
+        return target
+    }
 }
+
+private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(value.toByteArray(StandardCharsets.UTF_8))
+    .joinToString("") { byte -> "%02x".format(byte) }
 
 private fun officialKotlinLspArtifact(osName: String, architecture: String): KotlinLspRuntimeArtifact? {
     val os = osName.lowercase()

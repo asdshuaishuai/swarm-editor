@@ -30,7 +30,7 @@ class KotlinLspOfficialSmokeTest {
         val service = LspService(
             projectRoot = projectRoot,
             specs = defaultLspServerSpecs().filter { it.id == "kotlin" },
-            managedCommandProvider = { manager.managedCommandOrNull() },
+            managedCommandProvider = { manager.managedCommandOrNull(projectRoot) },
         )
         try {
             val result = withTimeout(90_000) { service.highlight(sourceFile, sourceFile.readText()) }

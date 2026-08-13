@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.backend.pi.PiCommandInfo
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -105,6 +106,28 @@ class CommandPaletteTest {
         assertEquals("desktopApp/Settings.kt", results[1].filePath)
         assertEquals(42, results[1].line)
         assertEquals("命令", results.last().group)
+    }
+
+    @Test
+    fun `search everywhere ranks workspace symbols and removes current document duplicates`() {
+        val results = searchEverywhereCommands(
+            baseCommands = emptyList(),
+            projectFiles = emptyList(),
+            recentFiles = emptyList(),
+            symbols = listOf(SourceSymbol("ProjectViewModel", "class", 59)),
+            currentPath = "desktopApp/ProjectViewModel.kt",
+            query = "project",
+            workspaceSymbols = listOf(
+                WorkspaceSourceSymbol("ProjectViewModel", "class", "desktopApp/ProjectViewModel.kt", 59),
+                WorkspaceSourceSymbol("ProjectService", "class", "backend/ProjectService.kt", 21, serverName = "Kotlin LSP"),
+                WorkspaceSourceSymbol("OtherProject", "method", "backend/Other.kt", 7),
+            ),
+        )
+
+        assertEquals(listOf("符号", "工作区符号", "工作区符号"), results.map(Command::group))
+        assertEquals(listOf("ProjectViewModel", "ProjectService", "OtherProject"), results.map(Command::name))
+        assertEquals("backend/ProjectService.kt", results[1].filePath)
+        assertEquals(21, results[1].line)
     }
 
     @Test

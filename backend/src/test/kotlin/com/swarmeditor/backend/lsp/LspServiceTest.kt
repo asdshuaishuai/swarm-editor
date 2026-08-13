@@ -90,6 +90,16 @@ class LspServiceTest {
     }
 
     @Test
+    fun `JetBrains workspace symbols stay disabled while generic providers remain available`() {
+        val capabilities = buildJsonObject {
+            putJsonObject("workspaceSymbolProvider") { put("resolveProvider", false) }
+        }
+
+        assertFalse(supportsWorkspaceSymbols("IntelliJ Language Server by JetBrains", capabilities))
+        assertTrue(supportsWorkspaceSymbols("Generic LSP", capabilities))
+    }
+
+    @Test
     fun `prefers official Kotlin LSP command`() {
         val spec = kotlinSpec()
 
@@ -161,6 +171,100 @@ class LspServiceTest {
         assertEquals(managedCommand, connection.command)
         assertEquals("JetBrains Kotlin LSP", connection.serverName)
         service.close()
+    }
+
+    @Test
+    fun `workspace symbol search merges active language contributors with a global limit`() = runTest {
+        val kotlinSpec = lspSpec(
+            id = "kotlin",
+            displayName = "Kotlin",
+            languageId = "kotlin",
+            extensions = setOf("kt"),
+            fallbackCommands = listOf(listOf("kotlin-lsp")),
+        )
+        val typescriptSpec = lspSpec(
+            id = "typescript",
+            displayName = "TypeScript",
+            languageId = "typescript",
+            extensions = setOf("ts"),
+            fallbackCommands = listOf(listOf("typescript-language-server")),
+        )
+        val service = LspService(
+            projectRoot = File("."),
+            specs = listOf(kotlinSpec, typescriptSpec),
+            sessionFactory = { spec ->
+                object : LspSession {
+                    override suspend fun highlight(file: File, content: String) = LspHighlightResult(
+                        languageId = spec.languageId,
+                        serverName = spec.displayName,
+                    )
+
+                    override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int) = listOf(
+                        WorkspaceSourceSymbol(
+                            name = "${spec.displayName}$query",
+                            kind = "class",
+                            uri = "file:///workspace/${spec.id}.kt",
+                            line = 1,
+                            serverName = spec.displayName,
+                        ),
+                        WorkspaceSourceSymbol(
+                            name = "Shared$query",
+                            kind = "class",
+                            uri = "file:///workspace/shared.kt",
+                            line = 2,
+                        ),
+                    )
+
+                    override suspend fun close() = Unit
+                }
+            },
+            commandAvailability = { true },
+        )
+
+        service.highlight(File("Main.kt"), "class Main")
+        service.highlight(File("main.ts"), "class Main {}")
+        val symbols = service.searchWorkspaceSymbols("Project", maxResults = 3)
+
+        assertEquals(3, symbols.size)
+        assertEquals(1, symbols.count { it.name == "SharedProject" })
+        assertTrue(symbols.any { it.serverName == "Kotlin" })
+        assertTrue(symbols.any { it.serverName == "TypeScript" })
+        service.close()
+    }
+
+    @Test
+    fun `workspace symbol search lazily starts only contributors present in the project`() = runTest {
+        val directory = Files.createTempDirectory("lsp-workspace-symbol-discovery")
+        try {
+            Files.writeString(directory.resolve("Main.kt"), "class Main")
+            val launched = mutableListOf<String>()
+            val service = LspService(
+                projectRoot = directory.toFile(),
+                specs = listOf(
+                    lspSpec("kotlin", "Kotlin", "kotlin", setOf("kt"), listOf(listOf("kotlin-lsp"))),
+                    lspSpec("typescript", "TypeScript", "typescript", setOf("ts"), listOf(listOf("typescript-lsp"))),
+                ),
+                sessionFactory = { spec ->
+                    launched += spec.id
+                    object : LspSession {
+                        override suspend fun highlight(file: File, content: String) = LspHighlightResult(spec.languageId)
+                        override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int) = listOf(
+                            WorkspaceSourceSymbol("Main", "class", directory.resolve("Main.kt").toUri().toString(), 0),
+                        )
+                        override suspend fun close() = Unit
+                    }
+                },
+                commandAvailability = { true },
+            )
+
+            val symbols = service.searchWorkspaceSymbols("Main")
+
+            assertEquals(listOf("kotlin"), launched)
+            assertEquals(listOf("Main"), symbols.map(WorkspaceSourceSymbol::name))
+            service.close()
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
     }
 
     @Test
@@ -797,6 +901,47 @@ class LspServiceTest {
                 SourceSymbol("schedule", "method", 7, "Scheduler"),
             ),
             decodeDocumentSymbols(response),
+        )
+    }
+
+    @Test
+    fun `decodes workspace symbols with navigable locations and deduplicates results`() {
+        val response = buildJsonObject {
+            putJsonArray("result") {
+                repeat(2) {
+                    add(
+                        buildJsonObject {
+                            put("name", "ProjectViewModel")
+                            put("kind", 5)
+                            put("containerName", "com.swarmeditor.desktop.viewmodel")
+                            putJsonObject("location") {
+                                put("uri", "file:///workspace/ProjectViewModel.kt")
+                                putJsonObject("range") {
+                                    putJsonObject("start") {
+                                        put("line", 59)
+                                        put("character", 6)
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        assertEquals(
+            listOf(
+                WorkspaceSourceSymbol(
+                    name = "ProjectViewModel",
+                    kind = "class",
+                    uri = "file:///workspace/ProjectViewModel.kt",
+                    line = 59,
+                    character = 6,
+                    containerName = "com.swarmeditor.desktop.viewmodel",
+                    serverName = "JetBrains Kotlin LSP",
+                )
+            ),
+            decodeWorkspaceSymbols(response, "JetBrains Kotlin LSP"),
         )
     }
 

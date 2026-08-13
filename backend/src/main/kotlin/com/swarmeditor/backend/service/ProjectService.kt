@@ -5,6 +5,7 @@ import com.swarmeditor.backend.lsp.LspDocumentInsight
 import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourcePositionInsight
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.backend.storage.atomicWriteText
 import java.io.File
 import java.nio.ByteBuffer
@@ -206,6 +207,19 @@ class ProjectService(
         return intelligence.inspectPosition(resolved.toFile(), content, line, character)
     }
 
+    suspend fun searchWorkspaceSymbols(query: String, maxResults: Int = 100): List<WorkspaceSourceSymbol> {
+        val intelligence = semanticHighlighter as? SourceCodeIntelligence ?: return emptyList()
+        require(query.isNotBlank()) { "Workspace symbol query cannot be blank" }
+        require(maxResults > 0) { "Workspace symbol limit must be positive" }
+        return intelligence.searchWorkspaceSymbols(query, maxResults)
+            .mapNotNull { symbol ->
+                val relativePath = projectRelativePathFromUri(projectDir, symbol.uri) ?: return@mapNotNull null
+                symbol.copy(uri = relativePath)
+            }
+            .distinctBy { symbol -> listOf(symbol.uri, symbol.line, symbol.character, symbol.name) }
+            .take(maxResults)
+    }
+
     private fun resolveProjectFile(relativePath: String): Path {
         val root = projectDir.toPath().toRealPath()
         val resolved = root.resolve(relativePath).normalize().toRealPath()
@@ -280,6 +294,14 @@ internal fun projectRelativePath(root: Path, path: Path): String {
     require(normalizedPath.startsWith(normalizedRoot)) { "Path is outside the project: $path" }
     val relative = normalizedRoot.relativize(normalizedPath)
     return if (relative.toString().isEmpty()) "." else relative.joinToString("/") { segment -> segment.toString() }
+}
+
+internal fun projectRelativePathFromUri(projectDir: File, uri: String): String? {
+    val path = runCatching { Path.of(java.net.URI(uri)) }.getOrNull() ?: return null
+    val root = runCatching { projectDir.toPath().toRealPath() }.getOrNull() ?: return null
+    val resolved = runCatching { path.toRealPath() }.getOrNull() ?: return null
+    if (!resolved.startsWith(root) || !Files.isRegularFile(resolved)) return null
+    return projectRelativePath(root, resolved)
 }
 
 internal fun decodeUtf8Text(bytes: ByteArray, allowIncompleteTail: Boolean): String? {

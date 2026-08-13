@@ -7,6 +7,7 @@ import com.swarmeditor.backend.lsp.SourceFoldingRange
 import com.swarmeditor.backend.lsp.SourceLocation
 import com.swarmeditor.backend.lsp.SourcePositionInsight
 import com.swarmeditor.backend.lsp.SourceSymbol
+import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
@@ -57,6 +58,13 @@ data class ProjectSearchUiState(
     val error: String? = null,
 )
 
+data class WorkspaceSymbolSearchState(
+    val query: String = "",
+    val symbols: List<WorkspaceSourceSymbol> = emptyList(),
+    val isSearching: Boolean = false,
+    val error: String? = null,
+)
+
 class ProjectViewModel(
     private val service: ProjectService,
     private val scope: CoroutineScope,
@@ -65,6 +73,9 @@ class ProjectViewModel(
     private val loadTree: suspend () -> ProjectService.FileNode = { service.getTree() },
     private val searchProject: suspend (String, Boolean) -> ProjectService.SearchResult = { query, caseSensitive ->
         service.searchText(query, caseSensitive)
+    },
+    private val searchWorkspaceSymbols: suspend (String) -> List<WorkspaceSourceSymbol> = { query ->
+        service.searchWorkspaceSymbols(query)
     },
 ) {
     val projectPath: String = service.projectPath
@@ -134,6 +145,10 @@ class ProjectViewModel(
     val searchState: StateFlow<ProjectSearchUiState> = _searchState.asStateFlow()
     private var searchJob: Job? = null
     private val searchRequestIds = AtomicLong()
+    private val _workspaceSymbolSearch = MutableStateFlow(WorkspaceSymbolSearchState())
+    val workspaceSymbolSearch: StateFlow<WorkspaceSymbolSearchState> = _workspaceSymbolSearch.asStateFlow()
+    private var workspaceSymbolJob: Job? = null
+    private val workspaceSymbolRequestIds = AtomicLong()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -187,6 +202,46 @@ class ProjectViewModel(
         searchRequestIds.incrementAndGet()
         searchJob?.cancel()
         _searchState.value = ProjectSearchUiState(caseSensitive = _searchState.value.caseSensitive)
+    }
+
+    fun updateWorkspaceSymbolQuery(query: String) {
+        val requestId = workspaceSymbolRequestIds.incrementAndGet()
+        workspaceSymbolJob?.cancel()
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.length < MIN_WORKSPACE_SYMBOL_QUERY_LENGTH) {
+            _workspaceSymbolSearch.value = WorkspaceSymbolSearchState(query = normalizedQuery)
+            return
+        }
+
+        _workspaceSymbolSearch.value = WorkspaceSymbolSearchState(query = normalizedQuery, isSearching = true)
+        workspaceSymbolJob = scope.launch(ioDispatcher) {
+            try {
+                delay(WORKSPACE_SYMBOL_DEBOUNCE_MILLIS)
+                val symbols = searchWorkspaceSymbols(normalizedQuery)
+                if (requestId == workspaceSymbolRequestIds.get()) {
+                    _workspaceSymbolSearch.value = WorkspaceSymbolSearchState(
+                        query = normalizedQuery,
+                        symbols = symbols,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (requestId == workspaceSymbolRequestIds.get()) {
+                    _workspaceSymbolSearch.value = WorkspaceSymbolSearchState(
+                        query = normalizedQuery,
+                        error = error.message ?: "无法搜索工作区符号",
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearWorkspaceSymbolSearch() {
+        workspaceSymbolRequestIds.incrementAndGet()
+        workspaceSymbolJob?.cancel()
+        workspaceSymbolJob = null
+        _workspaceSymbolSearch.value = WorkspaceSymbolSearchState()
     }
 
     private fun selectFile(path: String, navigationLine: Int?, recordNavigation: Boolean) {
@@ -501,6 +556,8 @@ class ProjectViewModel(
         const val MAX_LOCATION_SNIPPETS = 96
         const val POSITION_INSIGHT_DEBOUNCE_MILLIS = 120L
         const val SEARCH_DEBOUNCE_MILLIS = 180L
+        const val WORKSPACE_SYMBOL_DEBOUNCE_MILLIS = 180L
+        const val MIN_WORKSPACE_SYMBOL_QUERY_LENGTH = 2
     }
 }
 
