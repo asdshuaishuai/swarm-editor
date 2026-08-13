@@ -5,6 +5,7 @@ import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
 import com.swarmeditor.backend.skill.ProjectSkillScanner
 import com.swarmeditor.backend.skill.ProjectSkillTrustStore
+import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.SkillConfig
 import com.swarmeditor.common.model.SkillSource
 import kotlinx.coroutines.test.runTest
@@ -26,6 +27,7 @@ class SkillServiceTest {
             val piSkills = File(root, "agent/skills")
             val trustStore = ProjectSkillTrustStore(File(root, "project-skill-trust.json"))
             var invalidations = 0
+            val activity = mutableListOf<ActivityEvent>()
             val service = SkillService(
                 store = SkillStore(File(root, "skills.json")),
                 scanner = SkillScanner(listOf(File(root, "global-skills"))),
@@ -34,12 +36,14 @@ class SkillServiceTest {
                 projectRoot = root,
                 projectScanner = ProjectSkillScanner(),
                 projectTrustStore = trustStore,
+                auditActivity = { activity += it },
             )
 
             service.scan().getOrThrow()
             assertEquals(SkillSource.PROJECT_FILESYSTEM, service.getAll().single().source)
             service.syncSkillsToPi("pi-default", SyncMethod.Copy)
             assertFalse(File(piSkills, "review").exists())
+            assertEquals("拒绝同步项目 Skills", activity.single().action)
 
             val trusted = service.trustProjectSkills().getOrThrow()
             assertTrue(trusted.trusted)
@@ -51,6 +55,15 @@ class SkillServiceTest {
             assertFalse(File(piSkills, "review").exists())
             assertEquals(3, invalidations)
             assertTrue(projectSkill.resolve("SKILL.md").isFile)
+            assertEquals(
+                listOf(
+                    "拒绝同步项目 Skills",
+                    "信任项目 Skills",
+                    "撤销项目 Skills 信任",
+                    "拒绝同步项目 Skills",
+                ),
+                activity.map(ActivityEvent::action),
+            )
         } finally {
             root.deleteRecursively()
         }

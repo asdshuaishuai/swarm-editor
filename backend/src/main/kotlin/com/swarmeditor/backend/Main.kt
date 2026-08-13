@@ -115,6 +115,7 @@ val skillService: SkillService by lazy {
         projectRoot = projectRoot,
         projectScanner = projectSkillScanner,
         projectTrustStore = projectSkillTrustStore,
+        auditActivity = activityStore::append,
         agentIdsProvider = { agentRegistry.getAllConfigs().map { it.id } },
         invalidateAgentRuntime = { agentId -> piRuntimeManager.closeAgent(agentId) },
         invalidateAllRuntimes = { piRuntimeManager.closeAll() }

@@ -8,6 +8,8 @@ import com.swarmeditor.backend.skill.ProjectSkillScanner
 import com.swarmeditor.backend.skill.ProjectSkillTrustStatus
 import com.swarmeditor.backend.skill.ProjectSkillTrustStore
 import com.swarmeditor.common.config.ConfigPaths
+import com.swarmeditor.common.model.ActivityEvent
+import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.SkillConfig
 import com.swarmeditor.common.model.SkillSource
 import kotlinx.coroutines.CancellationException
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.Clock
+import kotlin.time.Instant
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileVisitResult
@@ -40,6 +44,8 @@ class SkillService(
     private val projectRoot: File? = null,
     private val projectScanner: ProjectSkillScanner? = null,
     private val projectTrustStore: ProjectSkillTrustStore? = null,
+    private val auditActivity: suspend (ActivityEvent) -> Unit = {},
+    private val now: () -> Instant = { Clock.System.now() },
 ) {
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     private val syncMutex = Mutex()
@@ -77,6 +83,10 @@ class SkillService(
         val snapshot = scanner.scan(root)
         trustStore.trust(root, snapshot.fingerprint)
         invalidateAllRuntimes()
+        recordProjectSkillActivity(
+            action = "信任项目 Skills",
+            detail = "${snapshot.skills.size} 个项目 Skill，fingerprint=${snapshot.fingerprint}",
+        )
         trustStore.status(root, snapshot.fingerprint)
     }
 
@@ -85,6 +95,7 @@ class SkillService(
         val trustStore = requireNotNull(projectTrustStore) { "Project skill trust store is unavailable" }
         trustStore.revoke(root)
         invalidateAllRuntimes()
+        recordProjectSkillActivity("撤销项目 Skills 信任", "项目路径：${root.canonicalPath}")
     }
 
     suspend fun toggleAgent(id: String, agentId: String, enabled: Boolean): Result<Unit> = resultOf {
@@ -106,6 +117,13 @@ class SkillService(
         val skills = store.getAll()
             .filter { it.source == SkillSource.FILESYSTEM || isTrustedProjectSkill(it) }
             .filter { it.enabledAgents.isEmpty() || it.enabledAgents[agentId] == true }
+        val projectSkillCount = store.getAll().count { it.source == SkillSource.PROJECT_FILESYSTEM }
+        if (projectSkillCount > 0 && skills.none { it.source == SkillSource.PROJECT_FILESYSTEM }) {
+            recordProjectSkillActivity(
+                action = "拒绝同步项目 Skills",
+                detail = "$projectSkillCount 个项目 Skill 未通过当前 fingerprint 信任校验",
+            )
+        }
         syncSkillsToPi(skills, method, agentDirectoryProvider(agentId).resolve("skills"))
     }
 
@@ -177,6 +195,25 @@ class SkillService(
         val trustStore = projectTrustStore ?: return false
         val snapshot = scanner.scan(root)
         return trustStore.status(root, snapshot.fingerprint).trusted
+    }
+
+    private suspend fun recordProjectSkillActivity(action: String, detail: String) {
+        val root = projectRoot ?: return
+        val event = ActivityEvent(
+            id = "skill-${java.util.UUID.randomUUID()}",
+            sessionId = "project:${root.canonicalPath}",
+            timestamp = now(),
+            actor = "系统",
+            action = action,
+            detail = detail,
+            type = ActivityType.SKILL,
+        )
+        try {
+            auditActivity(event)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+        }
     }
 }
 
