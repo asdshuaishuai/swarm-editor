@@ -156,6 +156,7 @@ fun WindowScope.App(
     val currentSessionId by root.sessionVm.currentSessionId.collectAsState()
     val mcpServers by root.mcpVm.servers.collectAsState()
     val skills by root.skillVm.skills.collectAsState()
+    val projectSkillTrust by root.skillVm.projectSkillTrust.collectAsState()
     val wasmPluginState by root.wasmPluginVm.state.collectAsState()
     val wasmExecution by root.wasmPluginVm.execution.collectAsState()
     val kotlinLspRuntimeState by root.kotlinLspRuntimeVm.state.collectAsState()
@@ -1017,6 +1018,9 @@ fun WindowScope.App(
             onClose = { root.closeDialog() },
             mcpServers = mcpServers,
             skills = skills,
+            projectSkillTrust = projectSkillTrust,
+            onTrustProjectSkills = root.skillVm::trustProjectSkills,
+            onRevokeProjectSkillTrust = root.skillVm::revokeProjectSkillTrust,
             themeMode = themeMode,
             onThemeChange = root::setTheme,
             projectPath = root.projectVm.projectPath,

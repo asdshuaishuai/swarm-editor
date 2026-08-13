@@ -153,7 +153,7 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 
 理由：这是 ThinkRail 对攻击面最明确、且当前实现存在真实缺口的部分；会影响 Pi 启动前的安全边界。
 
-验收：未信任项目技能不进入 `PiRuntimePaths.agentDirectory(...)/skills`；信任、撤销、fingerprint 变化都有测试；用户级技能行为不回归。Activity 记录和设置页 trust 操作仍属于后续 UI 集成。
+验收：未信任项目技能不进入 `PiRuntimePaths.agentDirectory(...)/skills`；信任、撤销、fingerprint 变化都有测试；用户级技能行为不回归。Activity 记录仍属于后续审计工作。
 
 ### P1：Project Spec Graph 只读查看器
 
@@ -190,7 +190,7 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 
 已具备：Pi-native runtime、in-process backend、动态图感知 Swarm、Git-isolated task execution、LSP with fallback、Markdown/HTML/JSON rendering、evidence-first review、Bubblewrap conditional isolation、JetBrains 风格 Search Everywhere/Recent Files/Recent Locations/VCS/Workspace Symbols，以及只读 `ProjectSpecGraphScanner` 核心、`ProjectService.getSpecGraph()`、桌面 DTO/ViewModel、Specs 右侧工具窗口和行为测试。项目 Skill Trust 已完成项目内技能扫描、SHA-256 fingerprint 绑定的原子 trust ledger、Pi admission gate 和后端行为测试。
 
-缺失或未验证：交互式 Project Workspace 管理、项目 Skill trust 设置 UI/Activity 审计、Project Spec Graph 增量缓存/Pi context 接入、Review package 评论生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
+缺失或未验证：交互式 Project Workspace 管理、项目 Skill trust Activity 审计、Project Spec Graph 增量缓存/Pi context 接入、Review package 评论生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
 
 本轮实现的 Spec Graph 切片见 `docs/architecture/project-spec-graph.md` 与 `backend/.../spec/ProjectSpecGraph.kt`。它刻意只实现文件扫描、frontmatter 子集、图关系校验和诊断；尚未宣称完成 ThinkRail 的增量缓存、Pi 工具、Specs tool window 或规格编辑能力。
 

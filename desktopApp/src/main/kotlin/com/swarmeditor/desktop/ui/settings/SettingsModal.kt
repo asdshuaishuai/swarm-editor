@@ -84,6 +84,7 @@ import com.swarmeditor.desktop.api.SkillDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.IdeActionButton
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
+import com.swarmeditor.backend.skill.ProjectSkillTrustStatus
 import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeUiState
 import com.swarmeditor.backend.lsp.KotlinLspRuntimeHealth
 import com.swarmeditor.backend.lsp.LspConnectionPhase
@@ -113,6 +114,9 @@ fun SettingsModal(
     onClose: () -> Unit,
     mcpServers: List<McpServerDto> = emptyList(),
     skills: List<SkillDto> = emptyList(),
+    projectSkillTrust: ProjectSkillTrustStatus? = null,
+    onTrustProjectSkills: () -> Unit = {},
+    onRevokeProjectSkillTrust: () -> Unit = {},
     onRefreshMcp: () -> Unit = {},
     onAddMcp: () -> Unit = {},
     onEditMcp: (String) -> Unit = {},
@@ -247,7 +251,14 @@ fun SettingsModal(
                         onAdd = onAddMcp,
                         onEdit = onEditMcp
                     )
-                        "skills" -> SkillsManagementTab(skills, agents, settingsVm)
+                        "skills" -> SkillsManagementTab(
+                            skills = skills,
+                            agents = agents,
+                            settingsVm = settingsVm,
+                            projectSkillTrust = projectSkillTrust,
+                            onTrustProjectSkills = onTrustProjectSkills,
+                            onRevokeProjectSkillTrust = onRevokeProjectSkillTrust,
+                        )
                         "code-intelligence" -> CodeIntelligenceTab(
                             state = kotlinLspState,
                             onRefresh = onRefreshKotlinLsp,
@@ -673,6 +684,9 @@ private fun SkillsManagementTab(
     skills: List<SkillDto>,
     agents: List<AgentInfo>,
     settingsVm: SettingsViewModel,
+    projectSkillTrust: ProjectSkillTrustStatus?,
+    onTrustProjectSkills: () -> Unit,
+    onRevokeProjectSkillTrust: () -> Unit,
 ) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -690,6 +704,16 @@ private fun SkillsManagementTab(
         Text("自动扫描本机常见工具目录中的用户级 Skills；授权会同步到对应 Pi Profile。", color = Tx3, style = AppType.caption,
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Bg3).border(1.dp, Line, RoundedCornerShape(8.dp)).padding(10.dp))
         Spacer(Modifier.height(16.dp))
+        val projectSkills = skills.filter { it.source.equals("project_filesystem", true) }
+        if (projectSkills.isNotEmpty() || projectSkillTrust != null) {
+            ProjectSkillTrustCard(
+                skillCount = projectSkills.size,
+                trusted = projectSkillTrust?.trusted == true,
+                onTrust = onTrustProjectSkills,
+                onRevoke = onRevokeProjectSkillTrust,
+            )
+            Spacer(Modifier.height(12.dp))
+        }
         if (skills.isEmpty()) {
             Text("暂无 Skills，点击扫描发现", color = Tx3, style = AppType.bodySm)
         }
@@ -697,6 +721,39 @@ private fun SkillsManagementTab(
             SkillMgmtCard(skill, agents, settingsVm)
             Spacer(Modifier.height(6.dp))
         }
+    }
+}
+
+@Composable
+private fun ProjectSkillTrustCard(
+    skillCount: Int,
+    trusted: Boolean,
+    onTrust: () -> Unit,
+    onRevoke: () -> Unit,
+) {
+    val tone = if (trusted) Ok else Warn
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(tone.withAlpha(0.08f)).border(1.dp, tone.withAlpha(0.28f), RoundedCornerShape(10.dp)).padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("项目 Skills 信任", color = Tx, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (trusted) "已信任当前 fingerprint；${skillCount} 个项目 Skill 可同步到 Pi。"
+                    else "项目仓库中的 Skill 默认不加载；信任前只展示元数据。",
+                    color = Tx2,
+                    style = AppType.caption,
+                )
+            }
+            if (trusted) {
+                ActionButton("撤销信任", tone = ActionTone.DESTRUCTIVE, prominent = false, compact = true, onClick = onRevoke)
+            } else {
+                ActionButton("信任项目 Skills", tone = ActionTone.WARNING, prominent = false, compact = true, onClick = onTrust)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("文件内容变化后 fingerprint 会自动失效，需要重新确认。", color = Tx3, style = AppType.micro)
     }
 }
 
