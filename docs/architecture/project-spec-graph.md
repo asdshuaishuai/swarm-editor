@@ -47,10 +47,11 @@ frontmatter mutation remain out of scope until a compatible JVM YAML dependency 
 ## Runtime Boundary
 
 `ProjectSpecGraphScanner.scan` performs filesystem work on `Dispatchers.IO`. It is a suspend API and can
-be called by `ProjectService`, a future Specs view model, or a Pi context adapter. It does not cache yet;
-that is deliberate while the model and diagnostics contract stabilize. A later cache should follow
-ThinkRail's revalidate-on-read design using file metadata and explicit invalidation, not become a second
-source of truth.
+be called by `ProjectService`, a future Specs view model, or a Pi context adapter. The scanner keeps a
+process-local cache keyed by canonical project root and revalidates candidate paths using relative path,
+size, and full filesystem modification time before reusing a graph. Directory traversal still runs on
+every scan, so additions, removals, exclusions, and symlink changes are observed without making the
+cache a second source of truth. File content is reread whenever metadata changes.
 
 The model is separate from `SwarmGraph`:
 

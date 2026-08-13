@@ -8,8 +8,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.atomic.AtomicInteger
 
 class ProjectSpecGraphTest {
+    @OptIn(ExperimentalPathApi::class)
+    @Test
+    fun `scanner reuses cached graph until candidate metadata changes`() = runTest {
+        val root = Files.createTempDirectory("project-spec-graph-cache")
+        try {
+            val file = root.resolve("spec.md")
+            Files.writeString(file, "---\nid: first\ntype: design\n---\n")
+            val reads = AtomicInteger()
+            val scanner = ProjectSpecGraphScanner(readFile = { path ->
+                reads.incrementAndGet()
+                Files.readString(path)
+            })
+
+            assertEquals("first", scanner.scan(root.toFile()).nodes.single().id)
+            assertEquals("first", scanner.scan(root.toFile()).nodes.single().id)
+            assertEquals(1, reads.get())
+
+            Files.writeString(file, "---\nid: second\ntype: design\n---\n")
+
+            assertEquals("second", scanner.scan(root.toFile()).nodes.single().id)
+            assertEquals(2, reads.get())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @OptIn(ExperimentalPathApi::class)
     @Test
     fun `scanner builds a sorted graph from valid frontmatter and ignores non-spec files`() = runTest {

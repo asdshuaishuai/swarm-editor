@@ -3,7 +3,10 @@ package com.swarmeditor.backend.spec
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class SpecDiagnosticSeverity {
@@ -39,53 +42,74 @@ data class ProjectSpecGraph(
 
 class ProjectSpecGraphScanner(
     private val maxFileBytes: Long = DEFAULT_MAX_FILE_BYTES,
+    private val readFile: (Path) -> String = { Files.readString(it) },
 ) {
+    private val cacheMutex = Mutex()
+    private val cache = mutableMapOf<String, CachedGraph>()
+
     init {
         require(maxFileBytes > 0) { "maxFileBytes must be positive" }
     }
 
     suspend fun scan(projectRoot: File): ProjectSpecGraph = withContext(Dispatchers.IO) {
         val root = projectRoot.toPath().toRealPath()
+        val candidates = collectCandidates(root, root)
+        val signature = candidates.map { it.metadata }
+        cacheMutex.withLock {
+            cache[root.toString()]?.takeIf { it.signature == signature }?.graph
+        }?.let { return@withContext it }
+
         val parsed = mutableListOf<ParsedSpec>()
         val diagnostics = mutableListOf<SpecDiagnostic>()
-        walk(root, root, parsed, diagnostics)
-        ProjectSpecGraphValidator.validate(parsed, diagnostics)
+        candidates.forEach { candidate ->
+            val source = try {
+                readFile(candidate.path)
+            } catch (error: Exception) {
+                diagnostics += SpecDiagnostic(
+                    severity = SpecDiagnosticSeverity.WARNING,
+                    path = candidate.metadata.relativePath,
+                    message = "Unable to read candidate spec: ${error.message ?: error::class.simpleName}",
+                )
+                return@forEach
+            }
+            when (val result = ProjectSpecFrontmatter.parse(candidate.metadata.relativePath, source)) {
+                is SpecParseResult.NotASpec -> Unit
+                is SpecParseResult.Invalid -> diagnostics += result.diagnostic
+                is SpecParseResult.Valid -> parsed += result.spec
+            }
+        }
+        val graph = ProjectSpecGraphValidator.validate(parsed, diagnostics)
+        cacheMutex.withLock { cache[root.toString()] = CachedGraph(signature, graph) }
+        graph
     }
 
-    private fun walk(
+    private fun collectCandidates(
         directory: Path,
         root: Path,
-        parsed: MutableList<ParsedSpec>,
-        diagnostics: MutableList<SpecDiagnostic>,
-    ) {
+    ): List<SpecFile> {
+        val candidates = mutableListOf<SpecFile>()
         Files.list(directory).use { entries ->
             entries.sorted().forEach { entry ->
                 if (!isInsideRoot(entry, root) || Files.isSymbolicLink(entry)) return@forEach
                 if (Files.isDirectory(entry)) {
                     if (entry.fileName.toString() !in EXCLUDED_DIRECTORIES) {
-                        walk(entry, root, parsed, diagnostics)
+                        candidates += collectCandidates(entry, root)
                     }
                     return@forEach
                 }
                 if (!Files.isRegularFile(entry) || Files.size(entry) > maxFileBytes) return@forEach
                 val relativePath = root.relativize(entry).toString().replace(File.separatorChar, '/')
-                val source = try {
-                    Files.readString(entry)
-                } catch (error: Exception) {
-                    diagnostics += SpecDiagnostic(
-                        severity = SpecDiagnosticSeverity.WARNING,
-                        path = relativePath,
-                        message = "Unable to read candidate spec: ${error.message ?: error::class.simpleName}",
-                    )
-                    return@forEach
-                }
-                when (val result = ProjectSpecFrontmatter.parse(relativePath, source)) {
-                    is SpecParseResult.NotASpec -> Unit
-                    is SpecParseResult.Invalid -> diagnostics += result.diagnostic
-                    is SpecParseResult.Valid -> parsed += result.spec
-                }
+                candidates += SpecFile(
+                    path = entry,
+                    metadata = SpecFileMetadata(
+                        relativePath = relativePath,
+                        size = Files.size(entry),
+                        lastModified = Files.getLastModifiedTime(entry),
+                    ),
+                )
             }
         }
+        return candidates
     }
 
     private fun isInsideRoot(path: Path, root: Path): Boolean =
@@ -105,6 +129,22 @@ class ProjectSpecGraphScanner(
         )
     }
 }
+
+private data class SpecFile(
+    val path: Path,
+    val metadata: SpecFileMetadata,
+)
+
+private data class SpecFileMetadata(
+    val relativePath: String,
+    val size: Long,
+    val lastModified: FileTime,
+)
+
+private data class CachedGraph(
+    val signature: List<SpecFileMetadata>,
+    val graph: ProjectSpecGraph,
+)
 
 private data class ParsedSpec(
     val id: String,
