@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class SkillSource {
     FILESYSTEM,
+    PROJECT_FILESYSTEM,
     MCP
 }
 

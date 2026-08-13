@@ -21,6 +21,9 @@ object ConfigPaths {
     /** Skills 统一存储 */
     val SKILLS_JSON: String = "$SWARM_EDITOR_DIR/skills.json"
 
+    /** 项目内 Skills 的显式信任账本。 */
+    val PROJECT_SKILL_TRUST_JSON: String = "$SWARM_EDITOR_DIR/project-skill-trust.json"
+
     /** 会话数据目录 */
     val SESSIONS_DIR: String = "$SWARM_EDITOR_DIR/sessions"
 

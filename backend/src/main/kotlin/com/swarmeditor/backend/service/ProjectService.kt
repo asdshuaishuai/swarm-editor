@@ -6,6 +6,8 @@ import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourcePositionInsight
 import com.swarmeditor.backend.lsp.SourceSemanticHighlighter
 import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
+import com.swarmeditor.backend.spec.ProjectSpecGraph
+import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.storage.atomicWriteText
 import java.io.File
 import java.nio.ByteBuffer
@@ -23,6 +25,7 @@ internal const val MAX_PROJECT_FILE_BYTES = 256 * 1024
 class ProjectService(
     private val projectDir: File,
     private val semanticHighlighter: SourceSemanticHighlighter? = null,
+    private val specGraphScanner: ProjectSpecGraphScanner = ProjectSpecGraphScanner(),
 ) {
     val projectPath: String = projectDir.absolutePath
 
@@ -61,6 +64,8 @@ class ProjectService(
         val root = projectDir.toPath().toRealPath()
         return walkDir(root.toFile(), root, depth = 0)
     }
+
+    suspend fun getSpecGraph(): ProjectSpecGraph = specGraphScanner.scan(projectDir)
 
     fun readFile(relativePath: String): FilePreview {
         val root = projectDir.toPath().toRealPath()

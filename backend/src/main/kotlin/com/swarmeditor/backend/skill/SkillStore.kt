@@ -87,9 +87,12 @@ class SkillStore(
         }
     }
 
-    suspend fun synchronizeFilesystem(scanned: List<SkillConfig>) = mutex.withLock {
+    suspend fun synchronizeFilesystem(
+        scanned: List<SkillConfig>,
+        source: SkillSource = SkillSource.FILESYSTEM,
+    ) = mutex.withLock {
         val previous = skills.toMap()
-        skills.entries.removeIf { it.value.source == SkillSource.FILESYSTEM }
+        skills.entries.removeIf { it.value.source == source }
         scanned.forEach { skill ->
             skills[skill.id] = skill.copy(
                 enabledAgents = previous[skill.id]?.enabledAgents ?: skill.enabledAgents
@@ -129,7 +132,11 @@ class SkillStore(
 }
 
 private fun SkillFile.toConfig() = SkillConfig(id=id, name=name, description=description,
-    source=when(source){"mcp"->SkillSource.MCP else->SkillSource.FILESYSTEM}, scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files)
+    source = when (source) {
+        "mcp" -> SkillSource.MCP
+        "project_filesystem" -> SkillSource.PROJECT_FILESYSTEM
+        else -> SkillSource.FILESYSTEM
+    }, scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files)
 
 private fun SkillConfig.toFile() = SkillFile(id=id, name=name, description=description,
     source=source.name.lowercase(), scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files)

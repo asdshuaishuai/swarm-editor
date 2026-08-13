@@ -57,6 +57,28 @@ class SkillStoreTest {
     }
 
     @Test
+    fun `project filesystem source survives persistence`() = runTest {
+        val directory = createTempDirectory("skill-project-source-").toFile()
+        try {
+            val expected = SkillConfig(
+                id = "project:agents:review",
+                name = "review",
+                source = SkillSource.PROJECT_FILESYSTEM,
+                scope = "project:${directory.absolutePath}",
+                path = File(directory, ".agents/skills/review").absolutePath,
+                tags = listOf("discovered:project"),
+            )
+
+            SkillStore(File(directory, "skills.json")).upsert(expected)
+            val reloaded = SkillStore(File(directory, "skills.json")).also { it.load() }.getAll().single()
+
+            assertEquals(expected, reloaded)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `malformed configuration is quarantined without discarding loaded skills`() = runTest {
         val directory = createTempDirectory("skill-malformed-").toFile()
         try {

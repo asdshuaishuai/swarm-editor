@@ -5,6 +5,8 @@ import com.swarmeditor.common.model.AgentStatus
 import com.swarmeditor.common.model.McpServerConfig
 import com.swarmeditor.common.model.McpServerType
 import com.swarmeditor.common.model.SkillConfig
+import com.swarmeditor.backend.spec.ProjectSpecGraph
+import com.swarmeditor.backend.spec.SpecDiagnosticSeverity
 import com.swarmeditor.backend.pi.PiSessionState
 import com.swarmeditor.desktop.AgentInfo
 import com.swarmeditor.desktop.PRIMARY_AGENT_NAME
@@ -13,6 +15,10 @@ import com.swarmeditor.desktop.api.McpRuntimeStatus
 import com.swarmeditor.desktop.api.McpServerDto
 import com.swarmeditor.desktop.api.McpToolDto
 import com.swarmeditor.desktop.api.SkillDto
+import com.swarmeditor.desktop.api.ProjectSpecGraphDto
+import com.swarmeditor.desktop.api.ProjectSpecNodeDto
+import com.swarmeditor.desktop.api.SpecDiagnosticDto
+import com.swarmeditor.desktop.api.SpecDiagnosticSeverityDto
 import com.swarmeditor.desktop.api.AgentConfigDto
 import com.swarmeditor.desktop.api.AgentDto
 import com.swarmeditor.desktop.theme.AgentClaude
@@ -143,4 +149,31 @@ internal fun SkillConfig.toDto() = SkillDto(
     enabledAgents = enabledAgents,
     tags = tags,
     files = files
+)
+
+internal fun ProjectSpecGraph.toDto() = ProjectSpecGraphDto(
+    nodes = nodes.map { node ->
+        ProjectSpecNodeDto(
+            id = node.id,
+            type = node.type,
+            title = node.title,
+            path = node.path,
+            parent = node.parent,
+            dependsOn = node.dependsOn,
+            references = node.references,
+            implements = node.implements,
+            tags = node.tags,
+        )
+    },
+    diagnostics = diagnostics.map { diagnostic ->
+        SpecDiagnosticDto(
+            severity = when (diagnostic.severity) {
+                SpecDiagnosticSeverity.ERROR -> SpecDiagnosticSeverityDto.ERROR
+                SpecDiagnosticSeverity.WARNING -> SpecDiagnosticSeverityDto.WARNING
+            },
+            path = diagnostic.path,
+            message = diagnostic.message,
+            line = diagnostic.line,
+        )
+    },
 )

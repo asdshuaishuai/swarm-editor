@@ -3,6 +3,8 @@ package com.swarmeditor.backend.service
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
+import com.swarmeditor.backend.skill.ProjectSkillScanner
+import com.swarmeditor.backend.skill.ProjectSkillTrustStore
 import com.swarmeditor.common.model.SkillConfig
 import com.swarmeditor.common.model.SkillSource
 import kotlinx.coroutines.test.runTest
@@ -16,6 +18,44 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SkillServiceTest {
+    @Test
+    fun `project skills require trust before synchronization and revoke removes them`() = runTest {
+        val root = createTempDirectory("project-skill-service-").toFile()
+        try {
+            val projectSkill = createSkill(File(root, ".agents/skills"), "review")
+            val piSkills = File(root, "agent/skills")
+            val trustStore = ProjectSkillTrustStore(File(root, "project-skill-trust.json"))
+            var invalidations = 0
+            val service = SkillService(
+                store = SkillStore(File(root, "skills.json")),
+                scanner = SkillScanner(listOf(File(root, "global-skills"))),
+                agentDirectoryProvider = { File(root, "agent") },
+                invalidateAllRuntimes = { invalidations += 1 },
+                projectRoot = root,
+                projectScanner = ProjectSkillScanner(),
+                projectTrustStore = trustStore,
+            )
+
+            service.scan().getOrThrow()
+            assertEquals(SkillSource.PROJECT_FILESYSTEM, service.getAll().single().source)
+            service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            assertFalse(File(piSkills, "review").exists())
+
+            val trusted = service.trustProjectSkills().getOrThrow()
+            assertTrue(trusted.trusted)
+            service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            assertTrue(File(piSkills, "review/SKILL.md").isFile)
+
+            service.revokeProjectSkillTrust().getOrThrow()
+            service.syncSkillsToPi("pi-default", SyncMethod.Copy)
+            assertFalse(File(piSkills, "review").exists())
+            assertEquals(3, invalidations)
+            assertTrue(projectSkill.resolve("SKILL.md").isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun `scan synchronizes additions file structure and removals`() = runTest {
         val root = createTempDirectory("skills-scan-").toFile()

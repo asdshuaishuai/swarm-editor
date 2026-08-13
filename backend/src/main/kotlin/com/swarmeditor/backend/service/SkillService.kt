@@ -4,6 +4,9 @@ import com.swarmeditor.backend.pi.PiRuntimePaths
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.skill.SyncMethod
+import com.swarmeditor.backend.skill.ProjectSkillScanner
+import com.swarmeditor.backend.skill.ProjectSkillTrustStatus
+import com.swarmeditor.backend.skill.ProjectSkillTrustStore
 import com.swarmeditor.common.config.ConfigPaths
 import com.swarmeditor.common.model.SkillConfig
 import com.swarmeditor.common.model.SkillSource
@@ -34,6 +37,9 @@ class SkillService(
     private val invalidateAgentRuntime: suspend (String) -> Unit = {},
     private val invalidateAllRuntimes: suspend () -> Unit = {},
     private val skillInstaller: (File, File, SyncMethod) -> Unit = ::installSkill,
+    private val projectRoot: File? = null,
+    private val projectScanner: ProjectSkillScanner? = null,
+    private val projectTrustStore: ProjectSkillTrustStore? = null,
 ) {
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     private val syncMutex = Mutex()
@@ -42,16 +48,44 @@ class SkillService(
     suspend fun init() {
         store.load()
         store.synchronizeFilesystem(scanner.scanGlobal())
+        projectTrustStore?.load()
+        synchronizeProjectSkills()
         refresh()
     }
 
     suspend fun scan(): Result<Unit> = resultOf {
         store.synchronizeFilesystem(scanner.scanGlobal())
+        synchronizeProjectSkills()
         refresh()
         invalidateAllRuntimes()
     }
 
     suspend fun getAll(): List<SkillConfig> = store.getAll()
+
+    suspend fun getProjectSkillTrust(): Result<ProjectSkillTrustStatus?> = resultOfValue {
+        val root = projectRoot ?: return@resultOfValue null
+        val scanner = projectScanner ?: return@resultOfValue null
+        val trustStore = projectTrustStore ?: return@resultOfValue null
+        val snapshot = scanner.scan(root)
+        trustStore.status(root, snapshot.fingerprint)
+    }
+
+    suspend fun trustProjectSkills(): Result<ProjectSkillTrustStatus> = resultOfValue {
+        val root = requireNotNull(projectRoot) { "Project skill trust requires a project root" }
+        val scanner = requireNotNull(projectScanner) { "Project skill scanner is unavailable" }
+        val trustStore = requireNotNull(projectTrustStore) { "Project skill trust store is unavailable" }
+        val snapshot = scanner.scan(root)
+        trustStore.trust(root, snapshot.fingerprint)
+        invalidateAllRuntimes()
+        trustStore.status(root, snapshot.fingerprint)
+    }
+
+    suspend fun revokeProjectSkillTrust(): Result<Unit> = resultOf {
+        val root = requireNotNull(projectRoot) { "Project skill trust requires a project root" }
+        val trustStore = requireNotNull(projectTrustStore) { "Project skill trust store is unavailable" }
+        trustStore.revoke(root)
+        invalidateAllRuntimes()
+    }
 
     suspend fun toggleAgent(id: String, agentId: String, enabled: Boolean): Result<Unit> = resultOf {
         val agentIds = agentIdsProvider().ifEmpty { listOf(agentId) }
@@ -70,7 +104,7 @@ class SkillService(
         val agentIds = agentIdsProvider()
         require(agentIds.isEmpty() || agentId in agentIds) { "Unknown Pi Agent Profile: $agentId" }
         val skills = store.getAll()
-            .filter { it.source == SkillSource.FILESYSTEM }
+            .filter { it.source == SkillSource.FILESYSTEM || isTrustedProjectSkill(it) }
             .filter { it.enabledAgents.isEmpty() || it.enabledAgents[agentId] == true }
         syncSkillsToPi(skills, method, agentDirectoryProvider(agentId).resolve("skills"))
     }
@@ -128,6 +162,21 @@ class SkillService(
 
     private suspend fun refresh() {
         _skills.value = store.getAll()
+    }
+
+    private suspend fun synchronizeProjectSkills() {
+        val root = projectRoot ?: return
+        val scanner = projectScanner ?: return
+        store.synchronizeFilesystem(scanner.scan(root).skills, SkillSource.PROJECT_FILESYSTEM)
+    }
+
+    private suspend fun isTrustedProjectSkill(skill: SkillConfig): Boolean {
+        if (skill.source != SkillSource.PROJECT_FILESYSTEM) return false
+        val root = projectRoot ?: return false
+        val scanner = projectScanner ?: return false
+        val trustStore = projectTrustStore ?: return false
+        val snapshot = scanner.scan(root)
+        return trustStore.status(root, snapshot.fingerprint).trusted
     }
 }
 
@@ -267,6 +316,16 @@ private suspend fun resultOf(action: suspend () -> Unit): Result<Unit> {
     return try {
         action()
         Result.success(Unit)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+}
+
+private suspend fun <T> resultOfValue(action: suspend () -> T): Result<T> {
+    return try {
+        Result.success(action())
     } catch (error: CancellationException) {
         throw error
     } catch (error: Throwable) {

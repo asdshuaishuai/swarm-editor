@@ -11,6 +11,7 @@ import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.desktop.api.FileNodeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
+import com.swarmeditor.desktop.api.ProjectSpecGraphDto
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 import java.net.URI
@@ -65,6 +66,12 @@ data class WorkspaceSymbolSearchState(
     val error: String? = null,
 )
 
+data class ProjectSpecGraphUiState(
+    val graph: ProjectSpecGraphDto? = null,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+)
+
 class ProjectViewModel(
     private val service: ProjectService,
     private val scope: CoroutineScope,
@@ -77,6 +84,7 @@ class ProjectViewModel(
     private val searchWorkspaceSymbols: suspend (String) -> List<WorkspaceSourceSymbol> = { query ->
         service.searchWorkspaceSymbols(query)
     },
+    private val loadSpecGraphData: suspend () -> ProjectSpecGraphDto = { service.getSpecGraph().toDto() },
 ) {
     val projectPath: String = service.projectPath
 
@@ -149,6 +157,10 @@ class ProjectViewModel(
     val workspaceSymbolSearch: StateFlow<WorkspaceSymbolSearchState> = _workspaceSymbolSearch.asStateFlow()
     private var workspaceSymbolJob: Job? = null
     private val workspaceSymbolRequestIds = AtomicLong()
+    private val _specGraph = MutableStateFlow(ProjectSpecGraphUiState())
+    val specGraph: StateFlow<ProjectSpecGraphUiState> = _specGraph.asStateFlow()
+    private var specGraphJob: Job? = null
+    private val specGraphRequestIds = AtomicLong()
 
     fun load() {
         val requestId = treeRequestIds.incrementAndGet()
@@ -167,6 +179,26 @@ class ProjectViewModel(
                 }
             } finally {
                 if (requestId == treeRequestIds.get()) _isLoading.value = false
+            }
+        }
+    }
+
+    fun loadSpecGraph() {
+        val requestId = specGraphRequestIds.incrementAndGet()
+        specGraphJob?.cancel()
+        _specGraph.update { it.copy(isLoading = true, error = null) }
+        specGraphJob = scope.launch(ioDispatcher) {
+            try {
+                val graph = loadSpecGraphData()
+                if (requestId == specGraphRequestIds.get()) {
+                    _specGraph.value = ProjectSpecGraphUiState(graph = graph)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (requestId == specGraphRequestIds.get()) {
+                    _specGraph.value = ProjectSpecGraphUiState(error = error.message ?: "无法加载规格图")
+                }
             }
         }
     }

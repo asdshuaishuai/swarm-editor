@@ -11,6 +11,8 @@ import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.backend.service.ProjectService
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitStatusDto
+import com.swarmeditor.desktop.api.ProjectSpecGraphDto
+import com.swarmeditor.desktop.api.ProjectSpecNodeDto
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +38,50 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, ExperimentalPathApi::class)
 class ProjectViewModelTest {
+    @Test
+    fun `spec graph loading exposes nodes and recovers from loader failure`() = runTest {
+        val directory = Files.createTempDirectory("project-spec-graph-vm")
+        try {
+            var loadCount = 0
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = ProjectViewModel(
+                service = ProjectService(directory.toFile()),
+                scope = backgroundScope,
+                ioDispatcher = dispatcher,
+                loadSpecGraphData = {
+                    loadCount += 1
+                    if (loadCount == 1) {
+                        ProjectSpecGraphDto(
+                            nodes = listOf(
+                                ProjectSpecNodeDto(
+                                    id = "architecture",
+                                    type = "design",
+                                    title = "Architecture",
+                                    path = "architecture.md",
+                                )
+                            )
+                        )
+                    } else {
+                        error("spec read failed")
+                    }
+                },
+            )
+
+            viewModel.loadSpecGraph()
+            assertTrue(viewModel.specGraph.value.isLoading)
+            runCurrent()
+            assertEquals("architecture", viewModel.specGraph.value.graph?.nodes?.single()?.id)
+            assertFalse(viewModel.specGraph.value.isLoading)
+
+            viewModel.loadSpecGraph()
+            runCurrent()
+            assertEquals("spec read failed", viewModel.specGraph.value.error)
+            assertFalse(viewModel.specGraph.value.isLoading)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun `workspace symbol search debounces and rejects stale results`() = runTest {
         val directory = Files.createTempDirectory("project-workspace-symbol-vm")

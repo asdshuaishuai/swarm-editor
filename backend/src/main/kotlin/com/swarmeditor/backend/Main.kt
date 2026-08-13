@@ -35,6 +35,8 @@ import com.swarmeditor.backend.service.WasmPluginService
 import com.swarmeditor.backend.session.SessionStore
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
+import com.swarmeditor.backend.skill.ProjectSkillScanner
+import com.swarmeditor.backend.skill.ProjectSkillTrustStore
 import com.swarmeditor.backend.swarm.PiSwarmTaskExecutor
 import com.swarmeditor.backend.swarm.PiSwarmPlanner
 import com.swarmeditor.backend.swarm.PiSwarmExperienceLearner
@@ -82,6 +84,8 @@ val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
 val userMcpScanner = UserMcpScanner()
 val skillStore = SkillStore(File(ConfigPaths.SKILLS_JSON))
 val skillScanner = SkillScanner()
+val projectSkillScanner = ProjectSkillScanner()
+val projectSkillTrustStore = ProjectSkillTrustStore(File(ConfigPaths.PROJECT_SKILL_TRUST_JSON))
 val piToolAuditStore = FilePiToolAuditStore(File(ConfigPaths.PI_TOOL_AUDIT_DIR))
 val wasmPluginRegistry = WasmPluginRegistry(File(ConfigPaths.WASM_PLUGINS_DIR))
 val wasmtimeRuntimeManager = WasmtimeRuntimeManager(File(ConfigPaths.WASMTIME_RUNTIME_DIR))
@@ -108,6 +112,9 @@ val skillService: SkillService by lazy {
     SkillService(
         skillStore,
         skillScanner,
+        projectRoot = projectRoot,
+        projectScanner = projectSkillScanner,
+        projectTrustStore = projectSkillTrustStore,
         agentIdsProvider = { agentRegistry.getAllConfigs().map { it.id } },
         invalidateAgentRuntime = { agentId -> piRuntimeManager.closeAgent(agentId) },
         invalidateAllRuntimes = { piRuntimeManager.closeAll() }

@@ -81,12 +81,15 @@ import com.swarmeditor.desktop.api.GitCommitChangeDto
 import com.swarmeditor.desktop.api.GitFileChangeDto
 import com.swarmeditor.desktop.api.GitHistoryDto
 import com.swarmeditor.desktop.api.GitStatusDto
+import com.swarmeditor.desktop.api.ProjectSpecGraphDto
+import com.swarmeditor.desktop.api.ProjectSpecNodeDto
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.IdeToolWindowTab
 import com.swarmeditor.desktop.ui.common.IdeToolWindowTabs
 
 // ── Tab definitions ──────────────────────────────────────────────────────
 private val TABS = listOf(
+    IdeToolWindowTab("specs", "规格"),
     IdeToolWindowTab("changes", "变更"),
     IdeToolWindowTab("inspector", "检查"),
     IdeToolWindowTab("branches", "会话"),
@@ -144,6 +147,9 @@ fun RightPanel(
     commitChangesLoading: Boolean = false,
     commitChangesError: String? = null,
     gitCommitMessage: String = "",
+    specGraph: ProjectSpecGraphDto? = null,
+    specGraphLoading: Boolean = false,
+    specGraphError: String? = null,
     onCompactContext: (String?) -> Boolean = { false },
     onRefreshModels: () -> Unit = {},
     onSetModel: (PiModelInfo) -> Boolean = { false },
@@ -169,18 +175,33 @@ fun RightPanel(
     onGitCommitMessageChange: (String) -> Unit = {},
     onGitCommit: () -> Unit = {},
     onOpenDiff: (GitFileChangeDto) -> Unit = {},
+    onRefreshSpecGraph: () -> Unit = {},
+    onOpenSpec: (ProjectSpecNodeDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.background(Bg1.copy(alpha = 0.85f)).border(1.dp, Line)) {
         // ── Tab header row ───────────────────────────────────────────────
         IdeToolWindowTabs(
-            tabs = TABS.map { tab -> if (tab.id == "changes") tab.copy(count = gitStatus.changes.size) else tab },
+            tabs = TABS.map { tab ->
+                when (tab.id) {
+                    "changes" -> tab.copy(count = gitStatus.changes.size)
+                    "specs" -> tab.copy(count = specGraph?.diagnostics?.size ?: 0)
+                    else -> tab
+                }
+            },
             selectedId = currentTab,
             onSelected = onTabChange,
         )
 
         Column(Modifier.weight(1f).fillMaxWidth()) {
             when (currentTab) {
+                "specs" -> SpecGraphToolWindow(
+                    graph = specGraph,
+                    isLoading = specGraphLoading,
+                    error = specGraphError,
+                    onRefresh = onRefreshSpecGraph,
+                    onOpenSpec = onOpenSpec,
+                )
                 "changes" -> GitChangesToolWindow(
                     gitStatus = gitStatus,
                     gitHistory = gitHistory,

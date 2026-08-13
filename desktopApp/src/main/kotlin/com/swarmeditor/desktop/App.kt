@@ -170,6 +170,7 @@ fun WindowScope.App(
     val projectDirtyPaths by root.projectVm.dirtyPaths.collectAsState()
     val projectSearchState by root.projectVm.searchState.collectAsState()
     val workspaceSymbolSearch by root.projectVm.workspaceSymbolSearch.collectAsState()
+    val projectSpecGraphState by root.projectVm.specGraph.collectAsState()
     val themeMode by root.themeMode.collectAsState()
     val gitStatus by root.gitVm.status.collectAsState()
     val gitHistory by root.gitVm.history.collectAsState()
@@ -263,7 +264,7 @@ fun WindowScope.App(
     var rightTab by remember {
         mutableStateOf(
             System.getProperty("swarm.rightTab")
-                ?.takeIf { it in setOf("changes", "inspector", "branches", "log", "tokens") }
+                ?.takeIf { it in setOf("specs", "changes", "inspector", "branches", "log", "tokens") }
                 ?: "changes"
         )
     }
@@ -312,6 +313,7 @@ fun WindowScope.App(
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(rightTab, currentSessionId) {
         if (rightTab == "branches") root.sessionVm.refreshPiSessionTree()
+        if (rightTab == "specs") root.projectVm.loadSpecGraph()
     }
     val latestImageAttachments by rememberUpdatedState(imageAttachments)
     val mcpExportJson = remember { Json { prettyPrint = true; encodeDefaults = true } }
@@ -855,6 +857,9 @@ fun WindowScope.App(
                             commitChangesLoading = gitCommitSelection.isLoading,
                             commitChangesError = gitCommitSelection.error,
                             gitCommitMessage = gitCommitMessage,
+                            specGraph = projectSpecGraphState.graph,
+                            specGraphLoading = projectSpecGraphState.isLoading,
+                            specGraphError = projectSpecGraphState.error,
                             activities = conversationActivities,
                             piRuntimeState = piRuntimeState,
                             piRuntimeStats = piRuntimeStats,
@@ -895,6 +900,11 @@ fun WindowScope.App(
                             onOpenDiff = {
                                 root.gitVm.dismissHistoricalDiff()
                                 diffChange = it
+                            },
+                            onRefreshSpecGraph = root.projectVm::loadSpecGraph,
+                            onOpenSpec = { node ->
+                                root.projectVm.selectFile(node.path)
+                                root.switchView("files")
                             },
                             modifier = Modifier.width(shellLayout.rightPanelWidth.dp).fillMaxHeight()
                         )

@@ -131,6 +131,39 @@ data class FileNodeDto(
 )
 
 @Serializable
+enum class SpecDiagnosticSeverityDto {
+    ERROR,
+    WARNING,
+}
+
+@Serializable
+data class SpecDiagnosticDto(
+    val severity: SpecDiagnosticSeverityDto,
+    val path: String,
+    val message: String,
+    val line: Int? = null,
+)
+
+@Serializable
+data class ProjectSpecNodeDto(
+    val id: String,
+    val type: String,
+    val title: String,
+    val path: String,
+    val parent: String? = null,
+    val dependsOn: List<String> = emptyList(),
+    val references: List<String> = emptyList(),
+    val implements: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
+)
+
+@Serializable
+data class ProjectSpecGraphDto(
+    val nodes: List<ProjectSpecNodeDto> = emptyList(),
+    val diagnostics: List<SpecDiagnosticDto> = emptyList(),
+)
+
+@Serializable
 data class GitFileChangeDto(
     val path: String,
     val status: String,

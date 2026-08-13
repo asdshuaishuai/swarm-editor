@@ -7,6 +7,7 @@ import com.swarmeditor.backend.lsp.SourceCodeIntelligence
 import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
+import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
@@ -19,6 +20,32 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProjectServiceTest {
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `project service exposes the current read-only spec graph`() = runTest {
+        val directory = Files.createTempDirectory("project-service-spec-graph")
+        try {
+            Files.writeString(
+                directory.resolve("architecture.md"),
+                """
+                ---
+                id: architecture
+                type: design
+                title: Architecture
+                ---
+                """.trimIndent(),
+            )
+            val service = ProjectService(directory.toFile(), specGraphScanner = ProjectSpecGraphScanner())
+
+            val graph = service.getSpecGraph()
+
+            assertEquals(listOf("architecture"), graph.nodes.map { it.id })
+            assertTrue(graph.diagnostics.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
     fun `project code inspection returns semantic symbols and diagnostics`() = runTest {

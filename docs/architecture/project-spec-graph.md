@@ -1,0 +1,71 @@
+# Project Spec Graph
+
+## Purpose
+
+`ProjectSpecGraphScanner` is the local, read-only slice inspired by JetBrains ThinkRail's
+`pi-spec-graph`. It derives a project specification graph from repository files without coupling the
+model to Pi, Compose, HTTP, or the Swarm execution scheduler.
+
+The filesystem remains the source of truth. The scanner does not write, normalize, or execute spec
+content. It returns parsed nodes plus diagnostics so a future Specs tool window and Pi context provider
+can share one host-side model.
+
+## Spec Boundary
+
+A file is considered a spec only when its first frontmatter block contains non-blank `id` and `type`
+fields:
+
+```yaml
+---
+id: module-backend
+type: module-design
+title: Backend module
+parent: architecture
+depends-on: [module-common]
+references: [module-runtime]
+implements: [goal-runtime]
+tags: [backend, pi]
+---
+```
+
+The current parser intentionally supports the small, deterministic subset needed by the first read-only
+viewer: scalar values and inline comma-separated lists. Full YAML, nested fields, multiline values, and
+frontmatter mutation remain out of scope until a compatible JVM YAML dependency is selected.
+
+## Graph Rules
+
+- `id` is the stable node key; duplicate IDs retain the lexicographically first path and emit an error.
+- `title` falls back to `id` when absent.
+- `parent`, `depends-on`, `references`, and `implements` must resolve to known IDs.
+- Parent cycles emit errors but do not discard nodes.
+- `task-spec` is represented as a normal node; durable-vs-ephemeral filtering belongs to a later host
+  policy layer, matching ThinkRail's distinction.
+- `.git`, `.gradle`, `.idea`, `build`, `dist`, `node_modules`, `out`, and `target` are excluded.
+- Symbolic links are excluded to keep project boundaries lexical and prevent external content injection.
+- Files larger than 2 MiB are ignored; unreadable candidate files produce warnings.
+
+## Runtime Boundary
+
+`ProjectSpecGraphScanner.scan` performs filesystem work on `Dispatchers.IO`. It is a suspend API and can
+be called by `ProjectService`, a future Specs view model, or a Pi context adapter. It does not cache yet;
+that is deliberate while the model and diagnostics contract stabilize. A later cache should follow
+ThinkRail's revalidate-on-read design using file metadata and explicit invalidation, not become a second
+source of truth.
+
+The model is separate from `SwarmGraph`:
+
+- `ProjectSpecGraph` describes user-authored repository knowledge and is read-only in this slice.
+- `SwarmGraph` describes an executable task DAG and owns scheduling, retries, handoffs, and artifacts.
+
+Do not merge these graphs or use project-spec `depends-on` edges as executable Swarm dependencies without
+an explicit planning step and ownership validation.
+
+## Verification
+
+`ProjectSpecGraphTest` verifies valid graph construction, ignored files/directories, missing references,
+parent cycles, duplicate IDs, and malformed frontmatter. `ProjectService.getSpecGraph()` exposes the
+scanner through the existing in-process backend boundary. The desktop DTO/ViewModel and right-panel
+Specs tool window now render the parent tree, diagnostics, refresh action, and editor navigation. The
+next integration step is metadata-based revalidation caching and optional Pi context exposure. Project
+Skill Trust is implemented separately as a backend admission boundary; its settings UI and Activity
+audit remain follow-up work.
