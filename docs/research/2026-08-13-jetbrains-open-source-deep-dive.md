@@ -3,6 +3,8 @@
 > 调研日期：2026-08-13
 > 目标：从 JetBrains 开源组织的仓库与源码中提炼可复用的产品、架构、安全和工程模式，并映射到 Swarm Editor。
 
+> 增量研究：见 [`2026-08-14-jetbrains-open-source-deep-dive.md`](2026-08-14-jetbrains-open-source-deep-dive.md)。该报告重新盘点当前组织仓库目录，并补充 `ytdb-slate`、`context`、MCP 宿主迁移、Qodana/TeamCity 和 Workspace/Worktree 缺口。
+
 ## 官方来源
 
 本报告以 JetBrains 官方组织仓库页及以下仓库在 2026-08-13 的默认分支内容为依据：
