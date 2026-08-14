@@ -116,6 +116,12 @@ Swarm Editor 已有 `TokenUsage`、模型池和动态分配，但还没有持久
 
 `qodana-cli`/`qodana-action` 展示了检查器、运行入口、profile、CI 触发和报告的拆分方式；`teamcity-cli` 则把 build、log、agent、queue 和 terminal 视为可组合操作。对 Swarm 的启示是：验证结果应进入 Outcome/Evidence/Verification/Residual Risk/Handoff 这样的结构化交付，而不是只把命令 stdout 拼进 prompt。
 
+进一步看命令契约，Qodana 的 `scan` 明确分离 `results-dir`、`cache-dir`、`report-dir`、SARIF、HTML、baseline、diff commit、fail threshold 和 timeout；容器模式还限制环境变量和 volume 的传递。TeamCity CLI 则统一提供 `--json`/`--plain`、多服务器配置、原始 REST fallback 和 Agent Skill 安装。两者共同说明：执行结果、缓存、报告、门禁和机器可读输出应是不同字段，不应只保存一段 terminal transcript。
+
+### 3.7 Compose Hot Reload：开发反馈链是独立基础设施
+
+`compose-hot-reload` 将 hot reload 拆成 agent、analysis、runtime、Gradle plugin、IDE 集成、MCP 和 orchestration 等模块，并明确 JVM/JBR、Kotlin、Compose compiler 和 Compose Multiplatform 的兼容矩阵。它的价值不是把热重载塞进 Agent，而是给桌面 Agent 产品提供快速、可验证的 UI 反馈环；Swarm Editor 可在后续开发脚本和 JBR 选择上借鉴，但不应让运行时状态依赖热重载。
+
 ## 4. 对 Swarm Editor 的逐项审计
 
 | 能力 | 当前证据 | 结论 |
