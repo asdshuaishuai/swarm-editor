@@ -7,8 +7,8 @@
 model to Pi, Compose, HTTP, or the Swarm execution scheduler.
 
 The filesystem remains the source of truth. The scanner does not write, normalize, or execute spec
-content. It returns parsed nodes plus diagnostics so a future Specs tool window and Pi context provider
-can share one host-side model.
+content. It returns parsed nodes plus diagnostics so the Specs tool window and the Pi context provider
+share one host-side model.
 
 ## Spec Boundary
 
@@ -46,8 +46,8 @@ frontmatter mutation remain out of scope until a compatible JVM YAML dependency 
 
 ## Runtime Boundary
 
-`ProjectSpecGraphScanner.scan` performs filesystem work on `Dispatchers.IO`. It is a suspend API and can
-be called by `ProjectService`, a future Specs view model, or a Pi context adapter. The scanner keeps a
+`ProjectSpecGraphScanner.scan` performs filesystem work on `Dispatchers.IO`. It is a suspend API and is
+shared by `ProjectService`, the Specs view model, and the Pi context adapter. The scanner keeps a
 process-local cache keyed by canonical project root and revalidates candidate paths using relative path,
 size, and full filesystem modification time before reusing a graph. Directory traversal still runs on
 every scan, so additions, removals, exclusions, and symlink changes are observed without making the
@@ -64,9 +64,15 @@ an explicit planning step and ownership validation.
 ## Verification
 
 `ProjectSpecGraphTest` verifies valid graph construction, ignored files/directories, missing references,
-parent cycles, duplicate IDs, and malformed frontmatter. `ProjectService.getSpecGraph()` exposes the
-scanner through the existing in-process backend boundary. The desktop DTO/ViewModel and right-panel
-Specs tool window now render the parent tree, diagnostics, refresh action, and editor navigation. The
-next integration step is metadata-based revalidation caching and optional Pi context exposure. Project
-Skill Trust is implemented separately as a backend admission boundary; its settings UI and Activity
-audit remain follow-up work.
+parent cycles, duplicate IDs, malformed frontmatter, and metadata-based cache invalidation.
+`ProjectService.getSpecGraph()` exposes the scanner through the existing in-process backend boundary.
+The desktop DTO/ViewModel and right-panel Specs tool window render the parent tree, diagnostics, refresh
+action, and editor navigation.
+
+The first Pi integration is deliberately narrow: only the first prompt of a new session receives a
+bounded `ProjectSpecContextFormatter` result. It contains node IDs, types, paths, parent/dependency
+metadata, and diagnostic count; it does not include raw spec content or executable instructions. The
+context is wrapped in `<project-spec-context>` markers, labeled as untrusted navigation evidence, and
+truncated to 6,000 characters by default. The local user message and Activity records remain the
+original prompt, and an empty graph contributes no context. Project Skill Trust is implemented
+separately as a backend admission boundary with settings controls and Activity audit.

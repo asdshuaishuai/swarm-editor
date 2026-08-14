@@ -155,11 +155,11 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 
 验收：未信任项目技能不进入 `PiRuntimePaths.agentDirectory(...)/skills`；信任、撤销、fingerprint 变化都有测试；用户级技能行为不回归。Activity 已记录信任、撤销和拒绝同步事件。
 
-### P1：Project Spec Graph 只读查看器
+### P1：Project Spec Graph 只读查看器与受限上下文
 
 理由：补齐 ThinkRail 的 Specs rail，同时复用当前 Markdown parser 和 editor navigation；不会侵入 Swarm 执行图。
 
-验收：从项目目录发现规格节点、按 `parent` 渲染树、打开节点到编辑器、非法引用被忽略并有诊断。
+验收：从项目目录发现规格节点、按 `parent` 渲染树、打开节点到编辑器、非法引用被忽略并有诊断；缓存按文件元数据重新验证；新 Pi 会话首条消息可获得限长、只读的规格元数据上下文。
 
 ### P1：Review Package / Anchored comments
 
@@ -188,10 +188,10 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 
 ## 8. 当前状态审计
 
-已具备：Pi-native runtime、in-process backend、动态图感知 Swarm、Git-isolated task execution、LSP with fallback、Markdown/HTML/JSON rendering、evidence-first review、Bubblewrap conditional isolation、JetBrains 风格 Search Everywhere/Recent Files/Recent Locations/VCS/Workspace Symbols，以及只读 `ProjectSpecGraphScanner` 核心、`ProjectService.getSpecGraph()`、桌面 DTO/ViewModel、Specs 右侧工具窗口和行为测试。项目 Skill Trust 已完成项目内技能扫描、SHA-256 fingerprint 绑定的原子 trust ledger、Pi admission gate 和后端行为测试。
+已具备：Pi-native runtime、in-process backend、动态图感知 Swarm、Git-isolated task execution、LSP with fallback、Markdown/HTML/JSON rendering、evidence-first review、Bubblewrap conditional isolation、JetBrains 风格 Search Everywhere/Recent Files/Recent Locations/VCS/Workspace Symbols，以及只读 `ProjectSpecGraphScanner` 核心、metadata revalidation cache、`ProjectService.getSpecGraph()`、桌面 DTO/ViewModel、Specs 右侧工具窗口、受限 Pi context formatter/首条消息注入和行为测试。项目 Skill Trust 已完成项目内技能扫描、SHA-256 fingerprint 绑定的原子 trust ledger、Pi admission gate、设置控制和后端行为测试。
 
-缺失或未验证：交互式 Project Workspace 管理、Project Spec Graph 缓存的主动失效/Pi context 接入、Review package 评论生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
+缺失或未验证：交互式 Project Workspace 管理、Project Spec Graph 的主动文件监听失效、原始规格内容或语义检索注入、Review package 评论生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
 
-本轮实现的 Spec Graph 切片见 `docs/architecture/project-spec-graph.md` 与 `backend/.../spec/ProjectSpecGraph.kt`。它刻意只实现文件扫描、frontmatter 子集、图关系校验和诊断；尚未宣称完成 ThinkRail 的增量缓存、Pi 工具、Specs tool window 或规格编辑能力。
+本轮实现的 Spec Graph 切片见 `docs/architecture/project-spec-graph.md` 与 `backend/.../spec/ProjectSpecGraph.kt`。它刻意只实现文件扫描、frontmatter 子集、图关系校验、诊断、基于元数据的重新验证缓存和限长 Pi 元数据上下文；不传递原始规格内容，不提供 Pi 工具或规格编辑能力，也不宣称完成 ThinkRail 的完整增量索引。
 
 这份报告建议后续实现顺序为 P0 → P1 → P1 → P2；每一步都要延续现有的 Kotlin serialization、Mutex、Dispatchers.IO、原子持久化和行为句子测试约定。

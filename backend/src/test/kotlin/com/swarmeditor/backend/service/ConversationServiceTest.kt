@@ -105,6 +105,36 @@ class ConversationServiceTest {
     }
 
     @Test
+    fun `first prompt receives bounded project spec context without changing local user message`() = runTest {
+        val sessionService = mockk<SessionService>(relaxed = true)
+        val agentService = mockk<AgentService>()
+        val piSession = FakePiSession("pi-remote", "world")
+        val runtimeProvider = FakePiSessionProvider(piSession)
+        val session = Session("local-context", "pi-default", "Test", now, now)
+        coEvery { sessionService.get("local-context") } returns session
+        stubLaunchableAgent(agentService)
+
+        val result = ConversationService(
+            sessionService,
+            agentService,
+            runtimeProvider,
+            ActivityStore(Files.createTempDirectory("spec-context-activity").resolve("activity.json").toFile()),
+            projectSpecContext = { "<project-spec-context>id=architecture</project-spec-context>" },
+        ).sendMessage("local-context", "hello")
+
+        assertTrue(result.isSuccess)
+        assertContains(piSession.receivedMessage, "id=architecture")
+        assertContains(piSession.receivedMessage, "hello")
+        coVerify {
+            sessionService.addMessage(
+                "local-context",
+                MessageRole.USER,
+                match<List<ContentBlock>> { blocks -> blocks.single().text == "hello" },
+            )
+        }
+    }
+
+    @Test
     fun `existing pi session id is reused`() = runTest {
         val sessionService = mockk<SessionService>(relaxed = true)
         val agentService = mockk<AgentService>()
@@ -770,12 +800,14 @@ private class FakePiSession(
     private val events: List<PiSessionEvent> = emptyList()
 ) : PiSession {
     override val pid: Long = 42
+    var receivedMessage: String = ""
     var receivedImages: List<ImageData> = emptyList()
     override suspend fun prompt(
         message: String,
         images: List<ImageData>,
         onEvent: suspend (PiSessionEvent) -> Unit
     ): String {
+        receivedMessage = message
         receivedImages = images
         events.forEach { event -> onEvent(event) }
         return response

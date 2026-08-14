@@ -32,6 +32,8 @@ import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.backend.service.SwarmService
 import com.swarmeditor.backend.service.SwarmEvolutionService
 import com.swarmeditor.backend.service.WasmPluginService
+import com.swarmeditor.backend.spec.ProjectSpecContextFormatter
+import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.session.SessionStore
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
@@ -86,6 +88,8 @@ val skillStore = SkillStore(File(ConfigPaths.SKILLS_JSON))
 val skillScanner = SkillScanner()
 val projectSkillScanner = ProjectSkillScanner()
 val projectSkillTrustStore = ProjectSkillTrustStore(File(ConfigPaths.PROJECT_SKILL_TRUST_JSON))
+val projectSpecGraphScanner = ProjectSpecGraphScanner()
+val projectSpecContextFormatter = ProjectSpecContextFormatter()
 val piToolAuditStore = FilePiToolAuditStore(File(ConfigPaths.PI_TOOL_AUDIT_DIR))
 val wasmPluginRegistry = WasmPluginRegistry(File(ConfigPaths.WASM_PLUGINS_DIR))
 val wasmtimeRuntimeManager = WasmtimeRuntimeManager(File(ConfigPaths.WASMTIME_RUNTIME_DIR))
@@ -147,7 +151,6 @@ val mcpService = McpService(
     userScanner = userMcpScanner,
     invalidateAllRuntimes = { piRuntimeManager.closeAll() }
 )
-val conversationService = ConversationService(sessionService, agentService, piRuntimeManager, activityStore)
 val gitService = GitService(projectRoot)
 val kotlinLspRuntimeManager = KotlinLspRuntimeManager(File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR))
 val lspService = LspService(
@@ -162,7 +165,16 @@ val kotlinLspRuntimeService = KotlinLspRuntimeService(
     projectRoot = projectRoot,
     runtimeDirectory = File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR),
 )
-val projectService = ProjectService(projectRoot, lspService)
+val projectService = ProjectService(projectRoot, lspService, projectSpecGraphScanner)
+val conversationService = ConversationService(
+    sessionService,
+    agentService,
+    piRuntimeManager,
+    activityStore,
+    projectSpecContext = {
+        projectSpecContextFormatter.format(projectSpecGraphScanner.scan(projectRoot))
+    },
+)
 val swarmStore = SwarmStore(File(ConfigPaths.SWARM_RUNS_DIR))
 val swarmEvidenceStore = SwarmEvidenceStore(File(ConfigPaths.SWARM_EVIDENCE_DIR))
 val swarmTaskVerifier by lazy {

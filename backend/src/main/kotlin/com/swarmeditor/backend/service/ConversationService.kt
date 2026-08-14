@@ -1,6 +1,8 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.spec.ProjectSpecContextFormatter
+import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.pi.PiSessionEvent
 import com.swarmeditor.backend.pi.PiSessionProvider
 import com.swarmeditor.backend.pi.PiSessionState
@@ -146,7 +148,8 @@ class ConversationService(
     private val agentService: AgentService,
     private val runtimeManager: PiSessionProvider,
     private val activityStore: ActivityStore,
-    private val clock: Clock = Clock.System
+    private val clock: Clock = Clock.System,
+    private val projectSpecContext: suspend () -> String = { "" },
 ) : ConversationGateway {
     private val sessionOperationLocks = ConcurrentHashMap<String, Mutex>()
     override val activities: StateFlow<List<ActivityEvent>> = activityStore.events
@@ -183,10 +186,11 @@ class ConversationService(
         mode: PiQueuedMessageMode,
     ): Result<Unit> = resultOf {
         require(content.isNotBlank() || images.isNotEmpty()) { "Message cannot be blank" }
-        checkNotNull(sessionService.get(sessionId)) { "Session not found" }
+        val session = checkNotNull(sessionService.get(sessionId)) { "Session not found" }
         check(runtimeManager.state(sessionId).value?.isStreaming == true) { "pi session is not streaming" }
 
-        runtimeManager.sendQueuedMessage(sessionId, content, images, mode)
+        val prompt = appendProjectSpecContext(content, session.remoteSessionId.isNullOrBlank())
+        runtimeManager.sendQueuedMessage(sessionId, prompt, images, mode)
         val userContent = buildList {
             if (content.isNotBlank()) add(ContentBlock(type = "text", text = content))
             images.forEach { image -> add(ContentBlock(type = "image", image = image)) }
@@ -422,7 +426,8 @@ class ConversationService(
                 val toolExecutions = linkedMapOf<String, ToolExecution>()
                 var completion: PiSessionEvent.AgentCompleted? = null
 
-                val response = piSession.prompt(content, images) { event ->
+                val prompt = appendProjectSpecContext(content, session.remoteSessionId.isNullOrBlank())
+                val response = piSession.prompt(prompt, images) { event ->
                     when (event) {
                         is PiSessionEvent.ToolStarted -> {
                             toolExecutions[event.id] = ToolExecution(
@@ -599,6 +604,19 @@ class ConversationService(
         } catch (error: Throwable) {
             log.warn { "Failed to persist activity for $sessionId: ${error.message}" }
         }
+    }
+
+    private suspend fun appendProjectSpecContext(content: String, includeContext: Boolean): String {
+        if (!includeContext) return content
+        val context = try {
+            projectSpecContext().trim()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn { "Failed to prepare project spec context: ${error.message}" }
+            ""
+        }
+        return if (context.isBlank()) content else "$context\n\n$content"
     }
 }
 
