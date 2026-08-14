@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class PiRuntimeManager(
     private val distribution: PiRuntimeDistribution,
     private val defaultWorkingDirectory: File,
+    private val defaultWorkingDirectoryProvider: () -> File = { defaultWorkingDirectory },
     private val prepareAgent: suspend (AgentConfig) -> Unit = {},
     private val toolBrokerFactory: PiToolBrokerFactory = PiToolBrokerFactory { _, _ -> null },
     private val factory: PiSessionFactory = PiSessionFactory { config, workingDirectory, remoteSessionId ->
@@ -274,7 +275,7 @@ class PiRuntimeManager(
 
     private fun resolveWorkingDirectory(config: AgentConfig): File {
         val configured = config.workingDirectory.takeIf(String::isNotBlank)?.let(::File)
-        return configured?.takeIf(File::isDirectory) ?: defaultWorkingDirectory
+        return configured?.takeIf(File::isDirectory) ?: defaultWorkingDirectoryProvider().canonicalFile
     }
 
     private data class PendingCreation(val sessionId: String, val agentId: String)

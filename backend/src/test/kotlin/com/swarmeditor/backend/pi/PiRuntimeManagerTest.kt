@@ -23,6 +23,45 @@ import kotlin.test.assertTrue
 
 class PiRuntimeManagerTest {
     @Test
+    fun `uses the active working directory provider when agent has no directory`() = runTest {
+        val directory = Files.createTempDirectory("pi-runtime-active-directory")
+        try {
+            val defaultDirectory = directory.resolve("default").toFile().apply { mkdirs() }
+            val activeDirectory = directory.resolve("active").toFile().apply { mkdirs() }
+            var currentDirectory = activeDirectory
+            var createdDirectory: java.io.File? = null
+            val session = FakeStateSession(
+                PiSessionState(
+                    pid = 71,
+                    sessionId = "remote-active-directory",
+                    thinkingLevel = "medium",
+                    isStreaming = false,
+                    isCompacting = false,
+                    autoCompactionEnabled = true,
+                    messageCount = 0,
+                    pendingMessageCount = 0,
+                )
+            )
+            val manager = PiRuntimeManager(
+                distribution = PiRuntimeDistribution(directory.toFile()),
+                defaultWorkingDirectory = defaultDirectory,
+                defaultWorkingDirectoryProvider = { currentDirectory },
+                factory = PiSessionFactory { _, workingDirectory, _ ->
+                    createdDirectory = workingDirectory
+                    session
+                },
+            )
+
+            manager.getOrCreate("active-directory", AgentConfig("pi", "Pi"), null)
+
+            assertEquals(activeDirectory.canonicalFile, createdDirectory)
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `proxies active session snapshots`() = runTest {
         val directory = Files.createTempDirectory("pi-runtime-snapshot")
         try {

@@ -137,6 +137,7 @@ val piRuntimeManager: PiRuntimeManager by lazy {
     PiRuntimeManager(
         piDistribution,
         projectRoot,
+        defaultWorkingDirectoryProvider = { workspaceService.currentWorkspaceDirectory(projectRoot) },
         toolBrokerFactory = piToolBrokerFactory,
         prepareAgent = { config ->
             val agentDirectory = PiRuntimePaths.agentDirectory(config.id)
