@@ -35,6 +35,11 @@ boundary, while Pi sessions use the active cwd when an agent profile does not sp
 directory. Conversation project-spec context follows the same active cwd. Explicit agent working
 directories and Swarm task/evaluation isolation remain independent of this registry.
 
+The desktop top bar exposes registered workspaces as a selector. Selecting a workspace updates the
+registry, closes active Pi runtimes, and refreshes the project tree and Git panels. The existing
+"open project" and "new project" actions remain process-level project switching flows; they do not
+silently create registry worktrees.
+
 Behavior tests cover default creation, managed create/select/remove, attached registration, attached
 non-destructive removal, invalid branch rejection, registry persistence, dynamic project/Git reads, and
 Pi working-directory resolution.
