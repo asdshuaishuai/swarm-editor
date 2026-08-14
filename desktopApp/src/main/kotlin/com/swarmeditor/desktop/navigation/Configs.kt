@@ -41,4 +41,7 @@ sealed interface DialogConfig {
 
     @Serializable
     data object CommandPalette : DialogConfig
+
+    @Serializable
+    data object WorkspaceCreate : DialogConfig
 }

@@ -54,6 +54,7 @@ import com.swarmeditor.desktop.ui.session.SessionPanel
 import com.swarmeditor.desktop.ui.settings.SettingsModal
 import com.swarmeditor.desktop.ui.dialog.AgentConfigModal
 import com.swarmeditor.desktop.ui.dialog.McpConfigModal
+import com.swarmeditor.desktop.ui.dialog.WorkspaceCreateModal
 import com.swarmeditor.desktop.ui.dialog.PiExtensionUiModal
 import com.swarmeditor.desktop.ui.session.RightPanel
 import com.swarmeditor.desktop.ui.session.TokenUsageSummary
@@ -227,6 +228,9 @@ fun WindowScope.App(
     }
     LaunchedEffect(Unit) {
         root.kotlinLspRuntimeVm.events.collect { event -> root.showToast(event.message, event.type) }
+    }
+    LaunchedEffect(Unit) {
+        root.workspaceVm.actionEvents.collect { event -> root.showToast(event.message, event.type) }
     }
     val dialogSlot by root.dialog.subscribeAsState()
     val dialog = dialogSlot.child?.configuration
@@ -612,6 +616,7 @@ fun WindowScope.App(
                 workspaceOptions = workspaceState.workspaces,
                 activeWorkspaceId = workspaceState.activeWorkspaceId,
                 onWorkspaceSelected = root.workspaceVm::select,
+                onCreateManagedWorkspace = root::showWorkspaceCreateDialog,
                 workspaceLabel = when (currentConfig) {
                     MainConfig.Chat -> "会话"
                     MainConfig.Agents -> "智能体"
@@ -1038,6 +1043,17 @@ fun WindowScope.App(
             onRefreshMcp = root.mcpVm::reload,
             onAddMcp = { root.showMcpConfigDialog(UUID.randomUUID().toString()) },
             onEditMcp = root::showMcpConfigDialog
+        )
+    }
+
+    AnimatedVisibility(
+        visible = dialog == DialogConfig.WorkspaceCreate,
+        enter = Motion.modalEnter(OverlayDepth.PRIMARY),
+        exit = Motion.modalExit(OverlayDepth.PRIMARY),
+    ) {
+        WorkspaceCreateModal(
+            workspaceVm = root.workspaceVm,
+            onDismiss = root::closeDialog,
         )
     }
 

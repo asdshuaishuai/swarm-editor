@@ -170,12 +170,14 @@ class RootComponent(
         is DialogConfig.AgentConfig -> DialogChild.AgentConfig(config.agentId, agentVm)
         is DialogConfig.McpConfig -> DialogChild.McpConfig(config.serverId, mcpVm)
         is DialogConfig.CommandPalette -> DialogChild.CommandPalette(agentVm)
+        DialogConfig.WorkspaceCreate -> DialogChild.WorkspaceCreate(workspaceVm)
     }
 
     fun openDialog(config: DialogConfig) {
         when (config) {
             DialogConfig.Settings,
-            DialogConfig.CommandPalette -> dialogNav.activate(config)
+            DialogConfig.CommandPalette,
+            DialogConfig.WorkspaceCreate -> dialogNav.activate(config)
             is DialogConfig.AgentConfig,
             is DialogConfig.McpConfig -> detailDialogNav.activate(config)
         }
@@ -186,6 +188,7 @@ class RootComponent(
     fun showAgentConfigDialog(agentId: String) { openDialog(DialogConfig.AgentConfig(agentId)) }
     fun showMcpConfigDialog(serverId: String) { openDialog(DialogConfig.McpConfig(serverId)) }
     fun showCmdKDialog() { openDialog(DialogConfig.CommandPalette) }
+    fun showWorkspaceCreateDialog() { openDialog(DialogConfig.WorkspaceCreate) }
     fun hideCmdKDialog() { closeDialog() }
     fun dismissAgentConfigDialog() { closeDetailDialog() }
     fun dismissMcpConfigDialog() { closeDetailDialog() }
@@ -208,4 +211,5 @@ sealed class DialogChild {
     data class AgentConfig(val agentId: String, val agentVm: AgentViewModel) : DialogChild()
     data class McpConfig(val serverId: String, val mcpVm: McpViewModel) : DialogChild()
     data class CommandPalette(val agentVm: AgentViewModel) : DialogChild()
+    data class WorkspaceCreate(val workspaceVm: WorkspaceViewModel) : DialogChild()
 }
