@@ -179,6 +179,10 @@ fun main(args: Array<String>) {
                                     .onFailure { root.showToast(it.message ?: "无法创建工作区", com.swarmeditor.desktop.viewmodel.ToastType.ERROR) }
                             }
                     },
+                    onAttachWorkspace = {
+                        chooseWorkspaceDirectory(awtWindow, File(root.projectVm.projectPath), createNew = false)
+                            ?.let(root.workspaceVm::attachExistingWorktree)
+                    },
                     droppedImageFiles = droppedImageFiles,
                     clipboardHasImages = ::clipboardContainsImages,
                     onReadClipboardImages = ::readClipboardImageAttachments,

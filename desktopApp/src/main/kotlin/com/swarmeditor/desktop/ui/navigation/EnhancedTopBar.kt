@@ -127,6 +127,7 @@ fun EnhancedTopBar(
     activeWorkspaceId: String? = null,
     onWorkspaceSelected: (String) -> Unit = {},
     onCreateManagedWorkspace: () -> Unit = {},
+    onAttachWorkspace: () -> Unit = {},
     workspaceLabel: String = "会话",
     currentAgentName: String = "主智能体",
     currentAgentId: String = "pi-main",
@@ -171,6 +172,7 @@ fun EnhancedTopBar(
                 activeWorkspaceId = activeWorkspaceId,
                 onWorkspaceSelected = onWorkspaceSelected,
                 onCreateManagedWorkspace = onCreateManagedWorkspace,
+                onAttachWorkspace = onAttachWorkspace,
                 onFallbackClick = onProjectSwitcher,
             )
 
@@ -234,6 +236,7 @@ private fun WorkspaceSelector(
     activeWorkspaceId: String?,
     onWorkspaceSelected: (String) -> Unit,
     onCreateManagedWorkspace: () -> Unit,
+    onAttachWorkspace: () -> Unit,
     onFallbackClick: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -287,6 +290,14 @@ private fun WorkspaceSelector(
                 )
             }
             if (options.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("挂载已有 Git worktree…", color = Tx2, style = AppType.caption) },
+                    onClick = {
+                        expanded = false
+                        onAttachWorkspace()
+                    },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                )
                 DropdownMenuItem(
                     text = { Text("创建 Git 工作区…", color = Tx2, style = AppType.caption) },
                     onClick = {

@@ -123,6 +123,7 @@ fun WindowScope.App(
     onPickImages: () -> List<File> = { emptyList() },
     onOpenWorkspace: () -> Unit = {},
     onCreateWorkspace: () -> Unit = {},
+    onAttachWorkspace: () -> Unit = {},
     droppedImageFiles: Flow<List<File>> = emptyFlow(),
     clipboardHasImages: () -> Boolean = { false },
     onReadClipboardImages: suspend () -> List<UiImageAttachment> = { emptyList() },
@@ -617,6 +618,7 @@ fun WindowScope.App(
                 activeWorkspaceId = workspaceState.activeWorkspaceId,
                 onWorkspaceSelected = root.workspaceVm::select,
                 onCreateManagedWorkspace = root::showWorkspaceCreateDialog,
+                onAttachWorkspace = onAttachWorkspace,
                 workspaceLabel = when (currentConfig) {
                     MainConfig.Chat -> "会话"
                     MainConfig.Agents -> "智能体"
