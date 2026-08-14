@@ -76,3 +76,17 @@ context is wrapped in `<project-spec-context>` markers, labeled as untrusted nav
 truncated to 6,000 characters by default. The local user message and Activity records remain the
 original prompt, and an empty graph contributes no context. Project Skill Trust is implemented
 separately as a backend admission boundary with settings controls and Activity audit.
+
+## Review Package Boundary
+
+Review comments are a separate backend read/write model and do not mutate the spec graph or Swarm
+execution graph. `ReviewPackage` is keyed by the canonical project root and stores a base revision;
+each `ReviewComment` stores a project-relative path, old/new diff side, positive line anchor, body,
+and lifecycle status. The `ReviewPackageStore` persists all packages through an atomic JSON replacement,
+with bounded input/output and corrupt-file quarantine.
+
+`ReviewService.markStaleForRevision` compares each comment's captured revision with the current revision
+and marks drifted comments `STALE` rather than silently moving their line anchors. Comment creation,
+package opening, and stale transitions are recorded as `FILE` Activity events. The current slice does
+not yet render comment pins in `DiffDrawer`, send review context to Pi, or implement an Agent resolve
+workflow; those integrations must preserve the revision and audit fields.

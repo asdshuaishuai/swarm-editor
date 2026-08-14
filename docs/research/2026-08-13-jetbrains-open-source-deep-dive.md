@@ -166,6 +166,7 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 理由：把已有证据和 Diff 从“展示”提升为“可操作反馈”。
 
 验收：评论绑定 revision 与行范围；漂移标 stale；发送上下文后保留审计；Agent resolve 有显式事件。
+当前已落地后端最小闭环：`ReviewPackage`/`ReviewComment` 通过原子 JSON 存储，评论限制为项目相对路径和正数行锚点，revision 变化可批量标记 `STALE`，创建/评论/过期转换写入 Activity。尚未接入 Diff UI、评论发送到 Pi 或 Agent resolve 工作流。
 
 ### P2：Context-style semantic exploration
 
@@ -188,9 +189,9 @@ Koog 的可迁移价值在抽象，而不是执行引擎：
 
 ## 8. 当前状态审计
 
-已具备：Pi-native runtime、in-process backend、动态图感知 Swarm、Git-isolated task execution、LSP with fallback、Markdown/HTML/JSON rendering、evidence-first review、Bubblewrap conditional isolation、JetBrains 风格 Search Everywhere/Recent Files/Recent Locations/VCS/Workspace Symbols，以及只读 `ProjectSpecGraphScanner` 核心、metadata revalidation cache、`ProjectService.getSpecGraph()`、桌面 DTO/ViewModel、Specs 右侧工具窗口、受限 Pi context formatter/首条消息注入和行为测试。项目 Skill Trust 已完成项目内技能扫描、SHA-256 fingerprint 绑定的原子 trust ledger、Pi admission gate、设置控制和后端行为测试。
+已具备：Pi-native runtime、in-process backend、动态图感知 Swarm、Git-isolated task execution、LSP with fallback、Markdown/HTML/JSON rendering、evidence-first review、Bubblewrap conditional isolation、JetBrains 风格 Search Everywhere/Recent Files/Recent Locations/VCS/Workspace Symbols，以及只读 `ProjectSpecGraphScanner` 核心、metadata revalidation cache、`ProjectService.getSpecGraph()`、桌面 DTO/ViewModel、Specs 右侧工具窗口、受限 Pi context formatter/首条消息注入和行为测试。项目 Skill Trust 已完成项目内技能扫描、SHA-256 fingerprint 绑定的原子 trust ledger、Pi admission gate、设置控制和后端行为测试。Review Package 已完成后端模型、原子存储、锚点校验、revision stale 标记和 Activity 审计。
 
-缺失或未验证：交互式 Project Workspace 管理、Project Spec Graph 的主动文件监听失效、原始规格内容或语义检索注入、Review package 评论生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
+缺失或未验证：交互式 Project Workspace 管理、Project Spec Graph 的主动文件监听失效、原始规格内容或语义检索注入、Review package 的 Diff UI/发送/Agent resolve 生命周期、Context-style 统一语义探索、session/workspace cost aggregation。
 
 本轮实现的 Spec Graph 切片见 `docs/architecture/project-spec-graph.md` 与 `backend/.../spec/ProjectSpecGraph.kt`。它刻意只实现文件扫描、frontmatter 子集、图关系校验、诊断、基于元数据的重新验证缓存和限长 Pi 元数据上下文；不传递原始规格内容，不提供 Pi 工具或规格编辑能力，也不宣称完成 ThinkRail 的完整增量索引。
 

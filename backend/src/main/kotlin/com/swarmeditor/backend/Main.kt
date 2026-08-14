@@ -27,6 +27,7 @@ import com.swarmeditor.backend.service.KotlinLspRuntimeService
 import com.swarmeditor.backend.service.McpService
 import com.swarmeditor.backend.service.ModelService
 import com.swarmeditor.backend.service.ProjectService
+import com.swarmeditor.backend.service.ReviewService
 import com.swarmeditor.backend.service.SessionService
 import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.backend.service.SwarmService
@@ -37,6 +38,7 @@ import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.session.SessionStore
 import com.swarmeditor.backend.skill.SkillScanner
 import com.swarmeditor.backend.skill.SkillStore
+import com.swarmeditor.backend.review.ReviewPackageStore
 import com.swarmeditor.backend.skill.ProjectSkillScanner
 import com.swarmeditor.backend.skill.ProjectSkillTrustStore
 import com.swarmeditor.backend.swarm.PiSwarmTaskExecutor
@@ -82,6 +84,8 @@ val agentRegistry = AgentRegistry()
 val modelRegistry = ModelRegistry()
 val sessionStore = SessionStore(File(ConfigPaths.SESSIONS_DIR))
 val activityStore = ActivityStore(File(ConfigPaths.ACTIVITY_JSON))
+val reviewPackageStore = ReviewPackageStore(File(ConfigPaths.REVIEW_PACKAGES_JSON))
+val reviewService = ReviewService(reviewPackageStore, activityStore)
 val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
 val userMcpScanner = UserMcpScanner()
 val skillStore = SkillStore(File(ConfigPaths.SKILLS_JSON))

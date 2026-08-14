@@ -30,6 +30,9 @@ object ConfigPaths {
     /** 真实会话活动事件。 */
     val ACTIVITY_JSON: String = "$SWARM_EDITOR_DIR/activity.json"
 
+    /** 工作区审查包与锚定评论。 */
+    val REVIEW_PACKAGES_JSON: String = "$SWARM_EDITOR_DIR/review-packages.json"
+
     /** 蜂群运行记录目录。 */
     val SWARM_RUNS_DIR: String = "$SWARM_EDITOR_DIR/swarm-runs"
 
