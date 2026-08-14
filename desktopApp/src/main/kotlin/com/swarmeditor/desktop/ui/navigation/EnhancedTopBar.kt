@@ -54,6 +54,7 @@ import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.semanticAgentIconSpec
 import com.swarmeditor.desktop.ui.common.IdeActionButton
 import com.swarmeditor.desktop.viewmodel.WorkspaceOption
+import com.swarmeditor.common.model.ProjectWorkspaceKind
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Activity
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
@@ -128,6 +129,7 @@ fun EnhancedTopBar(
     onWorkspaceSelected: (String) -> Unit = {},
     onCreateManagedWorkspace: () -> Unit = {},
     onAttachWorkspace: () -> Unit = {},
+    onRemoveWorkspace: () -> Unit = {},
     workspaceLabel: String = "会话",
     currentAgentName: String = "主智能体",
     currentAgentId: String = "pi-main",
@@ -173,6 +175,7 @@ fun EnhancedTopBar(
                 onWorkspaceSelected = onWorkspaceSelected,
                 onCreateManagedWorkspace = onCreateManagedWorkspace,
                 onAttachWorkspace = onAttachWorkspace,
+                onRemoveWorkspace = onRemoveWorkspace,
                 onFallbackClick = onProjectSwitcher,
             )
 
@@ -237,6 +240,7 @@ private fun WorkspaceSelector(
     onWorkspaceSelected: (String) -> Unit,
     onCreateManagedWorkspace: () -> Unit,
     onAttachWorkspace: () -> Unit,
+    onRemoveWorkspace: () -> Unit,
     onFallbackClick: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -288,6 +292,17 @@ private fun WorkspaceSelector(
                     },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                 )
+                val activeOption = options.firstOrNull { it.id == activeWorkspaceId }
+                if (activeOption?.kind != ProjectWorkspaceKind.DEFAULT) {
+                    DropdownMenuItem(
+                        text = { Text("移除当前工作区", color = ErrLight, style = AppType.caption) },
+                        onClick = {
+                            expanded = false
+                            onRemoveWorkspace()
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
             }
             if (options.isNotEmpty()) {
                 DropdownMenuItem(

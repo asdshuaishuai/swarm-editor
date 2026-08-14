@@ -48,6 +48,7 @@ import com.swarmeditor.desktop.ui.common.CommandPalette
 import com.swarmeditor.desktop.ui.common.Command
 import com.swarmeditor.desktop.ui.common.StatusBar
 import com.swarmeditor.desktop.ui.common.ToastHost
+import com.swarmeditor.desktop.ui.common.ConfirmDialog
 import com.swarmeditor.desktop.ui.navigation.EnhancedTopBar
 import com.swarmeditor.desktop.ui.navigation.RailNavigation
 import com.swarmeditor.desktop.ui.session.SessionPanel
@@ -279,6 +280,9 @@ fun WindowScope.App(
     var showRecentFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-files") }
     var showRecentLocations by remember { mutableStateOf(System.getProperty("swarm.modal") == "recent-locations") }
     var showFindInFiles by remember { mutableStateOf(System.getProperty("swarm.modal") == "find-in-files") }
+    var workspaceRemovalTarget by remember {
+        mutableStateOf<com.swarmeditor.desktop.viewmodel.WorkspaceOption?>(null)
+    }
     var pluginSubTab by remember {
         mutableStateOf(
             System.getProperty("swarm.pluginTab")
@@ -477,6 +481,7 @@ fun WindowScope.App(
         }
     }
     val overlayActive = showRecentFiles || showRecentLocations || showFindInFiles || diffChange != null ||
+        workspaceRemovalTarget != null ||
         dialog == DialogConfig.Settings || detailDialog != null
     val workspaceScale by animateFloatAsState(
         targetValue = if (overlayActive) 0.994f else 1f,
@@ -619,6 +624,11 @@ fun WindowScope.App(
                 onWorkspaceSelected = root.workspaceVm::select,
                 onCreateManagedWorkspace = root::showWorkspaceCreateDialog,
                 onAttachWorkspace = onAttachWorkspace,
+                onRemoveWorkspace = {
+                    workspaceRemovalTarget = workspaceState.workspaces.firstOrNull {
+                        it.id == workspaceState.activeWorkspaceId
+                    }
+                },
                 workspaceLabel = when (currentConfig) {
                     MainConfig.Chat -> "会话"
                     MainConfig.Agents -> "智能体"
@@ -1057,6 +1067,26 @@ fun WindowScope.App(
             workspaceVm = root.workspaceVm,
             onDismiss = root::closeDialog,
         )
+    }
+
+    workspaceRemovalTarget?.let { target ->
+        AnimatedVisibility(
+            visible = true,
+            enter = Motion.modalEnter(OverlayDepth.CRITICAL),
+            exit = Motion.modalExit(OverlayDepth.CRITICAL),
+        ) {
+            ConfirmDialog(
+                title = "移除工作区",
+                message = "将移除“${target.label}”。managed worktree 会删除其目录，挂载的外部 worktree 只解除注册。",
+                confirmText = "移除",
+                isDanger = true,
+                onConfirm = {
+                    workspaceRemovalTarget = null
+                    root.workspaceVm.remove(target.id)
+                },
+                onCancel = { workspaceRemovalTarget = null },
+            )
+        }
     }
 
     AnimatedVisibility(
