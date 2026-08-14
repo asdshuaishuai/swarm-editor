@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
@@ -77,16 +78,71 @@ class WorkspaceViewModel(
             try {
                 service.select(projectRoot, workspaceId)
                 onWorkspaceChanged()
-                val workspaceState = service.list(projectRoot)
-                _state.value = workspaceState.toUiState()
+                refreshState()
                 events.send(WorkspaceActionEvent("已切换工作区", ToastType.SUCCESS))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(isSelecting = false, error = error.message ?: "工作区切换失败")
                 events.send(WorkspaceActionEvent(error.message ?: "工作区切换失败", ToastType.ERROR))
+            } finally {
+                _state.update { it.copy(isSelecting = false) }
             }
         }
+    }
+
+    fun createManagedWorktree(branch: String) {
+        if (_state.value.isSelecting) return
+        runMutation(
+            successMessage = "已创建并切换工作区",
+            operation = {
+                val workspace = service.createManagedWorktree(projectRoot, branch)
+                service.select(projectRoot, workspace.id)
+            },
+        )
+    }
+
+    fun attachExistingWorktree(worktree: File) {
+        if (_state.value.isSelecting) return
+        runMutation(
+            successMessage = "已挂载并切换工作区",
+            operation = {
+                val workspace = service.attachExistingWorktree(projectRoot, worktree)
+                service.select(projectRoot, workspace.id)
+            },
+        )
+    }
+
+    fun remove(workspaceId: String) {
+        if (_state.value.isSelecting) return
+        runMutation(
+            successMessage = "工作区已移除",
+            operation = { service.remove(projectRoot, workspaceId) },
+        )
+    }
+
+    private fun runMutation(successMessage: String, operation: suspend () -> Unit) {
+        _state.value = _state.value.copy(isSelecting = true, error = null)
+        selectJob?.cancel()
+        selectJob = scope.launch(ioDispatcher) {
+            try {
+                operation()
+                onWorkspaceChanged()
+                refreshState()
+                events.send(WorkspaceActionEvent(successMessage, ToastType.SUCCESS))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(error = error.message ?: "工作区操作失败")
+                events.send(WorkspaceActionEvent(error.message ?: "工作区操作失败", ToastType.ERROR))
+            } finally {
+                _state.update { it.copy(isSelecting = false) }
+            }
+        }
+    }
+
+    private suspend fun refreshState() {
+        _state.value = service.list(projectRoot).toUiState()
     }
 }
 
