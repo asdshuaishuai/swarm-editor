@@ -41,9 +41,31 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionViewModelTest {
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `workspace reset clears the selected session and pi controls`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-workspace-reset")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val session = service.create("pi-default", "Workspace session")
+            val viewModel = SessionViewModel(service, FakeConversationGateway(), backgroundScope)
+
+            viewModel.selectSession(session.id)
+            viewModel.resetForWorkspace()
+
+            assertNull(viewModel.currentSessionId.value)
+            assertTrue(viewModel.piCommands.value.isEmpty())
+            assertTrue(viewModel.piModels.value.isEmpty())
+            assertNull(viewModel.piSessionTree.value)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
     fun `rejects blank messages without starting work`() = runTest {

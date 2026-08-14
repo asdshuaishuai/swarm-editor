@@ -75,6 +75,7 @@ class RootComponent(
         projectRoot = projectRoot,
         scope = scope,
         onWorkspaceChanged = {
+            sessionVm.resetForWorkspace()
             piRuntimeManager.closeAll()
             projectVm.load()
             gitVm.refresh()

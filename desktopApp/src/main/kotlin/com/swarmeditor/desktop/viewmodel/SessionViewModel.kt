@@ -281,6 +281,17 @@ class SessionViewModel(
         _currentSessionId.value = id
     }
 
+    fun resetForWorkspace() {
+        if (_isSending.value) cancelSending()
+        _currentSessionId.value = null
+        _piCommands.value = emptyList()
+        _piModels.value = emptyList()
+        _piThinkingLevels.value = emptyList()
+        _piSessionTree.value = null
+        _sessionTreeLoading.value = false
+        clearPiExtensionUiState()
+    }
+
     fun respondToPiExtensionUi(response: PiExtensionUiResponse) {
         val request = _piExtensionUiRequest.value ?: return
         val sessionId = piExtensionUiSessionId ?: return
