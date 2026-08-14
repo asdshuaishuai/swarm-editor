@@ -20,6 +20,7 @@ import com.swarmeditor.desktop.viewmodel.McpViewModel
 import com.swarmeditor.desktop.viewmodel.SkillViewModel
 import com.swarmeditor.desktop.viewmodel.ProjectViewModel
 import com.swarmeditor.desktop.viewmodel.GitViewModel
+import com.swarmeditor.desktop.viewmodel.WorkspaceViewModel
 import com.swarmeditor.desktop.viewmodel.ToastData
 import com.swarmeditor.desktop.viewmodel.ToastType
 import com.swarmeditor.desktop.viewmodel.SwarmViewModel
@@ -34,6 +35,9 @@ import com.swarmeditor.backend.sessionService
 import com.swarmeditor.backend.skillService
 import com.swarmeditor.backend.projectService
 import com.swarmeditor.backend.gitService
+import com.swarmeditor.backend.projectRoot
+import com.swarmeditor.backend.workspaceService
+import com.swarmeditor.backend.piRuntimeManager
 import com.swarmeditor.backend.swarmService
 import com.swarmeditor.backend.wasmPluginService
 import com.swarmeditor.backend.kotlinLspRuntimeService
@@ -66,6 +70,17 @@ class RootComponent(
     val kotlinLspRuntimeVm = KotlinLspRuntimeViewModel(kotlinLspRuntimeService, lspService, scope)
     val gitVm = GitViewModel(gitService, scope)
     val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status)
+    val workspaceVm = WorkspaceViewModel(
+        service = workspaceService,
+        projectRoot = projectRoot,
+        scope = scope,
+        onWorkspaceChanged = {
+            piRuntimeManager.closeAll()
+            projectVm.load()
+            gitVm.refresh()
+            gitVm.refreshHistory()
+        },
+    )
     val swarmVm = SwarmViewModel(swarmService, scope)
     private val _themeMode = MutableStateFlow(ThemePreferences.load())
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()

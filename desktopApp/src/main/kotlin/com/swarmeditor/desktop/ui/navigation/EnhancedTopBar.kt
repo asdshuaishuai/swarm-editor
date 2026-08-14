@@ -12,22 +12,28 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +53,7 @@ import com.swarmeditor.desktop.resources.swarm_editor
 import com.swarmeditor.desktop.theme.*
 import com.swarmeditor.desktop.ui.common.semanticAgentIconSpec
 import com.swarmeditor.desktop.ui.common.IdeActionButton
+import com.swarmeditor.desktop.viewmodel.WorkspaceOption
 import com.woowla.compose.icon.collections.feather.Feather
 import com.woowla.compose.icon.collections.feather.feather.Activity
 import com.woowla.compose.icon.collections.feather.feather.ChevronRight
@@ -116,6 +123,9 @@ internal fun topBarPresentation(widthDp: Int): TopBarPresentation = when {
 fun EnhancedTopBar(
     projectName: String = "swarm-editor",
     branchName: String = "main",
+    workspaceOptions: List<WorkspaceOption> = emptyList(),
+    activeWorkspaceId: String? = null,
+    onWorkspaceSelected: (String) -> Unit = {},
     workspaceLabel: String = "会话",
     currentAgentName: String = "主智能体",
     currentAgentId: String = "pi-main",
@@ -151,12 +161,15 @@ fun EnhancedTopBar(
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(7.dp))
-            ProjectContextChip(
+            WorkspaceSelector(
                 projectName = projectName,
                 branchName = branchName,
                 showBranch = presentation.showBranch,
                 projectMaxWidth = presentation.projectMaxWidth,
-                onClick = onProjectSwitcher,
+                options = workspaceOptions,
+                activeWorkspaceId = activeWorkspaceId,
+                onWorkspaceSelected = onWorkspaceSelected,
+                onFallbackClick = onProjectSwitcher,
             )
 
             if (presentation.showContext) {
@@ -204,6 +217,71 @@ fun EnhancedTopBar(
             Spacer(Modifier.width(2.dp))
             WindowControlButton("关闭", onClose, hoverBackground = ControlRed.withAlpha(0.18f)) {
                 Icon(Feather.X, null, tint = Tx3, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceSelector(
+    projectName: String,
+    branchName: String,
+    showBranch: Boolean,
+    projectMaxWidth: Int,
+    options: List<WorkspaceOption>,
+    activeWorkspaceId: String?,
+    onWorkspaceSelected: (String) -> Unit,
+    onFallbackClick: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ProjectContextChip(
+            projectName = projectName,
+            branchName = branchName,
+            showBranch = showBranch,
+            projectMaxWidth = projectMaxWidth,
+            onClick = {
+                if (options.isEmpty()) onFallbackClick() else expanded = true
+            },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(Bg2).border(1.dp, Line2, AppShapes.xs),
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                option.label,
+                                color = if (option.id == activeWorkspaceId) Ac else Tx,
+                                style = AppType.bodySm,
+                                fontWeight = if (option.id == activeWorkspaceId) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                            Text(
+                                option.cwd,
+                                color = Tx3,
+                                style = AppType.micro,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            if (option.branch.isNullOrBlank()) Feather.Folder else Feather.GitBranch,
+                            contentDescription = null,
+                            tint = if (option.id == activeWorkspaceId) Ac else Tx3,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onWorkspaceSelected(option.id)
+                    },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                )
             }
         }
     }

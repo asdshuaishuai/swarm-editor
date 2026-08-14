@@ -86,7 +86,8 @@ class ProjectViewModel(
     },
     private val loadSpecGraphData: suspend () -> ProjectSpecGraphDto = { service.getSpecGraph().toDto() },
 ) {
-    val projectPath: String = service.projectPath
+    val projectPath: String
+        get() = service.projectPath
 
     data class FilePreviewState(
         val path: String? = null,

@@ -180,6 +180,7 @@ fun WindowScope.App(
     val gitCommitSelection by root.gitVm.commitSelection.collectAsState()
     val historicalGitDiff by root.gitVm.historicalDiff.collectAsState()
     val gitCommitMessage by root.gitVm.commitMessage.collectAsState()
+    val workspaceState by root.workspaceVm.state.collectAsState()
     val primaryModelId by root.settingsVm.primaryModelId.collectAsState()
     val agentConfigPath by root.settingsVm.configPath.collectAsState()
     val modelConfigs by root.settingsVm.models.collectAsState()
@@ -608,6 +609,9 @@ fun WindowScope.App(
             EnhancedTopBar(
                 projectName = File(root.projectVm.projectPath).name,
                 branchName = gitStatus.branch.ifBlank { "—" },
+                workspaceOptions = workspaceState.workspaces,
+                activeWorkspaceId = workspaceState.activeWorkspaceId,
+                onWorkspaceSelected = root.workspaceVm::select,
                 workspaceLabel = when (currentConfig) {
                     MainConfig.Chat -> "会话"
                     MainConfig.Agents -> "智能体"
