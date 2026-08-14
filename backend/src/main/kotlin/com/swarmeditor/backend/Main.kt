@@ -33,6 +33,7 @@ import com.swarmeditor.backend.service.SkillService
 import com.swarmeditor.backend.service.SwarmService
 import com.swarmeditor.backend.service.SwarmEvolutionService
 import com.swarmeditor.backend.service.WasmPluginService
+import com.swarmeditor.backend.service.WorkspaceService
 import com.swarmeditor.backend.spec.ProjectSpecContextFormatter
 import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.session.SessionStore
@@ -41,6 +42,7 @@ import com.swarmeditor.backend.skill.SkillStore
 import com.swarmeditor.backend.review.ReviewPackageStore
 import com.swarmeditor.backend.skill.ProjectSkillScanner
 import com.swarmeditor.backend.skill.ProjectSkillTrustStore
+import com.swarmeditor.backend.workspace.WorkspaceStore
 import com.swarmeditor.backend.swarm.PiSwarmTaskExecutor
 import com.swarmeditor.backend.swarm.PiSwarmPlanner
 import com.swarmeditor.backend.swarm.PiSwarmExperienceLearner
@@ -86,6 +88,8 @@ val sessionStore = SessionStore(File(ConfigPaths.SESSIONS_DIR))
 val activityStore = ActivityStore(File(ConfigPaths.ACTIVITY_JSON))
 val reviewPackageStore = ReviewPackageStore(File(ConfigPaths.REVIEW_PACKAGES_JSON))
 val reviewService = ReviewService(reviewPackageStore, activityStore)
+val workspaceStore = WorkspaceStore(File(ConfigPaths.PROJECT_WORKSPACES_JSON))
+val workspaceService = WorkspaceService(workspaceStore, File(ConfigPaths.PROJECT_WORKSPACES_DIR))
 val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
 val userMcpScanner = UserMcpScanner()
 val skillStore = SkillStore(File(ConfigPaths.SKILLS_JSON))

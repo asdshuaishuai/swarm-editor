@@ -33,6 +33,12 @@ object ConfigPaths {
     /** 工作区审查包与锚定评论。 */
     val REVIEW_PACKAGES_JSON: String = "$SWARM_EDITOR_DIR/review-packages.json"
 
+    /** 用户可见 Project Workspace 的 Git worktree 根目录。 */
+    val PROJECT_WORKSPACES_DIR: String = "$SWARM_EDITOR_DIR/project-workspaces"
+
+    /** Project Workspace registry。 */
+    val PROJECT_WORKSPACES_JSON: String = "$SWARM_EDITOR_DIR/project-workspaces.json"
+
     /** 蜂群运行记录目录。 */
     val SWARM_RUNS_DIR: String = "$SWARM_EDITOR_DIR/swarm-runs"
 

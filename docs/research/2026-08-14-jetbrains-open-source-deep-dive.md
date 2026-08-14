@@ -128,7 +128,7 @@ Swarm Editor 已有 `TokenUsage`、模型池和动态分配，但还没有持久
 | --- | --- | --- |
 | Pi-only runtime / in-process backend | `backend/.../pi/`、`ConversationService`、`PiRuntimeManager` | 已对齐 ThinkRail，继续保持 |
 | Git task worktree / sandbox | `SwarmTaskWorkspace`、Bubblewrap、WASM | 执行隔离已强，但尚未成为用户可见 Workspace domain |
-| Project/Workspace/Worktree lifecycle | `ProjectService(projectDir)`、固定 `projectRoot` | 明显缺口，优先补 domain/service，不应继续只靠临时 task worktree |
+| Project/Workspace/Worktree lifecycle | `ProjectWorkspace`、`WorkspaceStore`、`WorkspaceService`；`ProjectService(projectDir)` 仍固定 root | 后端 registry 和 Git 生命周期已落地；UI、Session、Project/Git cwd 路由仍缺 |
 | Specs graph | `ProjectSpecGraphScanner`、Specs tool window、Pi metadata context | V1 只读能力已对齐；主动监听、原始内容语义注入仍缺 |
 | Review | `ReviewPackageStore`、`ReviewService`、revision stale、Activity | 后端最小闭环已具备；Diff UI、显式发送、Pi resolve 未完成 |
 | Context exploration | 搜索、LSP、repository localization、graph evidence | 能力分散；缺统一 evidence-labeled request/result 和重试预算 |
@@ -141,7 +141,7 @@ Swarm Editor 已有 `TokenUsage`、模型池和动态分配，但还没有持久
 
 ### P0：用户可见 Project Workspace / Worktree domain
 
-新增显式 `ProjectWorkspace` 模型和后端 service：列出默认 workspace、创建/附加/删除 worktree，持久化 canonical path、branch、cwd 和 ownership；所有 ProjectService/GitService/Session 创建都从 active workspace 取 cwd。必须保留当前 Swarm task worktree 的临时隔离语义，不把两者混用。
+后端核心已完成：显式 `ProjectWorkspace` 模型、原子 registry、默认 workspace、managed create/remove、attached attach/detach、canonical path、branch/cwd/kind 和 Git worktree 安全校验。下一步是让 ProjectService/GitService/Session 从 active workspace 取 cwd，同时保留当前 Swarm task worktree 的临时隔离语义，不把两者混用。
 
 ### P1：Review 进入真实工作流
 
