@@ -30,6 +30,7 @@ GitHub 官方组织仓库页在本轮返回 **852 个公开仓库**。本报告�
 - `ytdb-slate`：Pi extension，不是第二个 Agent runtime；把长任务拆成带类型的 threads 和可持久化 episodes，用 handoff、预算和审查 gate 织回主线程。
 - `junie`：面向终端、IDE 和 CI/CD 的 LLM-agnostic coding agent；它更像产品分发和认证/BYOK 参考，不应替换本项目 Pi runtime。
 - `junie-github-action`：把 Agent 入口推向 issue、PR 和 CI 失败事件，是自动化触发边界的参考。
+- `junie` 仓库同时维护 ACP agent registry：条目包含 id、版本、作者、license、repository、分发方式和平台二进制 SHA-256；其中存在 `pi ACP` 条目。这说明可插拔 Agent 生态可以由注册表和可验证分发承载，而不是让宿主硬编码每个 Agent。
 - `rider-skills`、`datalore-skills`、`skills`：按产品/技术域提供 Skill 集合；Skill 是可组合能力包，不等于默认可信的仓库指令。
 
 ### 2.2 上下文与宿主协议
@@ -52,6 +53,12 @@ GitHub 官方组织仓库页在本轮返回 **852 个公开仓库**。本报告�
 - `qodana-cli`、`qodana-action`、`qodana-profiles`：把检查器、CLI、CI action、profile 和报告输出拆成可复用边界。
 - `teamcity-cli`：把构建、日志、Agent、队列和 terminal 暴露给终端或 AI；适合研究工具契约和长任务反馈。
 - `artifacts-caching-proxy`、`marketplace-zip-signer`、`JetBrainsRuntime`：分别对应可复现交付、签名和运行时可信发布。
+
+### 2.5 Kotlin Agent 框架内部的模块化
+
+`koog/settings.gradle.kts` 不是一个单体 Agent 模块，而是把 `agents-core`、`agents-tools`、`agents-mcp`、ACP、event handler、memory/RAG、SQL/JDBC/AWS history、persistence/snapshot、trace、tokenizer、A2A 和多个 prompt executor/client 分开。README 同时声明 Kotlin Multiplatform、retries、agent persistence、MCP、ACP、RAG、streaming、parallel tool calls 和 graph workflows。
+
+这给 Swarm Editor 的启示不是引入 Koog，而是把当前 backend 的隐式横切能力逐步显式化：`PiSessionProvider`、Tool Broker、Activity、Evidence、TokenUsage、持久化和验证应有稳定的 capability contract，Pi 仍然是唯一 runtime。
 
 ## 3. 深读结论
 
