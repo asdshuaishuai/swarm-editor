@@ -189,7 +189,9 @@ val conversationService = ConversationService(
     piRuntimeManager,
     activityStore,
     projectSpecContext = {
-        projectSpecContextFormatter.format(projectSpecGraphScanner.scan(projectRoot))
+        projectSpecContextFormatter.format(
+            projectSpecGraphScanner.scan(workspaceService.currentWorkspaceDirectory(projectRoot))
+        )
     },
 )
 val swarmStore = SwarmStore(File(ConfigPaths.SWARM_RUNS_DIR))

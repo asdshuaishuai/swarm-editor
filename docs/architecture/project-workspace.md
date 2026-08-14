@@ -29,8 +29,12 @@ Removing an attached workspace only changes the registry; it never runs Git remo
 
 ## Current Integration Boundary
 
-The backend composition root now exposes `WorkspaceService`, and behavior tests cover default creation,
-managed create/select/remove, attached registration, attached non-destructive removal, invalid branch
-rejection, and registry persistence. `ProjectService`, Git panels, and Session creation still use the
-startup project root directly; wiring their cwd through an active workspace is the next integration
-slice. Do not route Swarm task/evaluation isolation through this registry.
+The backend composition root exposes `WorkspaceService`, which maintains an in-memory active cwd backed by
+the persisted active workspace id. `ProjectService` and `GitService` resolve their directory through that
+boundary, while Pi sessions use the active cwd when an agent profile does not specify an explicit working
+directory. Conversation project-spec context follows the same active cwd. Explicit agent working
+directories and Swarm task/evaluation isolation remain independent of this registry.
+
+Behavior tests cover default creation, managed create/select/remove, attached registration, attached
+non-destructive removal, invalid branch rejection, registry persistence, dynamic project/Git reads, and
+Pi working-directory resolution.
