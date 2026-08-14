@@ -255,6 +255,25 @@ class GitServiceTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun `git reads follow the active project directory provider`() {
+        val directory = Files.createTempDirectory("git-service-active")
+        try {
+            val repository = directory.resolve("repository").toFile().apply { mkdirs() }
+            val plainDirectory = directory.resolve("plain").toFile().apply { mkdirs() }
+            runGit(repository, "init", "-q")
+            var activeDirectory = repository
+            val service = GitService(repository, projectDirProvider = { activeDirectory })
+
+            assertTrue(service.getStatus().isRepository)
+            activeDirectory = plainDirectory
+            assertEquals(false, service.getStatus().isRepository)
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
 }
 
 private fun runGit(directory: File, vararg args: String) {

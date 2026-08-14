@@ -33,6 +33,7 @@ class WorkspaceServiceTest {
 
         assertEquals(ProjectWorkspaceKind.DEFAULT, initial.workspaces.single().kind)
         assertEquals(managed.id, selected.id)
+        assertEquals(managed.cwd, service.currentWorkspaceDirectory(projectRoot).path)
         assertTrue(runner.commands.any { it.startsWith("git worktree add -b feature/workspace") })
 
         service.remove(projectRoot, managed.id)
@@ -40,6 +41,7 @@ class WorkspaceServiceTest {
 
         assertEquals(listOf("default"), afterRemoval.workspaces.map { it.id })
         assertEquals("default", afterRemoval.activeWorkspaceId)
+        assertEquals(projectRoot.canonicalPath, service.currentWorkspaceDirectory(projectRoot).path)
         assertTrue(runner.commands.any { it.contains("git worktree remove --force") })
     }
 

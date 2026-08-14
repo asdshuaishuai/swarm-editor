@@ -159,7 +159,10 @@ val mcpService = McpService(
     userScanner = userMcpScanner,
     invalidateAllRuntimes = { piRuntimeManager.closeAll() }
 )
-val gitService = GitService(projectRoot)
+val gitService = GitService(
+    projectRoot,
+    projectDirProvider = { workspaceService.currentWorkspaceDirectory(projectRoot) },
+)
 val kotlinLspRuntimeManager = KotlinLspRuntimeManager(File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR))
 val lspService = LspService(
     projectRoot = projectRoot,
@@ -173,7 +176,12 @@ val kotlinLspRuntimeService = KotlinLspRuntimeService(
     projectRoot = projectRoot,
     runtimeDirectory = File(ConfigPaths.KOTLIN_LSP_RUNTIME_DIR),
 )
-val projectService = ProjectService(projectRoot, lspService, projectSpecGraphScanner)
+val projectService = ProjectService(
+    projectRoot,
+    lspService,
+    projectSpecGraphScanner,
+    projectDirProvider = { workspaceService.currentWorkspaceDirectory(projectRoot) },
+)
 val conversationService = ConversationService(
     sessionService,
     agentService,
@@ -324,6 +332,7 @@ private val shutdownMutex = Mutex()
 suspend fun initializeBackendServices() {
     if (!initialized.compareAndSet(false, true)) return
     try {
+        workspaceService.list(projectRoot)
         PiMcpExtensionInstaller.install()
         modelService.init()
         agentService.init()

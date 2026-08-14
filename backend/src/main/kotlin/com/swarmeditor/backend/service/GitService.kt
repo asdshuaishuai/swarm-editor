@@ -8,7 +8,10 @@ import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
 
-class GitService(private val projectDir: File) {
+class GitService(
+    private val projectDir: File,
+    private val projectDirProvider: () -> File = { projectDir },
+) {
 
     data class GitFileChange(
         val path: String,
@@ -345,7 +348,7 @@ class GitService(private val projectDir: File) {
     }
 
     private fun previewableUntrackedFile(path: String): File? {
-        val file = projectDir.toPath().resolve(path).normalize().toFile()
+        val file = currentProjectDir().toPath().resolve(path).normalize().toFile()
         if (!file.isFile || Files.isSymbolicLink(file.toPath()) || file.length() > MAX_UNTRACKED_READ_BYTES) {
             return null
         }
@@ -380,7 +383,7 @@ class GitService(private val projectDir: File) {
         return if (firstHunk < 0) emptyList() else lines.drop(firstHunk).take(MAX_DIFF_LINES)
     }
 
-    private fun isGitRepo(): Boolean = File(projectDir, ".git").exists()
+    private fun isGitRepo(): Boolean = File(currentProjectDir(), ".git").exists()
 
     private fun parseAheadBehind(): Pair<Int, Int> {
         val result = runGit("rev-list", "--left-right", "--count", "@{upstream}...HEAD")
@@ -459,7 +462,7 @@ class GitService(private val projectDir: File) {
     }
 
     private fun safeRelativePath(path: String): String {
-        val root = projectDir.toPath().toAbsolutePath().normalize()
+        val root = currentProjectDir().toPath().toAbsolutePath().normalize()
         val candidate = root.resolve(path).normalize()
         require(candidate.startsWith(root)) { "Git path escapes project directory" }
         return root.relativize(candidate).toString()
@@ -486,7 +489,7 @@ class GitService(private val projectDir: File) {
     private fun runGit(vararg args: String): GitResult {
         return try {
             val process = ProcessBuilder(listOf("git") + args.toList())
-                .directory(projectDir)
+                .directory(currentProjectDir())
                 .redirectErrorStream(true)
                 .start()
             val output = CompletableFuture.supplyAsync {
@@ -513,7 +516,7 @@ class GitService(private val projectDir: File) {
     private fun runGitRaw(vararg args: String): GitRawResult {
         return try {
             val process = ProcessBuilder(listOf("git") + args.toList())
-                .directory(projectDir)
+                .directory(currentProjectDir())
                 .redirectErrorStream(true)
                 .start()
             val output = CompletableFuture.supplyAsync { process.inputStream.readAllBytes() }
@@ -528,6 +531,8 @@ class GitService(private val projectDir: File) {
             GitRawResult(-1, byteArrayOf())
         }
     }
+
+    private fun currentProjectDir(): File = projectDirProvider().canonicalFile
 
     private fun Int?.orZero(): Int = this ?: 0
 

@@ -9,6 +9,8 @@ import com.swarmeditor.common.model.ProjectWorkspaceKind
 import com.swarmeditor.common.model.ProjectWorkspaceState
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
@@ -26,28 +28,41 @@ class WorkspaceService(
     private val clock: Clock = Clock.System,
 ) {
     private val mutex = Mutex()
+    private val activeDirectories = ConcurrentHashMap<String, AtomicReference<File>>()
 
     suspend fun list(projectRoot: File): ProjectWorkspaceState = mutex.withLock {
         val root = canonicalDirectory(projectRoot)
         val existing = store.get(root.path)
-        if (existing != null) return@withLock ensureDefault(existing, root)
-        val now = clock.now()
-        val default = defaultWorkspace(root, now)
-        ProjectWorkspaceState(
-            projectPath = root.path,
-            activeWorkspaceId = default.id,
-            workspaces = listOf(default),
-            updatedAt = now,
-        ).also { store.put(it) }
+        val state = if (existing != null) {
+            ensureDefault(existing, root)
+        } else {
+            val now = clock.now()
+            val default = defaultWorkspace(root, now)
+            ProjectWorkspaceState(
+                projectPath = root.path,
+                activeWorkspaceId = default.id,
+                workspaces = listOf(default),
+                updatedAt = now,
+            ).also { store.put(it) }
+        }
+        publishActiveDirectory(root, state)
+        state
+    }
+
+    fun currentWorkspaceDirectory(projectRoot: File): File {
+        val root = canonicalDirectory(projectRoot)
+        return activeDirectories[root.path]?.get() ?: root
     }
 
     suspend fun select(projectRoot: File, workspaceId: String): ProjectWorkspace = mutex.withLock {
-        val state = listUnlocked(projectRoot)
+        val root = canonicalDirectory(projectRoot)
+        val state = listUnlocked(root)
         val workspace = requireNotNull(state.workspaces.firstOrNull { it.id == workspaceId }) {
             "Workspace not found: $workspaceId"
         }
         val updated = state.copy(activeWorkspaceId = workspace.id)
         store.put(updated)
+        publishActiveDirectory(root, updated)
         workspace
     }
 
@@ -130,7 +145,9 @@ class WorkspaceService(
         } else {
             state.activeWorkspaceId
         }
-        store.put(state.copy(activeWorkspaceId = active, workspaces = remaining, updatedAt = clock.now()))
+        val updated = state.copy(activeWorkspaceId = active, workspaces = remaining, updatedAt = clock.now())
+        store.put(updated)
+        publishActiveDirectory(root, updated)
     }
 
     private suspend fun listUnlocked(projectRoot: File): ProjectWorkspaceState {
@@ -145,6 +162,11 @@ class WorkspaceService(
             workspaces = listOf(default),
             updatedAt = now,
         ).also { store.put(it) }
+    }
+
+    private fun publishActiveDirectory(root: File, state: ProjectWorkspaceState) {
+        val active = state.workspaces.firstOrNull { it.id == state.activeWorkspaceId } ?: return
+        activeDirectories.computeIfAbsent(root.path) { AtomicReference(root) }.set(File(active.cwd).canonicalFile)
     }
 
     private suspend fun ensureDefault(

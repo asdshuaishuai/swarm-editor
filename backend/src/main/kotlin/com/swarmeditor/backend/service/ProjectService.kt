@@ -26,8 +26,10 @@ class ProjectService(
     private val projectDir: File,
     private val semanticHighlighter: SourceSemanticHighlighter? = null,
     private val specGraphScanner: ProjectSpecGraphScanner = ProjectSpecGraphScanner(),
+    private val projectDirProvider: () -> File = { projectDir },
 ) {
-    val projectPath: String = projectDir.absolutePath
+    val projectPath: String
+        get() = currentProjectDir().absolutePath
 
     data class FilePreview(
         val path: String,
@@ -61,14 +63,14 @@ class ProjectService(
     )
 
     fun getTree(): FileNode {
-        val root = projectDir.toPath().toRealPath()
+        val root = currentProjectDir().toPath().toRealPath()
         return walkDir(root.toFile(), root, depth = 0)
     }
 
-    suspend fun getSpecGraph(): ProjectSpecGraph = specGraphScanner.scan(projectDir)
+    suspend fun getSpecGraph(): ProjectSpecGraph = specGraphScanner.scan(currentProjectDir())
 
     fun readFile(relativePath: String): FilePreview {
-        val root = projectDir.toPath().toRealPath()
+        val root = currentProjectDir().toPath().toRealPath()
         val resolved = root.resolve(relativePath).normalize().toRealPath()
         require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
         require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
@@ -87,7 +89,7 @@ class ProjectService(
     }
 
     fun writeFile(relativePath: String, content: String): FilePreview {
-        val root = projectDir.toPath().toRealPath()
+        val root = currentProjectDir().toPath().toRealPath()
         val resolved = root.resolve(relativePath).normalize().toRealPath()
         require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
         require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
@@ -114,7 +116,7 @@ class ProjectService(
         require(query.isNotBlank()) { "Search query cannot be blank" }
         require(maxMatches > 0) { "Search result limit must be positive" }
 
-        val root = projectDir.toPath().toRealPath()
+        val root = currentProjectDir().toPath().toRealPath()
         val matches = mutableListOf<SearchMatch>()
         var filesSearched = 0
         var truncated = false
@@ -218,7 +220,7 @@ class ProjectService(
         require(maxResults > 0) { "Workspace symbol limit must be positive" }
         return intelligence.searchWorkspaceSymbols(query, maxResults)
             .mapNotNull { symbol ->
-                val relativePath = projectRelativePathFromUri(projectDir, symbol.uri) ?: return@mapNotNull null
+                val relativePath = projectRelativePathFromUri(currentProjectDir(), symbol.uri) ?: return@mapNotNull null
                 symbol.copy(uri = relativePath)
             }
             .distinctBy { symbol -> listOf(symbol.uri, symbol.line, symbol.character, symbol.name) }
@@ -226,12 +228,14 @@ class ProjectService(
     }
 
     private fun resolveProjectFile(relativePath: String): Path {
-        val root = projectDir.toPath().toRealPath()
+        val root = currentProjectDir().toPath().toRealPath()
         val resolved = root.resolve(relativePath).normalize().toRealPath()
         require(resolved.startsWith(root)) { "File is outside the project: $relativePath" }
         require(Files.isRegularFile(resolved)) { "Not a regular file: $relativePath" }
         return resolved
     }
+
+    private fun currentProjectDir(): File = projectDirProvider().canonicalFile
 
     private fun walkDir(dir: File, root: Path, depth: Int): FileNode {
         val children = dir.listFiles()

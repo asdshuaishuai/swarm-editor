@@ -250,4 +250,25 @@ class ProjectServiceTest {
             directory.deleteRecursively()
         }
     }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `project reads follow the active project directory provider`() {
+        val directory = Files.createTempDirectory("project-service-active")
+        try {
+            val first = directory.resolve("first").toFile().apply { mkdirs() }
+            val second = directory.resolve("second").toFile().apply { mkdirs() }
+            File(first, "active.txt").writeText("first")
+            File(second, "active.txt").writeText("second")
+            var activeDirectory = first
+            val service = ProjectService(first, projectDirProvider = { activeDirectory })
+
+            assertEquals("first", service.readFile("active.txt").content)
+            activeDirectory = second
+            assertEquals("second", service.readFile("active.txt").content)
+            assertEquals(second.canonicalPath, service.projectPath)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }
