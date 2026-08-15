@@ -9,6 +9,7 @@
 | `junie` / `junie-github-action` | 发行入口、trigger/admission/workspace/delivery 链 | 已采纳 `DeliveryRecord` 与 Swarm/Review 关联 | `2026-08-15` incremental/delivery |
 | `mcp-steroid` | IDE host capability、execution storage、output filter | 采纳 capability/evidence 边界；不引入 HTTP 内部总线 | `2026-08-15` incremental/delivery |
 | `teamcity-mcp` | safe/brave、分支感知、身份传播、会话实例安全 | 仅作为未来 CI adapter 约束；未引入 CI transport | `2026-08-16` quality/CI |
+| `teamcity-cli` | GET-only mode、脱敏 headers、有界错误/日志与 typed error | 作为未来 CI read-only evidence adapter 的输入约束 | `2026-08-16` TeamCity CLI |
 | `qodana-cli` | effective config、baseline、报告与质量门禁分离 | 本地验证 evidence 已覆盖命令/策略；外部质量 adapter 待真实需求 | `2026-08-16` quality/CI |
 | `koog` | 生命周期、受控 retry、层级 trace | 采纳新 attempt 重试语义；不引入第二 runtime | `2026-08-16` Koog |
 | `skills` | 上游来源、变更扫描、行为扫描/SARIF、免责声明 | 已增加 Skill 内容 SHA-256；远程 catalog 不默认信任 | `2026-08-16` skills |
