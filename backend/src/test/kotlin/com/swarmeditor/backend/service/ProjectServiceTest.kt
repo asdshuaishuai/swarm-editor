@@ -8,6 +8,7 @@ import com.swarmeditor.backend.lsp.SourceDiagnostic
 import com.swarmeditor.backend.lsp.SourceSymbol
 import com.swarmeditor.backend.lsp.WorkspaceSourceSymbol
 import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
+import com.swarmeditor.common.model.ContextEvidenceKind
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
@@ -103,6 +104,67 @@ class ProjectServiceTest {
             assertEquals(listOf("src/Main.kt"), symbols.map(WorkspaceSourceSymbol::uri))
         } finally {
             Files.deleteIfExists(external)
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `context evidence aggregates project search symbols and spec metadata`() = runTest {
+        val directory = Files.createTempDirectory("project-service-context-evidence")
+        try {
+            val source = directory.resolve("src/Main.kt")
+            Files.createDirectories(source.parent)
+            Files.writeString(source, "class Main")
+            Files.writeString(
+                directory.resolve("architecture.md"),
+                """
+                ---
+                id: main-architecture
+                type: design
+                title: Main architecture
+                ---
+                """.trimIndent(),
+            )
+            val intelligence = object : SourceCodeIntelligence {
+                override suspend fun highlight(file: File, content: String) = LspHighlightResult("kotlin")
+                override suspend fun inspect(file: File, content: String) = LspDocumentInsight("kotlin")
+                override suspend fun searchWorkspaceSymbols(query: String, maxResults: Int) = listOf(
+                    WorkspaceSourceSymbol("Main", "class", source.toUri().toString(), 0, 0),
+                )
+            }
+
+            val bundle = ProjectService(directory.toFile(), intelligence).collectContextEvidence("Main")
+
+            assertTrue(bundle.evidence.any { it.kind == ContextEvidenceKind.TEXT_MATCH })
+            assertEquals(1, bundle.evidence.count { it.kind == ContextEvidenceKind.SOURCE_SYMBOL })
+            assertEquals(1, bundle.evidence.count { it.kind == ContextEvidenceKind.SPEC_NODE })
+            assertTrue(bundle.evidence.all { it.queryFingerprint == bundle.queryFingerprint })
+            assertTrue(bundle.queryFingerprint.matches(Regex("[0-9a-f]{64}")))
+            assertEquals("src/Main.kt", bundle.evidence.first { it.kind == ContextEvidenceKind.SOURCE_SYMBOL }.path)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `context evidence retries broad search when path filtered query is empty`() = runTest {
+        val directory = Files.createTempDirectory("project-service-context-retry")
+        try {
+            Files.createDirectories(directory.resolve("src"))
+            Files.writeString(directory.resolve("docs.md"), "Swarm context")
+
+            val bundle = ProjectService(directory.toFile()).collectContextEvidence(
+                query = "Swarm",
+                pathPrefix = "src",
+                broadRetryBudget = 1,
+            )
+
+            assertTrue(bundle.broadSearchRetried)
+            assertEquals(1, bundle.retryCount)
+            assertEquals(listOf("docs.md"), bundle.evidence.mapNotNull { it.path })
+        } finally {
             directory.deleteRecursively()
         }
     }
