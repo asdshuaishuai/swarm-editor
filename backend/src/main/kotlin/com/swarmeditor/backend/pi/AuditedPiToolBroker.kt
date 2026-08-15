@@ -1,5 +1,7 @@
 package com.swarmeditor.backend.pi
 
+import com.swarmeditor.backend.capability.CapabilityRegistry
+import com.swarmeditor.common.model.CapabilityPermission
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
@@ -28,6 +30,7 @@ class AuditedPiToolBroker(
     private val auditStore: PiToolAuditStore,
     override val brokersCoreTools: Boolean = true,
     private val currentTimeMillis: () -> Long = System::currentTimeMillis,
+    private val capabilityRegistry: CapabilityRegistry? = null,
 ) : PiToolBroker {
     private val workspaceHash = sha256(workspace.canonicalFile.absolutePath)
     override val brokerSessionId = "broker-${UUID.randomUUID().toString().replace("-", "")}"
@@ -39,6 +42,7 @@ class AuditedPiToolBroker(
         val auditId = "audit-${UUID.randomUUID().toString().replace("-", "")}"
         val startedAt = currentTimeMillis()
         return try {
+            enforceCapability(request)
             val execution = executor.execute(request)
             val completedAt = currentTimeMillis()
             auditStore.append(
@@ -65,6 +69,22 @@ class AuditedPiToolBroker(
             }
             throw error
         }
+    }
+
+    private suspend fun enforceCapability(request: PiToolBrokerRequest) {
+        val registry = capabilityRegistry ?: return
+        val (capabilityId, permissions) = when (request.tool) {
+            "read" -> "pi.read" to setOf(CapabilityPermission.READ_PROJECT)
+            "edit", "write" -> "pi.edit" to setOf(
+                CapabilityPermission.READ_PROJECT,
+                CapabilityPermission.WRITE_PROJECT,
+            )
+            "bash" -> "pi.bash" to setOf(CapabilityPermission.EXECUTE_PROCESS)
+            "wasm" -> "wasm.execute" to setOf(CapabilityPermission.EXECUTE_PROCESS)
+            else -> error("No capability mapping for tool: ${request.tool}")
+        }
+        val decision = registry.check(capabilityId, permissions)
+        check(decision.allowed) { "Capability denied for ${request.tool}.${request.operation}: ${decision.reason}" }
     }
 
     override suspend fun close() {

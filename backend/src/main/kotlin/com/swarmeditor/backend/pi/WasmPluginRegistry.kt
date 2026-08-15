@@ -1,5 +1,6 @@
 package com.swarmeditor.backend.pi
 
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
@@ -165,6 +166,7 @@ class WasmPluginCapabilityExecutor(
 class WasmPiToolBrokerFactory(
     private val executor: PiToolCapabilityExecutor,
     private val auditStore: PiToolAuditStore,
+    private val capabilityRegistry: CapabilityRegistry? = null,
 ) : PiToolBrokerFactory {
     override fun create(
         config: com.swarmeditor.common.model.AgentConfig,
@@ -177,6 +179,7 @@ class WasmPiToolBrokerFactory(
             executor = executor,
             auditStore = auditStore,
             brokersCoreTools = false,
+            capabilityRegistry = capabilityRegistry,
         )
     }
 }

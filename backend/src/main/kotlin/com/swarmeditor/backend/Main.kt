@@ -127,8 +127,9 @@ val configuredPiToolBrokerFactory: PiToolBrokerFactory? =
         environment = System.getenv(),
         auditStore = piToolAuditStore,
         wasmExecutor = wasmPluginExecutor,
+        capabilityRegistry = capabilityRegistry,
     )
-val wasmPiToolBrokerFactory = WasmPiToolBrokerFactory(wasmPluginExecutor, piToolAuditStore)
+val wasmPiToolBrokerFactory = WasmPiToolBrokerFactory(wasmPluginExecutor, piToolAuditStore, capabilityRegistry)
 val piToolBrokerFactory = FallbackPiToolBrokerFactory(configuredPiToolBrokerFactory, wasmPiToolBrokerFactory)
 private val piNativeAgentBootstrap = PiNativeAgentBootstrap()
 val skillService: SkillService by lazy {

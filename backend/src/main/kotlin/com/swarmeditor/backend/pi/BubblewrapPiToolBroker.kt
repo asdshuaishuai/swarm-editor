@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.pi
 
 import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -14,6 +15,7 @@ internal class BubblewrapPiToolBrokerFactory(
     private val authorizedAgentIds: Set<String>,
     private val auditStore: PiToolAuditStore,
     private val wasmExecutor: PiToolCapabilityExecutor? = null,
+    private val capabilityRegistry: CapabilityRegistry? = null,
     private val systemdRunExecutable: File? = null,
     private val workerFactory: PiToolWorkerFactory = defaultPiToolWorkerFactory,
 ) : PiToolBrokerFactory {
@@ -48,6 +50,7 @@ internal class BubblewrapPiToolBrokerFactory(
             workspace = workingDirectory,
             executor = wasmExecutor?.let { RoutingPiToolCapabilityExecutor(defaultExecutor, it) } ?: defaultExecutor,
             auditStore = auditStore,
+            capabilityRegistry = capabilityRegistry,
         )
     }
 
@@ -56,6 +59,7 @@ internal class BubblewrapPiToolBrokerFactory(
             environment: Map<String, String>,
             auditStore: PiToolAuditStore,
             wasmExecutor: PiToolCapabilityExecutor? = null,
+            capabilityRegistry: CapabilityRegistry? = null,
             workerFactory: PiToolWorkerFactory = defaultPiToolWorkerFactory,
             osName: String = System.getProperty("os.name"),
         ): BubblewrapPiToolBrokerFactory? {
@@ -107,6 +111,7 @@ internal class BubblewrapPiToolBrokerFactory(
                 authorizedAgentIds = authorizedAgentIds,
                 auditStore = auditStore,
                 wasmExecutor = wasmExecutor,
+                capabilityRegistry = capabilityRegistry,
                 systemdRunExecutable = systemdRun,
                 workerFactory = workerFactory,
             )

@@ -1,5 +1,9 @@
 package com.swarmeditor.backend.pi
 
+import com.swarmeditor.backend.capability.CapabilityRegistry
+import com.swarmeditor.common.model.CapabilityDescriptor
+import com.swarmeditor.common.model.CapabilityKind
+import com.swarmeditor.common.model.CapabilityTrust
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -15,6 +19,42 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AuditedPiToolBrokerTest {
+    @Test
+    fun `denied capability requests are persisted as failed tool audits`() = runTest {
+        val directory = Files.createTempDirectory("audited-pi-tool-capability")
+        try {
+            val auditStore = FilePiToolAuditStore(directory.toFile())
+            val registry = CapabilityRegistry(
+                listOf(
+                    CapabilityDescriptor(
+                        id = "pi.bash",
+                        kind = CapabilityKind.PI_TOOL,
+                        version = "1",
+                        displayName = "Pi command tool",
+                        trust = CapabilityTrust.UNTRUSTED,
+                    ),
+                ),
+            )
+            val broker = AuditedPiToolBroker(
+                agentId = "agent",
+                workspace = directory.toFile(),
+                executor = PiToolCapabilityExecutor { error("executor should not run") },
+                auditStore = auditStore,
+                capabilityRegistry = registry,
+            )
+
+            assertFailsWith<IllegalStateException> { broker.execute(request(tool = "bash", operation = "exec")) }
+
+            val record = Json.decodeFromString<PiToolAuditRecord>(
+                Files.readString(directory.resolve("${broker.auditIds().single()}.json")),
+            )
+            assertEquals(PiToolAuditOutcome.FAILED, record.outcome)
+            assertEquals("IllegalStateException", record.errorCategory)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `successful execution persists metadata without raw arguments or results`() = runTest {
         val root = Files.createTempDirectory("pi-tool-audit-success")
@@ -87,11 +127,13 @@ class AuditedPiToolBrokerTest {
     private fun request(
         requestId: String = "tr-1",
         argumentsHash: String = "b".repeat(64),
+        tool: String = "read",
+        operation: String = "readFile",
     ) = PiToolBrokerRequest(
         requestId = requestId,
         sessionNonce = "0123456789abcdef",
-        tool = "read",
-        operation = "readFile",
+        tool = tool,
+        operation = operation,
         arguments = buildJsonObject { put("path", "sensitive/path") },
         argumentsHash = argumentsHash,
         deadlineMillis = System.currentTimeMillis() + 5_000,
