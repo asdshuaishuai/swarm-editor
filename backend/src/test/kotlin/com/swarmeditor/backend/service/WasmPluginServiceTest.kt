@@ -1,5 +1,6 @@
 package com.swarmeditor.backend.service
 
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.pi.WASM_PLUGIN_RUNTIME_VERSION
 import com.swarmeditor.backend.pi.WasmExecutionResult
 import com.swarmeditor.backend.pi.WasmPluginRegistry
@@ -8,6 +9,8 @@ import com.swarmeditor.backend.pi.WasmtimeRuntimeHealth
 import com.swarmeditor.backend.pi.WasmtimeRuntimeManager
 import com.swarmeditor.backend.process.CommandResult
 import com.swarmeditor.backend.process.CommandRunner
+import com.swarmeditor.common.model.CapabilityPermission
+import com.swarmeditor.common.model.CapabilityTrust
 import java.security.MessageDigest
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
@@ -16,6 +19,7 @@ import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -59,6 +63,7 @@ class WasmPluginServiceTest {
                     CommandResult(0, "wasmtime $WASM_PLUGIN_RUNTIME_VERSION", 1)
                 },
             )
+            val capabilityRegistry = CapabilityRegistry()
             val service = WasmPluginService(
                 registry = WasmPluginRegistry(plugins.toFile()),
                 runtimeManager = runtimeManager,
@@ -71,17 +76,38 @@ class WasmPluginServiceTest {
                         )
                     }
                 },
+                capabilityRegistry = capabilityRegistry,
             )
 
             service.init()
             val state = service.state.value
             val execution = service.execute("formatter", "{\"source\":\"x\"}").getOrThrow()
+            val capability = capabilityRegistry.get("wasm.plugin.formatter")
 
             assertEquals(WasmtimeRuntimeHealth.READY, state.runtime?.health)
             assertEquals(listOf("formatter"), state.plugins.map(WasmPluginInfo::id))
             assertTrue(state.validationErrors.single().startsWith("broken:"))
             assertEquals("x", execution.output.jsonObject["received"]!!.jsonObject["source"]!!.jsonPrimitive.content)
             assertEquals(7, execution.durationMillis)
+            assertEquals(sha256(module), capability?.version)
+            assertEquals(CapabilityTrust.USER_APPROVED, capability?.trust)
+            assertEquals(setOf(CapabilityPermission.EXECUTE_PROCESS), capability?.permissions)
+
+            plugins.resolve("formatter/plugin.json").writeText(
+                """
+                {
+                  "id": "formatter",
+                  "name": "Formatter",
+                  "description": "Formats structured input",
+                  "module": "module.wasm",
+                  "sha256": "${sha256(module)}",
+                  "enabled": false
+                }
+                """.trimIndent()
+            )
+            service.refresh().getOrThrow()
+
+            assertNull(capabilityRegistry.get("wasm.plugin.formatter"))
         } finally {
             root.deleteRecursively()
         }

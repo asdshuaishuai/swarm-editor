@@ -1,10 +1,15 @@
 package com.swarmeditor.backend.service
 
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.pi.WASM_PLUGIN_RUNTIME_VERSION
 import com.swarmeditor.backend.pi.WasmPluginRegistry
 import com.swarmeditor.backend.pi.WasmSandbox
 import com.swarmeditor.backend.pi.WasmtimeRuntimeManager
 import com.swarmeditor.backend.pi.WasmtimeRuntimeStatus
+import com.swarmeditor.common.model.CapabilityDescriptor
+import com.swarmeditor.common.model.CapabilityKind
+import com.swarmeditor.common.model.CapabilityPermission
+import com.swarmeditor.common.model.CapabilityTrust
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +55,7 @@ class WasmPluginService(
     pluginDirectory: File,
     private val sandboxProvider: suspend () -> WasmSandbox? = runtimeManager::sandboxOrNull,
     private val json: Json = Json,
+    private val capabilityRegistry: CapabilityRegistry? = null,
 ) {
     private val operationMutex = Mutex()
     private val _state = MutableStateFlow(WasmPluginState(pluginDirectory = pluginDirectory.absolutePath))
@@ -121,6 +127,21 @@ class WasmPluginService(
 
     private suspend fun loadState(isRefreshing: Boolean, isInstalling: Boolean) {
         val catalog = registry.scan()
+        capabilityRegistry?.reconcile(
+            source = WASM_PLUGIN_CAPABILITY_SOURCE,
+            capabilities = catalog.plugins.map { plugin ->
+                CapabilityDescriptor(
+                    id = "wasm.plugin.${plugin.id}",
+                    kind = CapabilityKind.WASM_PLUGIN,
+                    version = plugin.module.sha256,
+                    displayName = plugin.name,
+                    description = plugin.description,
+                    trust = CapabilityTrust.USER_APPROVED,
+                    permissions = setOf(CapabilityPermission.EXECUTE_PROCESS),
+                    source = WASM_PLUGIN_CAPABILITY_SOURCE,
+                )
+            },
+        )
         val runtime = runtimeManager.inspect()
         _state.update { current ->
             current.copy(
@@ -145,3 +166,5 @@ class WasmPluginService(
         }
     }
 }
+
+private const val WASM_PLUGIN_CAPABILITY_SOURCE = "wasm-plugin"

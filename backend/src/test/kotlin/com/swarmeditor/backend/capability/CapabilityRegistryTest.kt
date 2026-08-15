@@ -71,4 +71,25 @@ class CapabilityRegistryTest {
         }
         assertEquals("project.search", registry.get("project.search")?.id)
     }
+
+    @Test
+    fun `reconcile atomically replaces capabilities from one source`() = runTest {
+        val registry = CapabilityRegistry()
+        val first = CapabilityDescriptor(
+            id = "wasm.plugin.first",
+            kind = CapabilityKind.WASM_PLUGIN,
+            version = "hash-1",
+            displayName = "First",
+            trust = CapabilityTrust.USER_APPROVED,
+            source = "wasm-plugin",
+        )
+        val second = first.copy(id = "wasm.plugin.Second", version = "hash-2", displayName = "Second")
+
+        registry.reconcile("wasm-plugin", listOf(first))
+        registry.reconcile("wasm-plugin", listOf(second))
+
+        assertEquals(null, registry.get(first.id))
+        assertEquals(second, registry.get(second.id))
+        assertTrue(registry.get("project.search") != null)
+    }
 }

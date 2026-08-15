@@ -121,6 +121,7 @@ val wasmPluginService = WasmPluginService(
     registry = wasmPluginRegistry,
     runtimeManager = wasmtimeRuntimeManager,
     pluginDirectory = File(ConfigPaths.WASM_PLUGINS_DIR),
+    capabilityRegistry = capabilityRegistry,
 )
 val configuredPiToolBrokerFactory: PiToolBrokerFactory? =
     BubblewrapPiToolBrokerFactory.fromEnvironment(

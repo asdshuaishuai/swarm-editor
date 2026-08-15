@@ -50,6 +50,29 @@ class CapabilityRegistry(
         removed
     }
 
+    suspend fun reconcile(source: String, capabilities: Collection<CapabilityDescriptor>) = mutex.withLock {
+        require(source.isNotBlank()) { "Capability source cannot be blank" }
+        capabilities.forEach { capability ->
+            validate(capability)
+            require(capability.source == source) {
+                "Capability ${capability.id} does not belong to source $source"
+            }
+        }
+        require(capabilities.map(CapabilityDescriptor::id).distinct().size == capabilities.size) {
+            "Capability source contains duplicate identifiers"
+        }
+        val retained = byId.filterValues { it.source != source }.toMutableMap()
+        capabilities.forEach { capability ->
+            require(!retained.containsKey(capability.id)) {
+                "Capability id conflicts with another source: ${capability.id}"
+            }
+            retained[capability.id] = capability
+        }
+        byId.clear()
+        byId.putAll(retained)
+        publishLocked()
+    }
+
     suspend fun get(id: String): CapabilityDescriptor? = mutex.withLock { byId[id] }
 
     suspend fun check(
@@ -111,7 +134,7 @@ class CapabilityRegistry(
     }
 
     companion object {
-        private val ID_PATTERN = Regex("[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*")
+        private val ID_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*")
 
         fun defaultCapabilities(): List<CapabilityDescriptor> = listOf(
             CapabilityDescriptor(
