@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.agent.AgentRegistry
+import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.swarm.SwarmGraph
 import com.swarmeditor.backend.swarm.SwarmExperienceStore
 import com.swarmeditor.backend.swarm.SwarmExperienceSelector
@@ -14,6 +15,12 @@ import com.swarmeditor.backend.swarm.SwarmArtifactIntegrator
 import com.swarmeditor.backend.swarm.SwarmArtifactIntegrationStaleException
 import com.swarmeditor.backend.swarm.SwarmArtifactRiskAnalyzer
 import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.common.model.DeliveryAdmission
+import com.swarmeditor.common.model.DeliveryRecord
+import com.swarmeditor.common.model.DeliveryStatus
+import com.swarmeditor.common.model.DeliveryTrigger
+import com.swarmeditor.common.model.DeliveryTriggerKind
+import com.swarmeditor.common.model.DeliveryWorkspaceReference
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
 import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
@@ -55,6 +62,8 @@ class SwarmService(
     private val repositoryLocalizer: SwarmRepositoryLocalizer? = null,
     private val repositorySnapshotProvider: suspend () -> SwarmRepositorySnapshot? = { null },
     private val artifactIntegrator: SwarmArtifactIntegrator? = null,
+    private val deliveryRecordStore: DeliveryRecordStore? = null,
+    private val deliveryProjectPathProvider: () -> String = { "" },
     private val dynamicAgentLimitProvider: suspend () -> Int = { AgentRegistry.defaultConfig().maxDynamicSubagents },
     private val now: () -> kotlin.time.Instant = { Clock.System.now() },
 ) {
@@ -94,20 +103,59 @@ class SwarmService(
         SwarmGraph.validate(tasks)
         val timestamp = now()
         val repositoryBaseline = repositorySnapshotProvider()?.toBaseline(timestamp)
-        store.put(
-            SwarmRun(
-                id = "run-${UUID.randomUUID().toString().take(12)}",
-                title = title.trim(),
-                objective = objective.trim(),
+        val runId = "run-${UUID.randomUUID().toString().take(12)}"
+        val deliveryRecordId = deliveryRecordStore?.let { "delivery-$runId" }
+        val run = SwarmRun(
+            id = runId,
+            title = title.trim(),
+            objective = objective.trim(),
+            createdAt = timestamp,
+            updatedAt = timestamp,
+            deliveryRecordId = deliveryRecordId,
+            policy = effectivePolicy,
+            repositoryBaseline = repositoryBaseline,
+            planningEvidence = planningEvidence,
+            tasks = tasks,
+            planningExperienceRoutingDecisions = planningExperienceRoutingDecisions,
+        )
+        val projectPath = deliveryProjectPathProvider()
+        val deliveryRecord = deliveryRecordId?.let { id ->
+            DeliveryRecord(
+                id = id,
+                projectPath = projectPath,
+                status = DeliveryStatus.CREATED,
+                trigger = DeliveryTrigger(
+                    kind = DeliveryTriggerKind.SWARM,
+                    sourceId = runId,
+                ),
+                admission = DeliveryAdmission(
+                    allowed = true,
+                    policyId = "swarm-create",
+                    policyVersion = "1",
+                ),
+                workspace = repositoryBaseline?.let { baseline ->
+                    DeliveryWorkspaceReference(
+                        projectPath = projectPath,
+                        baseRevision = baseline.baseRevision,
+                    )
+                },
                 createdAt = timestamp,
                 updatedAt = timestamp,
-                policy = effectivePolicy,
-                repositoryBaseline = repositoryBaseline,
-                planningEvidence = planningEvidence,
-                tasks = tasks,
-                planningExperienceRoutingDecisions = planningExperienceRoutingDecisions,
             )
-        )
+        }
+        deliveryRecord?.let { record -> deliveryRecordStore.put(record) }
+        try {
+            store.put(run)
+        } catch (error: Throwable) {
+            deliveryRecord?.let { record ->
+                try {
+                    deliveryRecordStore.remove(record.id)
+                } catch (cleanupError: Throwable) {
+                    error.addSuppressed(cleanupError)
+                }
+            }
+            throw error
+        }
     }
 
     suspend fun start(runId: String): Result<Unit> = resultOf { scheduler.start(runId) }

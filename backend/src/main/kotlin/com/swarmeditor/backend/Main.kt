@@ -2,6 +2,7 @@ package com.swarmeditor.backend
 
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.mcp.McpStore
 import com.swarmeditor.backend.mcp.UserMcpScanner
 import com.swarmeditor.backend.model.ModelRegistry
@@ -88,6 +89,7 @@ val sessionStore = SessionStore(File(ConfigPaths.SESSIONS_DIR))
 val activityStore = ActivityStore(File(ConfigPaths.ACTIVITY_JSON))
 val reviewPackageStore = ReviewPackageStore(File(ConfigPaths.REVIEW_PACKAGES_JSON))
 val reviewService = ReviewService(reviewPackageStore, activityStore)
+val deliveryRecordStore = DeliveryRecordStore(File(ConfigPaths.DELIVERY_RECORDS_JSON))
 val workspaceStore = WorkspaceStore(File(ConfigPaths.PROJECT_WORKSPACES_JSON))
 val workspaceService = WorkspaceService(workspaceStore, File(ConfigPaths.PROJECT_WORKSPACES_DIR))
 val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
@@ -302,6 +304,8 @@ val swarmService: SwarmService by lazy {
         ),
         repositorySnapshotProvider = { swarmRepositorySnapshotter.snapshot() },
         artifactIntegrator = swarmArtifactIntegrator,
+        deliveryRecordStore = deliveryRecordStore,
+        deliveryProjectPathProvider = { projectRoot.canonicalPath },
         dynamicAgentLimitProvider = {
             agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.maxDynamicSubagents
                 ?: AgentRegistry.defaultConfig().maxDynamicSubagents
@@ -349,6 +353,7 @@ suspend fun initializeBackendServices() {
         agentService.init()
         sessionService.init()
         activityStore.load()
+        deliveryRecordStore.load()
         activityStore.seedFromSessions(sessionService.sessions.value)
         mcpService.init()
         skillService.init()

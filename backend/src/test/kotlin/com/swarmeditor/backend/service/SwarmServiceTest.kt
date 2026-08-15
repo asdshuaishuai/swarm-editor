@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.swarm.SwarmExperienceEvidence
+import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.swarm.SwarmExperienceInsight
 import com.swarmeditor.backend.swarm.SwarmExperienceStore
 import com.swarmeditor.backend.swarm.SwarmExperienceSelection
@@ -58,6 +59,36 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 
 class SwarmServiceTest {
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `creating a swarm run creates a linked delivery record`() = runTest {
+        val directory = Files.createTempDirectory("swarm-service-delivery")
+        try {
+            val store = SwarmStore(directory.resolve("runs").toFile()).also { it.load() }
+            val deliveryStore = DeliveryRecordStore(directory.resolve("delivery.json").toFile()).also { it.load() }
+            val service = SwarmService(
+                store = store,
+                scheduler = mockk(relaxed = true),
+                agentService = mockk(),
+                deliveryRecordStore = deliveryStore,
+                deliveryProjectPathProvider = { "/tmp/project" },
+            )
+
+            val run = service.createRun(
+                title = "Delivery run",
+                objective = "Record the delivery envelope",
+                tasks = listOf(SwarmTask(id = "task", title = "Task", prompt = "Execute")),
+            ).getOrThrow()
+
+            val delivery = deliveryStore.get(checkNotNull(run.deliveryRecordId))
+            assertEquals(run.id, delivery?.trigger?.sourceId)
+            assertEquals("/tmp/project", delivery?.projectPath)
+            assertEquals(run.createdAt, delivery?.createdAt)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
     fun `creates a run from a dynamically planned task graph`() = runTest {

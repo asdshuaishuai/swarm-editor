@@ -488,4 +488,5 @@ data class SwarmRun(
     val schedulingDecisions: List<SwarmSchedulingDecision> = emptyList(),
     val artifactIntegrationPlans: List<SwarmArtifactIntegrationPlan> = emptyList(),
     val artifactReviewEvents: List<SwarmArtifactReviewEvent> = emptyList(),
+    val deliveryRecordId: String? = null,
 )
