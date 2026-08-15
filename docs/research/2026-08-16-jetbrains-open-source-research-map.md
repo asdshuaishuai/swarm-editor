@@ -15,6 +15,7 @@
 | `skills` | 上游来源、变更扫描、行为扫描/SARIF、免责声明 | 已增加 Skill 内容 SHA-256；远程 catalog 不默认信任 | `2026-08-16` skills |
 | `compose-hot-reload` | orchestration state、reload lifecycle、UI error state | 仅规划可选开发 evidence；不进入生产 Agent runtime | `2026-08-16` hot reload |
 | `intellij-community` | action availability/execution 分离、BGT/EDT、文档提交 gate | 约束未来 IDE bridge；不引入 IntelliJ SDK | `2026-08-16` IDE action |
+| `mcp-jetbrains` | 已弃用的外置 NPM proxy；README 指向 IDE 内置 MCP（SSE/JVM stdio proxy） | 明确不新增外置代理；未来只评审受控宿主 bridge | README migration notice |
 | `hermes-agent` | 多入口、长期学习、环境抽象 | 仅作为演化/记忆参考 | `2026-08-15` incremental |
 
 ## 已落地提交
