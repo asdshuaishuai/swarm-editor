@@ -2,6 +2,7 @@ package com.swarmeditor.backend
 
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.mcp.McpStore
 import com.swarmeditor.backend.mcp.UserMcpScanner
@@ -90,6 +91,7 @@ val activityStore = ActivityStore(File(ConfigPaths.ACTIVITY_JSON))
 val reviewPackageStore = ReviewPackageStore(File(ConfigPaths.REVIEW_PACKAGES_JSON))
 val reviewService = ReviewService(reviewPackageStore, activityStore)
 val deliveryRecordStore = DeliveryRecordStore(File(ConfigPaths.DELIVERY_RECORDS_JSON))
+val capabilityRegistry = CapabilityRegistry()
 val workspaceStore = WorkspaceStore(File(ConfigPaths.PROJECT_WORKSPACES_JSON))
 val workspaceService = WorkspaceService(workspaceStore, File(ConfigPaths.PROJECT_WORKSPACES_DIR))
 val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
@@ -306,6 +308,7 @@ val swarmService: SwarmService by lazy {
         artifactIntegrator = swarmArtifactIntegrator,
         deliveryRecordStore = deliveryRecordStore,
         deliveryProjectPathProvider = { projectRoot.canonicalPath },
+        capabilityRegistry = capabilityRegistry,
         dynamicAgentLimitProvider = {
             agentService.getConfig(AgentRegistry.DEFAULT_AGENT_ID)?.maxDynamicSubagents
                 ?: AgentRegistry.defaultConfig().maxDynamicSubagents

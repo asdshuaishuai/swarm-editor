@@ -2,6 +2,7 @@ package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.swarm.SwarmExperienceEvidence
 import com.swarmeditor.backend.delivery.DeliveryRecordStore
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.swarm.SwarmExperienceInsight
 import com.swarmeditor.backend.swarm.SwarmExperienceStore
 import com.swarmeditor.backend.swarm.SwarmExperienceSelection
@@ -72,6 +73,7 @@ class SwarmServiceTest {
                 agentService = mockk(),
                 deliveryRecordStore = deliveryStore,
                 deliveryProjectPathProvider = { "/tmp/project" },
+                capabilityRegistry = CapabilityRegistry(),
             )
 
             val run = service.createRun(
@@ -83,6 +85,7 @@ class SwarmServiceTest {
             val delivery = deliveryStore.get(checkNotNull(run.deliveryRecordId))
             assertEquals(run.id, delivery?.trigger?.sourceId)
             assertEquals("/tmp/project", delivery?.projectPath)
+            assertEquals(listOf("swarm.create"), delivery?.admission?.capabilityIds)
             assertEquals(run.createdAt, delivery?.createdAt)
         } finally {
             directory.deleteRecursively()

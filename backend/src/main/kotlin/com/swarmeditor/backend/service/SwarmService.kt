@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.agent.AgentRegistry
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.swarm.SwarmGraph
 import com.swarmeditor.backend.swarm.SwarmExperienceStore
@@ -64,6 +65,7 @@ class SwarmService(
     private val artifactIntegrator: SwarmArtifactIntegrator? = null,
     private val deliveryRecordStore: DeliveryRecordStore? = null,
     private val deliveryProjectPathProvider: () -> String = { "" },
+    private val capabilityRegistry: CapabilityRegistry? = null,
     private val dynamicAgentLimitProvider: suspend () -> Int = { AgentRegistry.defaultConfig().maxDynamicSubagents },
     private val now: () -> kotlin.time.Instant = { Clock.System.now() },
 ) {
@@ -81,6 +83,9 @@ class SwarmService(
         planningExperienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
         planningEvidence: SwarmRepositoryEvidenceBundle? = null,
     ): Result<SwarmRun> = resultOf {
+        capabilityRegistry?.check("swarm.create")?.let { decision ->
+            check(decision.allowed) { decision.reason }
+        }
         require(title.isNotBlank()) { "Swarm run title cannot be blank" }
         require(objective.isNotBlank()) { "Swarm objective cannot be blank" }
         require(policy.maxParallelism > 0) { "maxParallelism must be positive" }
@@ -132,6 +137,7 @@ class SwarmService(
                     allowed = true,
                     policyId = "swarm-create",
                     policyVersion = "1",
+                    capabilityIds = listOfNotNull(capabilityRegistry?.get("swarm.create")?.id),
                 ),
                 workspace = repositoryBaseline?.let { baseline ->
                     DeliveryWorkspaceReference(
