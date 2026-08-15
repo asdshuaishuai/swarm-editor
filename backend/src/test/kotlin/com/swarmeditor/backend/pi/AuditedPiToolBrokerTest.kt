@@ -3,6 +3,7 @@ package com.swarmeditor.backend.pi
 import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.common.model.CapabilityDescriptor
 import com.swarmeditor.common.model.CapabilityKind
+import com.swarmeditor.common.model.CapabilityPermission
 import com.swarmeditor.common.model.CapabilityTrust
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
@@ -50,6 +51,64 @@ class AuditedPiToolBrokerTest {
             )
             assertEquals(PiToolAuditOutcome.FAILED, record.outcome)
             assertEquals("IllegalStateException", record.errorCategory)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `wasm execution requires the selected plugin capability`() = runTest {
+        val directory = Files.createTempDirectory("audited-pi-tool-wasm-capability")
+        try {
+            val registry = CapabilityRegistry(
+                listOf(
+                    CapabilityDescriptor(
+                        id = "wasm.execute",
+                        kind = CapabilityKind.WASM_PLUGIN,
+                        version = "1",
+                        displayName = "WASM plugin execution",
+                        trust = CapabilityTrust.USER_APPROVED,
+                        permissions = setOf(CapabilityPermission.EXECUTE_PROCESS),
+                    ),
+                ),
+            )
+            var executions = 0
+            val broker = AuditedPiToolBroker(
+                agentId = "agent",
+                workspace = directory.toFile(),
+                executor = PiToolCapabilityExecutor {
+                    executions += 1
+                    PiToolCapabilityResult(buildJsonObject { put("ok", true) })
+                },
+                auditStore = FilePiToolAuditStore(directory.toFile()),
+                capabilityRegistry = registry,
+            )
+            val request = request(tool = "wasm", operation = "execute").copy(
+                arguments = buildJsonObject { put("plugin", "formatter") },
+            )
+
+            assertFailsWith<IllegalStateException> { broker.execute(request) }
+            registry.register(
+                CapabilityDescriptor(
+                    id = "wasm.plugin.formatter",
+                    kind = CapabilityKind.WASM_PLUGIN,
+                    version = "hash",
+                    displayName = "Formatter",
+                    trust = CapabilityTrust.USER_APPROVED,
+                    permissions = setOf(CapabilityPermission.EXECUTE_PROCESS),
+                    source = "wasm-plugin",
+                ),
+            )
+
+            broker.execute(request)
+
+            assertEquals(1, executions)
+            assertEquals(
+                listOf(PiToolAuditOutcome.FAILED, PiToolAuditOutcome.SUCCEEDED),
+                broker.auditIds().map { auditId ->
+                    Json.decodeFromString<PiToolAuditRecord>(Files.readString(directory.resolve("$auditId.json"))).outcome
+                },
+            )
         } finally {
             directory.toFile().deleteRecursively()
         }

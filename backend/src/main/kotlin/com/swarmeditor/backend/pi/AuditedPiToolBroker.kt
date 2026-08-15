@@ -10,6 +10,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 data class PiToolCapabilityResult(
     val result: JsonElement,
@@ -73,6 +75,23 @@ class AuditedPiToolBroker(
 
     private suspend fun enforceCapability(request: PiToolBrokerRequest) {
         val registry = capabilityRegistry ?: return
+        if (request.tool == "wasm" && request.operation == "execute") {
+            checkCapability(
+                registry = registry,
+                capabilityId = "wasm.execute",
+                permissions = setOf(CapabilityPermission.EXECUTE_PROCESS),
+                request = request,
+            )
+            val pluginId = request.arguments["plugin"]?.jsonPrimitive?.contentOrNull
+                ?: error("WASM plugin id is required")
+            checkCapability(
+                registry = registry,
+                capabilityId = "wasm.plugin.$pluginId",
+                permissions = setOf(CapabilityPermission.EXECUTE_PROCESS),
+                request = request,
+            )
+            return
+        }
         val (capabilityId, permissions) = when (request.tool) {
             "read" -> "pi.read" to setOf(CapabilityPermission.READ_PROJECT)
             "edit", "write" -> "pi.edit" to setOf(
@@ -83,6 +102,15 @@ class AuditedPiToolBroker(
             "wasm" -> "wasm.execute" to setOf(CapabilityPermission.EXECUTE_PROCESS)
             else -> error("No capability mapping for tool: ${request.tool}")
         }
+        checkCapability(registry, capabilityId, permissions, request)
+    }
+
+    private suspend fun checkCapability(
+        registry: CapabilityRegistry,
+        capabilityId: String,
+        permissions: Set<CapabilityPermission>,
+        request: PiToolBrokerRequest,
+    ) {
         val decision = registry.check(capabilityId, permissions)
         check(decision.allowed) { "Capability denied for ${request.tool}.${request.operation}: ${decision.reason}" }
     }
