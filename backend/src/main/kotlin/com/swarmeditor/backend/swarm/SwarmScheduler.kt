@@ -35,6 +35,10 @@ import kotlinx.coroutines.withTimeout
 
 private val schedulerLog = KotlinLogging.logger {}
 
+fun interface SwarmRunLifecycleObserver {
+    suspend fun onRunUpdated(run: SwarmRun)
+}
+
 class SwarmScheduler(
     private val store: SwarmStore,
     private val executor: SwarmTaskExecutor,
@@ -42,6 +46,7 @@ class SwarmScheduler(
     private val schedulingPolicy: SwarmSchedulingPolicy = CriticalPathSwarmSchedulingPolicy(),
     private val learner: SwarmRunLearner = SwarmRunLearner {},
     private val now: () -> Instant = { Clock.System.now() },
+    private val lifecycleObserver: SwarmRunLifecycleObserver = SwarmRunLifecycleObserver {},
 ) {
     private val jobs = ConcurrentHashMap<String, Job>()
     private val pendingCancellationMarks = ConcurrentHashMap.newKeySet<String>()
@@ -108,7 +113,7 @@ class SwarmScheduler(
 
     private suspend fun executeRun(runId: String) {
         try {
-            store.update(runId) { run ->
+            val running = store.update(runId) { run ->
                 val startedAt = now()
                 run.copy(
                     status = SwarmRunStatus.RUNNING,
@@ -130,6 +135,7 @@ class SwarmScheduler(
                     },
                 )
             }
+            notifyLifecycleObserver(running)
             runTasks(runId)
             learnFromRun(finishRun(runId))
         } catch (error: CancellationException) {
@@ -137,7 +143,7 @@ class SwarmScheduler(
             withContext(NonCancellable) { markCanceledAndForget(runId) }
             throw error
         } catch (error: Throwable) {
-            store.update(runId) { run ->
+            val failed = store.update(runId) { run ->
                 val completedAt = now()
                 run.copy(
                     status = SwarmRunStatus.FAILED,
@@ -160,6 +166,7 @@ class SwarmScheduler(
                     },
                 )
             }
+            notifyLifecycleObserver(failed)
         }
     }
 
@@ -556,7 +563,8 @@ class SwarmScheduler(
         }
     }
 
-    private suspend fun finishRun(runId: String): SwarmRun = store.update(runId) { run ->
+    private suspend fun finishRun(runId: String): SwarmRun {
+        val finished = store.update(runId) { run ->
             val status = when {
                 run.tasks.all { it.status == SwarmTaskStatus.SUCCEEDED } -> SwarmRunStatus.SUCCEEDED
                 run.tasks.any {
@@ -567,6 +575,9 @@ class SwarmScheduler(
             }
             run.copy(status = status, updatedAt = now())
         }
+        notifyLifecycleObserver(finished)
+        return finished
+    }
 
     private suspend fun learnFromRun(run: SwarmRun) {
         try {
@@ -581,7 +592,7 @@ class SwarmScheduler(
     private suspend fun markCanceled(runId: String) {
         val run = store.get(runId) ?: return
         if (run.status != SwarmRunStatus.CREATED && run.status != SwarmRunStatus.RUNNING) return
-        store.update(runId) { current ->
+        val canceled = store.update(runId) { current ->
             val completedAt = now()
             current.copy(
                 status = SwarmRunStatus.CANCELED,
@@ -607,6 +618,17 @@ class SwarmScheduler(
                     }
                 },
             )
+        }
+        notifyLifecycleObserver(canceled)
+    }
+
+    private suspend fun notifyLifecycleObserver(run: SwarmRun) {
+        try {
+            lifecycleObserver.onRunUpdated(run)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            schedulerLog.warn { "Failed to update delivery lifecycle for swarm run ${run.id}: ${error.message}" }
         }
     }
 

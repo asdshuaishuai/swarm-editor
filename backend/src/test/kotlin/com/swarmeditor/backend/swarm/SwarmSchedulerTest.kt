@@ -33,6 +33,30 @@ import kotlinx.coroutines.test.runTest
 class SwarmSchedulerTest {
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     @Test
+    fun `notifies lifecycle observer when a run starts and completes`() = runTest {
+        val directory = Files.createTempDirectory("swarm-scheduler-lifecycle")
+        try {
+            val store = SwarmStore(directory.toFile()).also { it.load() }
+            val observedStatuses = mutableListOf<SwarmRunStatus>()
+            store.put(run(tasks = listOf(task("task"))))
+            val scheduler = SwarmScheduler(
+                store = store,
+                executor = SwarmTaskExecutor { _, _ -> SwarmTaskExecution("done") },
+                scope = backgroundScope,
+                lifecycleObserver = SwarmRunLifecycleObserver { run -> observedStatuses += run.status },
+            )
+
+            scheduler.start("run-test")
+            scheduler.await("run-test")
+
+            assertEquals(listOf(SwarmRunStatus.RUNNING, SwarmRunStatus.SUCCEEDED), observedStatuses)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
     fun `runs ready tasks in parallel and waits for dependencies`() = runTest {
         val directory = Files.createTempDirectory("swarm-scheduler-order")
         try {
