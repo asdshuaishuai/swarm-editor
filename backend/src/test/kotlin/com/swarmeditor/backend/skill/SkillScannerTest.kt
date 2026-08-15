@@ -32,6 +32,7 @@ class SkillScannerTest {
             assertEquals(listOf("review", "release"), skills.map { it.name })
             assertEquals("Swarm review", skills.first().description)
             assertTrue(skills.all { "discovered:user" in it.tags })
+            assertTrue(skills.all { it.contentFingerprint?.matches(Regex("[0-9a-f]{64}")) == true })
         } finally {
             directory.deleteRecursively()
         }
@@ -61,6 +62,24 @@ class SkillScannerTest {
             val skills = scanner.scanGlobal()
 
             assertEquals(listOf("valid"), skills.map { it.name })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `skill content changes produce a different content fingerprint`() = runTest {
+        val directory = createTempDirectory("skill-content-fingerprint-").toFile()
+        try {
+            val root = File(directory, "skills").apply { mkdirs() }
+            val skill = createSkill(root, "review", "Review")
+            val scanner = SkillScanner(listOf(root))
+
+            val first = scanner.scanGlobal().single().contentFingerprint
+            skill.resolve("SKILL.md").appendText("\nChanged instructions")
+            val second = scanner.scanGlobal().single().contentFingerprint
+
+            assertTrue(first != second)
         } finally {
             directory.deleteRecursively()
         }

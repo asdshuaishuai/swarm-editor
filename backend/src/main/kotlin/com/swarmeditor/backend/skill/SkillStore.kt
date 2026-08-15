@@ -29,7 +29,7 @@ private data class SkillFile(
     val source: String = "filesystem", val scope: String = "global",
     val path: String = "", val agentId: String = "",
     val enabledAgents: Map<String, Boolean> = emptyMap(), val tags: List<String> = emptyList(),
-    val files: List<String> = emptyList()
+    val files: List<String> = emptyList(), val contentFingerprint: String? = null,
 )
 
 class SkillStore(
@@ -136,10 +136,12 @@ private fun SkillFile.toConfig() = SkillConfig(id=id, name=name, description=des
         "mcp" -> SkillSource.MCP
         "project_filesystem" -> SkillSource.PROJECT_FILESYSTEM
         else -> SkillSource.FILESYSTEM
-    }, scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files)
+    }, scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files,
+    contentFingerprint=contentFingerprint)
 
 private fun SkillConfig.toFile() = SkillFile(id=id, name=name, description=description,
-    source=source.name.lowercase(), scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files)
+    source=source.name.lowercase(), scope=scope, path=path, agentId=agentId, enabledAgents=enabledAgents, tags=tags, files=files,
+    contentFingerprint=contentFingerprint)
 
 private fun SkillConfig.normalizedForPi() = copy(
     agentId = agentId.takeIf { it.isBlank() } ?: AgentRegistry.DEFAULT_AGENT_ID,

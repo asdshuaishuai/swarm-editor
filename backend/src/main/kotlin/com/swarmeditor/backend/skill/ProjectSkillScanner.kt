@@ -53,6 +53,7 @@ class ProjectSkillScanner(
                             path = directory.toFile().absolutePath,
                             tags = listOf(PROJECT_SKILL_TAG, "source:${skillRoot.id}"),
                             files = listSkillFiles(directory, root),
+                            contentFingerprint = fingerprint(directory, listOf(relativeDirectory to directory)),
                         ),
                     )
                 } catch (error: CancellationException) {

@@ -6,6 +6,7 @@ import com.swarmeditor.common.model.SkillSource
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.nio.file.Path
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,6 +40,7 @@ class SkillScanner(
                         "Skill definition escapes root: ${definition.path}"
                     }
                     val metadata = readSkillMetadata(definition, directory.name, maxMetadataBytes)
+                    val files = listSkillFiles(directory, rootBoundary)
                     skillsByName.putIfAbsent(
                         metadata.name,
                         SkillConfig(
@@ -49,7 +51,8 @@ class SkillScanner(
                             scope = "user:${root.id}",
                             path = directory.absolutePath,
                             tags = listOf(USER_SKILL_TAG, "source:${root.id}"),
-                            files = listSkillFiles(directory, rootBoundary),
+                            files = files,
+                            contentFingerprint = fingerprint(directory, rootBoundary),
                         )
                     )
                 } catch (error: CancellationException) {
@@ -122,6 +125,27 @@ private fun listSkillFiles(skillDirectory: File, rootBoundary: Path): List<Strin
             }
     }
     return files
+}
+
+private fun fingerprint(skillDirectory: File, rootBoundary: Path): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    skillDirectory.walkTopDown()
+        .filter(File::isFile)
+        .filter { file -> file.canonicalPathOrNull()?.startsWith(rootBoundary) == true }
+        .sortedBy { file -> file.relativeTo(skillDirectory).invariantSeparatorsPath }
+        .forEach { file ->
+            digest.update(file.relativeTo(skillDirectory).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+        }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
 }
 
 private fun readSkillMetadata(definition: File, fallbackName: String, maxBytes: Long): SkillMetadata {

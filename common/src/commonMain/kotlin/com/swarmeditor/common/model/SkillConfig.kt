@@ -23,4 +23,5 @@ data class SkillConfig(
     val enabledAgents: Map<String, Boolean> = emptyMap(),
     val tags: List<String> = emptyList(),
     val files: List<String> = emptyList(),
+    val contentFingerprint: String? = null,
 )
