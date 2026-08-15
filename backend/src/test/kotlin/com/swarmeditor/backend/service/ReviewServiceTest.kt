@@ -1,6 +1,8 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.delivery.DeliveryRecordStore
+import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.review.ReviewPackageStore
 import com.swarmeditor.common.model.ReviewCommentSide
 import com.swarmeditor.common.model.ReviewCommentStatus
@@ -56,5 +58,33 @@ class ReviewServiceTest {
         assertFailsWith<IllegalArgumentException> {
             service.addComment(projectRoot, "src/Main.kt", ReviewCommentSide.NEW, 0, null, "No")
         }
+    }
+
+    @Test
+    fun `review packages synchronize comments into their delivery record`() = runTest {
+        val directory = Files.createTempDirectory("review-delivery")
+        val projectRoot = directory.resolve("project").toFile().apply { mkdirs() }
+        val deliveryStore = DeliveryRecordStore(directory.resolve("delivery.json").toFile())
+        val service = ReviewService(
+            store = ReviewPackageStore(directory.resolve("reviews.json").toFile()),
+            deliveryRecordStore = deliveryStore,
+            capabilityRegistry = CapabilityRegistry(),
+        )
+
+        val reviewPackage = service.open(projectRoot, "base-1")
+        val comment = service.addComment(
+            projectRoot = projectRoot,
+            path = "src/Main.kt",
+            side = ReviewCommentSide.NEW,
+            startLine = 12,
+            endLine = null,
+            body = "Please add cancellation handling.",
+        )
+
+        val delivery = deliveryStore.get(checkNotNull(reviewPackage.deliveryRecordId))
+        assertEquals(reviewPackage.id, delivery?.reviewPackageId)
+        assertEquals(listOf("review.open"), delivery?.admission?.capabilityIds)
+        assertEquals(listOf(comment.id), delivery?.reviewCommentIds)
+        assertEquals(reviewPackage.id, delivery?.artifact?.reviewPackageId)
     }
 }

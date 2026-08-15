@@ -123,6 +123,14 @@ class CapabilityRegistry(
                 trust = CapabilityTrust.BUILTIN,
             ),
             CapabilityDescriptor(
+                id = "review.open",
+                kind = CapabilityKind.ORCHESTRATION,
+                version = "1",
+                displayName = "Open review package",
+                description = "Create a durable review package and its delivery envelope.",
+                trust = CapabilityTrust.BUILTIN,
+            ),
+            CapabilityDescriptor(
                 id = "project.search",
                 kind = CapabilityKind.PROJECT_EXPLORER,
                 version = "1",

@@ -40,4 +40,5 @@ data class ReviewPackage(
     val comments: List<ReviewComment> = emptyList(),
     val createdAt: Instant,
     val updatedAt: Instant,
+    val deliveryRecordId: String? = null,
 )

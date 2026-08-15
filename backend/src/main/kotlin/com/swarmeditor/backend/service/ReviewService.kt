@@ -1,9 +1,17 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.capability.CapabilityRegistry
+import com.swarmeditor.backend.delivery.DeliveryRecordStore
 import com.swarmeditor.backend.review.ReviewPackageStore
 import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.ActivityType
+import com.swarmeditor.common.model.DeliveryAdmission
+import com.swarmeditor.common.model.DeliveryArtifactReference
+import com.swarmeditor.common.model.DeliveryRecord
+import com.swarmeditor.common.model.DeliveryStatus
+import com.swarmeditor.common.model.DeliveryTrigger
+import com.swarmeditor.common.model.DeliveryTriggerKind
 import com.swarmeditor.common.model.ReviewComment
 import com.swarmeditor.common.model.ReviewCommentSide
 import com.swarmeditor.common.model.ReviewCommentStatus
@@ -20,6 +28,8 @@ import kotlinx.coroutines.sync.withLock
 class ReviewService(
     private val store: ReviewPackageStore,
     private val activityStore: ActivityStore? = null,
+    private val deliveryRecordStore: DeliveryRecordStore? = null,
+    private val capabilityRegistry: CapabilityRegistry? = null,
     private val clock: Clock = Clock.System,
 ) {
     private val mutex = Mutex()
@@ -27,20 +37,57 @@ class ReviewService(
     suspend fun get(projectRoot: File): ReviewPackage? = store.get(projectRoot)
 
     suspend fun open(projectRoot: File, baseRevision: String): ReviewPackage = mutex.withLock {
+        capabilityRegistry?.check("review.open")?.let { decision ->
+            check(decision.allowed) { decision.reason }
+        }
         require(baseRevision.isNotBlank()) { "baseRevision must not be blank" }
         val existing = store.get(projectRoot)
         if (existing != null) return@withLock existing
         val now = clock.now()
-        ReviewPackage(
+        val reviewPackage = ReviewPackage(
             id = "review-${UUID.randomUUID()}",
             projectPath = projectRoot.canonicalFile.absolutePath,
             baseRevision = baseRevision,
             createdAt = now,
             updatedAt = now,
-        ).also {
-            store.put(it)
-            record(it, "创建审查包", "${it.baseRevision} · ${it.projectPath}")
+        )
+        val deliveryRecord = deliveryRecordStore?.let { deliveryStore ->
+            val deliveryId = "delivery-${reviewPackage.id}"
+            reviewPackage.copy(deliveryRecordId = deliveryId).also { linkedPackage ->
+                deliveryStore.put(
+                    DeliveryRecord(
+                        id = deliveryId,
+                        projectPath = linkedPackage.projectPath,
+                        status = DeliveryStatus.RUNNING,
+                        trigger = DeliveryTrigger(DeliveryTriggerKind.REVIEW, sourceId = linkedPackage.id),
+                        admission = DeliveryAdmission(
+                            allowed = true,
+                            policyId = "review-open",
+                            policyVersion = "1",
+                            capabilityIds = listOfNotNull(capabilityRegistry?.get("review.open")?.id),
+                        ),
+                        reviewPackageId = linkedPackage.id,
+                        artifact = DeliveryArtifactReference(reviewPackageId = linkedPackage.id),
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            }
+        } ?: reviewPackage
+        try {
+            store.put(deliveryRecord)
+        } catch (error: Throwable) {
+            deliveryRecord.deliveryRecordId?.let { deliveryId ->
+                try {
+                    deliveryRecordStore?.remove(deliveryId)
+                } catch (cleanupError: Throwable) {
+                    error.addSuppressed(cleanupError)
+                }
+            }
+            throw error
         }
+        record(deliveryRecord, "创建审查包", "${deliveryRecord.baseRevision} · ${deliveryRecord.projectPath}")
+        deliveryRecord
     }
 
     suspend fun addComment(
@@ -65,7 +112,10 @@ class ReviewService(
             createdAt = now,
             updatedAt = now,
         )
-        store.put(reviewPackage.copy(comments = reviewPackage.comments + comment, updatedAt = now))
+        persistReviewAndDelivery(
+            previous = reviewPackage,
+            updated = reviewPackage.copy(comments = reviewPackage.comments + comment, updatedAt = now),
+        )
         record(reviewPackage, "添加审查评论", "${comment.path}:${comment.startLine}")
         comment
     }
@@ -81,8 +131,9 @@ class ReviewService(
             "Review comment not found"
         }
         val updated = current.copy(status = status, updatedAt = now)
-        store.put(
-            reviewPackage.copy(
+        persistReviewAndDelivery(
+            previous = reviewPackage,
+            updated = reviewPackage.copy(
                 comments = reviewPackage.comments.map { if (it.id == commentId) updated else it },
                 updatedAt = now,
             ),
@@ -104,10 +155,47 @@ class ReviewService(
         }
         val stale = updated.filter { it.status == ReviewCommentStatus.STALE }
         if (updated != reviewPackage.comments) {
-            store.put(reviewPackage.copy(comments = updated, updatedAt = now))
+            persistReviewAndDelivery(
+                previous = reviewPackage,
+                updated = reviewPackage.copy(comments = updated, updatedAt = now),
+            )
             record(reviewPackage, "标记审查评论过期", "${stale.size} 条 · 当前 revision ${currentRevision.take(32)}")
         }
         stale
+    }
+
+    private suspend fun persistReviewAndDelivery(previous: ReviewPackage, updated: ReviewPackage) {
+        store.put(updated)
+        try {
+            synchronizeDelivery(updated)
+        } catch (error: CancellationException) {
+            rollbackReview(previous, error)
+            throw error
+        } catch (error: Throwable) {
+            rollbackReview(previous, error)
+            throw error
+        }
+    }
+
+    private suspend fun synchronizeDelivery(reviewPackage: ReviewPackage) {
+        val deliveryStore = deliveryRecordStore ?: return
+        val deliveryRecordId = reviewPackage.deliveryRecordId ?: return
+        deliveryStore.update(deliveryRecordId) { record ->
+            record.copy(
+                reviewPackageId = reviewPackage.id,
+                reviewCommentIds = reviewPackage.comments.map(ReviewComment::id),
+                artifact = (record.artifact ?: DeliveryArtifactReference()).copy(reviewPackageId = reviewPackage.id),
+                updatedAt = reviewPackage.updatedAt,
+            )
+        }
+    }
+
+    private suspend fun rollbackReview(previous: ReviewPackage, original: Throwable) {
+        try {
+            store.put(previous)
+        } catch (rollbackError: Throwable) {
+            original.addSuppressed(rollbackError)
+        }
     }
 
     private fun validateAnchor(path: String, startLine: Int, endLine: Int?, body: String) {

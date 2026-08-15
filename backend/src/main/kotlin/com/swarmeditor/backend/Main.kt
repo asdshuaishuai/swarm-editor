@@ -90,10 +90,15 @@ val modelRegistry = ModelRegistry()
 val sessionStore = SessionStore(File(ConfigPaths.SESSIONS_DIR))
 val activityStore = ActivityStore(File(ConfigPaths.ACTIVITY_JSON))
 val reviewPackageStore = ReviewPackageStore(File(ConfigPaths.REVIEW_PACKAGES_JSON))
-val reviewService = ReviewService(reviewPackageStore, activityStore)
 val deliveryRecordStore = DeliveryRecordStore(File(ConfigPaths.DELIVERY_RECORDS_JSON))
 val swarmDeliveryRecordSynchronizer = SwarmDeliveryRecordSynchronizer(deliveryRecordStore)
 val capabilityRegistry = CapabilityRegistry()
+val reviewService = ReviewService(
+    reviewPackageStore,
+    activityStore,
+    deliveryRecordStore,
+    capabilityRegistry,
+)
 val workspaceStore = WorkspaceStore(File(ConfigPaths.PROJECT_WORKSPACES_JSON))
 val workspaceService = WorkspaceService(workspaceStore, File(ConfigPaths.PROJECT_WORKSPACES_DIR))
 val mcpStore = McpStore(File(ConfigPaths.MCP_SERVERS_JSON))
