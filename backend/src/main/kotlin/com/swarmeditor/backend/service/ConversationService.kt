@@ -1,6 +1,7 @@
 package com.swarmeditor.backend.service
 
 import com.swarmeditor.backend.activity.ActivityStore
+import com.swarmeditor.backend.spec.ContextEvidenceContextFormatter
 import com.swarmeditor.backend.spec.ProjectSpecContextFormatter
 import com.swarmeditor.backend.spec.ProjectSpecGraphScanner
 import com.swarmeditor.backend.pi.PiSessionEvent
@@ -21,6 +22,7 @@ import com.swarmeditor.backend.pi.SWARM_PI_MODEL_CATALOG_ENV
 import com.swarmeditor.common.model.ActivityEvent
 import com.swarmeditor.common.model.ActivityType
 import com.swarmeditor.common.model.ContentBlock
+import com.swarmeditor.common.model.ContextEvidenceBundle
 import com.swarmeditor.common.model.ImageData
 import com.swarmeditor.common.model.MessageRole
 import com.swarmeditor.common.model.Message
@@ -150,6 +152,11 @@ class ConversationService(
     private val activityStore: ActivityStore,
     private val clock: Clock = Clock.System,
     private val projectSpecContext: suspend () -> String = { "" },
+    private val projectContextEvidence: suspend (String) -> ContextEvidenceBundle = { ContextEvidenceBundle(
+        query = "",
+        queryFingerprint = "",
+    ) },
+    private val projectContextEvidenceFormatter: ContextEvidenceContextFormatter = ContextEvidenceContextFormatter(),
 ) : ConversationGateway {
     private val sessionOperationLocks = ConcurrentHashMap<String, Mutex>()
     override val activities: StateFlow<List<ActivityEvent>> = activityStore.events
@@ -608,7 +615,7 @@ class ConversationService(
 
     private suspend fun appendProjectSpecContext(content: String, includeContext: Boolean): String {
         if (!includeContext) return content
-        val context = try {
+        val specContext = try {
             projectSpecContext().trim()
         } catch (error: CancellationException) {
             throw error
@@ -616,6 +623,17 @@ class ConversationService(
             log.warn { "Failed to prepare project spec context: ${error.message}" }
             ""
         }
+        val evidenceContext = try {
+            projectContextEvidenceFormatter.format(projectContextEvidence(content))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn { "Failed to prepare project context evidence: ${error.message}" }
+            ""
+        }
+        val context = listOf(specContext, evidenceContext)
+            .filter(String::isNotBlank)
+            .joinToString("\n\n")
         return if (context.isBlank()) content else "$context\n\n$content"
     }
 }

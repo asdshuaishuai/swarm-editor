@@ -21,6 +21,10 @@ import com.swarmeditor.common.model.TokenUsage
 import com.swarmeditor.common.model.ToolExecution
 import com.swarmeditor.common.model.ImageData
 import com.swarmeditor.common.model.ContentBlock
+import com.swarmeditor.common.model.ContextEvidence
+import com.swarmeditor.common.model.ContextEvidenceBundle
+import com.swarmeditor.common.model.ContextEvidenceKind
+import com.swarmeditor.common.model.ContextEvidenceSource
 import com.swarmeditor.common.model.Session
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -120,10 +124,28 @@ class ConversationServiceTest {
             runtimeProvider,
             ActivityStore(Files.createTempDirectory("spec-context-activity").resolve("activity.json").toFile()),
             projectSpecContext = { "<project-spec-context>id=architecture</project-spec-context>" },
+            projectContextEvidence = { ContextEvidenceBundle(
+                query = it,
+                queryFingerprint = "fingerprint",
+                evidence = listOf(
+                    ContextEvidence(
+                        id = "context-1",
+                        kind = ContextEvidenceKind.TEXT_MATCH,
+                        source = ContextEvidenceSource.PROJECT_SEARCH,
+                        path = "src/Main.kt",
+                        line = 3,
+                        summary = "class Main",
+                        confidence = 0.6,
+                        queryFingerprint = "fingerprint",
+                    ),
+                ),
+            ) },
         ).sendMessage("local-context", "hello")
 
         assertTrue(result.isSuccess)
         assertContains(piSession.receivedMessage, "id=architecture")
+        assertContains(piSession.receivedMessage, "path=src/Main.kt")
+        assertContains(piSession.receivedMessage, "line=3")
         assertContains(piSession.receivedMessage, "hello")
         coVerify {
             sessionService.addMessage(

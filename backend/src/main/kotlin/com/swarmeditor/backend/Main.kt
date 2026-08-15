@@ -193,6 +193,14 @@ val conversationService = ConversationService(
             projectSpecGraphScanner.scan(workspaceService.currentWorkspaceDirectory(projectRoot))
         )
     },
+    projectContextEvidence = { query ->
+        projectService.collectContextEvidence(
+            query = query,
+            maxResults = 50,
+            maxSearchMatches = 50,
+            broadRetryBudget = 1,
+        )
+    },
 )
 val swarmStore = SwarmStore(File(ConfigPaths.SWARM_RUNS_DIR))
 val swarmEvidenceStore = SwarmEvidenceStore(File(ConfigPaths.SWARM_EVIDENCE_DIR))
