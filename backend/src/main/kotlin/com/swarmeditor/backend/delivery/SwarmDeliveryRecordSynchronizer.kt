@@ -20,7 +20,8 @@ class SwarmDeliveryRecordSynchronizer(
                 toolAuditIds = run.tasks.flatMap { task -> task.toolAuditIds }.distinct(),
                 workspaceDeltaEvidenceId = run.tasks
                     .flatMap { task -> task.attemptRecords }
-                    .lastOrNull { it.workspaceDeltaEvidenceId != null }
+                    .filter { it.workspaceDeltaEvidenceId != null }
+                    .maxByOrNull { it.completedAt ?: it.startedAt }
                     ?.workspaceDeltaEvidenceId,
                 verificationEvidenceIds = run.tasks
                     .flatMap { task -> task.attemptRecords }
