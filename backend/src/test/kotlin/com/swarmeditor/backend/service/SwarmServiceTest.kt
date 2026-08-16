@@ -18,6 +18,7 @@ import com.swarmeditor.backend.swarm.SwarmArtifactIntegrationStaleException
 import com.swarmeditor.common.model.AgentConfig
 import com.swarmeditor.common.model.DeliveryAdmission
 import com.swarmeditor.common.model.DeliveryRecord
+import com.swarmeditor.common.model.DeliveryStatus
 import com.swarmeditor.common.model.DeliveryTrigger
 import com.swarmeditor.common.model.DeliveryTriggerKind
 import com.swarmeditor.common.model.SwarmAgentRole
@@ -746,6 +747,7 @@ class SwarmServiceTest {
             assertTrue(rejected.revisionTaskId != null)
             val revisedRun = store.get(swarmRun.id) ?: error("run missing")
             assertEquals(SwarmRunStatus.CREATED, revisedRun.status)
+            assertEquals(DeliveryStatus.CREATED, deliveryStore.get("delivery-run-artifact")?.status)
             assertEquals(
                 SwarmArtifactIntegrationStatus.DISCARDED,
                 revisedRun.artifactIntegrationPlans.single { it.id == rejectionPlan.id }.status,

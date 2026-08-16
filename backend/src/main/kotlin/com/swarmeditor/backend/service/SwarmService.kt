@@ -636,7 +636,7 @@ class SwarmService(
                 status = SwarmArtifactIntegrationStatus.DISCARDED,
                 discardedAt = timestamp,
             )
-            store.update(runId) { current ->
+            val updatedRun = store.update(runId) { current ->
                 require(current.artifactIntegrationPlans.any {
                     it.id == planId && it.status == SwarmArtifactIntegrationStatus.PREPARED
                 }) { "Artifact integration plan changed while rejection was being recorded" }
@@ -651,6 +651,7 @@ class SwarmService(
                     },
                 ).appendReviewEvent(event, timestamp)
             }
+            synchronizeDelivery(updatedRun)
 
             try {
                 integrator.releasePreparedPlan(plan)
