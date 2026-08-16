@@ -37,7 +37,8 @@ class ReviewService(
     suspend fun get(projectRoot: File): ReviewPackage? = store.get(projectRoot)
 
     suspend fun open(projectRoot: File, baseRevision: String): ReviewPackage = mutex.withLock {
-        capabilityRegistry?.check("review.open")?.let { decision ->
+        val capabilityDecision = capabilityRegistry?.check("review.open")
+        capabilityDecision?.let { decision ->
             check(decision.allowed) { decision.reason }
         }
         require(baseRevision.isNotBlank()) { "baseRevision must not be blank" }
@@ -64,7 +65,10 @@ class ReviewService(
                             allowed = true,
                             policyId = "review-open",
                             policyVersion = "1",
-                            capabilityIds = listOfNotNull(capabilityRegistry?.get("review.open")?.id),
+                            reason = capabilityDecision?.reason,
+                            capabilityIds = listOfNotNull(capabilityDecision?.capabilityId),
+                            requestedPermissions = capabilityDecision?.requestedPermissions ?: emptySet(),
+                            grantedPermissions = capabilityDecision?.grantedPermissions ?: emptySet(),
                         ),
                         reviewPackageId = linkedPackage.id,
                         artifact = DeliveryArtifactReference(reviewPackageId = linkedPackage.id),

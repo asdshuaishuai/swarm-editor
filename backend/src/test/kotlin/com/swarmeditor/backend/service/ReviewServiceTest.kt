@@ -84,6 +84,9 @@ class ReviewServiceTest {
         val delivery = deliveryStore.get(checkNotNull(reviewPackage.deliveryRecordId))
         assertEquals(reviewPackage.id, delivery?.reviewPackageId)
         assertEquals(listOf("review.open"), delivery?.admission?.capabilityIds)
+        assertEquals(emptySet(), delivery?.admission?.requestedPermissions)
+        assertEquals(emptySet(), delivery?.admission?.grantedPermissions)
+        assertEquals("Capability admitted", delivery?.admission?.reason)
         assertEquals(listOf(comment.id), delivery?.reviewCommentIds)
         assertEquals(reviewPackage.id, delivery?.artifact?.reviewPackageId)
     }

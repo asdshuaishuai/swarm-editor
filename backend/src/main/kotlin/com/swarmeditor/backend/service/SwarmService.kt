@@ -83,7 +83,8 @@ class SwarmService(
         planningExperienceRoutingDecisions: List<SwarmExperienceRoutingDecision> = emptyList(),
         planningEvidence: SwarmRepositoryEvidenceBundle? = null,
     ): Result<SwarmRun> = resultOf {
-        capabilityRegistry?.check("swarm.create")?.let { decision ->
+        val capabilityDecision = capabilityRegistry?.check("swarm.create")
+        capabilityDecision?.let { decision ->
             check(decision.allowed) { decision.reason }
         }
         require(title.isNotBlank()) { "Swarm run title cannot be blank" }
@@ -137,7 +138,10 @@ class SwarmService(
                     allowed = true,
                     policyId = "swarm-create",
                     policyVersion = "1",
-                    capabilityIds = listOfNotNull(capabilityRegistry?.get("swarm.create")?.id),
+                    reason = capabilityDecision?.reason,
+                    capabilityIds = listOfNotNull(capabilityDecision?.capabilityId),
+                    requestedPermissions = capabilityDecision?.requestedPermissions ?: emptySet(),
+                    grantedPermissions = capabilityDecision?.grantedPermissions ?: emptySet(),
                 ),
                 workspace = repositoryBaseline?.let { baseline ->
                     DeliveryWorkspaceReference(

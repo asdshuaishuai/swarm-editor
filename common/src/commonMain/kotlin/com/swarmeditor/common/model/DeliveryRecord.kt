@@ -39,6 +39,8 @@ data class DeliveryAdmission(
     val policyVersion: String,
     val reason: String? = null,
     val capabilityIds: List<String> = emptyList(),
+    val requestedPermissions: Set<CapabilityPermission> = emptySet(),
+    val grantedPermissions: Set<CapabilityPermission> = emptySet(),
 )
 
 @Serializable

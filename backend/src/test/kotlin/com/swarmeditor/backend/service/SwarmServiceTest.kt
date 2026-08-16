@@ -86,6 +86,9 @@ class SwarmServiceTest {
             assertEquals(run.id, delivery?.trigger?.sourceId)
             assertEquals("/tmp/project", delivery?.projectPath)
             assertEquals(listOf("swarm.create"), delivery?.admission?.capabilityIds)
+            assertEquals(emptySet(), delivery?.admission?.requestedPermissions)
+            assertEquals(emptySet(), delivery?.admission?.grantedPermissions)
+            assertEquals("Capability admitted", delivery?.admission?.reason)
             assertEquals(run.createdAt, delivery?.createdAt)
         } finally {
             directory.deleteRecursively()
