@@ -3,6 +3,7 @@ package com.swarmeditor.backend.service
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.capability.CapabilityRegistry
 import com.swarmeditor.backend.delivery.DeliveryRecordStore
+import com.swarmeditor.backend.delivery.SwarmDeliveryRecordSynchronizer
 import com.swarmeditor.backend.swarm.SwarmGraph
 import com.swarmeditor.backend.swarm.SwarmExperienceStore
 import com.swarmeditor.backend.swarm.SwarmExperienceSelector
@@ -44,6 +45,7 @@ import com.swarmeditor.common.model.SwarmTask
 import com.swarmeditor.common.model.SwarmTaskAttemptOutcome
 import com.swarmeditor.common.model.SwarmTaskStatus
 import com.swarmeditor.common.model.TokenUsage
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.UUID
 import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
@@ -52,6 +54,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private val swarmServiceLog = KotlinLogging.logger {}
 
 class SwarmService(
     private val store: SwarmStore,
@@ -72,6 +76,7 @@ class SwarmService(
     val runs: StateFlow<List<SwarmRun>> = store.runs
     private val retryMutex = Mutex()
     private val integrationMutex = Mutex()
+    private val deliveryRecordSynchronizer = deliveryRecordStore?.let(::SwarmDeliveryRecordSynchronizer)
 
     suspend fun init() = store.load()
 
@@ -454,7 +459,7 @@ class SwarmService(
                         preview = preview,
                         viewedHunkIds = viewedHunkIds.toList(),
                     )
-                    store.update(runId) { current ->
+                    val updatedRun = store.update(runId) { current ->
                         require(current.artifactIntegrationPlans.any { it.id == planId && it.status == SwarmArtifactIntegrationStatus.PREPARED }) {
                             "Artifact integration plan changed while it was being applied"
                         }
@@ -465,6 +470,7 @@ class SwarmService(
                             },
                         ).appendReviewEvent(appliedEvent, now())
                     }
+                    synchronizeDelivery(updatedRun)
                 }
             } catch (error: SwarmArtifactIntegrationStaleException) {
                 val staleEvent = reviewEvent(
@@ -724,6 +730,17 @@ class SwarmService(
             } catch (persistenceError: Throwable) {
                 error.addSuppressed(persistenceError)
             }
+        }
+    }
+
+    private suspend fun synchronizeDelivery(run: SwarmRun) {
+        val synchronizer = deliveryRecordSynchronizer ?: return
+        try {
+            synchronizer.synchronize(run)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            swarmServiceLog.warn { "Failed to synchronize delivery for swarm run ${run.id}: ${error.message}" }
         }
     }
 

@@ -5,6 +5,8 @@ import com.swarmeditor.common.model.DeliveryRecord
 import com.swarmeditor.common.model.DeliveryStatus
 import com.swarmeditor.common.model.DeliveryTrigger
 import com.swarmeditor.common.model.DeliveryTriggerKind
+import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
 import com.swarmeditor.common.model.SwarmTask
@@ -78,4 +80,68 @@ class SwarmDeliveryRecordSynchronizerTest {
             directory.deleteRecursively()
         }
     }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `publishes only the most recent applied artifact`() = runTest {
+        val directory = Files.createTempDirectory("swarm-delivery-artifact")
+        try {
+            val timestamp = Clock.System.now()
+            val store = DeliveryRecordStore(directory.resolve("delivery.json").toFile())
+            store.put(
+                DeliveryRecord(
+                    id = "delivery-run-artifact",
+                    projectPath = "/tmp/project",
+                    trigger = DeliveryTrigger(DeliveryTriggerKind.SWARM, sourceId = "run-artifact"),
+                    admission = DeliveryAdmission(true, "swarm-create", "1"),
+                    createdAt = timestamp,
+                    updatedAt = timestamp,
+                ),
+            )
+            val applied = integrationPlan("applied", timestamp, SwarmArtifactIntegrationStatus.APPLIED)
+            val discarded = integrationPlan("discarded", timestamp, SwarmArtifactIntegrationStatus.DISCARDED)
+            val run = SwarmRun(
+                id = "run-artifact",
+                title = "Artifact",
+                objective = "Deliver",
+                createdAt = timestamp,
+                updatedAt = timestamp,
+                deliveryRecordId = "delivery-run-artifact",
+                tasks = emptyList(),
+                artifactIntegrationPlans = listOf(applied, discarded),
+            )
+
+            SwarmDeliveryRecordSynchronizer(store).synchronize(run)
+
+            val artifact = store.get("delivery-run-artifact")!!.artifact
+            assertEquals(applied.integratedRevision, artifact?.commitHash)
+            assertEquals(applied.artifactRevision, artifact?.artifactRevision)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun integrationPlan(
+        id: String,
+        timestamp: kotlin.time.Instant,
+        status: SwarmArtifactIntegrationStatus,
+    ) = SwarmArtifactIntegrationPlan(
+        id = id,
+        runId = "run-artifact",
+        taskId = "task",
+        attempt = 1,
+        workspaceDeltaEvidenceId = "workspace-$id",
+        verificationEvidenceId = "verification-$id",
+        baselineRevision = "base-$id",
+        baselineTree = "base-tree-$id",
+        currentRevision = "current-$id",
+        currentTree = "current-tree-$id",
+        artifactRevision = "artifact-$id",
+        artifactTree = "artifact-tree-$id",
+        integratedRevision = "integrated-$id",
+        integratedTree = "integrated-tree-$id",
+        pinnedReference = "refs/swarm/$id",
+        status = status,
+        createdAt = timestamp,
+    )
 }

@@ -3,6 +3,7 @@ package com.swarmeditor.backend.delivery
 import com.swarmeditor.common.model.DeliveryArtifactReference
 import com.swarmeditor.common.model.DeliveryRecord
 import com.swarmeditor.common.model.DeliveryStatus
+import com.swarmeditor.common.model.SwarmArtifactIntegrationStatus
 import com.swarmeditor.common.model.SwarmRun
 import com.swarmeditor.common.model.SwarmRunStatus
 
@@ -25,11 +26,14 @@ class SwarmDeliveryRecordSynchronizer(
                     .flatMap { task -> task.attemptRecords }
                     .mapNotNull { it.verificationEvidenceId }
                     .distinct(),
-                artifact = run.artifactIntegrationPlans.lastOrNull()?.let { plan ->
+                artifact = run.artifactIntegrationPlans.lastOrNull { plan ->
+                    plan.status == SwarmArtifactIntegrationStatus.APPLIED
+                }?.let { plan ->
                     DeliveryArtifactReference(
+                        commitHash = plan.integratedRevision,
                         artifactRevision = plan.artifactRevision,
                     )
-                } ?: record.artifact,
+                },
                 updatedAt = run.updatedAt,
             )
         }

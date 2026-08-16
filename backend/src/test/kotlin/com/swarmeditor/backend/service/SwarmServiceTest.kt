@@ -16,6 +16,10 @@ import com.swarmeditor.backend.swarm.SwarmStore
 import com.swarmeditor.backend.swarm.SwarmArtifactIntegrator
 import com.swarmeditor.backend.swarm.SwarmArtifactIntegrationStaleException
 import com.swarmeditor.common.model.AgentConfig
+import com.swarmeditor.common.model.DeliveryAdmission
+import com.swarmeditor.common.model.DeliveryRecord
+import com.swarmeditor.common.model.DeliveryTrigger
+import com.swarmeditor.common.model.DeliveryTriggerKind
 import com.swarmeditor.common.model.SwarmAgentRole
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPlan
 import com.swarmeditor.common.model.SwarmArtifactIntegrationPreview
@@ -503,6 +507,7 @@ class SwarmServiceTest {
                 createdAt = timestamp,
                 updatedAt = timestamp,
                 status = SwarmRunStatus.SUCCEEDED,
+                deliveryRecordId = "delivery-run-artifact",
                 repositoryBaseline = SwarmRepositoryBaseline(
                     revision = "1".repeat(40),
                     baseRevision = "1".repeat(40),
@@ -598,12 +603,25 @@ class SwarmServiceTest {
                 }
             }
             val store = SwarmStore(directory.toFile()).also { it.load(); it.put(swarmRun) }
+            val deliveryStore = DeliveryRecordStore(directory.resolve("delivery.json").toFile()).also { delivery ->
+                delivery.put(
+                    DeliveryRecord(
+                        id = "delivery-run-artifact",
+                        projectPath = "/tmp/project",
+                        trigger = DeliveryTrigger(DeliveryTriggerKind.SWARM, sourceId = swarmRun.id),
+                        admission = DeliveryAdmission(true, "swarm-create", "1"),
+                        createdAt = timestamp,
+                        updatedAt = timestamp,
+                    ),
+                )
+            }
             val scheduler = mockk<SwarmScheduler>(relaxed = true)
             val service = SwarmService(
                 store = store,
                 scheduler = scheduler,
                 agentService = mockk(relaxed = true),
                 artifactIntegrator = integrator,
+                deliveryRecordStore = deliveryStore,
             )
 
             val prepared = service.prepareArtifactIntegration(swarmRun.id, successfulTask.id).getOrThrow()
@@ -638,6 +656,8 @@ class SwarmServiceTest {
             val applied = service.applyArtifactIntegration(swarmRun.id, plan.id, reviewDwellMillis = 1_250).getOrThrow()
             assertEquals(SwarmArtifactIntegrationStatus.APPLIED, applied.status)
             assertEquals(SwarmArtifactIntegrationStatus.APPLIED, store.get(swarmRun.id)?.artifactIntegrationPlans?.single()?.status)
+            assertEquals(plan.integratedRevision, deliveryStore.get("delivery-run-artifact")?.artifact?.commitHash)
+            assertEquals(plan.artifactRevision, deliveryStore.get("delivery-run-artifact")?.artifact?.artifactRevision)
             assertEquals(
                 listOf(
                     SwarmArtifactReviewAction.OPENED,
