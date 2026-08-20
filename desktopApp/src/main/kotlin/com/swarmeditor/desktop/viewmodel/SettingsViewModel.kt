@@ -2,6 +2,8 @@ package com.swarmeditor.desktop.viewmodel
 
 import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.backend.model.ModelRegistry
+import com.swarmeditor.backend.pi.PiAgentConfigUi
+import com.swarmeditor.backend.pi.PiModelConfigService
 import com.swarmeditor.backend.pi.PiModelInfo
 import com.swarmeditor.backend.service.AgentService
 import com.swarmeditor.backend.service.McpService
@@ -43,6 +45,7 @@ class SettingsViewModel(
     private val skillService: SkillService,
     private val scope: CoroutineScope,
     private val modelService: ModelService? = null,
+    private val piModelConfigService: PiModelConfigService? = null,
 ) {
     private val _primaryModelId = MutableStateFlow("")
     val primaryModelId: StateFlow<String> = _primaryModelId
@@ -69,9 +72,14 @@ class SettingsViewModel(
     val models: StateFlow<List<ModelConfig>> = modelService?.models
         ?: MutableStateFlow(emptyList())
 
+    val piAgentConfig: StateFlow<PiAgentConfigUi> = piModelConfigService?.state
+        ?: MutableStateFlow(PiAgentConfigUi())
+    val piConfigDirectory: String = piModelConfigService?.configDirectory()?.absolutePath ?: ""
+
     init {
         refreshPrimaryAgentConfig()
         selectModel(ModelRegistry.DEFAULT_MODEL_ID)
+        scope.launch { piModelConfigService?.load() }
     }
 
     fun refreshPrimaryAgentConfig() {
@@ -121,8 +129,70 @@ class SettingsViewModel(
         }
     }
 
-    fun synchronizePiModelCatalog(models: List<PiModelInfo>) {
-        val service = modelService ?: return
+    fun upsertPiProvider(
+        providerId: String,
+        name: String,
+        baseUrl: String,
+        api: String,
+        apiKey: String,
+        authHeader: Boolean,
+    ) {
+        val service = piModelConfigService ?: return
+        scope.launch {
+            runAction("Pi Provider 配置已保存", "Pi Provider 配置保存失败") {
+                service.upsertProvider(providerId, name, baseUrl, api, apiKey, authHeader)
+                service.applyChanges()
+            }
+        }
+    }
+
+    fun deletePiProvider(providerId: String) {
+        val service = piModelConfigService ?: return
+        scope.launch {
+            runAction("Pi Provider 已删除", "Pi Provider 删除失败", ToastType.INFO) {
+                service.deleteProvider(providerId)
+                service.applyChanges()
+            }
+        }
+    }
+
+    fun upsertPiProviderModel(
+        providerId: String,
+        modelId: String,
+        name: String,
+        baseUrl: String,
+        reasoning: Boolean,
+    ) {
+        val service = piModelConfigService ?: return
+        scope.launch {
+            runAction("Pi 模型端点已保存", "Pi 模型端点保存失败") {
+                service.upsertModel(providerId, modelId, name, baseUrl, reasoning)
+                service.applyChanges()
+            }
+        }
+    }
+
+    fun deletePiProviderModel(providerId: String, modelId: String) {
+        val service = piModelConfigService ?: return
+        scope.launch {
+            runAction("Pi 模型端点已删除", "Pi 模型端点删除失败", ToastType.INFO) {
+                service.deleteModel(providerId, modelId)
+                service.applyChanges()
+            }
+        }
+    }
+
+    fun savePiDefaults(defaultProvider: String, defaultModel: String, defaultThinkingLevel: String) {
+        val service = piModelConfigService ?: return
+        scope.launch {
+            runAction("Pi 默认模型配置已保存", "Pi 默认模型配置保存失败") {
+                service.setDefaults(defaultProvider, defaultModel, defaultThinkingLevel)
+                service.applyChanges()
+            }
+        }
+    }
+
+    fun synchronizePiModelCatalog(models: List<PiModelInfo>) {        val service = modelService ?: return
         if (models.isEmpty()) return
         scope.launch {
             try {

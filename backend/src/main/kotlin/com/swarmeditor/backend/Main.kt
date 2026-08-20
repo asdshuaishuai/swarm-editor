@@ -8,6 +8,7 @@ import com.swarmeditor.backend.delivery.SwarmDeliveryRecordSynchronizer
 import com.swarmeditor.backend.mcp.McpStore
 import com.swarmeditor.backend.mcp.UserMcpScanner
 import com.swarmeditor.backend.model.ModelRegistry
+import com.swarmeditor.backend.pi.PiModelConfigService
 import com.swarmeditor.backend.lsp.LspService
 import com.swarmeditor.backend.lsp.KotlinLspRuntimeManager
 import com.swarmeditor.backend.pi.PiRuntimeDistribution
@@ -163,6 +164,9 @@ val piRuntimeManager: PiRuntimeManager by lazy {
 
 val modelService: ModelService by lazy {
     ModelService(modelRegistry, invalidateRuntimes = piRuntimeManager::closeAll)
+}
+val piModelConfigService: PiModelConfigService by lazy {
+    PiModelConfigService(invalidateRuntimes = piRuntimeManager::closeAll)
 }
 val agentService: AgentService by lazy {
     AgentService(agentRegistry, piRuntimeManager, modelService = modelService)
@@ -363,6 +367,7 @@ suspend fun initializeBackendServices() {
         workspaceService.list(projectRoot)
         PiMcpExtensionInstaller.install()
         modelService.init()
+        piModelConfigService.load()
         agentService.init()
         sessionService.init()
         activityStore.load()

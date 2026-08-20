@@ -130,6 +130,8 @@ fun SettingsModal(
     onOpenKotlinLspDirectory: () -> Unit = {},
     piModels: List<PiModelInfo> = emptyList(),
     onRefreshPiModels: () -> Unit = {},
+    workspaces: List<com.swarmeditor.desktop.viewmodel.WorkspaceOption> = emptyList(),
+    activeWorkspaceId: String? = null,
 ) {
     var activeTab by remember { mutableStateOf(normalizeSettingsTab(System.getProperty("swarm.settingsTab"))) }
     val primaryModelId by settingsVm.primaryModelId.collectAsState()
@@ -138,6 +140,8 @@ fun SettingsModal(
     val selectedModelId by settingsVm.selectedModelId.collectAsState()
     val modelFields by settingsVm.modelConfigFields.collectAsState()
     val modelConfigPath by settingsVm.modelConfigPath.collectAsState()
+    val piAgentConfig by settingsVm.piAgentConfig.collectAsState()
+    val piConfigDirectory by remember { mutableStateOf(settingsVm.piConfigDirectory) }
     var categoryQuery by remember { mutableStateOf("") }
 
     val tabs = listOf(
@@ -242,6 +246,8 @@ fun SettingsModal(
                             settingsVm = settingsVm,
                             piModels = piModels,
                             onRefreshPiModels = onRefreshPiModels,
+                            piConfig = piAgentConfig,
+                            piConfigDirectory = piConfigDirectory,
                         )
                     "mcp" -> McpManagementTab(
                         servers = mcpServers,
@@ -266,7 +272,7 @@ fun SettingsModal(
                             onProbe = onProbeKotlinLsp,
                             onOpenDirectory = onOpenKotlinLspDirectory,
                         )
-                        "general" -> GeneralTab(projectPath)
+                        "general" -> GeneralTab(projectPath, workspaces, activeWorkspaceId)
                         "appearance" -> AppearanceTab(themeMode, onThemeChange)
                         "shortcuts" -> ShortcutsTab()
                         "about" -> AboutTab()
@@ -536,6 +542,8 @@ private fun ModelConfigTab(
     settingsVm: SettingsViewModel,
     piModels: List<PiModelInfo>,
     onRefreshPiModels: () -> Unit,
+    piConfig: com.swarmeditor.backend.pi.PiAgentConfigUi,
+    piConfigDirectory: String,
 ) {
     val scrollState = rememberScrollState()
     val selectorScrollState = rememberScrollState()
@@ -603,6 +611,308 @@ private fun ModelConfigTab(
             Text("凭据、Base URL、自定义 Provider 与模型发现均由 Pi 自己的配置体系管理。", color = Tx3, style = AppType.caption)
             Spacer(Modifier.height(6.dp))
             ConfigFieldGrid(fields, settingsVm::saveModelField)
+        }
+        Spacer(Modifier.height(24.dp))
+        PiProviderConfigSection(
+            piConfig = piConfig,
+            configDirectory = piConfigDirectory,
+            settingsVm = settingsVm,
+        )
+    }
+}
+
+// ==================== Pi Provider 配置文件界面化 ====================
+private data class PiProviderDraft(
+    val id: String = "",
+    val name: String = "",
+    val baseUrl: String = "",
+    val api: String = "",
+    val apiKey: String = "",
+    val authHeader: Boolean = false,
+    var editing: Boolean = false,
+)
+
+@Composable
+private fun PiProviderConfigSection(
+    piConfig: com.swarmeditor.backend.pi.PiAgentConfigUi,
+    configDirectory: String,
+    settingsVm: SettingsViewModel,
+) {
+    var showAdd by remember { mutableStateOf(false) }
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var draft by remember { mutableStateOf(PiProviderDraft()) }
+
+    Section("Pi Provider 配置") {
+        InfoRow("配置文件", configDirectory, Tx3, AppType.caption)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "直接编辑 Pi Agent 的 models.json / auth.json / settings.json：设置端点、API Key 与默认模型。保存后重启 Pi 运行时生效。",
+            color = Tx3,
+            style = AppType.caption,
+        )
+        Spacer(Modifier.height(12.dp))
+        if (piConfig.providers.isEmpty()) {
+            Text("尚未检测到 Provider 配置。可点击下方“+ 新增 Provider”添加。", color = WarnLight, style = AppType.bodySm)
+        }
+        piConfig.providers.forEach { provider ->
+            PiProviderCard(
+                provider = provider,
+                providerCount = piConfig.providers.size,
+                editing = editingId == provider.id,
+                onEdit = { editingId = provider.id },
+                onCancel = { editingId = null },
+                onDelete = { settingsVm.deletePiProvider(provider.id) },
+                onDeleteModel = { modelId -> settingsVm.deletePiProviderModel(provider.id, modelId) },
+                onSaveModel = { modelId, name, baseUrl, reasoning ->
+                    settingsVm.upsertPiProviderModel(provider.id, modelId, name, baseUrl, reasoning)
+                },
+                onSave = { id, name, baseUrl, api, apiKey, authHeader ->
+                    settingsVm.upsertPiProvider(id, name, baseUrl, api, apiKey, authHeader)
+                    editingId = null
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        if (showAdd) {
+            PiProviderForm(
+                title = "新增 Provider",
+                initial = draft.copy(editing = true),
+                onCancel = { showAdd = false },
+                onSave = { id, name, baseUrl, api, apiKey, authHeader ->
+                    settingsVm.upsertPiProvider(id, name, baseUrl, api, apiKey, authHeader)
+                    showAdd = false
+                },
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+        ActionButton(
+            if (showAdd) "取消新增" else "+ 新增 Provider",
+            tone = if (showAdd) ActionTone.NEUTRAL else ActionTone.PRIMARY,
+            prominent = !showAdd,
+            compact = true,
+            onClick = { showAdd = !showAdd },
+        )
+    }
+    Spacer(Modifier.height(20.dp))
+    Section("Pi 默认模型") {
+        var defaultProvider by remember(piConfig.defaultProvider) { mutableStateOf(piConfig.defaultProvider) }
+        var defaultModel by remember(piConfig.defaultModel) { mutableStateOf(piConfig.defaultModel) }
+        var defaultThinking by remember(piConfig.defaultThinkingLevel) { mutableStateOf(piConfig.defaultThinkingLevel) }
+        EditRow("默认 Provider", defaultProvider, { defaultProvider = it })
+        EditRow("默认模型", defaultModel, { defaultModel = it })
+        EditRow("默认推理强度", defaultThinking, { defaultThinking = it })
+        Spacer(Modifier.height(4.dp))
+        ActionButton(
+            "保存默认配置",
+            tone = ActionTone.PRIMARY,
+            prominent = true,
+            compact = true,
+            onClick = { settingsVm.savePiDefaults(defaultProvider, defaultModel, defaultThinking) },
+        )
+    }
+}
+
+@Composable
+private fun PiProviderCard(
+    provider: com.swarmeditor.backend.pi.PiProviderView,
+    providerCount: Int,
+    editing: Boolean,
+    onEdit: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    onDeleteModel: (String) -> Unit,
+    onSaveModel: (String, String, String, Boolean) -> Unit,
+    onSave: (String, String, String, String, String, Boolean) -> Unit,
+) {
+    if (editing) {
+        PiProviderForm(
+            title = "编辑 Provider",
+            initial = PiProviderDraft(
+                id = provider.id,
+                name = provider.name,
+                baseUrl = provider.baseUrl,
+                api = provider.api,
+                apiKey = provider.apiKey,
+                authHeader = provider.authHeader,
+                editing = true,
+            ),
+            onCancel = onCancel,
+            onSave = onSave,
+        )
+        return
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(AppShapes.md).background(Bg3).border(1.dp, Line2, AppShapes.md).padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(provider.name, color = Tx, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(6.dp))
+            Text(provider.api.ifBlank { "openai-completions" }, color = Ac, style = AppType.micro,
+                modifier = Modifier.clip(AppShapes.xs).background(Ac.withAlpha(0.12f)).padding(horizontal = 5.dp, vertical = 1.dp))
+            Spacer(Modifier.weight(1f))
+            Text("${provider.models.size} 模型", color = Tx3, style = AppType.micro)
+        }
+        Spacer(Modifier.height(6.dp))
+        if (provider.baseUrl.isNotBlank()) {
+            Text(provider.baseUrl, color = Tx3, style = AppType.caption.copy(fontFamily = CodeFont), maxLines = 1)
+        }
+        if (provider.apiKey.isNotBlank()) {
+            Text("API Key 已配置", color = Tx3, style = AppType.caption)
+        }
+        if (provider.models.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            provider.models.forEach { model ->
+                Row(
+                    Modifier.fillMaxWidth().clip(AppShapes.xs).background(Bg2).border(1.dp, Line, AppShapes.xs).padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(model.name, color = Tx2, style = AppType.caption, fontWeight = FontWeight.Medium, maxLines = 1)
+                        Text(
+                            buildString {
+                                if (model.baseUrl.isNotBlank()) append(model.baseUrl)
+                                if (model.reasoning) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("推理")
+                                }
+                            }.ifBlank { model.id },
+                            color = Tx3,
+                            style = AppType.micro.copy(fontFamily = CodeFont),
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    ActionButton(
+                        "删除",
+                        tone = ActionTone.DESTRUCTIVE,
+                        prominent = false,
+                        compact = true,
+                        onClick = { onDeleteModel(model.id) },
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row {
+            ActionButton("编辑", tone = ActionTone.SECONDARY, prominent = false, compact = true, onClick = onEdit)
+            Spacer(Modifier.width(6.dp))
+            if (providerCount > 1) {
+                ActionButton("删除", tone = ActionTone.DESTRUCTIVE, prominent = false, compact = true, onClick = onDelete)
+            }
+        }
+        PiModelAddRow(providerId = provider.id, onSaveModel = onSaveModel)
+    }
+}
+
+@Composable
+private fun PiModelAddRow(
+    providerId: String,
+    onSaveModel: (String, String, String, Boolean) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ActionButton(
+            if (expanded) "收起新增模型" else "+ 新增模型",
+            tone = ActionTone.NEUTRAL,
+            prominent = false,
+            compact = true,
+            onClick = { expanded = !expanded },
+        )
+    }
+    if (expanded) {
+        Spacer(Modifier.height(6.dp))
+        var modelId by remember { mutableStateOf("") }
+        var modelName by remember { mutableStateOf("") }
+        var modelBaseUrl by remember { mutableStateOf("") }
+        var modelReasoning by remember { mutableStateOf(false) }
+        Column(
+            Modifier.fillMaxWidth().clip(AppShapes.sm).background(Bg2).border(1.dp, Line, AppShapes.sm).padding(10.dp),
+        ) {
+            EditRow("模型 ID", modelId, { modelId = it }, placeholder = "如 gpt-5")
+            EditRow("名称", modelName, { modelName = it })
+            EditRow("端点", modelBaseUrl, { modelBaseUrl = it }, placeholder = "https://api.example.com/v1/messages")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("支持推理", color = Tx3, style = AppType.caption, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(
+                    checked = modelReasoning,
+                    onCheckedChange = { modelReasoning = it },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                ActionButton("添加模型", tone = ActionTone.PRIMARY, prominent = true, compact = true, onClick = {
+                    if (modelId.isNotBlank()) {
+                        onSaveModel(modelId.trim(), modelName.trim(), modelBaseUrl.trim(), modelReasoning)
+                        expanded = false
+                    }
+                })
+                Spacer(Modifier.width(6.dp))
+                ActionButton("取消", tone = ActionTone.NEUTRAL, prominent = false, compact = true, onClick = { expanded = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PiProviderForm(
+    title: String,
+    initial: PiProviderDraft,
+    onCancel: () -> Unit,
+    onSave: (String, String, String, String, String, Boolean) -> Unit,
+) {
+    var id by remember { mutableStateOf(initial.id) }
+    var name by remember { mutableStateOf(initial.name) }
+    var baseUrl by remember { mutableStateOf(initial.baseUrl) }
+    var api by remember { mutableStateOf(initial.api) }
+    var apiKey by remember { mutableStateOf(initial.apiKey) }
+    var authHeader by remember { mutableStateOf(initial.authHeader) }
+
+    Column(
+        Modifier.fillMaxWidth().clip(AppShapes.md).background(Ac.withAlpha(0.06f)).border(1.dp, Ac.withAlpha(0.25f), AppShapes.md).padding(12.dp),
+    ) {
+        Text(title, color = Tx, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        EditRow("Provider ID", id, { id = it }, placeholder = "如 minimax-cn / deepseek")
+        EditRow("名称", name, { name = it })
+        EditRow("Base URL", baseUrl, { baseUrl = it }, placeholder = "https://api.example.com/v1")
+        EditRow("API 格式", api, { api = it }, placeholder = "openai-completions / anthropic-messages")
+        EditRow("API Key", apiKey, { apiKey = it }, isSecret = true)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("使用 Authorization 头", color = Tx3, style = AppType.caption, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(
+                checked = authHeader,
+                onCheckedChange = { authHeader = it },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row {
+            ActionButton("保存", tone = ActionTone.PRIMARY, prominent = true, compact = true, onClick = {
+                onSave(id.trim(), name.trim(), baseUrl.trim(), api.trim(), apiKey.trim(), authHeader)
+            })
+            Spacer(Modifier.width(6.dp))
+            ActionButton("取消", tone = ActionTone.NEUTRAL, prominent = false, compact = true, onClick = onCancel)
+        }
+    }
+}
+
+@Composable
+private fun EditRow(label: String, value: String, onValueChange: (String) -> Unit, placeholder: String = "", isSecret: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Tx3, style = AppType.caption, modifier = Modifier.width(120.dp))
+        Box(Modifier.weight(1f).clip(AppShapes.sm).background(Bg3).border(1.dp, Line2, AppShapes.sm).padding(horizontal = 10.dp, vertical = 6.dp)) {
+            if (value.isEmpty() && placeholder.isNotEmpty()) {
+                Text(placeholder, color = Tx3.withAlpha(0.6f), style = AppType.caption)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = AppType.caption.copy(color = Tx, fontFamily = if (isSecret) CodeFont else SansFont),
+                cursorBrush = SolidColor(Ac),
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -1105,11 +1415,63 @@ private fun lspConnectionBadge(phase: LspConnectionPhase): String = when (phase)
 @Composable
 private fun GeneralTab(
     projectPath: String,
+    workspaces: List<com.swarmeditor.desktop.viewmodel.WorkspaceOption> = emptyList(),
+    activeWorkspaceId: String? = null,
 ) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Section("当前项目目录") {
             Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).border(1.dp, Line, RoundedCornerShape(R8)).padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(projectPath, color = Tx, style = AppType.bodySm)
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+
+        val active = workspaces.firstOrNull { it.id == activeWorkspaceId }
+        Section("工作区") {
+            Text(
+                "会话任务与工作区绑定：切换工作区时会话列表随之切换。",
+                color = Tx3,
+                style = AppType.caption,
+            )
+            Spacer(Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg3).border(1.dp, Line, RoundedCornerShape(R8)).padding(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (active != null) Ok else Tx3))
+                    Spacer(Modifier.width(8.dp))
+                    Text(active?.label ?: "默认工作区", color = Tx, style = AppType.bodySm, fontWeight = FontWeight.SemiBold)
+                }
+                if (active?.branch != null) {
+                    Spacer(Modifier.height(5.dp))
+                    Text("分支：${active.branch}", color = Tx3, style = AppType.caption.copy(fontFamily = CodeFont))
+                }
+                if (active?.cwd?.isNotBlank() == true) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(active.cwd, color = Tx3, style = AppType.caption.copy(fontFamily = CodeFont), maxLines = 2)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("已注册 ${workspaces.size} 个工作区", color = Tx3, style = AppType.micro)
+            }
+            if (workspaces.size > 1) {
+                Spacer(Modifier.height(8.dp))
+                workspaces.forEach { workspace ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(R8)).background(Bg2).border(1.dp, if (workspace.id == activeWorkspaceId) Ac.withAlpha(0.4f) else Line, RoundedCornerShape(R8)).padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(if (workspace.id == activeWorkspaceId) Ac else Tx3))
+                        Spacer(Modifier.width(7.dp))
+                        Column {
+                            Text(workspace.label, color = if (workspace.id == activeWorkspaceId) Tx else Tx2, style = AppType.caption, fontWeight = FontWeight.Medium, maxLines = 1)
+                            Text(
+                                workspace.branch?.let { "分支 $it" } ?: workspace.cwd,
+                                color = Tx3,
+                                style = AppType.micro.copy(fontFamily = CodeFont),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
             }
         }
         Spacer(Modifier.height(20.dp))
