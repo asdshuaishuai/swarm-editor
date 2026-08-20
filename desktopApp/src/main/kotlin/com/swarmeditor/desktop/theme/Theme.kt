@@ -10,14 +10,14 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.dp
 
 // Radii
-val R4 get() = themedRadius(4)
-val R6 get() = themedRadius(6)
-val R7 get() = themedRadius(7)
-val R8 get() = themedRadius(8)
-val R9 get() = themedRadius(9)
-val R10 get() = themedRadius(10)
-val R11 get() = themedRadius(11)
-val R12 get() = themedRadius(12)
+val R4 get() = themedRadius(6)
+val R6 get() = themedRadius(8)
+val R7 get() = themedRadius(8)
+val R8 get() = themedRadius(10)
+val R9 get() = themedRadius(10)
+val R10 get() = themedRadius(12)
+val R11 get() = themedRadius(12)
+val R12 get() = themedRadius(14)
 val R14 get() = themedRadius(14)
 val R16 get() = themedRadius(16)
 

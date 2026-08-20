@@ -36,15 +36,15 @@ object Spacing {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Shapes — IntelliJ New UI 风格的紧凑圆角阶梯
+// Shapes — IntelliJ New UI 风格的紧凑圆角阶梯（整体上调以强化圆润感）
 // ═══════════════════════════════════════════════════════════════
 object AppShapes {
-    val xs get() = RoundedCornerShape(4.dp)
-    val sm get() = RoundedCornerShape(6.dp)
-    val md get() = RoundedCornerShape(8.dp)
-    val lg get() = RoundedCornerShape(10.dp)
+    val xs get() = RoundedCornerShape(6.dp)
+    val sm get() = RoundedCornerShape(8.dp)
+    val md get() = RoundedCornerShape(10.dp)
+    val lg get() = RoundedCornerShape(12.dp)
     val pill get() = RoundedCornerShape(999.dp)
-    val xl = RoundedCornerShape(12.dp)
+    val xl = RoundedCornerShape(14.dp)
 }
 
 object TileMetrics {

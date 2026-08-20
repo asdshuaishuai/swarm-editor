@@ -59,8 +59,8 @@ object IdeUiMetrics {
     val toolbarHeight = 30.dp
     val rowHeight = 28.dp
     val iconButtonSize = 26.dp
-    val selectionShape = RoundedCornerShape(4.dp)
-    val controlShape = RoundedCornerShape(5.dp)
+    val selectionShape = RoundedCornerShape(6.dp)
+    val controlShape = RoundedCornerShape(6.dp)
 }
 
 data class IdeToolWindowTab(
