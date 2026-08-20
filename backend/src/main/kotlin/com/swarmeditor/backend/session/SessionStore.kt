@@ -31,6 +31,8 @@ private data class SessionFile(
     val messages: List<MessageFile> = emptyList(), val status: String = "active",
     val remoteSessionId: String? = null,
     val tokenUsage: TokenUsage = TokenUsage(),
+    val workspaceId: String? = null,
+    val cwd: String? = null,
 )
 
 @Serializable
@@ -104,7 +106,7 @@ class SessionStore(
         log.info { "Loaded ${sessions.size} sessions" }
     }
 
-    suspend fun create(agentId: String, title: String): Session = mutex.withLock {
+    suspend fun create(agentId: String, title: String, workspaceId: String? = null, cwd: String? = null): Session = mutex.withLock {
         require(agentId == AgentRegistry.DEFAULT_AGENT_ID) { "会话只能使用内置 Pi Agent" }
         val now = Clock.System.now()
         val session = Session(
@@ -113,7 +115,9 @@ class SessionStore(
             title = title,
             createdAt = now,
             updatedAt = now,
-            status = SessionStatus.ACTIVE
+            status = SessionStatus.ACTIVE,
+            workspaceId = workspaceId,
+            cwd = cwd,
         )
         sessions[session.id] = session
         try {
@@ -248,6 +252,67 @@ class SessionStore(
         }
     }
 
+    suspend fun rename(id: String, title: String) = mutex.withLock {
+        sessions[id]?.let { session ->
+            val updated = session.copy(title = title.trim().ifBlank { session.title }, updatedAt = Clock.System.now())
+            sessions[id] = updated
+            try {
+                saveToFile(updated)
+            } catch (error: Throwable) {
+                sessions[id] = session
+                throw error
+            }
+        }
+    }
+
+    /** 归档会话：将其从常规列表隐藏，保留数据与消息。 */
+    suspend fun archive(id: String) = mutex.withLock {
+        setStatus(id, SessionStatus.ARCHIVED)
+    }
+
+    /** 将归档会话恢复到活动的会话列表。 */
+    suspend fun unarchive(id: String) = mutex.withLock {
+        sessions[id]?.let { session ->
+            val restored = session.copy(status = SessionStatus.ACTIVE, updatedAt = Clock.System.now())
+            sessions[id] = restored
+            try {
+                saveToFile(restored)
+            } catch (error: Throwable) {
+                sessions[id] = session
+                throw error
+            }
+        }
+    }
+
+    /** 永久删除会话文件与内存记录。 */
+    suspend fun delete(id: String) = mutex.withLock {
+        val session = sessions.remove(id) ?: return@withLock
+        try {
+            withContext(Dispatchers.IO) {
+                val target = dataDir.persistedJsonFile(id)
+                if (target.isFile && !target.delete()) {
+                    throw IllegalStateException("无法删除会话文件: ${target.path}")
+                }
+            }
+        } catch (error: Throwable) {
+            sessions[id] = session
+            throw error
+        }
+    }
+
+    private suspend fun setStatus(id: String, status: SessionStatus) {
+        sessions[id]?.let { session ->
+            val updated = session.copy(status = status, updatedAt = Clock.System.now())
+            sessions[id] = updated
+            try {
+                saveToFile(updated)
+            } catch (error: Throwable) {
+                sessions[id] = session
+                throw error
+            }
+        }
+    }
+
     private suspend fun saveToFile(session: Session) = withContext(Dispatchers.IO) {
         try {
             val content = json.encodeToString(SessionFile.serializer(), session.toFile())
@@ -264,8 +329,10 @@ private fun SessionFile.toSession() = Session(id = id, agentId = agentId, title 
     messages = messages.map { Message(it.id, when(it.role){"user"->MessageRole.USER;"assistant"->MessageRole.ASSISTANT;else->MessageRole.SYSTEM}, it.content, Instant.parse(it.createdAt)) },
     status = when(status){"closed"->SessionStatus.CLOSED;"archived"->SessionStatus.ARCHIVED;else->SessionStatus.ACTIVE},
     remoteSessionId = remoteSessionId,
-    tokenUsage = tokenUsage)
+    tokenUsage = tokenUsage,
+    workspaceId = workspaceId,
+    cwd = cwd)
 
 private fun Session.toFile() = SessionFile(id = id, agentId = agentId, title = title, createdAt = createdAt.toString(), updatedAt = updatedAt.toString(),
     messages = messages.map { MessageFile(it.id, it.role.name.lowercase(), it.content, it.createdAt.toString()) }, status = status.name.lowercase(),
-    remoteSessionId = remoteSessionId, tokenUsage = tokenUsage)
+    remoteSessionId = remoteSessionId, tokenUsage = tokenUsage, workspaceId = workspaceId, cwd = cwd)

@@ -751,6 +751,152 @@ class SessionViewModelTest {
             directory.deleteRecursively()
         }
     }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `creates sessions bound to the active workspace`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-bind-workspace")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val viewModel = SessionViewModel(
+                service,
+                FakeConversationGateway(),
+                backgroundScope,
+                workspaceContextProvider = { SessionWorkspaceContext("workspace-1", "/work/alpha") },
+            )
+
+            viewModel.createSession("pi-default")
+            runCurrent()
+
+            val created = service.getAll().single()
+            assertEquals("workspace-1", created.workspaceId)
+            assertEquals("/work/alpha", created.cwd)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `filters sessions to the current workspace and marks archived`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-filter-workspace")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            service.create("pi-default", "Global session")
+            val bound = service.create("pi-default", "Bound session", workspaceId = "workspace-1", cwd = "/work/alpha")
+            service.archive(bound.id)
+
+            val viewModel = SessionViewModel(
+                service,
+                FakeConversationGateway(),
+                backgroundScope,
+                workspaceContextProvider = { SessionWorkspaceContext("workspace-1", "/work/alpha") },
+            )
+            val shownFlow = backgroundScope.async { viewModel.sessions.first { it.isNotEmpty() } }
+            viewModel.loadSessions()
+            runCurrent()
+
+            // 全局会话（workspaceId == null）在当前工作区也展示，但归档会话标记 isArchived
+            val shown = shownFlow.await()
+            assertEquals(setOf("Global session", "Bound session"), shown.map { it.title }.toSet())
+            assertTrue(shown.single { it.title == "Bound session" }.isArchived)
+            assertTrue(shown.single { it.title == "Global session" }.isArchived.not())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `rename archive unarchive and delete update services and list`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-lifecycle")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val session = service.create("pi-default", "Initial")
+            val viewModel = SessionViewModel(service, FakeConversationGateway(), backgroundScope)
+
+            viewModel.renameSession(session.id, "Renamed")
+            runCurrent()
+            assertEquals("Renamed", service.get(session.id)?.title)
+
+            viewModel.archiveSession(session.id)
+            runCurrent()
+            assertEquals(com.swarmeditor.common.model.SessionStatus.ARCHIVED, service.get(session.id)?.status)
+            val archived = backgroundScope.async { viewModel.sessions.first { list -> list.any { it.isArchived } } }
+            assertTrue(archived.await().single().isArchived)
+
+            viewModel.unarchiveSession(session.id)
+            runCurrent()
+            assertEquals(com.swarmeditor.common.model.SessionStatus.ACTIVE, service.get(session.id)?.status)
+            val restored = backgroundScope.async { viewModel.sessions.first { list -> list.any { !it.isArchived } } }
+            assertTrue(restored.await().single().isArchived.not())
+
+            viewModel.deleteSession(session.id)
+            runCurrent()
+            assertNull(service.get(session.id))
+            val deleted = backgroundScope.async { viewModel.sessions.first { it.isEmpty() } }
+            assertEquals(emptyList<UiSession>(), deleted.await())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `persists pi generated title when local title is still a default placeholder`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-pi-title")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val gateway = PiTitleConversationGateway()
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+
+            assertTrue(viewModel.sendMessage("请帮我重构会话模块", "pi-default"))
+            viewModel.isSending.first { !it }
+
+            val session = service.getAll().single()
+            assertEquals("重构会话模块的思路", session.title)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `does not overwrite a user renamed session title with pi title`() = runTest {
+        val directory = Files.createTempDirectory("session-vm-pi-title-keep")
+        try {
+            val service = SessionService(SessionStore(directory.toFile())).also { it.init() }
+            val session = service.create("pi-default", "用户手改标题")
+            val gateway = PiTitleConversationGateway()
+            val viewModel = SessionViewModel(service, gateway, backgroundScope)
+            viewModel.selectSession(session.id)
+
+            assertTrue(viewModel.sendMessage("请帮我重构会话模块", "pi-default"))
+            viewModel.isSending.first { !it }
+
+            assertEquals("用户手改标题", service.get(session.id)?.title)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+}
+
+private class PiTitleConversationGateway : ConversationGateway {
+    override suspend fun sendMessage(sessionId: String, content: String, images: List<ImageData>): Result<String> =
+        Result.success("")
+
+    override fun streamMessage(
+        sessionId: String,
+        content: String,
+        images: List<ImageData>,
+    ): Flow<ConversationEvent> = flow {
+        emit(ConversationEvent.Started("remote-pi-title"))
+        emit(ConversationEvent.TextDelta("我来分析一下"))
+        emit(ConversationEvent.ExtensionTitleChanged("重构会话模块的思路"))
+        emit(ConversationEvent.Completed("完成"))
+    }
+
+    override suspend fun closeSession(sessionId: String): Result<Unit> = Result.success(Unit)
 }
 
 private class FakeConversationGateway(

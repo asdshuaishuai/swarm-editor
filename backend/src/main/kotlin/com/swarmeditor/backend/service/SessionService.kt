@@ -15,7 +15,9 @@ class SessionService(private val store: SessionStore) {
     val sessions: StateFlow<List<Session>> = _sessions.asStateFlow()
 
     suspend fun init() { store.load(); refresh() }
-    suspend fun create(agentId: String, title: String): Session { val s = store.create(agentId, title); refresh(); return s }
+    suspend fun create(agentId: String, title: String, workspaceId: String? = null, cwd: String? = null): Session {
+        val s = store.create(agentId, title, workspaceId, cwd); refresh(); return s
+    }
     suspend fun get(id: String) = store.get(id)
     suspend fun getAll() = store.getAll()
     suspend fun addMessage(sessionId: String, role: MessageRole, text: String) =
@@ -23,6 +25,10 @@ class SessionService(private val store: SessionStore) {
     suspend fun addMessage(sessionId: String, role: MessageRole, content: List<ContentBlock>) =
         store.addMessage(sessionId, role, content).also { refresh() }
     suspend fun close(id: String) { store.close(id); refresh() }
+    suspend fun rename(id: String, title: String) { store.rename(id, title); refresh() }
+    suspend fun archive(id: String) { store.archive(id); refresh() }
+    suspend fun unarchive(id: String) { store.unarchive(id); refresh() }
+    suspend fun delete(id: String) { store.delete(id); refresh() }
     suspend fun associateRemoteSession(sessionId: String, remoteSessionId: String) {
         store.associateRemoteSession(sessionId, remoteSessionId)
         refresh()

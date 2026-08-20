@@ -13,6 +13,7 @@ import com.swarmeditor.backend.agent.AgentRegistry
 import com.swarmeditor.common.model.MessageRole
 import com.swarmeditor.common.model.Session
 import com.swarmeditor.common.model.ImageData
+import com.swarmeditor.common.model.SessionStatus
 import com.swarmeditor.common.model.ToolExecution
 import com.swarmeditor.desktop.ui.chat.ToolCardData
 import kotlinx.coroutines.CoroutineScope
@@ -80,7 +81,14 @@ data class UiSession(
     val title: String,
     val isActive: Boolean,
     val createdAt: Long = System.currentTimeMillis(),
-    val messageCount: Int = 0
+    val messageCount: Int = 0,
+    val isArchived: Boolean = false,
+)
+
+/** 会话所属的工作区上下文（用于会话-工作区绑定与过滤）。 */
+data class SessionWorkspaceContext(
+    val workspaceId: String,
+    val cwd: String,
 )
 
 @androidx.compose.runtime.Immutable
@@ -151,7 +159,8 @@ private fun Session.toUiMessages(): List<UiMessage> = messages.map { message ->
 class SessionViewModel(
     private val sessionService: SessionService,
     private val conversationService: ConversationGateway,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val workspaceContextProvider: () -> SessionWorkspaceContext? = { null },
 ) {
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId
@@ -215,14 +224,19 @@ class SessionViewModel(
     private var piExtensionUiTimeoutJob: Job? = null
 
     val sessions: StateFlow<List<UiSession>> = combine(sessionService.sessions, _currentSessionId) { sessions, currentId ->
-        sessions.map { session ->
+        val currentWorkspace = workspaceContextProvider()?.workspaceId
+        val filtered = currentWorkspace?.let { workspace ->
+            sessions.filter { it.workspaceId == null || it.workspaceId == workspace }
+        } ?: sessions
+        filtered.map { session ->
             UiSession(
                 id = session.id,
                 agentId = session.agentId,
                 title = session.title.ifBlank { "Session ${session.id}" },
                 isActive = session.id == currentId,
                 createdAt = session.createdAt.toEpochMilliseconds(),
-                messageCount = session.messages.size
+                messageCount = session.messages.size,
+                isArchived = session.status == SessionStatus.ARCHIVED,
             )
         }
     }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -265,8 +279,44 @@ class SessionViewModel(
     fun createSession(agentId: String) {
         if (_isSending.value) cancelSending()
         scope.launch {
-            val session = sessionService.create(agentId, "New session")
+            val workspace = workspaceContextProvider()
+            val session = sessionService.create(
+                agentId,
+                "New session",
+                workspace?.workspaceId,
+                workspace?.cwd,
+            )
             _currentSessionId.value = session.id
+        }
+    }
+
+    fun renameSession(sessionId: String, title: String) {
+        scope.launch {
+            sessionService.rename(sessionId, title)
+            actionChannel.send(SessionActionEvent("会话已重命名", ToastType.SUCCESS))
+        }
+    }
+
+    fun archiveSession(sessionId: String) {
+        scope.launch {
+            sessionService.archive(sessionId)
+            if (_currentSessionId.value == sessionId) _currentSessionId.value = null
+            actionChannel.send(SessionActionEvent("会话已归档", ToastType.INFO))
+        }
+    }
+
+    fun unarchiveSession(sessionId: String) {
+        scope.launch {
+            sessionService.unarchive(sessionId)
+            actionChannel.send(SessionActionEvent("会话已恢复", ToastType.SUCCESS))
+        }
+    }
+
+    fun deleteSession(sessionId: String) {
+        scope.launch {
+            sessionService.delete(sessionId)
+            if (_currentSessionId.value == sessionId) _currentSessionId.value = null
+            actionChannel.send(SessionActionEvent("会话已删除", ToastType.INFO))
         }
     }
 
@@ -637,7 +687,15 @@ class SessionViewModel(
                             } ?: (widgets - event.key)
                         }
                         is ConversationEvent.ExtensionTitleChanged -> {
-                            _piExtensionTitle.value = event.title.takeIf(String::isNotBlank)
+                            val title = event.title.takeIf { it.isNotBlank() }
+                            _piExtensionTitle.value = title
+                            // Pi 自动生成标题时回写本地会话标题；仅当仍为默认占位标题，避免覆盖用户手动重命名。
+                            if (title != null) {
+                                val persisted = sessionService.get(sessionId)
+                                if (persisted != null && persisted.title.isDefaultSessionTitle(text)) {
+                                    sessionService.rename(sessionId, title)
+                                }
+                            }
                         }
                         is ConversationEvent.ExtensionEditorTextChanged -> composerDraftChannel.send(event.text)
                         is ConversationEvent.Completed -> {
@@ -952,4 +1010,15 @@ private fun imageMimeType(file: File): String? = when (file.extension.lowercase(
     "jpg", "jpeg" -> "image/jpeg"
     "webp" -> "image/webp"
     else -> null
+}
+
+/**
+ * 判断会话标题是否仍为应用生成的默认占位标题：
+ * 空、New session、Session <id>、或首条消息前 40 字符的自动截断。
+ * 用于决定 Pi 自动生成标题时是否可安全回写本地持久化标题。
+ */
+internal fun String.isDefaultSessionTitle(firstMessage: String): Boolean {
+    if (isBlank() || equals("New session", ignoreCase = true) || startsWith("Session ")) return true
+    val truncated = firstMessage.take(40).ifBlank { "" }
+    return truncated.isNotBlank() && equals(truncated)
 }

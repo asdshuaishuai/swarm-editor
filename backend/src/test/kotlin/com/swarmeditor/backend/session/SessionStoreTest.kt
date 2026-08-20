@@ -15,6 +15,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
+import com.swarmeditor.common.model.SessionStatus
 import kotlin.time.Instant
 
 class SessionStoreTest {
@@ -331,6 +333,65 @@ class SessionStoreTest {
             assertEquals(40, usage.cacheRead)
             assertEquals(240, usage.total)
             assertEquals(0.0123, usage.cost)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `renames, archives, restores and deletes an archived session`() = runTest {
+        val directory = Files.createTempDirectory("session-store-lifecycle")
+        try {
+            val store = SessionStore(directory.toFile())
+            val created = store.create("pi-default", "Original title")
+
+            store.rename(created.id, "Renamed title")
+            assertEquals("Renamed title", store.get(created.id)?.title)
+
+            store.archive(created.id)
+            assertEquals(SessionStatus.ARCHIVED, store.get(created.id)?.status)
+
+            store.unarchive(created.id)
+            assertEquals(SessionStatus.ACTIVE, store.get(created.id)?.status)
+
+            store.delete(created.id)
+            assertNull(store.get(created.id))
+            assertEquals(emptyList(), store.getAll())
+            assertTrue(directory.toFile().listFiles().orEmpty().isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `rename ignores blank title`() = runTest {
+        val directory = Files.createTempDirectory("session-store-rename-blank")
+        try {
+            val store = SessionStore(directory.toFile())
+            val session = store.create("pi-default", "Kept")
+            store.rename(session.id, "   ")
+            assertEquals("Kept", store.get(session.id)?.title)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    @Test
+    fun `persists workspace binding and cwd`() = runTest {
+        val directory = Files.createTempDirectory("session-store-workspace")
+        try {
+            val store = SessionStore(directory.toFile())
+            val session = store.create("pi-default", "Bound", workspaceId = "workspace-1", cwd = "/work/alpha")
+
+            assertEquals("workspace-1", session.workspaceId)
+            assertEquals("/work/alpha", session.cwd)
+
+            val reloaded = SessionStore(directory.toFile()).also { it.load() }
+            assertEquals("workspace-1", reloaded.get(session.id)?.workspaceId)
+            assertEquals("/work/alpha", reloaded.get(session.id)?.cwd)
         } finally {
             directory.deleteRecursively()
         }
