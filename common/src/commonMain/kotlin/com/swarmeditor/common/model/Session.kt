@@ -15,6 +15,10 @@ data class Session(
     val status: SessionStatus = SessionStatus.ACTIVE,
     val remoteSessionId: String? = null,
     val tokenUsage: TokenUsage = TokenUsage(),
+    /** 所属工作区（Project Workspace）id；为空表示未绑定工作区的全局会话。 */
+    val workspaceId: String? = null,
+    /** 会话创建时的工作目录。 */
+    val cwd: String? = null,
 )
 
 /** 会话状态 */

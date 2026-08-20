@@ -14,6 +14,7 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.swarmeditor.desktop.viewmodel.AgentViewModel
 import com.swarmeditor.desktop.viewmodel.SessionViewModel
+import com.swarmeditor.desktop.viewmodel.SessionWorkspaceContext
 import com.swarmeditor.desktop.viewmodel.SettingsViewModel
 import com.swarmeditor.desktop.viewmodel.KotlinLspRuntimeViewModel
 import com.swarmeditor.desktop.viewmodel.McpViewModel
@@ -31,6 +32,7 @@ import com.swarmeditor.backend.agentService
 import com.swarmeditor.backend.conversationService
 import com.swarmeditor.backend.mcpService
 import com.swarmeditor.backend.modelService
+import com.swarmeditor.backend.piModelConfigService
 import com.swarmeditor.backend.sessionService
 import com.swarmeditor.backend.skillService
 import com.swarmeditor.backend.projectService
@@ -62,15 +64,7 @@ class RootComponent(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val agentVm = AgentViewModel(agentService, scope)
-    val sessionVm = SessionViewModel(sessionService, conversationService, scope)
-    val settingsVm = SettingsViewModel(agentService, mcpService, skillService, scope, modelService)
-    val mcpVm = McpViewModel(mcpService, sessionVm.runtimeState, scope)
-    val skillVm = SkillViewModel(skillService, scope)
-    val wasmPluginVm = WasmPluginViewModel(wasmPluginService, scope)
-    val kotlinLspRuntimeVm = KotlinLspRuntimeViewModel(kotlinLspRuntimeService, lspService, scope)
-    val gitVm = GitViewModel(gitService, scope)
-    val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status)
-    val workspaceVm = WorkspaceViewModel(
+    val workspaceVm: WorkspaceViewModel = WorkspaceViewModel(
         service = workspaceService,
         projectRoot = projectRoot,
         scope = scope,
@@ -82,6 +76,25 @@ class RootComponent(
             gitVm.refreshHistory()
         },
     )
+    val sessionVm: SessionViewModel = SessionViewModel(
+        sessionService,
+        conversationService,
+        scope,
+        workspaceContextProvider = {
+            val ws = workspaceVm.state.value
+            ws.activeWorkspaceId?.let { id ->
+                ws.workspaces.firstOrNull { it.id == id }
+                    ?.let { SessionWorkspaceContext(id, it.cwd) }
+            }
+        },
+    )
+    val settingsVm = SettingsViewModel(agentService, mcpService, skillService, scope, modelService, piModelConfigService)
+    val mcpVm = McpViewModel(mcpService, sessionVm.runtimeState, scope)
+    val skillVm = SkillViewModel(skillService, scope)
+    val wasmPluginVm = WasmPluginViewModel(wasmPluginService, scope)
+    val kotlinLspRuntimeVm = KotlinLspRuntimeViewModel(kotlinLspRuntimeService, lspService, scope)
+    val gitVm = GitViewModel(gitService, scope)
+    val projectVm = ProjectViewModel(projectService, scope, gitStatus = gitVm.status)
     val swarmVm = SwarmViewModel(swarmService, scope)
     private val _themeMode = MutableStateFlow(ThemePreferences.load())
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()

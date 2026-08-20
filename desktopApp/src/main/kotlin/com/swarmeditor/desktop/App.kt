@@ -681,6 +681,10 @@ fun WindowScope.App(
                                 onCreateSession = createSession,
                                 modifier = Modifier.fillMaxSize(),
                                 agents = agents,
+                                onRenameSession = root.sessionVm::renameSession,
+                                onArchiveSession = root.sessionVm::archiveSession,
+                                onUnarchiveSession = root.sessionVm::unarchiveSession,
+                                onDeleteSession = root.sessionVm::deleteSession,
                             )
                             MainConfig.Plugins -> PluginSideBar(
                                 mcpServers = mcpServers,
@@ -1054,7 +1058,9 @@ fun WindowScope.App(
             onRefreshPiModels = root.sessionVm::refreshPiModels,
             onRefreshMcp = root.mcpVm::reload,
             onAddMcp = { root.showMcpConfigDialog(UUID.randomUUID().toString()) },
-            onEditMcp = root::showMcpConfigDialog
+            onEditMcp = root::showMcpConfigDialog,
+            workspaces = workspaceState.workspaces,
+            activeWorkspaceId = workspaceState.activeWorkspaceId,
         )
     }
 
