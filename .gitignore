@@ -11,6 +11,10 @@ build/
 # Kotlin
 .kotlin/
 
+# Local build environment workarounds (writable Gradle home / Kotlin tmp)
+.gradle-home/
+.kotlin-tmp/
+
 # OS
 .DS_Store
 Thumbs.db
